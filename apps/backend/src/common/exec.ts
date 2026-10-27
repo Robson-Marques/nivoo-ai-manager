@@ -8,6 +8,7 @@ export interface RunOptions {
   signal?: AbortSignal;
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
+  onSpawn?: (pid: number) => void;
   maxBuffer?: number;
 }
 
@@ -51,6 +52,7 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
     let aborted = false;
     let settled = false;
     const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    if (child.pid) opts.onSpawn?.(child.pid);
 
     const kill = () => {
       try {
@@ -105,4 +107,14 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
     if (opts.input !== undefined) child.stdin.end(opts.input);
     else child.stdin.end();
   });
+}
+
+/** Encerra um grupo de processos órfão (tentativa de um worker que caiu neste mesmo host). */
+export function killProcessGroup(pid: number): boolean {
+  try {
+    process.kill(-pid, 'SIGKILL');
+    return true;
+  } catch {
+    return false;
+  }
 }

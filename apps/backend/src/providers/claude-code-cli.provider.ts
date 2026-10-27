@@ -74,6 +74,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
+      onSpawn: req.onSpawn,
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };

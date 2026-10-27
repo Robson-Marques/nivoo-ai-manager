@@ -32,6 +32,8 @@ export interface ExecutionRequest {
   timeoutMs: number;
   signal: AbortSignal;
   onLog: (line: string, level?: 'INFO' | 'WARN' | 'ERROR') => void;
+  /** Informado quando o processo do agente inicia (pid do grupo). */
+  onSpawn?: (pid: number) => void;
 }
 
 export interface ExecutionResult {

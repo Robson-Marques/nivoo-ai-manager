@@ -3,7 +3,8 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
-import { minimalEnv, runProcess } from '../common/exec';
+import { killProcessGroup, minimalEnv, runProcess } from '../common/exec';
+import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
 import { OrchestratorService } from '../jobs/orchestrator.service';
@@ -48,6 +49,12 @@ export class StepExecutorService {
       this.logs.log(job.id, msg, { stepId: step.id, attemptId, level, source: `worker:${workerId}` });
 
     // Recuperação: tentativas órfãs de um worker anterior que perdeu o lease.
+    const orphanRows = await this.prisma.attempt.findMany({ where: { stepId: step.id, status: 'EXECUTANDO' } });
+    for (const o of orphanRows) {
+      if (o.pid && o.hostname === os.hostname() && killProcessGroup(o.pid)) {
+        await L(`Processo órfão (pgid ${o.pid}) da tentativa #${o.number} encerrado`, 'WARN');
+      }
+    }
     const orphans = await this.prisma.attempt.updateMany({
       where: { stepId: step.id, status: 'EXECUTANDO' },
       data: { status: 'INTERROMPIDA', endedAt: new Date(), error: `worker perdido (${task.previousLockedBy ?? 'desconhecido'}); lease expirado` },
@@ -107,7 +114,7 @@ export class StepExecutorService {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.job.updateMany({ where: { id: job.id, status: 'AGUARDANDO_RECURSO' }, data: { status: 'EXECUTANDO', statusDetail: null } });
       await tx.step.update({ where: { id: step.id }, data: { status: 'EXECUTANDO', statusDetail: null, attemptCount: number } });
-      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId } });
+      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname() } });
     });
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}`, 'INFO', attempt.id);
 
@@ -130,6 +137,9 @@ export class StepExecutorService {
         dataDir,
         timeoutMs,
         signal,
+        onSpawn: (pid) => {
+          logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
+        },
         onLog: (line, level = 'INFO') => {
           logChain = logChain.then(() =>
             this.logs.log(job.id, line, { stepId: step.id, attemptId: attempt.id, level, source: `provider:${providerId}` }).catch(() => undefined),

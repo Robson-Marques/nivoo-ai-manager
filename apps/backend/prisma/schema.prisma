@@ -343,6 +343,8 @@ model Attempt {
   number      Int
   provider    String
   workerId    String
+  hostname    String?
+  pid         Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
   status      AttemptStatus @default(EXECUTANDO)
   exitCode    Int?
   output      String?

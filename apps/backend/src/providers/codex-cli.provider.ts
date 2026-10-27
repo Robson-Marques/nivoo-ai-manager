@@ -61,6 +61,7 @@ export class CodexCliProvider implements AiProvider {
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
+      onSpawn: req.onSpawn,
     });
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };

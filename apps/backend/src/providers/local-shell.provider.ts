@@ -43,6 +43,7 @@ export class LocalShellProvider implements AiProvider {
       }),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
+      onSpawn: req.onSpawn,
       onStdout: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l)),
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
