@@ -118,8 +118,12 @@ Nunca são capturados cookies, extraídas credenciais de sessões ou contornados
 CLIs só são usados se estiverem instalados e logados **no host do worker**; caso contrário o
 conector reporta indisponível e as etapas ficam em `AGUARDANDO_RECURSO`.
 
-Mocks existem apenas em `apps/backend/test/support/test-provider.ts`, identificados como
-`TEST-ONLY`, e só são registrados quando `NIVOO_ENABLE_TEST_PROVIDER=1`.
+Não há provedor simulado no código da aplicação. Os únicos mocks são binários
+`apps/backend/test/support/stubs/*.sh` (marcados `TEST-ONLY`) usados para testar o *parsing*
+dos adaptadores CLI. A integração real dos CLIs tem teste opt-in em `test/integration`.
+
+Processos dos agentes rodam em grupo próprio; a tentativa registra `pid` e `hostname`. Um worker
+que recupera uma tarefa com lease expirado encerra o grupo órfão (mesmo host) antes de reexecutar.
 
 ## 6. Memória do projeto
 

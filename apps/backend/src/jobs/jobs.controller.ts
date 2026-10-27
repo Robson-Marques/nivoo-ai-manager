@@ -133,6 +133,9 @@ export class JobsController {
     const { artifact, content } = await this.artifacts.read(pid, aid);
     res.setHeader('Content-Type', artifact.mimeType);
     res.setHeader('X-Content-SHA256', artifact.sha256);
+    // Conteúdo gerado por agentes: nunca executa scripts no contexto da aplicação.
+    res.setHeader('Content-Security-Policy', 'sandbox; default-src \'none\'; img-src data:; style-src \'unsafe-inline\'');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(artifact.name.split('/').pop() ?? 'artefato')}"`);
     res.send(content);
   }

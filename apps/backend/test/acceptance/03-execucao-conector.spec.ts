@@ -97,6 +97,8 @@ describe('Execução por conector, logs e artefatos', () => {
       res.on('end', () => cb(null, Buffer.concat(chunks)));
     }).expect(200);
     expect(createHash('sha256').update(dl.body).digest('hex')).toBe(metrics.sha256);
+    expect(dl.headers['x-content-sha256']).toBe(metrics.sha256);
+    expect(dl.headers['content-security-policy']).toMatch(/^sandbox/);
     expect(JSON.parse(dl.body.toString()).sharpe).toBe(1.42);
     expect(done.artifacts.some((a: any) => a.kind === 'LOG' && a.name === 'logs/medir/tentativa-1.log')).toBe(true);
     expect(done.artifacts.filter((a: any) => a.kind === 'CRITERION_EVIDENCE')).toHaveLength(4);
