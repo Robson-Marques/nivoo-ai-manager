@@ -52,7 +52,8 @@ export class CodexCliProvider implements AiProvider {
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', req.cwd];
-    if (process.env.NIVOO_CODEX_MODEL) args.push('--model', process.env.NIVOO_CODEX_MODEL);
+    const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
+    if (model) args.push('--model', model);
     args.push('-');
     req.onLog(`codex ${args.join(' ')}`);
     const r = await runProcess(this.bin, args, {
@@ -67,6 +68,7 @@ export class CodexCliProvider implements AiProvider {
     if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
     let lastMessage = '';
+    let sessionId: string | undefined;
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     const errors: string[] = [];
@@ -74,6 +76,7 @@ export class CodexCliProvider implements AiProvider {
       if (!line.trim()) continue;
       try {
         const ev = JSON.parse(line);
+        if (ev.type === 'thread.started') sessionId = ev.thread_id ?? sessionId;
         if (ev.type === 'item.completed' && ev.item?.type === 'agent_message') lastMessage = ev.item.text ?? lastMessage;
         if (ev.type === 'turn.completed' && ev.usage) {
           inputTokens = ev.usage.input_tokens;
@@ -92,6 +95,8 @@ export class CodexCliProvider implements AiProvider {
       output: lastMessage || r.stdout.slice(-4000),
       error: errText,
       resourceUnavailable: failed && looksLikeResourceProblem(errText ?? ''),
+      sessionId,
+      stopReason: failed ? 'erro' : 'completed',
       inputTokens,
       outputTokens,
     };

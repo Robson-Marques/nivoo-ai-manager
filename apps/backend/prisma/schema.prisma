@@ -26,6 +26,7 @@ enum AttemptStatus {
   FALHA
   INTERROMPIDA
   RECURSO_INDISPONIVEL
+  SESSAO_ENCERRADA // sessão do agente terminou sem completar a etapa (ex.: limite de turnos); continua em nova sessão
 }
 
 enum QueueTaskType {
@@ -198,6 +199,9 @@ model Hypothesis {
   rationale   String           @default("")
   status      HypothesisStatus @default(EM_INVESTIGACAO)
   conclusion  String?
+  // Regra de decisão pré-registrada: { metric, op, value, datasetRole? }
+  decisionRule      Json?
+  decisionRuleSetAt DateTime?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -244,6 +248,7 @@ model Job {
   costSpentUsd      Decimal    @default(0) @db.Decimal(12, 4)
   stepTimeoutSec    Int        @default(900)
   repetitionWindow  Int        @default(2)
+  maxSessionsPerStep Int       @default(8)
   gitBranch         String?
   startedAt         DateTime?
   finishedAt        DateTime?
@@ -319,7 +324,8 @@ model Step {
   instructions  String // prompt (IA) ou comando (local-shell)
   provider      String? // null = job.defaultProvider
   dependsOn     String[]
-  verifyCommand String? // verificação determinística opcional da etapa
+  verifyCommand String? // verificação determinística da etapa (obrigatória para conectores de IA)
+  providerOptions Json  @default("{}") // { model, maxTurns }
   requiresApproval Boolean @default(false)
   status        ExecStatus @default(PENDENTE)
   statusDetail  String?
@@ -345,6 +351,13 @@ model Attempt {
   workerId    String
   hostname    String?
   pid         Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
+  sessionId   String? // id da sessão no provedor (ex.: session_id do Claude Code)
+  stopReason  String? // motivo de término informado pelo provedor (completed, max_turns, api_error...)
+  numTurns    Int?
+  promptArtifactId String? // prompt exato recebido pela sessão (auditoria de continuidade)
+  treeBefore  String? // hash da árvore do workspace antes/depois (detecção de progresso)
+  treeAfter   String?
+  notesIngested Int    @default(0)
   status      AttemptStatus @default(EXECUTANDO)
   exitCode    Int?
   output      String?

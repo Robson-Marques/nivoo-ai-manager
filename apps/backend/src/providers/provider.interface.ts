@@ -34,6 +34,8 @@ export interface ExecutionRequest {
   onLog: (line: string, level?: 'INFO' | 'WARN' | 'ERROR') => void;
   /** Informado quando o processo do agente inicia (pid do grupo). */
   onSpawn?: (pid: number) => void;
+  /** Opções por etapa (não secretas): modelo e limite de turnos da sessão. */
+  options?: { model?: string; maxTurns?: number };
 }
 
 export interface ExecutionResult {
@@ -47,6 +49,14 @@ export interface ExecutionResult {
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /**
+   * A sessão do agente terminou por limite da própria sessão (ex.: turnos), sem erro.
+   * Não é falha nem conclusão: o trabalho continua em uma nova sessão.
+   */
+  sessionEnded?: boolean;
+  sessionId?: string;
+  stopReason?: string;
+  numTurns?: number;
 }
 
 export interface AiProvider {
@@ -61,7 +71,7 @@ export function buildPrompt(req: ExecutionRequest): string {
   return `${req.context}\n\n## Tarefa desta etapa\n${req.instructions}\n`;
 }
 
-const RESOURCE_PATTERNS = /(usage limit|rate.?limit|quota|429|overloaded|529|insufficient_quota|credit balance|not logged in|please run .*login|authentication|unauthorized|401|ENOTFOUND|ECONNREFUSED|ETIMEDOUT)/i;
+const RESOURCE_PATTERNS = /(usage limit|limit reached|rate.?limit|quota|\b429\b|overloaded|\b529\b|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|unauthorized|\b401\b|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET)/i;
 
 export function looksLikeResourceProblem(text: string): boolean {
   return RESOURCE_PATTERNS.test(text);

@@ -10,15 +10,18 @@ import { LogService } from '../jobs/log.service';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { ExecutionResult } from '../providers/provider.interface';
+import { buildPrompt, ExecutionResult } from '../providers/provider.interface';
+import * as fs from 'node:fs';
+import { sha256, sha256File } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES, evaluatePolicy } from '../security/policy';
+import { resolveInside } from '../common/path-guard';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
 
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
-export type StepOutcome = 'CONCLUIDO' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
+export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
 @Injectable()
 export class StepExecutorService {
@@ -109,16 +112,31 @@ export class StepExecutorService {
     const dataDir = this.workspace.projectDirs(job.project.slug).data;
     const outputDir = path.join(worktree, 'out');
 
+    const isAi = provider.kind !== 'executor';
+    const prep = await this.prepareExperimentData(job.id, worktree);
+    if (prep) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, prep);
+    }
+    const treeBefore = await this.workspace.snapshotHash(worktree);
+    // Defesa em profundidade: o diretório de dados do projeto não pode ser alterado pelo agente.
+    const protectedBefore = isAi ? this.workspace.dirFingerprint(dataDir, ['verificador.py']) : null;
+
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
     const attempt = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.job.updateMany({ where: { id: job.id, status: 'AGUARDANDO_RECURSO' }, data: { status: 'EXECUTANDO', statusDetail: null } });
       await tx.step.update({ where: { id: step.id }, data: { status: 'EXECUTANDO', statusDetail: null, attemptCount: number } });
-      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname() } });
+      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname(), treeBefore } });
     });
-    await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}`, 'INFO', attempt.id);
+    await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
     const context = await this.buildContext(job, step);
+    // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).
+    const promptArt = await this.artifacts.storeContent(
+      { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `prompts/${step.key}/tentativa-${number}.md`, kind: 'PROMPT' },
+      isAi ? buildPrompt({ context, instructions: step.instructions } as any) : step.instructions,
+    );
+    await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id } });
     const remainingSec = Math.max(1, job.maxDurationSec - job.activeSeconds);
     const timeoutMs = Math.min(job.stepTimeoutSec, remainingSec) * 1000;
     const started = Date.now();
@@ -137,6 +155,7 @@ export class StepExecutorService {
         dataDir,
         timeoutMs,
         signal,
+        options: (step.providerOptions ?? {}) as { model?: string; maxTurns?: number },
         onSpawn: (pid) => {
           logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },
@@ -151,7 +170,10 @@ export class StepExecutorService {
     }
     await logChain;
 
+    // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
+    const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
+    let verified = !step.verifyCommand;
     if (result.exitCode === 0 && !result.interrupted && step.verifyCommand) {
       const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', step.verifyCommand], {
         cwd: worktree,
@@ -159,9 +181,13 @@ export class StepExecutorService {
         timeoutMs: 120_000,
         signal,
       });
-      await L(`Verificação da etapa: exit ${v.exitCode}${v.stderr ? ` — ${v.stderr.slice(0, 500)}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
+      const vOut = `${v.stdout}${v.stderr}`.trim().slice(-800);
+      await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
+      verified = v.exitCode === 0;
       if (v.aborted) result = { ...result, interrupted: true };
-      else if (v.exitCode !== 0) result = { ...result, exitCode: v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${v.stderr.slice(0, 500)}` };
+      else if (v.exitCode !== 0) {
+        result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
+      }
     }
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
@@ -173,13 +199,30 @@ export class StepExecutorService {
     const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir);
     if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
 
+    if (protectedBefore !== null) {
+      const protectedAfter = this.workspace.dirFingerprint(dataDir, ['verificador.py']);
+      if (protectedAfter !== protectedBefore) {
+        await this.prisma.attempt.update({ where: { id: attempt.id }, data: { status: 'FALHA', error: 'violação de isolamento: diretório de dados alterado', endedAt: new Date() } });
+        await L('VIOLAÇÃO DE ISOLAMENTO: a sessão alterou o diretório de dados do projeto (fora do workspace). Job bloqueado.', 'ERROR', attempt.id);
+        return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (diretório de dados do projeto)');
+      }
+    }
+    const notes = await this.ingestNotes(job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
+    const treeAfter = await this.workspace.snapshotHash(worktree);
+
+    // Classificação: interrupção, limite do provedor, sucesso verificado, fim de sessão sem concluir, falha.
     const attemptStatus = result.interrupted
       ? 'INTERROMPIDA'
       : result.resourceUnavailable
         ? 'RECURSO_INDISPONIVEL'
-        : result.exitCode === 0
+        : result.exitCode === 0 && verified
           ? 'SUCESSO'
-          : 'FALHA';
+          : isAi && sessionClosedNormally
+            ? 'SESSAO_ENCERRADA'
+            : 'FALHA';
+    if (attemptStatus === 'SESSAO_ENCERRADA' && !result.error) {
+      result = { ...result, error: `sessão encerrada (${result.stopReason ?? 'sem motivo'}) sem concluir a etapa` };
+    }
     const outputHash = normalizedOutputHash(result.output ?? '', result.error);
     await this.prisma.$transaction([
       this.prisma.attempt.update({
@@ -193,6 +236,11 @@ export class StepExecutorService {
           costUsd: result.costUsd ?? 0,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
+          sessionId: result.sessionId,
+          stopReason: result.stopReason,
+          numTurns: result.numTurns,
+          treeAfter,
+          notesIngested: notes,
           endedAt: new Date(),
         },
       }),
@@ -217,6 +265,10 @@ export class StepExecutorService {
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
       this.registry.invalidate(providerId);
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível');
+    }
+
+    if (attemptStatus === 'SESSAO_ENCERRADA') {
+      return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes);
     }
 
     if (attemptStatus === 'SUCESSO') {
@@ -250,6 +302,114 @@ export class StepExecutorService {
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
     await this.queue.requeue(task.id, workerId, new Date(Date.now() + backoff), result.error);
     return 'RETRY';
+  }
+
+  /**
+   * Sessão terminou sem concluir a etapa: continua automaticamente em NOVA sessão (sem comando manual),
+   * com o contexto reconstruído do banco. Limites: sessões por etapa, tempo, orçamento e falta de progresso.
+   */
+  private async continueInNewSession(
+    task: ClaimedTask, workerId: string, job: Job, step: Step, worktree: string, number: number,
+    treeBefore: string, treeAfter: string, notes: number,
+  ): Promise<StepOutcome> {
+    await this.checkpoint(job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
+      tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
+    });
+    const sessions = await this.prisma.attempt.findMany({
+      where: { stepId: step.id, status: 'SESSAO_ENCERRADA' },
+      orderBy: { number: 'desc' },
+    });
+    const recent = sessions.slice(0, job.repetitionWindow);
+    if (recent.length >= job.repetitionWindow && recent.every((a) => a.treeBefore === a.treeAfter)) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `últimas ${recent.length} sessões terminaram sem nenhuma alteração no trabalho (notas não contam como progresso)`);
+    }
+    if (sessions.length >= job.maxSessionsPerStep) {
+      return this.failStep(task, workerId, job, step, `limite de ${job.maxSessionsPerStep} sessões sem concluir a etapa`, BlockedReason.LIMITE_SESSOES);
+    }
+    await this.prisma.step.update({
+      where: { id: step.id },
+      data: { status: 'PENDENTE', statusDetail: `sessão ${number} encerrada sem concluir; continuação automática agendada` },
+    });
+    await this.logs.log(job.id, `Continuação automática: nova sessão para "${step.key}" (${sessions.length}/${job.maxSessionsPerStep} sessões usadas)`, {
+      stepId: step.id, source: 'worker',
+    });
+    await this.queue.requeue(task.id, workerId, new Date(), 'continuação em nova sessão');
+    return 'CONTINUA';
+  }
+
+  /** Copia o dataset do experimento para dados/ no worktree, verificando o sha256 registrado. */
+  private async prepareExperimentData(jobId: string, worktree: string): Promise<string | null> {
+    const exp = await this.prisma.experiment.findUnique({ where: { jobId }, include: { dataset: { include: { project: true } } } });
+    const ds = exp?.dataset;
+    if (!ds) return null;
+    const src = resolveInside(this.workspace.projectDirs(ds.project.slug).data, ds.uri);
+    if (!fs.existsSync(src)) return `arquivo do dataset ${ds.uri} não existe`;
+    const hash = await sha256File(src);
+    if (ds.sha256 && hash !== ds.sha256) return `dataset ${ds.name} alterado (sha256 ${hash.slice(0, 12)} ≠ registrado ${ds.sha256.slice(0, 12)})`;
+    const dest = path.join(worktree, 'dados', path.basename(ds.uri));
+    if (!fs.existsSync(dest) || (await sha256File(dest)) !== hash) {
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+    return null;
+  }
+
+  /**
+   * Notas estruturadas deixadas pelo agente em .nivoo/notas.jsonl (uma por linha):
+   * {"tipo": "HIPOTESE|DECISAO_PROPOSTA|EVIDENCIA|PENDENCIA|PROGRESSO", "titulo": "...", "conteudo": "...", "arquivos": ["out/x"]}
+   * São versionadas no git do job e importadas para a memória do projeto. Decisões do agente
+   * entram como PENDENCIA (proposta) — só o operador aprova decisões.
+   */
+  private async ingestNotes(job: Job, step: Step, attemptId: string, worktree: string, providerId: string, sessionId: string | undefined, outputs: { id: string; name: string }[]): Promise<number> {
+    const file = path.join(worktree, '.nivoo', 'notas.jsonl');
+    if (!fs.existsSync(file)) return 0;
+    const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+    // Deduplicação por hash do conteúdo: robusta mesmo se o agente reescrever o arquivo inteiro.
+    const known = await this.prisma.memoryEntry.findMany({
+      where: { projectId: job.projectId, references: { path: ['jobId'], equals: job.id } },
+      select: { references: true },
+    });
+    const seen = new Set(known.map((k) => (k.references as any)?.noteHash).filter(Boolean));
+    const fresh = lines.filter((l) => !seen.has(sha256(l.trim())));
+    const commit = await this.workspace.headCommit(worktree);
+    const author = `agente:${providerId}:sessao:${sessionId ?? attemptId}`;
+    let count = 0;
+    for (const line of fresh) {
+      count++;
+      let n: any;
+      try {
+        n = JSON.parse(line);
+      } catch {
+        await this.logs.log(job.id, `Nota inválida ignorada (não é JSON): ${line.slice(0, 200)}`, { stepId: step.id, level: 'WARN', source: 'worker' });
+        await this.prisma.memoryEntry.create({
+          data: { projectId: job.projectId, researchId: job.researchId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
+        });
+        continue;
+      }
+      const tipo = String(n.tipo ?? '').toUpperCase();
+      const titulo = String(n.titulo ?? tipo).slice(0, 200);
+      const conteudo = String(n.conteudo ?? '').slice(0, 20000);
+      const refsBase = { jobId: job.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash: sha256(line.trim()) };
+      let category: 'HIPOTESE_INVESTIGACAO' | 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
+      let references: Record<string, unknown> = refsBase;
+      if (tipo === 'HIPOTESE') category = 'HIPOTESE_INVESTIGACAO';
+      if (tipo === 'EVIDENCIA') {
+        const wanted: string[] = Array.isArray(n.arquivos) ? n.arquivos.map((a: string) => String(a).replace(/^out\//, '')) : [];
+        const arts = await this.prisma.artifact.findMany({ where: { jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
+        if (arts.length && commit) {
+          category = 'EVIDENCIA';
+          references = { ...refsBase, artifactIds: arts.map((a) => a.id), gitCommit: commit, parameters: {} };
+        }
+      }
+      const prefix = tipo === 'DECISAO_PROPOSTA' ? '[decisão proposta pelo agente — requer aprovação] ' : tipo === 'PROGRESSO' ? '[progresso] ' : tipo === 'EVIDENCIA' && category !== 'EVIDENCIA' ? '[evidência sem artefato verificável] ' : '';
+      await this.prisma.memoryEntry.create({
+        data: { projectId: job.projectId, researchId: job.researchId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
+      });
+    }
+    if (count) await this.logs.log(job.id, `${count} nota(s) do agente importada(s) para a memória do projeto`, { stepId: step.id, source: 'worker' });
+    void outputs;
+    return count;
   }
 
   private async checkpoint(jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>) {
@@ -286,13 +446,13 @@ export class StepExecutorService {
     return 'BLOQUEADO';
   }
 
-  private async failStep(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string): Promise<StepOutcome> {
+  private async failStep(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, reason: string = BlockedReason.LIMITE_TENTATIVAS): Promise<StepOutcome> {
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.step.update({ where: { id: step.id }, data: { status: 'FALHOU', statusDetail: detail } });
       await tx.job.updateMany({
         where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } },
-        data: { status: 'FALHOU', blockedReason: BlockedReason.LIMITE_TENTATIVAS, statusDetail: `etapa ${step.key}: ${detail}` },
+        data: { status: 'FALHOU', blockedReason: reason, statusDetail: `etapa ${step.key}: ${detail}` },
       });
     });
     await this.logs.log(job.id, `Job FALHOU na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
@@ -340,36 +500,59 @@ export class StepExecutorService {
     return 'AGUARDANDO_RECURSO';
   }
 
-  /** Contexto reconstruído do banco (não de resumos de conversa). */
+  /**
+   * Contexto reconstruído do banco, do git e dos artefatos — não de resumos de conversa.
+   * Cada nova sessão recebe: objetivo vigente (íntegro, com hash), critérios, estado das etapas,
+   * último checkpoint, memória do projeto (decisões, restrições, hipóteses, evidências, pendências),
+   * artefatos existentes e o histórico das sessões anteriores desta etapa.
+   */
   async buildContext(job: Job, step: Step): Promise<string> {
-    const [objective, criteria, steps, checkpoint, memory, attempts] = await Promise.all([
+    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts, experiment] = await Promise.all([
       this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),
       this.prisma.acceptanceCriterion.findMany({ where: { jobId: job.id } }),
       this.prisma.step.findMany({ where: { jobId: job.id }, orderBy: { order: 'asc' } }),
       this.prisma.checkpoint.findFirst({ where: { jobId: job.id }, orderBy: { seq: 'desc' } }),
       this.prisma.memoryEntry.findMany({
-        where: {
-          projectId: job.projectId,
-          supersededById: null,
-          category: { in: ['ESPECIFICACAO', 'ARQUITETURA_RESTRICOES', 'DECISAO_APROVADA', 'HIPOTESE_REJEITADA', 'PENDENCIA'] },
-        },
+        where: { projectId: job.projectId, supersededById: null, ...(job.researchId ? { OR: [{ researchId: job.researchId }, { researchId: null }] } : {}) },
         orderBy: { createdAt: 'asc' },
-        take: 50,
+        take: 200,
       }),
-      this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 3 }),
+      this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 5 }),
+      this.prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } }, orderBy: { createdAt: 'asc' }, take: 100 }),
+      this.prisma.experiment.findUnique({ where: { jobId: job.id }, include: { dataset: { include: { asset: true } }, hypothesis: true } }),
     ]);
     const lines: string[] = [];
+    const sessionNo = attempts.length + 1;
     lines.push('# Nivoo AI Manager — contexto da execução', '', '## Regras invioláveis', ...AGENT_RULES.map((r) => `- ${r}`));
-    lines.push('', `## Objetivo (v${objective?.version}, sha256 ${objective?.sha256.slice(0, 12)})`, objective?.text ?? '');
-    lines.push('', '## Critérios de aceitação (verificados pelo backend)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`));
+    lines.push('', `## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '');
+    lines.push('', '## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`));
     lines.push('', '## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`));
-    if (checkpoint) lines.push('', `## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state));
-    if (memory.length) lines.push('', '## Memória do projeto (decisões, restrições, hipóteses rejeitadas, pendências)', ...memory.map((m) => `- [${m.category}] ${m.title}: ${m.content.slice(0, 800)}`));
-    if (attempts.length) {
-      lines.push('', '## Tentativas anteriores desta etapa (não repita abordagens que falharam)');
-      for (const a of attempts) lines.push(`- #${a.number} ${a.status} via ${a.provider}: ${(a.error ?? '').slice(0, 300)} | saída: ${(a.output ?? '').slice(-300)}`);
+    if (step.verifyCommand) lines.push('', '## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', step.verifyCommand, '```');
+    if (experiment) {
+      lines.push('', '## Experimento');
+      lines.push(`- nome: ${experiment.name}; parâmetros: ${JSON.stringify(experiment.parameters)}`);
+      if (experiment.hypothesis) lines.push(`- hipótese: ${experiment.hypothesis.statement}`, `- regra de decisão pré-registrada: ${JSON.stringify(experiment.hypothesis.decisionRule)}`);
+      if (experiment.dataset) lines.push(`- dados: dados/${path.basename(experiment.dataset.uri)} (ativo ${experiment.dataset.asset.code}, papel ${experiment.dataset.role}, sha256 ${experiment.dataset.sha256}). ${experiment.dataset.notes}`);
     }
-    lines.push('', `Diretório de saída para evidências: ${'$'}NIVOO_OUTPUT_DIR (out/). Dados do projeto: ${'$'}NIVOO_DATA_DIR.`);
+    if (checkpoint) lines.push('', `## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state));
+    if (memory.length) {
+      lines.push('', '## Memória do projeto (fonte da verdade; inclui notas de sessões anteriores)');
+      for (const m of memory) lines.push(`- [${m.category}] ${m.title}: ${m.content.slice(0, 600)} (autor ${m.author})`);
+    }
+    if (artifacts.length) {
+      lines.push('', '## Artefatos já produzidos neste job (em out/)', ...artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`));
+    }
+    lines.push('', `## Sessões desta etapa: esta é a sessão ${sessionNo}`);
+    if (attempts.length) {
+      lines.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
+      for (const a of [...attempts].reverse()) lines.push(`- sessão ${a.number}: ${a.status} (término: ${a.stopReason ?? '-'}) ${(a.error ?? '').slice(0, 400)}`);
+    }
+    lines.push('', '## Como registrar progresso (obrigatório antes de terminar a sessão)');
+    lines.push('Acrescente linhas JSON (uma por linha) em `.nivoo/notas.jsonl` no diretório atual, por exemplo:');
+    lines.push('{"tipo": "PROGRESSO", "titulo": "...", "conteudo": "o que foi feito e o que falta"}');
+    lines.push('Tipos: HIPOTESE, DECISAO_PROPOSTA, EVIDENCIA (com "arquivos": ["out/..."]), PENDENCIA, PROGRESSO.');
+    lines.push('Nunca apague ou reescreva linhas existentes desse arquivo.');
+    lines.push('', `Resultados e evidências: grave em out/ (${'$'}NIVOO_OUTPUT_DIR). Você não decide se o trabalho terminou.`);
     return lines.join('\n');
   }
 }

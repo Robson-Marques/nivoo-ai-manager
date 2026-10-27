@@ -97,7 +97,9 @@ necessário. Banco de testes padrão: `postgresql://postgres:postgres@localhost:
 createdb nivoo_test
 npm test                                   # build + todos os testes (unitários e de aceitação)
 node apps/web/e2e/ui-smoke.cjs             # fumaça da interface (requer API+worker rodando e Playwright)
-NIVOO_RUN_CLI_INTEGRATION=1 npx -w apps/backend jest test/integration   # integração real dos CLIs (opt-in, no host do worker)
+# Provas com executores REAIS (opt-in, no host autorizado do worker) — ver docs/PROCEDIMENTO-CLI.md
+cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[123]   # Claude Code CLI
+cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04     # Codex CLI
 ```
 
 | Critério de aceitação V1 | Teste |
@@ -113,6 +115,10 @@ NIVOO_RUN_CLI_INTEGRATION=1 npx -w apps/backend jest test/integration   # integr
 | Funcionamento com navegador fechado | `test/acceptance/08-navegador-fechado.spec.ts` |
 | Documentação de instalação e operação | este README + `docs/OPERACAO.md` |
 
+Provas com executores reais (Claude Code CLI): `test/integration/real-01` (classificação de término
+e isolamento), `real-02` (continuidade entre sessões e queda de worker), `real-03` (ciclo científico com
+dados sintéticos). Evidências em `docs/evidencias/`. Estado e bloqueios: `docs/ESTADO.md`.
+
 Mocks: somente os binários `test/support/stubs/*.sh`, marcados **TEST-ONLY**, usados em
-`test/unit/cli-adapters.spec.ts` para testar o *parsing* dos adaptadores. Eles não são
+`test/unit/cli-adapters.spec.ts` e `test/acceptance/09-sessoes-simuladas.spec.ts` (caminhos de limite do provedor e sessões sem progresso). Eles não são
 apresentados como integração funcional.

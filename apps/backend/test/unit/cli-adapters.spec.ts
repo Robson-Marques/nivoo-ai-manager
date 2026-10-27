@@ -53,6 +53,25 @@ describe('Adaptador Claude Code CLI (stub TEST-ONLY)', () => {
     const args = fs.readFileSync(path.join(CTL, 'args.txt'), 'utf8');
     expect(args).toContain('--permission-mode acceptEdits');
     expect(args).not.toContain('dangerously');
+    expect(args).not.toContain('--allowedTools'); // nenhuma regra genérica (isolamento)
+    expect(args).toContain('--disallowedTools Bash WebFetch WebSearch');
+  });
+
+  it('recusa regras de permissão genéricas (liberariam escrita fora do workspace)', async () => {
+    const { ClaudeCodeCliProvider } = await import('../../src/providers/claude-code-cli.provider');
+    expect(() => ClaudeCodeCliProvider.scopedAllowRules('Write')).toThrow(/não permitida/);
+    expect(() => ClaudeCodeCliProvider.scopedAllowRules('Edit(./../x/**)')).toThrow(/não permitida/);
+    expect(() => ClaudeCodeCliProvider.scopedAllowRules('Edit(//etc/**)')).toThrow(/não permitida/);
+    expect(ClaudeCodeCliProvider.scopedAllowRules('Edit(./src/**) Read(./dados/**)')).toEqual(['Edit(./src/**)', 'Read(./dados/**)']);
+  });
+
+  it('fim de sessão por limite de turnos é distinguido de falha', async () => {
+    const { ClaudeCodeCliProvider } = await import('../../src/providers/claude-code-cli.provider');
+    ctl('mode', 'max_turns');
+    const r = await new ClaudeCodeCliProvider().execute(req(tmp, []));
+    expect(r).toMatchObject({ exitCode: 0, sessionEnded: true, stopReason: 'max_turns', sessionId: 'stub-sessao' });
+    expect(r.resourceUnavailable).toBeFalsy();
+    ctl('mode', null);
   });
 
   it('erro de limite de uso é classificado como recurso indisponível', async () => {

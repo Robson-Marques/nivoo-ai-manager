@@ -141,7 +141,12 @@ export class CompletionService {
           if (!pol.allowed) return { ...base, passed: false, evidence: { erro: 'comando bloqueado pela política', motivos: pol.reasons } };
           const r = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
             cwd: worktree,
-            env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: `${worktree}/out` }),
+            env: minimalEnv({
+              NIVOO_JOB_ID: job.id,
+              NIVOO_OUTPUT_DIR: `${worktree}/out`,
+              // Verificadores do operador podem ficar no diretório de dados do projeto (fora do alcance do agente).
+              NIVOO_DATA_DIR: this.workspace.projectDirs((job as any).project?.slug ?? '').data,
+            }),
             timeoutMs: (cfg.timeoutSec ?? 300) * 1000,
           });
           const expected = cfg.expectExitCode ?? 0;

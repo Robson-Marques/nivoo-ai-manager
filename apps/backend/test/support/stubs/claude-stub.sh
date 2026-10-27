@@ -13,6 +13,10 @@ esac
 prompt=$(cat)
 echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
+if [ "$MODE" = "max_turns" ]; then
+  echo '{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":3,"session_id":"stub-sessao","total_cost_usd":0.01}'
+  exit 1
+fi
 if [ "$MODE" = "limit" ]; then
   echo '{"type":"result","subtype":"error","is_error":true,"result":"Claude AI usage limit reached","total_cost_usd":0}'
   exit 1

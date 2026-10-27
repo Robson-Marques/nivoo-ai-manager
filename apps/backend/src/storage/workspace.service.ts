@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
+import { sha256 } from '../common/hash';
 
 export interface ProjectDirs {
   root: string;
@@ -63,7 +64,58 @@ export class WorkspaceService {
       else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, 'main']);
     }
     fs.mkdirSync(path.join(wt, 'out'), { recursive: true });
+    // Cópias de datasets ficam fora do git (dados versionados por sha256 no registro do dataset).
+    const exclude = path.join(dirs.repo, '.git', 'info', 'exclude');
+    fs.mkdirSync(path.dirname(exclude), { recursive: true });
+    const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
+    if (!current.split('\n').includes('dados/')) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}dados/\n`);
     return wt;
+  }
+
+  /** Impressão digital (nomes, tamanhos, mtimes) de um diretório, para detectar alterações indevidas. */
+  dirFingerprint(dir: string, ignore: string[] = []): string {
+    const items: string[] = [];
+    const walk = (d: string) => {
+      if (!fs.existsSync(d)) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        const rel = path.relative(dir, p);
+        if (ignore.includes(rel)) continue;
+        if (e.isDirectory()) walk(p);
+        else {
+          const st = fs.lstatSync(p);
+          items.push(`${rel}:${st.size}:${st.mtimeMs}`);
+        }
+      }
+    };
+    walk(dir);
+    return sha256(items.sort().join('\n'));
+  }
+
+  /**
+   * Hash do estado do workspace (árvore git sem ignorados + arquivos de out/).
+   * Usado para detectar se uma sessão produziu algum progresso.
+   */
+  async snapshotHash(worktree: string): Promise<string> {
+    // Notas do agente (.nivoo/) não contam como progresso: só alterações reais no trabalho.
+    await this.git(worktree, ['add', '-A']);
+    const files = await this.git(worktree, ['ls-files', '-s']);
+    const tree = { stdout: files.stdout.split('\n').filter((l) => !/\t\.nivoo\//.test(l)).join('\n') };
+    const out = path.join(worktree, 'out');
+    const listing: string[] = [];
+    const walk = (d: string) => {
+      if (!fs.existsSync(d)) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.isFile()) {
+          const st = fs.statSync(p);
+          listing.push(`${path.relative(out, p)}:${st.size}:${st.mtimeMs}`);
+        }
+      }
+    };
+    walk(out);
+    return sha256(`${tree.stdout.trim()}\n${listing.sort().join('\n')}`);
   }
 
   /** Commit de checkpoint na branch do job. Retorna o hash do HEAD. */

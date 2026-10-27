@@ -20,6 +20,7 @@ export interface StepInput {
   dependsOn: string[];
   verifyCommand?: string;
   requiresApproval: boolean;
+  providerOptions: Prisma.InputJsonValue;
 }
 
 @Injectable()
@@ -32,7 +33,7 @@ export class JobsService {
     private readonly logs: LogService,
   ) {}
 
-  private parseSteps(raw: unknown, existingKeys: string[] = []): StepInput[] {
+  private parseSteps(raw: unknown, defaultProvider: string, existingKeys: string[] = []): StepInput[] {
     if (!Array.isArray(raw)) throw new BadRequestException('steps deve ser uma lista');
     const steps: StepInput[] = raw.map((s: any) => {
       const key = reqString(s, 'key', 60);
@@ -41,6 +42,18 @@ export class JobsService {
       const verifyCommand = optString(s, 'verifyCommand', 5000);
       const provider = optString(s, 'provider', 60);
       if (provider && !this.registry.has(provider)) throw new BadRequestException(`Conector desconhecido: ${provider}`);
+      // Etapas executadas por IA precisam de verificação determinística: o agente não encerra a etapa sozinho.
+      if (this.registry.get(provider ?? defaultProvider).kind !== 'executor' && !verifyCommand) {
+        throw new BadRequestException(`Etapa ${key} usa conector de IA e exige verifyCommand (verificação determinística)`);
+      }
+      const opts = s.providerOptions ?? {};
+      const providerOptions: Record<string, unknown> = {};
+      if (opts.model !== undefined) providerOptions.model = String(opts.model).slice(0, 100);
+      if (opts.maxTurns !== undefined) {
+        const n = Number(opts.maxTurns);
+        if (!Number.isInteger(n) || n < 1 || n > 500) throw new BadRequestException(`Etapa ${key}: maxTurns deve ser inteiro entre 1 e 500`);
+        providerOptions.maxTurns = n;
+      }
       const pol = evaluatePolicy(`${instructions}\n${verifyCommand ?? ''}`);
       if (pol.forbidden) throw new BadRequestException(`Etapa ${key} proibida pela política: ${pol.reasons.join('; ')}`);
       return {
@@ -51,6 +64,7 @@ export class JobsService {
         dependsOn: Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [],
         verifyCommand,
         requiresApproval: s.requiresApproval === true || pol.requiresApproval,
+        providerOptions: providerOptions as Prisma.InputJsonValue,
       };
     });
     const keys = new Set(existingKeys);
@@ -110,7 +124,7 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(body.steps ?? []);
+    const steps = this.parseSteps(body.steps ?? [], defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     const researchId = optString(body, 'researchId', 60);
@@ -155,6 +169,7 @@ export class JobsService {
         maxCostUsd: optNumber(limits, 'maxCostUsd', 0, 10000),
         stepTimeoutSec: optNumber(limits, 'stepTimeoutSec', 1, 24 * 3600),
         repetitionWindow: optNumber(limits, 'repetitionWindow', 2, 20),
+        maxSessionsPerStep: optNumber(limits, 'maxSessionsPerStep', 1, 100),
         gitBranch: null,
         objectives: {
           create: { version: 1, text: objective, sha256: sha256(objective), author: optString(body, 'author', 100) ?? 'operador' },
@@ -234,7 +249,7 @@ export class JobsService {
   async addSteps(projectId: string, jobId: string, body: any) {
     const job = await this.get(projectId, jobId);
     if (job.status === 'CONCLUIDO') throw new ConflictException('Job concluído');
-    const steps = this.parseSteps(body.steps ?? [], job.steps.map((s) => s.key));
+    const steps = this.parseSteps(body.steps ?? [], job.defaultProvider, job.steps.map((s) => s.key));
     this.assertAcyclic([...job.steps, ...steps]);
     const base = job.steps.length;
     await this.prisma.step.createMany({ data: steps.map((s, i) => ({ ...s, jobId, order: base + i })) });
@@ -260,6 +275,7 @@ export class JobsService {
       maxCostUsd: optNumber(body, 'maxCostUsd', 0, 10000),
       stepTimeoutSec: optNumber(body, 'stepTimeoutSec', 1, 24 * 3600),
       repetitionWindow: optNumber(body, 'repetitionWindow', 2, 20),
+      maxSessionsPerStep: optNumber(body, 'maxSessionsPerStep', 1, 100),
     };
     await this.prisma.job.update({ where: { id: jobId }, data });
     await this.logs.log(jobId, `Limites atualizados: ${JSON.stringify(data)}`);

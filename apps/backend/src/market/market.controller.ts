@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { MarketService } from './market.service';
 
 @Controller('market/assets')
@@ -68,6 +68,21 @@ export class ResearchController {
   @Patch('hypotheses/:hid')
   updateHypothesis(@Param('pid', ParseUUIDPipe) pid: string, @Param('hid', ParseUUIDPipe) hid: string, @Body() body: any) {
     return this.market.updateHypothesis(pid, hid, body);
+  }
+
+  @Put('hypotheses/:hid/decision-rule')
+  setRule(@Param('pid', ParseUUIDPipe) pid: string, @Param('hid', ParseUUIDPipe) hid: string, @Body() body: any) {
+    return this.market.setDecisionRule(pid, hid, body);
+  }
+
+  @Post('hypotheses/:hid/decide')
+  decide(@Param('pid', ParseUUIDPipe) pid: string, @Param('hid', ParseUUIDPipe) hid: string, @Body() body: any) {
+    return this.market.decideByRule(pid, hid, body);
+  }
+
+  @Post('researches/:rid/close')
+  close(@Param('pid', ParseUUIDPipe) pid: string, @Param('rid', ParseUUIDPipe) rid: string) {
+    return this.market.closeResearch(pid, rid);
   }
 
   @Get('researches/:rid/experiments/compare')

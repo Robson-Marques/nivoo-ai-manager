@@ -169,7 +169,16 @@ export class MarketService {
     const r = await this.prisma.research.findFirst({ where: { id: researchId, projectId } });
     if (!r) throw new NotFoundException('Pesquisa não encontrada neste projeto');
     const statement = reqString(body, 'statement', 5000);
-    const h = await this.prisma.hypothesis.create({ data: { researchId, statement, rationale: optString(body, 'rationale', 20000) ?? '' } });
+    const decisionRule = body.decisionRule ? this.parseRule(body.decisionRule) : undefined;
+    const h = await this.prisma.hypothesis.create({
+      data: {
+        researchId,
+        statement,
+        rationale: optString(body, 'rationale', 20000) ?? '',
+        decisionRule: decisionRule as Prisma.InputJsonValue | undefined,
+        decisionRuleSetAt: decisionRule ? new Date() : null,
+      },
+    });
     await this.prisma.memoryEntry.create({
       data: { projectId, researchId, category: 'HIPOTESE_INVESTIGACAO', title: statement.slice(0, 200), content: h.rationale || statement, references: { hypothesisId: h.id }, author: optString(body, 'author', 100) ?? 'operador' },
     });
@@ -181,15 +190,20 @@ export class MarketService {
    * Muda o status de uma hipótese. VALIDADA exige experimento CONCLUIDO (verificado pelo backend)
    * com artefato de métricas e commit; REJEITADA exige conclusão e vai para a memória.
    */
-  async updateHypothesis(projectId: string, hypothesisId: string, body: any) {
+  async updateHypothesis(projectId: string, hypothesisId: string, body: any, viaRule = false) {
     const h = await this.prisma.hypothesis.findFirst({ where: { id: hypothesisId, research: { projectId } }, include: { research: true } });
     if (!h) throw new NotFoundException('Hipótese não encontrada neste projeto');
     const status = oneOf(body, 'status', ['EM_INVESTIGACAO', 'REJEITADA', 'VALIDADA'] as const) as HypothesisStatus;
+    if (h.decisionRule && !viaRule && status !== 'EM_INVESTIGACAO') {
+      throw new BadRequestException('Hipótese com regra pré-registrada: decida por POST /hypotheses/:id/decide');
+    }
     const conclusion = status === 'EM_INVESTIGACAO' ? optString(body, 'conclusion', 20000) : reqString(body, 'conclusion', 20000);
     const author = optString(body, 'author', 100) ?? 'operador';
     if (status === 'VALIDADA' || status === 'REJEITADA') {
       const expIds: string[] = Array.isArray(body.experimentIds) ? body.experimentIds : [];
-      const exps = await this.prisma.experiment.findMany({ where: { id: { in: expIds }, projectId, hypothesisId: h.id } });
+      const exps = await this.prisma.experiment.findMany({
+        where: { id: { in: expIds }, projectId, researchId: h.researchId, OR: [{ hypothesisId: h.id }, { hypothesisId: null }] },
+      });
       if (status === 'VALIDADA') {
         if (!exps.length) throw new BadRequestException('VALIDADA exige experimentIds desta hipótese');
         const bad = exps.filter((e) => e.status !== 'CONCLUIDO' || !e.codeRef || !e.metricsArtifactId);
@@ -211,6 +225,87 @@ export class MarketService {
       });
     }
     return this.prisma.hypothesis.update({ where: { id: h.id }, data: { status, conclusion } });
+  }
+
+  private parseRule(raw: any) {
+    const metric = reqString(raw, 'metric', 200);
+    const op = String(raw.op ?? '>=');
+    if (!['>', '>=', '<', '<=', '==', '!='].includes(op)) throw new BadRequestException('decisionRule.op inválido');
+    const value = Number(raw.value);
+    if (!Number.isFinite(value)) throw new BadRequestException('decisionRule.value deve ser numérico');
+    const datasetRole = raw.datasetRole ? oneOf(raw, 'datasetRole', ['TREINO', 'VALIDACAO', 'RESERVADO'] as const) : undefined;
+    return { metric, op, value, ...(datasetRole ? { datasetRole } : {}) };
+  }
+
+  /** Pré-registro: a regra só pode ser definida/alterada antes de qualquer experimento da hipótese iniciar. */
+  async setDecisionRule(projectId: string, hypothesisId: string, body: any) {
+    const h = await this.prisma.hypothesis.findFirst({ where: { id: hypothesisId, research: { projectId } } });
+    if (!h) throw new NotFoundException('Hipótese não encontrada neste projeto');
+    // Qualquer experimento que possa decidir esta hipótese (vinculado a ela ou sem vínculo, na mesma pesquisa).
+    const exps = await this.prisma.experiment.findMany({
+      where: { researchId: h.researchId, OR: [{ hypothesisId: h.id }, { hypothesisId: null }] },
+      include: { job: true },
+    });
+    if (exps.some((e) => e.job && e.job.status !== 'PENDENTE')) {
+      throw new BadRequestException('Regra de decisão não pode ser alterada após o início de um experimento desta hipótese');
+    }
+    const rule = this.parseRule(body);
+    return this.prisma.hypothesis.update({ where: { id: h.id }, data: { decisionRule: rule, decisionRuleSetAt: new Date() } });
+  }
+
+  /**
+   * Decide a hipótese aplicando a regra PRÉ-REGISTRADA às métricas de um experimento verificado.
+   * Ninguém (nem operador nem agente) escolhe o resultado: VALIDADA se a regra é satisfeita, senão REJEITADA.
+   */
+  async decideByRule(projectId: string, hypothesisId: string, body: any) {
+    const h = await this.prisma.hypothesis.findFirst({ where: { id: hypothesisId, research: { projectId } } });
+    if (!h) throw new NotFoundException('Hipótese não encontrada neste projeto');
+    if (h.status !== 'EM_INVESTIGACAO') throw new BadRequestException(`Hipótese já decidida (${h.status})`);
+    const rule = h.decisionRule as { metric: string; op: string; value: number; datasetRole?: string } | null;
+    if (!rule || !h.decisionRuleSetAt) throw new BadRequestException('Hipótese sem regra de decisão pré-registrada');
+    // Experimento da mesma pesquisa, vinculado a esta hipótese ou a nenhuma (um experimento pode medir várias).
+    const exp = await this.prisma.experiment.findFirst({
+      where: { id: reqString(body, 'experimentId', 60), projectId, researchId: h.researchId, OR: [{ hypothesisId: h.id }, { hypothesisId: null }] },
+      include: { dataset: true, job: true },
+    });
+    if (!exp) throw new BadRequestException('Experimento não pertence a esta pesquisa/hipótese');
+    if (exp.status !== 'CONCLUIDO' || !exp.codeRef || !exp.metricsArtifactId || !exp.job || exp.job.status !== 'CONCLUIDO') {
+      throw new BadRequestException('Experimento não verificado (exige job CONCLUIDO, commit e artefato de métricas)');
+    }
+    if (exp.job.startedAt && h.decisionRuleSetAt > exp.job.startedAt) {
+      throw new BadRequestException('Regra registrada depois do início do experimento: não é pré-registro');
+    }
+    if (rule.datasetRole && exp.dataset?.role !== rule.datasetRole) {
+      throw new BadRequestException(`Regra exige dataset ${rule.datasetRole}; experimento usou ${exp.dataset?.role ?? 'nenhum'}`);
+    }
+    const value = Number(rule.metric.split('.').reduce((o: any, k) => (o == null ? undefined : o[k]), exp.metrics as any));
+    if (!Number.isFinite(value)) throw new BadRequestException(`Métrica ${rule.metric} ausente nas métricas do experimento`);
+    const ops: Record<string, (a: number, b: number) => boolean> = {
+      '>': (a, b) => a > b, '>=': (a, b) => a >= b, '<': (a, b) => a < b, '<=': (a, b) => a <= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b,
+    };
+    const passed = ops[rule.op](value, rule.value);
+    const status = passed ? 'VALIDADA' : 'REJEITADA';
+    const conclusion = `${status} pela regra pré-registrada ${rule.metric} ${rule.op} ${rule.value}: valor observado ${value} (experimento ${exp.name}, dataset ${exp.dataset?.name ?? '-'} [${exp.dataset?.role ?? '-'}], commit ${exp.codeRef}).`;
+    return this.updateHypothesis(projectId, h.id, { status, conclusion, experimentIds: [exp.id], author: 'sistema:regra-pre-registrada' }, true);
+  }
+
+  /** Encerrar pesquisa só é permitido sem pendências: hipóteses decididas e jobs concluídos. */
+  async closeResearch(projectId: string, researchId: string) {
+    const r = await this.prisma.research.findFirst({
+      where: { id: researchId, projectId },
+      include: { hypotheses: true, jobs: true, experiments: true },
+    });
+    if (!r) throw new NotFoundException('Pesquisa não encontrada neste projeto');
+    const pendencias = [
+      ...r.hypotheses.filter((h) => h.status === 'EM_INVESTIGACAO').map((h) => `hipótese em investigação: ${h.statement}`),
+      ...r.jobs.filter((j) => j.status !== 'CONCLUIDO').map((j) => `job ${j.title} em ${j.status}`),
+      ...r.experiments.filter((e) => e.status !== 'CONCLUIDO').map((e) => `experimento ${e.name} em ${e.status}`),
+    ];
+    if (r.hypotheses.length === 0) pendencias.push('nenhuma hipótese registrada');
+    if (pendencias.length) {
+      throw new BadRequestException({ message: 'Pesquisa incompleta não pode ser encerrada', pendencias });
+    }
+    return this.prisma.research.update({ where: { id: r.id }, data: { status: 'ENCERRADA' } });
   }
 
   async compareExperiments(projectId: string, researchId: string, ids?: string[]) {
