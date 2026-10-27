@@ -1,0 +1,469 @@
+// Nivoo AI Manager — Mercado V1
+// Fonte da verdade: este banco. Ver docs/ARQUITETURA.md.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ExecStatus {
+  PENDENTE
+  EXECUTANDO
+  AGUARDANDO_RECURSO
+  AGUARDANDO_APROVACAO
+  BLOQUEADO
+  FALHOU
+  CONCLUIDO
+}
+
+enum AttemptStatus {
+  EXECUTANDO
+  SUCESSO
+  FALHA
+  INTERROMPIDA
+  RECURSO_INDISPONIVEL
+}
+
+enum QueueTaskType {
+  RUN_STEP
+  EVALUATE_JOB
+}
+
+enum QueueTaskStatus {
+  QUEUED
+  RUNNING
+  DONE
+  CANCELLED
+  DEAD
+}
+
+enum CriterionKind {
+  COMMAND
+  FILE_EXISTS
+  ARTIFACT_PRESENT
+  METRIC_THRESHOLD
+  MANUAL_APPROVAL
+}
+
+enum CriterionStatus {
+  PENDENTE
+  APROVADO
+  REPROVADO
+  AGUARDANDO_APROVACAO
+}
+
+enum ApprovalKind {
+  CRITERIO_SUBJETIVO
+  ACAO_DESTRUTIVA
+  LIBERAR_DATASET_RESERVADO
+}
+
+enum ApprovalStatus {
+  PENDENTE
+  APROVADO
+  REJEITADO
+}
+
+enum MemoryCategory {
+  ESPECIFICACAO
+  ARQUITETURA_RESTRICOES
+  DECISAO_APROVADA
+  HIPOTESE_INVESTIGACAO
+  EVIDENCIA
+  HIPOTESE_REJEITADA
+  RESULTADO_VALIDADO
+  PENDENCIA
+}
+
+enum DatasetRole {
+  TREINO
+  VALIDACAO
+  RESERVADO
+}
+
+enum HypothesisStatus {
+  EM_INVESTIGACAO
+  REJEITADA
+  VALIDADA
+}
+
+enum ResearchStatus {
+  ABERTA
+  EM_ANDAMENTO
+  ENCERRADA
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model Project {
+  id            String   @id @default(uuid())
+  slug          String   @unique
+  name          String
+  description   String   @default("")
+  workspacePath String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  researches  Research[]
+  datasets    Dataset[]
+  jobs        Job[]
+  memory      MemoryEntry[]
+  artifacts   Artifact[]
+  experiments Experiment[]
+}
+
+model MarketAsset {
+  id          String   @id @default(uuid())
+  code        String   @unique // WIN, WDO
+  name        String
+  exchange    String
+  currency    String
+  priceUnit   String // "pontos" (WIN), "R$/US$ 1.000" (WDO)
+  tickSize    Decimal  @db.Decimal(18, 6)
+  pointValue  Decimal  @db.Decimal(18, 6) // valor financeiro por ponto por contrato
+  sessionTz   String
+  sessionOpen String
+  sessionClose String
+  rules       Json // regras específicas do ativo (vencimentos, rolagem, etc.)
+  validation  Json // limites de validação de dados (faixa de preço, tick, horário)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  datasets   Dataset[]
+  researches ResearchAsset[]
+}
+
+model Dataset {
+  id          String      @id @default(uuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assetId     String
+  asset       MarketAsset @relation(fields: [assetId], references: [id])
+  name        String
+  uri         String // caminho relativo ao workspace do projeto
+  sha256      String?
+  timeframe   String
+  periodStart DateTime?
+  periodEnd   DateTime?
+  role        DatasetRole @default(TREINO)
+  released    Boolean     @default(false) // RESERVADO só pode ser usado após liberação aprovada
+  notes       String      @default("")
+  createdAt   DateTime    @default(now())
+
+  experiments Experiment[]
+
+  @@unique([projectId, name])
+}
+
+model Research {
+  id          String         @id @default(uuid())
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  question    String
+  status      ResearchStatus @default(ABERTA)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  assets      ResearchAsset[]
+  hypotheses  Hypothesis[]
+  experiments Experiment[]
+  jobs        Job[]
+  memory      MemoryEntry[]
+}
+
+model ResearchAsset {
+  researchId String
+  research   Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  assetId    String
+  asset      MarketAsset @relation(fields: [assetId], references: [id])
+
+  @@id([researchId, assetId])
+}
+
+model Hypothesis {
+  id          String           @id @default(uuid())
+  researchId  String
+  research    Research         @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  statement   String
+  rationale   String           @default("")
+  status      HypothesisStatus @default(EM_INVESTIGACAO)
+  conclusion  String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  experiments Experiment[]
+}
+
+model Experiment {
+  id           String      @id @default(uuid())
+  projectId    String
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId   String
+  research     Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  hypothesisId String?
+  hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id])
+  datasetId    String?
+  dataset      Dataset?    @relation(fields: [datasetId], references: [id])
+  jobId        String?     @unique
+  job          Job?        @relation(fields: [jobId], references: [id])
+  name         String
+  parameters   Json        @default("{}")
+  codeRef      String? // commit git do workspace que produziu o resultado
+  metrics      Json? // preenchido a partir do artefato de métricas
+  metricsArtifactId String?
+  status       ExecStatus  @default(PENDENTE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Job {
+  id                String     @id @default(uuid())
+  projectId         String
+  project           Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId        String?
+  research          Research?  @relation(fields: [researchId], references: [id])
+  title             String
+  status            ExecStatus @default(PENDENTE)
+  blockedReason     String?
+  statusDetail      String?
+  defaultProvider   String     @default("local-shell")
+  objectiveVersion  Int        @default(1)
+  maxAttemptsPerStep Int       @default(3)
+  maxDurationSec    Int        @default(3600)
+  maxCostUsd        Decimal    @default(5) @db.Decimal(12, 4)
+  costSpentUsd      Decimal    @default(0) @db.Decimal(12, 4)
+  stepTimeoutSec    Int        @default(900)
+  repetitionWindow  Int        @default(2)
+  gitBranch         String?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  activeSeconds     Int        @default(0)
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  objectives  JobObjectiveVersion[]
+  criteria    AcceptanceCriterion[]
+  steps       Step[]
+  attempts    Attempt[]
+  checkpoints Checkpoint[]
+  artifacts   Artifact[]
+  logs        LogEntry[]
+  approvals   Approval[]
+  tasks       QueueTask[]
+  checks      CriterionCheck[]
+  experiment  Experiment?
+}
+
+// Objetivo imutável: append-only. Alterar o objetivo = criar nova versão.
+model JobObjectiveVersion {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  version   Int
+  text      String
+  sha256    String
+  author    String
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, version])
+}
+
+model AcceptanceCriterion {
+  id          String          @id @default(uuid())
+  jobId       String
+  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  key         String
+  description String
+  kind        CriterionKind
+  config      Json            @default("{}")
+  status      CriterionStatus @default(PENDENTE)
+  lastCheckedAt DateTime?
+  createdAt   DateTime        @default(now())
+
+  checks CriterionCheck[]
+
+  @@unique([jobId, key])
+}
+
+// Evidência de cada verificação de critério feita pelo backend.
+model CriterionCheck {
+  id          String              @id @default(uuid())
+  jobId       String
+  job         Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  criterionId String
+  criterion   AcceptanceCriterion @relation(fields: [criterionId], references: [id], onDelete: Cascade)
+  passed      Boolean
+  evidence    Json
+  artifactId  String?
+  createdAt   DateTime            @default(now())
+}
+
+model Step {
+  id            String     @id @default(uuid())
+  jobId         String
+  job           Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  key           String
+  order         Int
+  title         String
+  instructions  String // prompt (IA) ou comando (local-shell)
+  provider      String? // null = job.defaultProvider
+  dependsOn     String[]
+  verifyCommand String? // verificação determinística opcional da etapa
+  requiresApproval Boolean @default(false)
+  status        ExecStatus @default(PENDENTE)
+  statusDetail  String?
+  attemptCount  Int        @default(0)
+  lastOutput    String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  attempts    Attempt[]
+  checkpoints Checkpoint[]
+
+  @@unique([jobId, key])
+}
+
+model Attempt {
+  id          String        @id @default(uuid())
+  jobId       String
+  job         Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId      String
+  step        Step          @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  number      Int
+  provider    String
+  workerId    String
+  status      AttemptStatus @default(EXECUTANDO)
+  exitCode    Int?
+  output      String?
+  outputHash  String?
+  error       String?
+  costUsd     Decimal       @default(0) @db.Decimal(12, 4)
+  inputTokens  Int?
+  outputTokens Int?
+  startedAt   DateTime      @default(now())
+  endedAt     DateTime?
+
+  @@unique([stepId, number])
+}
+
+model Checkpoint {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId    String?
+  step      Step?    @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  seq       Int
+  label     String
+  state     Json
+  gitCommit String?
+  createdAt DateTime @default(now())
+
+  @@unique([jobId, seq])
+}
+
+model Artifact {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobId     String?
+  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId    String?
+  attemptId String?
+  name      String
+  kind      String // LOG, FILE, METRICS, REPORT, CRITERION_EVIDENCE
+  storagePath String // relativo a NIVOO_ARTIFACTS_ROOT
+  sha256    String
+  sizeBytes Int
+  mimeType  String
+  createdAt DateTime @default(now())
+}
+
+model LogEntry {
+  id        BigInt   @id @default(autoincrement())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId    String?
+  attemptId String?
+  level     LogLevel @default(INFO)
+  source    String // system, worker, provider:<id>, evaluator
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([jobId, id])
+}
+
+model Approval {
+  id          String         @id @default(uuid())
+  jobId       String?
+  job         Job?           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  projectId   String
+  kind        ApprovalKind
+  subjectId   String // criterionId / stepId / datasetId
+  description String
+  status      ApprovalStatus @default(PENDENTE)
+  decidedBy   String?
+  reason      String?
+  requestedAt DateTime       @default(now())
+  decidedAt   DateTime?
+}
+
+model MemoryEntry {
+  id           String         @id @default(uuid())
+  projectId    String
+  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId   String?
+  research     Research?      @relation(fields: [researchId], references: [id])
+  category     MemoryCategory
+  title        String
+  content      String
+  references   Json           @default("{}") // { artifactIds, experimentIds, datasetIds, gitCommit, parameters }
+  version      Int            @default(1)
+  supersededById String?
+  author       String
+  createdAt    DateTime       @default(now())
+}
+
+model QueueTask {
+  id          String          @id @default(uuid())
+  type        QueueTaskType
+  jobId       String
+  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId      String?
+  status      QueueTaskStatus @default(QUEUED)
+  runAt       DateTime        @default(now())
+  lockedBy    String?
+  lockedUntil DateTime?
+  claims      Int             @default(0)
+  lastError   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([status, runAt])
+}
+
+model ProviderConfig {
+  id        String   @id // claude-code-cli, codex-cli, anthropic-api, openai-api, local-shell
+  enabled   Boolean  @default(true)
+  settings  Json     @default("{}") // NUNCA segredos
+  updatedAt DateTime @updatedAt
+}
+
+model WorkerHeartbeat {
+  id         String   @id
+  hostname   String
+  pid        Int
+  startedAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  providers  Json     @default("{}") // status de cada conector visto por este worker
+}

@@ -1,0 +1,23 @@
+import { Module } from '@nestjs/common';
+import { ApprovalsService } from './jobs/approvals.service';
+import { CompletionService } from './jobs/completion.service';
+import { JobsService } from './jobs/jobs.service';
+import { LogService } from './jobs/log.service';
+import { OrchestratorService } from './jobs/orchestrator.service';
+import { MarketService } from './market/market.service';
+import { MemoryService } from './memory/memory.service';
+import { PrismaModule } from './prisma/prisma.module';
+import { ProjectsService } from './projects/projects.service';
+import { ProvidersModule } from './providers/providers.module';
+import { QueueModule } from './queue/queue.module';
+import { StorageModule } from './storage/storage.module';
+
+const services = [ApprovalsService, CompletionService, JobsService, LogService, OrchestratorService, MarketService, MemoryService, ProjectsService];
+
+/** Serviços compartilhados entre API e worker. */
+@Module({
+  imports: [PrismaModule, QueueModule, StorageModule, ProvidersModule],
+  providers: services,
+  exports: [...services, PrismaModule, QueueModule, StorageModule, ProvidersModule],
+})
+export class CoreModule {}
