@@ -157,3 +157,31 @@ referências reproduzíveis (artefato com sha256 **e** experimento/dataset/parâ
 ## 9. Decisões (ADR resumido)
 
 Ver `docs/DECISOES.md`.
+
+## 10. Sessões de IA e continuidade (etapa 2)
+
+Cada tentativa de uma etapa de IA é **uma sessão real** do provedor (`Attempt.sessionId`,
+`stopReason`, `numTurns`, `promptArtifactId`). Classificação ao fim de cada sessão:
+
+| Sinal | Classificação | Efeito |
+|---|---|---|
+| processo abortado (interrupção/perda de lease) | `INTERROMPIDA` | etapa volta a PENDENTE; nova sessão na retomada/recuperação |
+| erro de limite/autenticação/rede do provedor | `RECURSO_INDISPONIVEL` | job `AGUARDANDO_RECURSO`, reagendado com espera crescente |
+| sessão terminou (normal ou `max_turns`) **e** verificação da etapa passou | `SUCESSO` | etapa CONCLUIDO; agenda as próximas |
+| sessão terminou (normal ou `max_turns`) **e** verificação falhou | `SESSAO_ENCERRADA` | **continuação automática** em nova sessão; limites: `maxSessionsPerStep`, sem progresso em `repetitionWindow` sessões → `REPETICAO_IMPRODUTIVA` |
+| erro do provedor (ex.: `api_error`) | `FALHA` | nova tentativa até `maxAttemptsPerStep`; depois `FALHOU` |
+
+A conclusão do **job** continua exclusiva do `CompletionService`.
+
+Contexto de cada nova sessão (prompt guardado como artefato `prompts/<etapa>/tentativa-N.md`):
+objetivo vigente com sha256, critérios, etapas, verificação da etapa, experimento (hipótese, regra
+pré-registrada, dataset com sha256), último checkpoint, **toda a memória vigente do projeto/pesquisa**
+(inclusive notas de sessões anteriores), artefatos já produzidos e o histórico das sessões da etapa.
+
+Canal estruturado do agente: `.nivoo/notas.jsonl` (versionado no git do job). O worker importa
+cada nota nova (deduplicada por hash) para a memória: `HIPOTESE` → `HIPOTESE_INVESTIGACAO`;
+`EVIDENCIA` → `EVIDENCIA` somente se apontar artefatos registrados (senão `PENDENCIA`);
+`DECISAO_PROPOSTA`, `PENDENCIA`, `PROGRESSO` → `PENDENCIA`. Decisões só são aprovadas por humanos.
+
+Dados de experimento: o dataset é copiado para `dados/` do worktree após conferir o sha256
+registrado (alteração → job bloqueado). `dados/` fica fora do git.

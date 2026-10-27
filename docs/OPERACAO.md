@@ -61,7 +61,8 @@ pendências.
 | `NIVOO_POLL_MS` | 1000 | intervalo de consulta da fila |
 | `NIVOO_API_TOKEN` | — | se definido, exige `Authorization: Bearer` |
 | `NIVOO_CLAUDE_BIN` / `NIVOO_CODEX_BIN` | `claude` / `codex` | caminho dos CLIs |
-| `NIVOO_CLAUDE_ALLOWED_TOOLS` | `Read,Edit,Write,Glob,Grep` | ferramentas liberadas ao Claude Code (sem Bash por padrão) |
+| `NIVOO_CLAUDE_ALLOWED_TOOLS` | vazio | regras extras **restritas a caminho** (ex.: `Edit(./src/**)`); regras genéricas como `Write` são recusadas porque liberariam escrita fora do workspace. Bash/WebFetch/WebSearch sempre negados |
+| `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão (padrão; também por etapa em `providerOptions.maxTurns`) |
 | `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` | — | modelo opcional |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | — | conector API opcional |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | — | conector API opcional |

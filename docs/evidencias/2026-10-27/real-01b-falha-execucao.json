@@ -1,0 +1,90 @@
+{
+  "geradoEm": "2026-10-27T18:03:33.176Z",
+  "teste": "real-01b-falha-execucao",
+  "job": {
+    "id": "0ca1382b-5447-46d6-b3c3-be62145c9c92",
+    "titulo": "falha",
+    "status": "FALHOU",
+    "motivo": "LIMITE_TENTATIVAS",
+    "detalhe": "etapa x: limite de 1 tentativa(s) com falha atingido",
+    "custoUsd": 0,
+    "tempoAtivoSeg": 2
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "648c670ea05a23a3078569cc7eecd4bbf77134edfe299005322a01a8ca6299da",
+      "texto": "Provocar erro real do provedor."
+    }
+  ],
+  "etapas": [
+    {
+      "key": "x",
+      "provider": "claude-code-cli",
+      "status": "FALHOU",
+      "detalhe": "limite de 1 tentativa(s) com falha atingido",
+      "opcoes": {
+        "model": "modelo-inexistente-nivoo"
+      }
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "x",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "FALHA",
+      "sessionId": "e0739537-3aca-422c-b240-51e64e12db3f",
+      "termino": "api_error",
+      "turnos": 1,
+      "custoUsd": 0,
+      "notasImportadas": 0,
+      "progresso": false,
+      "erro": "api_error: There's an issue with the selected model (modelo-inexistente-nivoo). It may not exist or you may not have access to it. Run --model to pick a different model. [claude-code:unrecognized_model] {\"model\":\"modelo-inexistente-nivoo\",\"query_source\":\"sdk\"}",
+      "inicio": "2026-10-27T18:03:29.610Z",
+      "fim": "2026-10-27T18:03:31.624Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/x/tentativa-1.md",
+      "sha256": "80029446e31a91e2c341833936c91699a9c78f5ad07bf4547c3861e38b8dd737",
+      "bytes": 1974,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    }
+  ],
+  "criterios": [
+    {
+      "key": "c",
+      "kind": "COMMAND",
+      "status": "PENDENTE",
+      "evidencia": null
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/x/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "28f1746d994dd324fd3cb464b3d237307a5db911eff6c9a5da4ef85099bd60ff",
+      "bytes": 428
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "falha definitiva na etapa x",
+      "commit": "ba29ae2726ee07f9fcdf792b3ae5d73fc33f7150"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste real falha",
+      "referencias": {}
+    }
+  ]
+}

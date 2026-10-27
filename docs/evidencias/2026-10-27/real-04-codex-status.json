@@ -1,0 +1,22 @@
+{
+  "id": "codex-cli",
+  "label": "OpenAI Codex CLI",
+  "kind": "cli",
+  "available": false,
+  "installed": true,
+  "authenticated": false,
+  "limits": {
+    "observacao": "limites do plano ChatGPT/OpenAI da conta; erros de limite causam reagendamento"
+  },
+  "capabilities": [
+    "editar-codigo",
+    "executar-ferramentas",
+    "sandbox-workspace-write"
+  ],
+  "errors": [
+    "CLI instalado mas sem login no host do worker (execute `codex login`)"
+  ],
+  "checkedAt": "2026-10-27T17:59:39.950Z",
+  "isAi": true,
+  "version": "codex-cli 0.164.0"
+}
