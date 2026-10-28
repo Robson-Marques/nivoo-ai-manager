@@ -1,0 +1,457 @@
+{
+  "geradoEm": "2026-10-28T16:42:00.923Z",
+  "teste": "real-03-cientifico",
+  "job": {
+    "id": "9cf8bb19-3216-4062-b040-59b79c29c931",
+    "titulo": "Experimento reversão pós-gap (validação)",
+    "status": "CONCLUIDO",
+    "motivo": null,
+    "detalhe": "todos os critérios verificados com evidências",
+    "custoUsd": 0.3653,
+    "tempoAtivoSeg": 70
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "001c5a1e04bf3e0fef576176d8355ef9994f300fa24f35f4a38c5d5a94cee0cb",
+      "texto": "Medir, no conjunto de VALIDAÇÃO sintético, as métricas especificadas e produzir relatório reproduzível para decidir H1 e H2 pelas regras pré-registradas."
+    }
+  ],
+  "etapas": [
+    {
+      "key": "codigo",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 1; commit 95a185d919",
+      "opcoes": {}
+    },
+    {
+      "key": "executar",
+      "provider": "local-shell",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 1; commit 95a185d919",
+      "opcoes": {}
+    },
+    {
+      "key": "relatorio",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 1; commit d689cd7f3d",
+      "opcoes": {}
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "codigo",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-ciencia",
+      "status": "SUCESSO",
+      "sessionId": "a7064c43-471b-4a06-9e87-91261974edc1",
+      "termino": "completed",
+      "turnos": 5,
+      "custoUsd": 0.1634,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-28T16:40:48.798Z",
+      "fim": "2026-10-28T16:41:18.082Z"
+    },
+    {
+      "etapa": "executar",
+      "numero": 1,
+      "conector": "local-shell",
+      "worker": "worker-ciencia",
+      "status": "SUCESSO",
+      "sessionId": null,
+      "termino": null,
+      "turnos": null,
+      "custoUsd": 0,
+      "notasImportadas": 0,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-28T16:41:18.375Z",
+      "fim": "2026-10-28T16:41:18.623Z"
+    },
+    {
+      "etapa": "relatorio",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-ciencia",
+      "status": "SUCESSO",
+      "sessionId": "e614495e-d166-4308-94ca-5c3a351c2d7f",
+      "termino": "completed",
+      "turnos": 8,
+      "custoUsd": 0.2019,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-28T16:41:19.253Z",
+      "fim": "2026-10-28T16:41:57.417Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/codigo/tentativa-1.md",
+      "sha256": "57d23c09cc59d9377fd659915c2076ca09cc54ca7375251794155a348bc8cd84",
+      "bytes": 4680,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/executar/tentativa-1.md",
+      "sha256": "3ac458209291c8c22ae388eed9a640304b308703236b7dbef40c543440d06d31",
+      "bytes": 101,
+      "contemObjetivoV1Integro": false,
+      "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/relatorio/tentativa-1.md",
+      "sha256": "8ff96ba963ae1e4ff83a20484c88fdc4a38dd26bcd39d9e8ca4ec6f10ce9d137",
+      "bytes": 5390,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": true
+    }
+  ],
+  "criterios": [
+    {
+      "key": "metricas",
+      "kind": "METRIC_THRESHOLD",
+      "status": "APROVADO",
+      "evidencia": {
+        "op": ">=",
+        "valor": 249,
+        "limite": 200,
+        "sha256": "1d300da63c00cbed220d9b1f4b9078dc24a89117cb0ee109f0b9fab699576218",
+        "metrica": "n_dias_total",
+        "artefatoId": "76f55756-4f0a-42bd-a51f-e682b55ce7dc"
+      }
+    },
+    {
+      "key": "referencia",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "{\"referencia\": {\"n_dias_total\": 249, \"n_dias_gap\": 114, \"taxa_reversao\": 0.8509, \"reversao_media_pts\": 226.32, \"taxa_acerto_volume\": 0.5242}, \"obtido\": {\"mediana_vol1h\": 14509.0, \"n_dias_gap\": 114, \"n_dias_total\": 249, \"n_dias_volume_alto\": 124, \"parametros\": {\"barras_janela\": 12, \"limiar_gap\": 300}, \"reversao_media_pts\": 226.32, \"taxa_acerto_volume\": 0.5242, \"taxa_reversao\": 0.8509}, \"divergencias\": []}\n",
+        "comando": "python3 \"$NIVOO_DATA_DIR/verificador.py\" dados/win_sintetico_validacao.csv out/metrics.json 300 12",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    },
+    {
+      "key": "relatorio",
+      "kind": "ARTIFACT_PRESENT",
+      "status": "APROVADO",
+      "evidencia": {
+        "nome": "relatorio.md",
+        "bytes": 3725,
+        "sha256": "7ad7410a5df4ab3df302c6241016eceed9f16e26e90919ea4b875c321a371c37",
+        "artefatoId": "b2a3918a-2601-4be2-9ad3-0fe694c607e6"
+      }
+    },
+    {
+      "key": "reprodutivel",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "{\"mediana_vol1h\": 14509.0, \"n_dias_gap\": 114, \"n_dias_total\": 249, \"n_dias_volume_alto\": 124, \"parametros\": {\"barras_janela\": 12, \"limiar_gap\": 300}, \"reversao_media_pts\": 226.32, \"taxa_acerto_volume\": 0.5242, \"taxa_reversao\": 0.8509}\n",
+        "comando": "t=$(mktemp) && python3 src/experimento.py dados/win_sintetico_validacao.csv \"$t\" && cmp \"$t\" out/metrics.json",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/codigo/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "76968ea1d015382e78a534184b12203172b2689bc692329cacf23bda6dcdbd1d",
+      "bytes": 1516
+    },
+    {
+      "nome": "logs/executar/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "42a5bc578ff3f6f90ff0220ddb018f390be32abd2265a60c41d6e86fbedecefa",
+      "bytes": 501
+    },
+    {
+      "nome": "metrics.json",
+      "tipo": "METRICS",
+      "sha256": "1d300da63c00cbed220d9b1f4b9078dc24a89117cb0ee109f0b9fab699576218",
+      "bytes": 265
+    },
+    {
+      "nome": "logs/relatorio/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "ae11886c9400c74c9c84cdc4109dfc3244cef2699a83082d2c07a776afb8fc69",
+      "bytes": 1569
+    },
+    {
+      "nome": "relatorio.md",
+      "tipo": "FILE",
+      "sha256": "7ad7410a5df4ab3df302c6241016eceed9f16e26e90919ea4b875c321a371c37",
+      "bytes": 3725
+    },
+    {
+      "nome": "criterios/metricas.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "11003f2cf058eb8f6ce310ff0cf6fdcf2ffcf4fbca9aded7b34f4248e78185e6",
+      "bytes": 401
+    },
+    {
+      "nome": "criterios/referencia.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "a9f67321b5d32a640194b2483cecca870946a90cc6c5f15dc5b1e7d76407e231",
+      "bytes": 830
+    },
+    {
+      "nome": "criterios/relatorio.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "00607fdcbee4e09d35513fdead000f7f29706edd557047bc887281b735db40e6",
+      "bytes": 365
+    },
+    {
+      "nome": "criterios/reprodutivel.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "3894c51e29b4f5a29d44684c4795332ef6992309664b75c52ca8ec3ef2d96096",
+      "bytes": 656
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "etapa codigo concluída (tentativa 1)",
+      "commit": "95a185d919bddc290a02ff69f459edbd4d17f06c"
+    },
+    {
+      "seq": 2,
+      "rotulo": "etapa executar concluída (tentativa 1)",
+      "commit": "95a185d919bddc290a02ff69f459edbd4d17f06c"
+    },
+    {
+      "seq": 3,
+      "rotulo": "etapa relatorio concluída (tentativa 1)",
+      "commit": "d689cd7f3daf1e890bfd360ca30466e1f9539d2d"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste ciencia sintetica",
+      "referencias": {}
+    },
+    {
+      "categoria": "HIPOTESE_INVESTIGACAO",
+      "titulo": "H1: após |gap| >= 300 pts, a primeira hora reverte o gap",
+      "autor": "operador",
+      "conteudo": "H1: após |gap| >= 300 pts, a primeira hora reverte o gap",
+      "referencias": {
+        "hypothesisId": "fcbde063-55f9-4e5e-9fb6-fefc87c2efaf"
+      }
+    },
+    {
+      "categoria": "HIPOTESE_INVESTIGACAO",
+      "titulo": "H2: volume alto na primeira hora antecipa dia de alta",
+      "autor": "operador",
+      "conteudo": "H2: volume alto na primeira hora antecipa dia de alta",
+      "referencias": {
+        "hypothesisId": "43450eac-3d8c-4566-ab15-6158007e5151"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "src/experimento.py escrito (sessao 2)",
+      "autor": "agente:claude-code-cli:sessao:a7064c43-471b-4a06-9e87-91261974edc1",
+      "conteudo": "[progresso] Script em Python 3 (somente stdlib), uso: python3 src/experimento.py <csv> <saida.json>. Agrupa por timestamp[:10] na ordem do arquivo; ignora o primeiro dia; calcula gap, ret60 (close da 12a barra - open), vol1h (soma das 12 primeiras), ret_dia. Grava n_dias_total, n_dias_gap, taxa_reversao (4 casas), reversao_media_pts (2 casas), taxa_acerto_volume (4 casas; vol1h > mediana estrita) ",
+      "referencias": {
+        "jobId": "9cf8bb19-3216-4062-b040-59b79c29c931",
+        "origem": "notas-do-agente",
+        "noteHash": "25f385f8390aa3a5e41765ecde449179a4e80d0866119ac0112b1d7761f1a04a",
+        "attemptId": "fd0fd330-4091-429d-9896-45bc9656031e",
+        "sessionId": "a7064c43-471b-4a06-9e87-91261974edc1"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Casos de borda em experimento.py",
+      "autor": "agente:claude-code-cli:sessao:a7064c43-471b-4a06-9e87-91261974edc1",
+      "conteudo": "[decisão proposta pelo agente — requer aprovação] Dia com menos de 12 barras: ret60 usa o close da ultima barra disponivel (a especificacao assume 12). Denominador zero (nenhum dia de gap ou nenhum dia acima da mediana): metrica = null. Valores de preco/volume lidos como float.",
+      "referencias": {
+        "jobId": "9cf8bb19-3216-4062-b040-59b79c29c931",
+        "origem": "notas-do-agente",
+        "noteHash": "4afbd2fae97ec857e99e89754dde3862377bfe508a21d26c784a91ff5f385990",
+        "attemptId": "fd0fd330-4091-429d-9896-45bc9656031e",
+        "sessionId": "a7064c43-471b-4a06-9e87-91261974edc1"
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Relatorio escrito (etapa relatorio, sessao 2)",
+      "autor": "agente:claude-code-cli:sessao:e614495e-d166-4308-94ca-5c3a351c2d7f",
+      "conteudo": "out/relatorio.md escrito em portugues: objetivo, dados (DADOS SINTETICOS, sha256 81d68863476a6c644214480187d64efb9b04e1209973a25fd09aed47cc462f07), metodo, resultados copiados de out/metrics.json (taxa_reversao 0.8509, taxa_acerto_volume 0.5242, reversao_media_pts 226.32, n_dias_gap 114, n_dias_total 249), hipoteses H1/H2 e comando de reproducao. Decisao das hipoteses nao declarada.",
+      "referencias": {
+        "jobId": "9cf8bb19-3216-4062-b040-59b79c29c931",
+        "origem": "notas-do-agente",
+        "noteHash": "b49cba0d4f94cbf92255963031f769a6ed9f8189b2b1061e987b27314afc4ffa",
+        "attemptId": "50f85be3-da29-4835-ac70-a6f32e7ee454",
+        "gitCommit": "95a185d919bddc290a02ff69f459edbd4d17f06c",
+        "sessionId": "e614495e-d166-4308-94ca-5c3a351c2d7f",
+        "parameters": {},
+        "artifactIds": [
+          "b2a3918a-2601-4be2-9ad3-0fe694c607e6",
+          "76f55756-4f0a-42bd-a51f-e682b55ce7dc"
+        ]
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Limiares das regras de decisao de H1/H2 ausentes no contexto",
+      "autor": "agente:claude-code-cli:sessao:e614495e-d166-4308-94ca-5c3a351c2d7f",
+      "conteudo": "O contexto da sessao traz apenas o enunciado de H1 e H2, sem os limiares numericos pre-registrados. O relatorio cita as hipoteses e as metricas associadas, mas nao reproduz limiares. Se o operador quiser os limiares no relatorio, eles precisam ser fornecidos.",
+      "referencias": {
+        "jobId": "9cf8bb19-3216-4062-b040-59b79c29c931",
+        "origem": "notas-do-agente",
+        "noteHash": "7848e9f85dd6b3f4445826999d7709cc25e29ce9dfa31fdae8686c2068c852b4",
+        "attemptId": "50f85be3-da29-4835-ac70-a6f32e7ee454",
+        "sessionId": "e614495e-d166-4308-94ca-5c3a351c2d7f"
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Evidência do job \"Experimento reversão pós-gap (validação)\"",
+      "autor": "sistema:verificador",
+      "conteudo": "Job concluído pelo verificador do backend. Commit d689cd7f3daf1e890bfd360ca30466e1f9539d2d. Artefatos: metrics.json (1d300da63c00), relatorio.md (7ad7410a5df4).",
+      "referencias": {
+        "jobId": "9cf8bb19-3216-4062-b040-59b79c29c931",
+        "gitCommit": "d689cd7f3daf1e890bfd360ca30466e1f9539d2d",
+        "datasetIds": [
+          "ac5def7f-78c9-43ee-9cf5-3853658ecb7a"
+        ],
+        "parameters": {
+          "limiar_gap": 300,
+          "barras_janela": 12
+        },
+        "artifactIds": [
+          "76f55756-4f0a-42bd-a51f-e682b55ce7dc",
+          "b2a3918a-2601-4be2-9ad3-0fe694c607e6"
+        ],
+        "experimentIds": [
+          "c4952eff-24a5-44dd-b894-36e42dd15c98"
+        ]
+      }
+    },
+    {
+      "categoria": "RESULTADO_VALIDADO",
+      "titulo": "H1: após |gap| >= 300 pts, a primeira hora reverte o gap",
+      "autor": "sistema:regra-pre-registrada",
+      "conteudo": "VALIDADA pela regra pré-registrada taxa_reversao >= 0.65: valor observado 0.8509 (experimento gap300-janela60-validacao, dataset WIN sintético validação [VALIDACAO], commit d689cd7f3daf1e890bfd360ca30466e1f9539d2d).",
+      "referencias": {
+        "gitCommit": "d689cd7f3daf1e890bfd360ca30466e1f9539d2d",
+        "datasetIds": [
+          "ac5def7f-78c9-43ee-9cf5-3853658ecb7a"
+        ],
+        "parameters": [
+          {
+            "parametros": {
+              "limiar_gap": 300,
+              "barras_janela": 12
+            },
+            "experimento": "gap300-janela60-validacao"
+          }
+        ],
+        "artifactIds": [
+          "76f55756-4f0a-42bd-a51f-e682b55ce7dc"
+        ],
+        "hypothesisId": "fcbde063-55f9-4e5e-9fb6-fefc87c2efaf",
+        "experimentIds": [
+          "c4952eff-24a5-44dd-b894-36e42dd15c98"
+        ]
+      }
+    },
+    {
+      "categoria": "HIPOTESE_REJEITADA",
+      "titulo": "H2: volume alto na primeira hora antecipa dia de alta",
+      "autor": "sistema:regra-pre-registrada",
+      "conteudo": "REJEITADA pela regra pré-registrada taxa_acerto_volume >= 0.65: valor observado 0.5242 (experimento gap300-janela60-validacao, dataset WIN sintético validação [VALIDACAO], commit d689cd7f3daf1e890bfd360ca30466e1f9539d2d).",
+      "referencias": {
+        "gitCommit": "d689cd7f3daf1e890bfd360ca30466e1f9539d2d",
+        "datasetIds": [
+          "ac5def7f-78c9-43ee-9cf5-3853658ecb7a"
+        ],
+        "parameters": [
+          {
+            "parametros": {
+              "limiar_gap": 300,
+              "barras_janela": 12
+            },
+            "experimento": "gap300-janela60-validacao"
+          }
+        ],
+        "artifactIds": [
+          "76f55756-4f0a-42bd-a51f-e682b55ce7dc"
+        ],
+        "hypothesisId": "43450eac-3d8c-4566-ab15-6158007e5151",
+        "experimentIds": [
+          "c4952eff-24a5-44dd-b894-36e42dd15c98"
+        ]
+      }
+    }
+  ],
+  "metricasReferencia": {
+    "n_dias_total": 249,
+    "n_dias_gap": 114,
+    "taxa_reversao": 0.8509,
+    "reversao_media_pts": 226.32,
+    "taxa_acerto_volume": 0.5242
+  },
+  "metricasExperimento": {
+    "n_dias_gap": 114,
+    "parametros": {
+      "limiar_gap": 300,
+      "barras_janela": 12
+    },
+    "n_dias_total": 249,
+    "mediana_vol1h": 14509,
+    "taxa_reversao": 0.8509,
+    "n_dias_volume_alto": 124,
+    "reversao_media_pts": 226.32,
+    "taxa_acerto_volume": 0.5242
+  },
+  "experimento": {
+    "id": "c4952eff-24a5-44dd-b894-36e42dd15c98",
+    "commit": "d689cd7f3daf1e890bfd360ca30466e1f9539d2d",
+    "parametros": {
+      "limiar_gap": 300,
+      "barras_janela": 12
+    }
+  },
+  "decisoes": {
+    "H1": {
+      "status": "VALIDADA",
+      "conclusao": "VALIDADA pela regra pré-registrada taxa_reversao >= 0.65: valor observado 0.8509 (experimento gap300-janela60-validacao, dataset WIN sintético validação [VALIDACAO], commit d689cd7f3daf1e890bfd360ca30466e1f9539d2d)."
+    },
+    "H2": {
+      "status": "REJEITADA",
+      "conclusao": "REJEITADA pela regra pré-registrada taxa_acerto_volume >= 0.65: valor observado 0.5242 (experimento gap300-janela60-validacao, dataset WIN sintético validação [VALIDACAO], commit d689cd7f3daf1e890bfd360ca30466e1f9539d2d)."
+    }
+  },
+  "encerramentoPrematuroRecusado": {
+    "message": "Pesquisa incompleta não pode ser encerrada",
+    "pendencias": [
+      "hipótese em investigação: H1: após |gap| >= 300 pts, a primeira hora reverte o gap",
+      "hipótese em investigação: H2: volume alto na primeira hora antecipa dia de alta",
+      "job Experimento reversão pós-gap (validação) em PENDENTE",
+      "experimento gap300-janela60-validacao em PENDENTE"
+    ]
+  },
+  "encerramentoFinal": {
+    "http": 201,
+    "status": "ENCERRADA"
+  }
+}

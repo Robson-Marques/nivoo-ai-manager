@@ -108,6 +108,9 @@ export class CompletionService {
     }
 
     const detail = report.pendencias.length ? report.pendencias.join('\n') : 'todos os critérios verificados com evidências';
+    // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão:
+    // nunca existe um job CONCLUIDO com experimento sem métricas/commit ou sem evidência na memória.
+    const completion = status === 'CONCLUIDO' ? await this.prepareCompletion(job, worktree) : null;
     const updated = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       const r = await tx.job.updateMany({
@@ -119,6 +122,10 @@ export class CompletionService {
           finishedAt: status === 'CONCLUIDO' ? new Date() : null,
         },
       });
+      if (r.count && completion) {
+        if (completion.experiment) await tx.experiment.update(completion.experiment);
+        await tx.memoryEntry.create(completion.memory);
+      }
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
@@ -126,7 +133,6 @@ export class CompletionService {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
     });
-    if (updated && status === 'CONCLUIDO') await this.onCompleted(job, worktree);
     return report;
   }
 
@@ -220,7 +226,11 @@ export class CompletionService {
   }
 
   /** Vincula resultados reproduzíveis ao experimento e registra evidência na memória do projeto. */
-  private async onCompleted(job: Job, worktree: string): Promise<void> {
+  /** Vincula resultados reproduzíveis ao experimento e prepara a evidência para a memória do projeto. */
+  private async prepareCompletion(job: Job, worktree: string): Promise<{
+    experiment: Prisma.ExperimentUpdateArgs | null;
+    memory: Prisma.MemoryEntryCreateArgs;
+  }> {
     const commit = await this.workspace.commitCheckpoint(worktree, `job ${job.id}: concluído (critérios verificados)`);
     const artifacts = await this.prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } } });
     const exp = await this.prisma.experiment.findUnique({ where: { jobId: job.id } });
@@ -233,34 +243,36 @@ export class CompletionService {
         metrics = null;
       }
     }
-    if (exp) {
-      await this.prisma.experiment.update({
-        where: { id: exp.id },
+    return {
+      experiment: exp
+        ? {
+            where: { id: exp.id },
+            data: {
+              status: 'CONCLUIDO',
+              codeRef: commit,
+              metrics: (metrics ?? undefined) as Prisma.InputJsonValue | undefined,
+              metricsArtifactId: metricsArt?.id ?? null,
+            },
+          }
+        : null,
+      memory: {
         data: {
-          status: 'CONCLUIDO',
-          codeRef: commit,
-          metrics: (metrics ?? undefined) as Prisma.InputJsonValue | undefined,
-          metricsArtifactId: metricsArt?.id ?? null,
+          projectId: job.projectId,
+          researchId: job.researchId,
+          category: 'EVIDENCIA',
+          title: `Evidência do job "${job.title}"`,
+          content: `Job concluído pelo verificador do backend. Commit ${commit}. Artefatos: ${artifacts.map((a) => `${a.name} (${a.sha256.slice(0, 12)})`).join(', ') || 'nenhum'}.`,
+          references: {
+            jobId: job.id,
+            gitCommit: commit,
+            artifactIds: artifacts.map((a) => a.id),
+            experimentIds: exp ? [exp.id] : [],
+            datasetIds: exp?.datasetId ? [exp.datasetId] : [],
+            parameters: (exp?.parameters ?? {}) as Prisma.InputJsonValue,
+          },
+          author: 'sistema:verificador',
         },
-      });
-    }
-    await this.prisma.memoryEntry.create({
-      data: {
-        projectId: job.projectId,
-        researchId: job.researchId,
-        category: 'EVIDENCIA',
-        title: `Evidência do job "${job.title}"`,
-        content: `Job concluído pelo verificador do backend. Commit ${commit}. Artefatos: ${artifacts.map((a) => `${a.name} (${a.sha256.slice(0, 12)})`).join(', ') || 'nenhum'}.`,
-        references: {
-          jobId: job.id,
-          gitCommit: commit,
-          artifactIds: artifacts.map((a) => a.id),
-          experimentIds: exp ? [exp.id] : [],
-          datasetIds: exp?.datasetId ? [exp.datasetId] : [],
-          parameters: (exp?.parameters ?? {}) as Prisma.InputJsonValue,
-        },
-        author: 'sistema:verificador',
       },
-    });
+    };
   }
 }

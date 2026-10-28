@@ -4,6 +4,44 @@
 > Auditoria que motivou esta etapa: `docs/AUDITORIA.md`. Procedimento dos executores reais:
 > `docs/PROCEDIMENTO-CLI.md`. Evidências brutas: `docs/evidencias/2026-10-27/`.
 
+## Etapa 3 — instalação em servidor Debian (2026-10-28)
+
+Entregue: `deploy/install-debian.sh` (instalador idempotente, root, sem sudo), comando `deploy/nivoo`
+(status, logs, check, login-claude, login-codex, set-claude-token, backup, restore, update, tunnel),
+serviços systemd com usuário `nivoo` e isolamento, guia `docs/INSTALACAO-DEBIAN.md`.
+
+| Verificação | Resultado |
+|---|---|
+| Instalação do zero (contêiner com systemd real, código em `/opt/nivoo/app`) | concluída em 1 min 27 s |
+| Serviços rodam como `nivoo` (não root) | sim (`ps`: `nivoo … dist/main.js`, `nivoo … dist/worker.js`) |
+| API escuta só em 127.0.0.1 | sim (`/proc/net/tcp`: `0100007F:0BB8`) |
+| Interface servida pela API, links profundos | `<title>` ok; `/execucao` → 200 |
+| `nivoo check` | serviços ativos, worker online, conectores reportados com verdade (Claude/Codex instalados, sem login) |
+| Job de ponta a ponta sob isolamento systemd | CONCLUIDO; arquivos de propriedade de `nivoo`; checkpoint no git |
+| Reinstalação por cima | idempotente: configuração e dados preservados |
+| Reinício da máquina | api, worker e postgresql voltam sozinhos |
+| Backup | banco + dados + configuração; arquivos com permissão 600 (corrigido: antes saíam 666) |
+| Endurecimento do systemd (`systemd-analyze security nivoo-worker`) | 8.0 EXPOSED → **3.1 OK** |
+
+Correções encontradas durante esta etapa (bugs reais do produto, não do teste):
+
+* **Corrida na conclusão:** o job virava CONCLUIDO antes de o experimento receber métricas/commit e de
+  a evidência entrar na memória; um `decide` nessa janela falhava. Agora tudo é gravado na mesma
+  transação da conclusão. Reconfirmado com executor real: `docs/evidencias/2026-10-28/real-03-cientifico.json`
+  (CONCLUIDO, H1 VALIDADA, H2 REJEITADA, pesquisa ENCERRADA, US$ 0,37).
+* **Ordem na interrupção:** a etapa voltava a PENDENTE antes de o checkpoint ser gravado. Agora o
+  checkpoint vem primeiro (teste 04: 10/10 execuções; suíte completa 3× seguidas: 53/53).
+
+**Pendências precisas:**
+
+1. **Não testado em Debian real.** A política de rede desta sessão bloqueia `deb.debian.org` e todos
+   os espelhos do Debian (CONNECT 403). O teste foi feito em **Ubuntu 24.04** (derivado do Debian:
+   mesmos pacotes, apt, systemd e PostgreSQL). Para testar em Debian 12/13 aqui, libere
+   `deb.debian.org` e `security.debian.org` em *Allowed domains* do ambiente.
+2. Clone via chave de deploy SSH (passo 1 do guia) não exercitado aqui (sem acesso SSH ao GitHub).
+3. Sessão real de IA **dentro do serviço** systemd não testada (depende do seu `nivoo login-claude`);
+   os binários `claude` e `codex` executam dentro do sandbox (versão e status de login conferidos).
+
 ## Etapa 2 — continuidade com executores reais
 
 ### Ambiente da prova real

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Nivoo AI Manager — comando de administração do servidor (instalado em /usr/local/bin/nivoo).
+set -euo pipefail
+
+APP_DIR=/opt/nivoo/app
+NODE_DIR=/opt/nivoo/node
+NIVOO_USER=nivoo
+NIVOO_HOME=/var/lib/nivoo
+ENV_FILE=/etc/nivoo/nivoo.env
+BACKUP_DIR=/var/backups/nivoo
+
+[ "$(id -u)" = 0 ] || { echo "execute como root" >&2; exit 1; }
+umask 077  # backups e arquivos gerados nunca legíveis por outros usuários
+export PATH="$NODE_DIR/bin:$PATH"
+PORT="$(sed -n 's/^PORT=//p' "$ENV_FILE" 2>/dev/null || true)"; PORT="${PORT:-3000}"
+TOKEN="$(sed -n 's/^NIVOO_API_TOKEN=//p' "$ENV_FILE" 2>/dev/null || true)"
+API="http://127.0.0.1:$PORT/api"
+
+as_nivoo() { runuser -u "$NIVOO_USER" -- env HOME="$NIVOO_HOME" PATH="$NODE_DIR/bin:/usr/local/bin:/usr/bin:/bin" "$@"; }
+api() { curl -fsS ${TOKEN:+-H "Authorization: Bearer $TOKEN"} -X "${2:-GET}" "$API$1"; }
+json() { "$NODE_DIR/bin/node" -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);($1)(j)})"; }
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  status)
+    systemctl --no-pager --lines=0 status nivoo-api nivoo-worker postgresql || true
+    ;;
+  logs)
+    # nivoo logs [api|worker]   (Ctrl+C para sair)
+    svc="${1:-}"; if [ -n "$svc" ]; then journalctl -u "nivoo-$svc" -f -n 100; else journalctl -u nivoo-api -u nivoo-worker -f -n 100; fi
+    ;;
+  start|stop|restart)
+    systemctl "$cmd" nivoo-api nivoo-worker
+    echo "ok: $cmd"
+    ;;
+  login-claude)
+    echo "Login OFICIAL do Claude Code para o usuário do worker ($NIVOO_USER)."
+    echo "Siga as instruções na tela (abra o link no navegador do seu computador e cole o código)."
+    echo "Ao terminar, digite /exit para sair do Claude Code."
+    cd "$NIVOO_HOME"
+    as_nivoo claude
+    as_nivoo claude auth status || true
+    systemctl restart nivoo-worker
+    ;;
+  set-claude-token)
+    # Alternativa sem navegador: gere o token oficial em qualquer máquina com 'claude setup-token'.
+    tok="${1:-}"; [ -n "$tok" ] || { read -rsp "Cole o token (CLAUDE_CODE_OAUTH_TOKEN): " tok; echo; }
+    sed -i '/^#\? *CLAUDE_CODE_OAUTH_TOKEN=/d' "$ENV_FILE"
+    echo "CLAUDE_CODE_OAUTH_TOKEN=$tok" >> "$ENV_FILE"
+    systemctl restart nivoo-worker
+    echo "ok: token gravado em $ENV_FILE (permissão 640) e worker reiniciado"
+    ;;
+  login-codex)
+    echo "Login OFICIAL do Codex por código de dispositivo para o usuário do worker ($NIVOO_USER)."
+    cd "$NIVOO_HOME"
+    as_nivoo codex login --device-auth
+    as_nivoo codex login status || true
+    systemctl restart nivoo-worker
+    ;;
+  check)
+    echo "== serviços"; systemctl is-active nivoo-api nivoo-worker postgresql | paste -sd' ' -
+    echo "== API"; api /health && echo
+    echo "== workers"; api /system/workers | json 'j=>j.forEach(w=>console.log(`  ${w.id}  ${w.online?"online":"offline"}  último sinal ${w.lastSeenAt}`))'
+    echo "== conectores (vistos pelo usuário $NIVOO_USER)"
+    for p in claude-code-cli codex-cli local-shell anthropic-api openai-api; do
+      api "/providers/$p/check" POST | json 'j=>console.log(`  ${j.id.padEnd(16)} ${j.available?"DISPONÍVEL":"indisponível"}  ${j.version??""}  ${j.errors.join("; ")}`)'
+    done
+    echo "   (o worker roda como $NIVOO_USER; a API também — os logins acima valem para os dois)"
+    ;;
+  update)
+    cd "$APP_DIR"
+    if [ -d .git ]; then
+      git pull --ff-only
+    else
+      echo "código sem .git: substitua os arquivos em $APP_DIR pela nova versão e rode 'nivoo update' de novo" >&2
+    fi
+    nivoo backup
+    bash "$APP_DIR/deploy/install-debian.sh"
+    ;;
+  backup)
+    install -d -m 700 "$BACKUP_DIR"
+    ts="$(date +%Y%m%d-%H%M%S)"
+    runuser -u postgres -- pg_dump -Fc nivoo > "$BACKUP_DIR/nivoo-db-$ts.dump"
+    tar -C "$NIVOO_HOME" -czf "$BACKUP_DIR/nivoo-data-$ts.tar.gz" data
+    cp "$ENV_FILE" "$BACKUP_DIR/nivoo-env-$ts" && chmod 600 "$BACKUP_DIR/nivoo-env-$ts"
+    ls -lh "$BACKUP_DIR"/*"$ts"*
+    ;;
+  restore)
+    # nivoo restore <carimbo>   ex.: nivoo restore 20261028-101500
+    ts="${1:?informe o carimbo do backup (veja ls $BACKUP_DIR)}"
+    read -rp "Isto SUBSTITUI o banco e os dados atuais pelo backup $ts. Digite SIM para continuar: " ans
+    [ "$ans" = SIM ] || { echo "cancelado"; exit 1; }
+    systemctl stop nivoo-api nivoo-worker
+    runuser -u postgres -- pg_restore --clean --if-exists -d nivoo "$BACKUP_DIR/nivoo-db-$ts.dump"
+    rm -rf "$NIVOO_HOME/data" && tar -C "$NIVOO_HOME" -xzf "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
+    chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
+    systemctl start nivoo-api nivoo-worker
+    echo "ok: restaurado"
+    ;;
+  tunnel)
+    ip="$(hostname -I | awk '{print $1}')"
+    echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT root@$ip"
+    echo "Depois abra:        http://localhost:$PORT"
+    ;;
+  help|*)
+    cat <<EOF
+nivoo — administração do Nivoo AI Manager
+
+  nivoo status              estado dos serviços (api, worker, postgresql)
+  nivoo logs [api|worker]   acompanhar logs ao vivo
+  nivoo start|stop|restart  controlar os serviços
+  nivoo check               conferir API, workers e conectores de IA
+  nivoo login-claude        login oficial do Claude Code para o worker
+  nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
+  nivoo login-codex         login oficial do Codex (código de dispositivo)
+  nivoo tunnel              mostra o comando de túnel SSH para abrir a interface
+  nivoo backup              backup do banco, dados e configuração em $BACKUP_DIR
+  nivoo restore <carimbo>   restaura um backup
+  nivoo update              backup + atualiza o código (git pull) + reinstala/migra
+
+Configuração: $ENV_FILE   Código: $APP_DIR   Dados: $NIVOO_HOME/data
+EOF
+    ;;
+esac

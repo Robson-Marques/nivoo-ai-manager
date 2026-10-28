@@ -19,7 +19,9 @@ async function bootstrap() {
   } else {
     app.enableCors();
   }
-  await app.listen(appConfig().port);
-  console.log(`API Nivoo em http://localhost:${appConfig().port}/api`);
+  // HOST=127.0.0.1 (padrão do instalador) expõe só localmente; acesso remoto via túnel SSH.
+  const host = process.env.HOST ?? '0.0.0.0';
+  await app.listen(appConfig().port, host);
+  console.log(`API Nivoo em http://${host}:${appConfig().port}/api`);
 }
 bootstrap();

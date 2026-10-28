@@ -254,8 +254,9 @@ export class StepExecutorService {
       attemptStatus === 'SUCESSO' ? 'INFO' : 'WARN', attempt.id);
 
     if (attemptStatus === 'INTERROMPIDA') {
-      await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });
+      // Checkpoint primeiro: a etapa só volta a ser retomável depois que o estado está salvo.
       await this.checkpoint(job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
+      await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });
       await this.queue.complete(task.id, workerId);
       // Se o usuário já retomou o job enquanto abortávamos, reagenda.
       await this.orchestrator.scheduleReady(job.id);

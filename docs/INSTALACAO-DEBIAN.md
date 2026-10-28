@@ -1,0 +1,134 @@
+# Instalação no servidor Debian (como root)
+
+Para Debian 12 ou 13, logado como **root** (sem `sudo`). Tudo abaixo é para copiar e colar.
+
+O que fica instalado:
+
+| O quê | Onde |
+|---|---|
+| Código | `/opt/nivoo/app` |
+| Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
+| Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |
+| Dados (workspaces, artefatos, logins dos CLIs) | `/var/lib/nivoo` |
+| Banco | PostgreSQL local, banco `nivoo` (só localhost) |
+| Serviços | `nivoo-api` e `nivoo-worker` (systemd, usuário `nivoo`, **não** root) |
+| Comando de administração | `nivoo` |
+| Backups | `/var/backups/nivoo` |
+
+A interface escuta **só em 127.0.0.1:3000**. Você acessa pelo túnel SSH; nenhuma porta nova
+fica aberta na internet.
+
+---
+
+## 1. Baixar o código no servidor (chave de deploy SSH, somente leitura)
+
+O repositório é privado. Crie uma chave só para este servidor:
+
+```bash
+apt-get update && apt-get install -y git openssh-client
+install -d -m 700 /root/.ssh
+ssh-keygen -t ed25519 -N "" -f /root/.ssh/nivoo_deploy -C "nivoo-$(hostname)"
+cat >> /root/.ssh/config <<'EOF'
+Host github-nivoo
+  HostName github.com
+  User git
+  IdentityFile /root/.ssh/nivoo_deploy
+  IdentitiesOnly yes
+EOF
+chmod 600 /root/.ssh/config
+cat /root/.ssh/nivoo_deploy.pub
+```
+
+Copie a linha mostrada (`ssh-ed25519 ...`) e cadastre no GitHub:
+**repositório nivoo-ai-manager → Settings → Deploy keys → Add deploy key** (deixe *Allow write access*
+desmarcado).
+
+Depois, no servidor:
+
+```bash
+ssh -o StrictHostKeyChecking=accept-new -T github-nivoo   # deve responder "successfully authenticated"
+git clone -b claude/lucid-lamport-z7zup1 github-nivoo:robson-marques/nivoo-ai-manager.git /opt/nivoo/app
+```
+
+> Sem chave? Alternativa: baixe o ZIP da branch no GitHub pelo seu computador, envie com
+> `scp nivoo-ai-manager.zip root@SEU_SERVIDOR:/root/`, e no servidor:
+> `apt-get install -y unzip && unzip /root/nivoo-ai-manager.zip -d /opt/nivoo && mv /opt/nivoo/nivoo-ai-manager-* /opt/nivoo/app`.
+> (Nesse caso, o `nivoo update` não consegue baixar versões novas sozinho.)
+
+## 2. Instalar
+
+```bash
+bash /opt/nivoo/app/deploy/install-debian.sh
+```
+
+Leva poucos minutos e termina com **"Instalação concluída."** Pode ser rodado de novo sem perder
+dados nem configuração.
+
+## 3. Abrir a interface
+
+No **seu computador** (não no servidor):
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 root@IP_DO_SERVIDOR
+```
+
+Deixe esse terminal aberto e acesse **http://localhost:3000** no navegador.
+
+## 4. Login dos executores de IA (oficial)
+
+No servidor:
+
+```bash
+nivoo login-claude     # abre o Claude Code: escolha login com sua conta, abra o link no seu
+                       # computador, cole o código; depois digite /exit
+nivoo login-codex      # mostra um link e um código de dispositivo; autorize no navegador
+nivoo check            # claude-code-cli e codex-cli devem aparecer como DISPONÍVEL
+```
+
+Alternativa para o Claude sem navegador: no seu computador rode `claude setup-token` e, no servidor,
+`nivoo set-claude-token` (cole o token).
+
+## 5. Dia a dia
+
+```bash
+nivoo status           # serviços
+nivoo logs             # logs ao vivo (Ctrl+C sai)
+nivoo check            # API, workers e conectores
+nivoo backup           # banco + dados + configuração em /var/backups/nivoo
+nivoo update           # backup + git pull + reinstala + migra (sem perder dados)
+nivoo restart
+nivoo help
+```
+
+Os serviços sobem sozinhos quando o servidor reinicia. Se o worker cair, o systemd o reinicia, e os
+trabalhos em andamento são retomados do último checkpoint.
+
+## Opções de instalação
+
+```bash
+NIVOO_PORT=8080 bash /opt/nivoo/app/deploy/install-debian.sh        # outra porta
+NIVOO_HOST=0.0.0.0 bash /opt/nivoo/app/deploy/install-debian.sh     # expor na rede (gera token de API;
+                                                                    # cole-o em "Conectores e configurações")
+NIVOO_INSTALL_CLIS=0 bash /opt/nivoo/app/deploy/install-debian.sh   # sem Claude Code/Codex
+```
+
+Expor na internet sem HTTPS não é recomendado: prefira o túnel SSH, ou coloque um proxy reverso com
+TLS na frente.
+
+## Segurança aplicada pelo instalador
+
+* Serviços como usuário `nivoo`, sem privilégios, com isolamento do systemd: sistema de arquivos
+  somente leitura, exceto `/var/lib/nivoo`; `/home` e `/root` inacessíveis; `/tmp` privado; sem
+  capacidades. `systemd-analyze security nivoo-worker` → **3.1 OK**.
+* Segredos só em `/etc/nivoo/nivoo.env` (root:nivoo, 640); backups com permissão 600.
+* Banco acessível apenas em localhost, com senha aleatória.
+* Claude Code roda sem permissões genéricas: não escreve nem lê fora do workspace do job.
+
+## Problemas comuns
+
+| Sintoma | Verifique |
+|---|---|
+| `nivoo check` mostra claude-code-cli indisponível | rode `nivoo login-claude` |
+| Interface não abre | o túnel SSH está aberto? `nivoo status`; `nivoo logs api` |
+| Jobs parados em "Aguardando recurso" | `nivoo check` (login/limite do provedor); `nivoo logs worker` |
+| Erro durante a instalação | rode o instalador de novo; ele continua de onde estava |

@@ -26,6 +26,11 @@ encerramento prematuro de pesquisas e ausência de validação integral.
 
 ## Instalação
 
+**Servidor Debian (produção, como root): siga [`docs/INSTALACAO-DEBIAN.md`](docs/INSTALACAO-DEBIAN.md)** —
+um comando (`deploy/install-debian.sh`) instala tudo e cria os serviços; depois use o comando `nivoo`.
+
+Instalação manual (desenvolvimento):
+
 Pré-requisitos: Node.js 22+, PostgreSQL 14+ (testado em 16), git e bash no host do worker.
 
 ```bash

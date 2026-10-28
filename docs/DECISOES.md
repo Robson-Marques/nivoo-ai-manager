@@ -22,3 +22,6 @@
 | 018 | 2026-10-27 | Progresso de sessão = mudança no trabalho (git + out/), excluindo `.nivoo/` | Notas do agente sozinhas não são progresso (achado em execução real: agente anotava "não consigo" a cada sessão) |
 | 019 | 2026-10-27 | Hipóteses com regra de decisão pré-registrada; decisão aplicada pelo sistema; regra imutável após início de qualquer experimento que possa decidi-la | Aceitação/rejeição por critério predefinido, não por julgamento posterior |
 | 020 | 2026-10-27 | Saída `stream-json` do Claude Code: cada ferramenta usada e cada permissão negada vão para o log do job | Observabilidade do que cada sessão fez |
+| 021 | 2026-10-28 | Instalação de produção: `deploy/install-debian.sh` (root, idempotente), Node oficial em `/opt/nivoo/node`, usuário `nivoo`, systemd endurecido, API em 127.0.0.1 + túnel SSH, comando `nivoo` | Servidor Debian do responsável, sem sudo; isolamento em nível de SO |
+| 022 | 2026-10-28 | Conclusão do job, atualização do experimento e evidência na memória na mesma transação | Corrida observada: job CONCLUIDO com experimento ainda sem métricas |
+| 023 | 2026-10-28 | Na interrupção, checkpoint antes de liberar a etapa | Etapa retomável só com estado salvo |
