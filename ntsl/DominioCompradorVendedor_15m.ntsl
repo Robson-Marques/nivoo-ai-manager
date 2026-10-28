@@ -37,10 +37,10 @@
 //           agora, que pode ser so uma correcao do maior.
 //
 // CANDLE EM FORMACAO E OSCILACOES DE SEGUNDOS
-//   O candle de 15m aberto entra com peso proporcional ao tempo ja
-//   decorrido (1 min = 1/15, 15 min = peso cheio). Logo apos a abertura,
-//   quando o candle ainda nao diz nada, ele quase nao pesa. CurrentTime
-//   tem resolucao de minuto, entao o peso nao muda a cada segundo.
+//   O candle de 15m aberto entra com peso proporcional aos contratos ja
+//   negociados nele, comparados com a media por candle (peso maximo 1).
+//   Logo apos a abertura, quando o candle ainda nao diz nada, ele quase
+//   nao pesa. Nao usa o relogio do computador: funciona igual no replay.
 //   Alem disso o estado usa HISTERESE: para entrar em dominio o placar
 //   precisa passar de LimiteEntrada; para sair, precisa cair abaixo de
 //   LimiteSaida. A faixa entre os dois evita a troca de leitura quando o
@@ -63,8 +63,6 @@
 // LIMITACOES
 //   - AgressionVolBuy/AgressionVolSell exigem Profit Ultra, Pro com
 //     Plugin TR ou modulo Scalper (manual NTSL, secoes 20.8 e 20.9).
-//   - O peso do candle aberto usa o relogio do computador. Em replay ou
-//     com o mercado fechado o candle atual entra com peso cheio.
 //   - Os limites (0,30 / 0,15) e periodos (4 / 16) sao pontos de partida
 //     justificados nos comentarios dos inputs, nao regras comprovadas.
 //     Valide no seu historico.
@@ -82,7 +80,7 @@ var
   // series por candle
   vBuy, vSell, vCLV, vMove : Float;
   // peso do candle em formacao
-  vElap : Integer;
+  vQtdMedia : Float;
   vPeso, vClose, vFechAnt, vRefM, vRefA : Float;
   // horizonte maior
   vSBM, vSSM, vFM, vDM, vPM, vCM, vSM, vPathM, vHHM, vLLM : Float;
@@ -107,14 +105,15 @@ begin
   vMove := Abs(Close - Close[1]);
 
   // ---------------- peso do candle em formacao ----------------
-  // candles fechados: peso 1. Candle aberto: minutos decorridos / 15.
+  // candles fechados: peso 1. Candle aberto: contratos ja negociados nele
+  // / media de contratos por candle no horizonte maior (maximo 1).
+  // Usa so dados do grafico (nao o relogio do computador), entao funciona
+  // igual ao vivo e no replay. Um candle que ainda negociou pouco tem
+  // pouca informacao e pesa pouco.
+  vQtdMedia := (Summation(Quantity, PeriodoMaior + 1) - Quantity) / PeriodoMaior;
   vPeso := 1;
-  if LastBarOnChart then
-  begin
-    vElap := TimeToMinutes(CurrentTime) - TimeToMinutes(Time);
-    if (vElap >= 0) and (vElap < 15) then
-      vPeso := vElap / 15.0;
-  end;
+  if LastBarOnChart and (vQtdMedia > 0) then
+    vPeso := Min(1, Quantity / vQtdMedia);
 
   // preco efetivo: no inicio do candle fica perto do fechamento anterior
   // e vai para o preco atual conforme o candle amadurece
