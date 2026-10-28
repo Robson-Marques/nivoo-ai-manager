@@ -9,8 +9,11 @@
 //   - no candle de 5 minutos que fez a minima (fundo) / maxima (topo)
 //     desse candle de 15 minutos.
 //
-//   FUNDO (verde): pavio inferior longo -> venda rejeitada.
-//   TOPO (vermelho): pavio superior longo -> compra rejeitada.
+//   FUNDO (verde): candle VENDEDOR (fecha abaixo da abertura) com pavio
+//     inferior longo -> o preco foi rejeitado embaixo.
+//   TOPO (vermelho): candle COMPRADOR (fecha acima da abertura) com pavio
+//     superior longo -> o preco foi rejeitado em cima.
+//   Vale para o candle de 15m e para o candle de 5m.
 //
 // "Pavio longo" (vale para o 15m e para o 5m, cada um no seu tempo):
 //   1. Pavio >= PercPavio % do candle inteiro (maxima - minima)
@@ -60,13 +63,17 @@ begin
   // media de (maxima - minima) = media das maximas - media das minimas
   vMedia5  := Media(PeriodoMedia, High) - Media(PeriodoMedia, Low);
 
-  bFundo5Bar := (vAmp5 > 0)
+  // fundo: candle ainda VENDEDOR (fecha abaixo da abertura) com pavio
+  // inferior longo = o preco foi rejeitado embaixo
+  bFundo5Bar := (vAmp5 > 0) and (Close < Open)
                 and (vPavInf5 >= vAmp5 * PercPavio / 100)
                 and (vPavInf5 >= vCorpo5 * MultCorpo)
                 and (vPavInf5 >= vPavSup5 * MultPavioOposto)
                 and (vPavInf5 >= vMedia5 * MultMedia);
 
-  bTopo5Bar  := (vAmp5 > 0)
+  // topo: candle ainda COMPRADOR (fecha acima da abertura) com pavio
+  // superior longo = o preco foi rejeitado em cima
+  bTopo5Bar  := (vAmp5 > 0) and (Close > Open)
                 and (vPavSup5 >= vAmp5 * PercPavio / 100)
                 and (vPavSup5 >= vCorpo5 * MultCorpo)
                 and (vPavSup5 >= vPavInf5 * MultPavioOposto)
@@ -146,7 +153,7 @@ begin
       end;
 
       // FUNDO: pavio inferior longo no 15m E no 5m que fez a minima
-      if bCtxF and (vFundo5 = 1)
+      if bCtxF and (vFundo5 = 1) and (Close < vAbe15)
          and (vPavInf15 >= vAmp15 * PercPavio / 100)
          and (vPavInf15 >= vCorpo15 * MultCorpo)
          and (vPavInf15 >= vPavSup15 * MultPavioOposto)
@@ -154,7 +161,7 @@ begin
         vSinalFundo := 1;
 
       // TOPO: pavio superior longo no 15m E no 5m que fez a maxima
-      if bCtxT and (vTopo5 = 1)
+      if bCtxT and (vTopo5 = 1) and (Close > vAbe15)
          and (vPavSup15 >= vAmp15 * PercPavio / 100)
          and (vPavSup15 >= vCorpo15 * MultCorpo)
          and (vPavSup15 >= vPavInf15 * MultPavioOposto)
