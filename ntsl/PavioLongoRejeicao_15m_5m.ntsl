@@ -1,19 +1,16 @@
 // =====================================================================
 // Pavio Longo de Rejeicao 15m + 5m (Topo e Fundo)
-// ---------------------------------------------------------------------
 // APLICAR EM GRAFICO DE 5 MINUTOS.
-// O indicador monta o candle de 15 minutos juntando os 3 candles de 5 min
-// de cada bloco (:00, :15, :30, :45) e so marca quando o candle de 15
-// minutos FECHA e o pavio longo existe nos DOIS tempos ao mesmo tempo:
-//   - no candle de 15 minutos; e
-//   - no candle de 5 minutos que fez a minima (fundo) / maxima (topo)
-//     desse candle de 15 minutos.
 //
-//   FUNDO (verde): candle VENDEDOR (fecha abaixo da abertura) com pavio
-//     inferior longo -> o preco foi rejeitado embaixo.
-//   TOPO (vermelho): candle COMPRADOR (fecha acima da abertura) com pavio
-//     superior longo -> o preco foi rejeitado em cima.
-//   Vale para o candle de 15m e para o candle de 5m.
+// Monta o candle de 15 min com os 3 candles de 5 min de cada bloco
+// (:00, :15, :30, :45). A marca sai no candle de 5 min que FECHA o 15m
+// (:10, :25, :40, :55) e esse proprio candle e a rejeicao:
+//
+//   FUNDO: o candle de 5m que fecha o bloco e VENDEDOR (fecha abaixo da
+//          abertura), tem pavio inferior longo e fez a minima do 15m;
+//          e o candle de 15m tambem e VENDEDOR com pavio inferior longo.
+//   TOPO:  o mesmo ao contrario: candles COMPRADORES com pavio superior
+//          longo, e o 5m fez a maxima do 15m.
 //
 // "Pavio longo" (vale para o 15m e para o 5m, cada um no seu tempo):
 //   1. Pavio >= PercPavio % do candle inteiro (maxima - minima)
@@ -21,13 +18,8 @@
 //   3. Pavio >= MultPavioOposto x o pavio do lado contrario
 //   4. Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
 //      candles daquele tempo grafico
-//   5. (so no 15m, opcional) o candle de 15m fez a menor minima / maior
-//      maxima dos ultimos PeriodoContexto candles de 15m. 0 = desliga.
-//
-// A marca (texto FUNDO/TOPO + candle pintado) aparece no 3o candle de
-// 5 min do bloco, o que fecha o 15m.
-// O alerta dispara assim que o candle de 15 minutos fecha.
-// Time() retorna o horario de ABERTURA do candle (manual NTSL, 16.55).
+//   5. (so no 15m, opcional) o 15m fez a menor minima / maior maxima dos
+//      ultimos PeriodoContexto candles de 15m. 0 = desliga.
 // =====================================================================
 
 input
@@ -37,54 +29,48 @@ input
   MultMedia(0.6);         // pavio minimo em vezes a amplitude media
   PeriodoMedia(20);       // candles para a amplitude media
   PeriodoContexto(5);     // candles de 15m para exigir nova min/max (0 = desliga)
-  PintarCandle(true);     // pinta o candle que fecha o 15m com sinal
+  PintarCandle(true);     // pinta o candle de rejeicao
   UsarAlerta(true);       // alerta quando o 15m fecha com sinal
 
 var
-  // candle de 5 minutos (o atual)
   vCorpo5, vAmp5, vPavSup5, vPavInf5, vMedia5 : Float;
-  bFundo5Bar, bTopo5Bar : Boolean;
-  // candle de 15 minutos montado
+  bFundo5, bTopo5        : Boolean;
   vHora, vMinuto, vPos   : Integer;
   vBloco                 : Integer;
   vAbe15, vMax15, vMin15 : Float;
   vCorpo15, vAmp15, vPavSup15, vPavInf15 : Float;
   vMedia15               : Float;
-  vFundo5, vTopo5        : Integer;   // pavio longo no 5m que fez o extremo
   vSinalFundo, vSinalTopo : Integer;
   bNovoBloco, bFimBloco, bCtxF, bCtxT : Boolean;
 
 begin
-  // ---------------- 5 minutos: pavio do candle atual ----------------
+  // ---------------- 5 minutos: o candle atual ----------------
   vCorpo5  := Abs(Close - Open);
   vAmp5    := High - Low;
   vPavSup5 := High - Max(Open, Close);
   vPavInf5 := Min(Open, Close) - Low;
-  // media de (maxima - minima) = media das maximas - media das minimas
   vMedia5  := Media(PeriodoMedia, High) - Media(PeriodoMedia, Low);
 
-  // fundo: candle ainda VENDEDOR (fecha abaixo da abertura) com pavio
-  // inferior longo = o preco foi rejeitado embaixo
-  bFundo5Bar := (vAmp5 > 0) and (Close < Open)
-                and (vPavInf5 >= vAmp5 * PercPavio / 100)
-                and (vPavInf5 >= vCorpo5 * MultCorpo)
-                and (vPavInf5 >= vPavSup5 * MultPavioOposto)
-                and (vPavInf5 >= vMedia5 * MultMedia);
+  // fundo: candle VENDEDOR com pavio inferior longo
+  bFundo5 := (vAmp5 > 0) and (Close < Open)
+             and (vPavInf5 >= vAmp5 * PercPavio / 100)
+             and (vPavInf5 >= vCorpo5 * MultCorpo)
+             and (vPavInf5 >= vPavSup5 * MultPavioOposto)
+             and (vPavInf5 >= vMedia5 * MultMedia);
 
-  // topo: candle ainda COMPRADOR (fecha acima da abertura) com pavio
-  // superior longo = o preco foi rejeitado em cima
-  bTopo5Bar  := (vAmp5 > 0) and (Close > Open)
-                and (vPavSup5 >= vAmp5 * PercPavio / 100)
-                and (vPavSup5 >= vCorpo5 * MultCorpo)
-                and (vPavSup5 >= vPavInf5 * MultPavioOposto)
-                and (vPavSup5 >= vMedia5 * MultMedia);
+  // topo: candle COMPRADOR com pavio superior longo
+  bTopo5  := (vAmp5 > 0) and (Close > Open)
+             and (vPavSup5 >= vAmp5 * PercPavio / 100)
+             and (vPavSup5 >= vCorpo5 * MultCorpo)
+             and (vPavSup5 >= vPavInf5 * MultPavioOposto)
+             and (vPavSup5 >= vMedia5 * MultMedia);
 
   // ---------------- monta o candle de 15 minutos ----------------
   vHora   := Floor(Time / 100);
   vMinuto := Time - vHora * 100;
   vBloco  := vHora * 4 + Floor(vMinuto / 15);
-  vPos    := Mod(vMinuto, 15);                      // 0, 5 ou 10
-  bFimBloco := (vPos = 10);                        // 3o candle de 5 min
+  vPos    := Mod(vMinuto, 15);
+  bFimBloco := (vPos = 10);          // candle de 5m que fecha o 15m
 
   if CurrentBar <= 1 then
     bNovoBloco := true
@@ -96,34 +82,12 @@ begin
     vAbe15 := Open;
     vMax15 := High;
     vMin15 := Low;
-    if bFundo5Bar then vFundo5 := 1 else vFundo5 := 0;
-    if bTopo5Bar  then vTopo5  := 1 else vTopo5  := 0;
   end
   else
   begin
     vAbe15 := vAbe15[1];
     vMax15 := Max(vMax15[1], High);
     vMin15 := Min(vMin15[1], Low);
-
-    // o pavio do 5m que importa e o do candle que fez a minima do 15m
-    if Low < vMin15[1] then
-    begin
-      if bFundo5Bar then vFundo5 := 1 else vFundo5 := 0;
-    end
-    else if (Low = vMin15[1]) and bFundo5Bar then
-      vFundo5 := 1
-    else
-      vFundo5 := vFundo5[1];
-
-    // ... e o do candle que fez a maxima do 15m
-    if High > vMax15[1] then
-    begin
-      if bTopo5Bar then vTopo5 := 1 else vTopo5 := 0;
-    end
-    else if (High = vMax15[1]) and bTopo5Bar then
-      vTopo5 := 1
-    else
-      vTopo5 := vTopo5[1];
   end;
 
   vAmp15    := vMax15 - vMin15;
@@ -152,16 +116,18 @@ begin
         bCtxT := vMax15 >= Highest(High, PeriodoContexto * 3);
       end;
 
-      // FUNDO: pavio inferior longo no 15m E no 5m que fez a minima
-      if bCtxF and (vFundo5 = 1) and (Close < vAbe15)
+      // FUNDO: este 5m e vendedor com pavio inferior longo e fez a minima
+      // do 15m; o 15m tambem e vendedor com pavio inferior longo
+      if bCtxF and bFundo5 and (Low <= vMin15) and (Close < vAbe15)
          and (vPavInf15 >= vAmp15 * PercPavio / 100)
          and (vPavInf15 >= vCorpo15 * MultCorpo)
          and (vPavInf15 >= vPavSup15 * MultPavioOposto)
          and (vPavInf15 >= vMedia15 * MultMedia) then
         vSinalFundo := 1;
 
-      // TOPO: pavio superior longo no 15m E no 5m que fez a maxima
-      if bCtxT and (vTopo5 = 1) and (Close > vAbe15)
+      // TOPO: este 5m e comprador com pavio superior longo e fez a maxima
+      // do 15m; o 15m tambem e comprador com pavio superior longo
+      if bCtxT and bTopo5 and (High >= vMax15) and (Close > vAbe15)
          and (vPavSup15 >= vAmp15 * PercPavio / 100)
          and (vPavSup15 >= vCorpo15 * MultCorpo)
          and (vPavSup15 >= vPavInf15 * MultPavioOposto)
@@ -177,7 +143,6 @@ begin
   end;
 
   // ---------------- marcas no grafico ----------------
-  // texto direto no candle (sem Plot, para nao baguncar a escala)
   if vSinalFundo = 1 then
   begin
     PlotText("FUNDO", clLime, 0, 9);
@@ -190,15 +155,13 @@ begin
     if PintarCandle then PaintBar(clRed);
   end;
 
-  // aviso se o grafico nao for de 5 minutos
   if LastBarOnChart and (GraphicOffset <> 5) then
     PlotText("USE NO GRAFICO DE 5 MINUTOS", clYellow, 2, 10);
 
-  // alerta com o candle de 15m ja fechado (1o tick do candle seguinte)
+  // alerta com o candle de 15m ja fechado
   if UsarAlerta and (CurrentBar > 2) then
   begin
     if vSinalFundo[1] = 1 then Alert(clLime);
     if vSinalTopo[1]  = 1 then Alert(clRed);
   end;
-
 end;
