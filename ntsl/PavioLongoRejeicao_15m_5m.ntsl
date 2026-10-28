@@ -1,0 +1,201 @@
+// =====================================================================
+// Pavio Longo de Rejeicao 15m + 5m (Topo e Fundo)
+// ---------------------------------------------------------------------
+// APLICAR EM GRAFICO DE 5 MINUTOS.
+// O indicador monta o candle de 15 minutos juntando os 3 candles de 5 min
+// de cada bloco (:00, :15, :30, :45) e so marca quando o candle de 15
+// minutos FECHA e o pavio longo existe nos DOIS tempos ao mesmo tempo:
+//   - no candle de 15 minutos; e
+//   - no candle de 5 minutos que fez a minima (fundo) / maxima (topo)
+//     desse candle de 15 minutos.
+//
+//   FUNDO (verde): pavio inferior longo -> venda rejeitada.
+//   TOPO (vermelho): pavio superior longo -> compra rejeitada.
+//
+// "Pavio longo" (vale para o 15m e para o 5m, cada um no seu tempo):
+//   1. Pavio >= PercPavio % do candle inteiro (maxima - minima)
+//   2. Pavio >= MultCorpo x o corpo
+//   3. Pavio >= MultPavioOposto x o pavio do lado contrario
+//   4. Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
+//      candles daquele tempo grafico
+//   5. (so no 15m, opcional) o candle de 15m fez a menor minima / maior
+//      maxima dos ultimos PeriodoContexto candles de 15m. 0 = desliga.
+//
+// A marca aparece no 3o candle de 5 min do bloco (o que fecha o 15m).
+// O alerta dispara assim que o candle de 15 minutos fecha.
+// Obs.: considera que Time e o horario de ABERTURA do candle.
+// =====================================================================
+
+input
+  PercPavio(50.0);        // pavio minimo em % do candle inteiro
+  MultCorpo(2.0);         // pavio minimo em vezes o corpo
+  MultPavioOposto(2.0);   // pavio minimo em vezes o pavio do outro lado
+  MultMedia(0.6);         // pavio minimo em vezes a amplitude media
+  PeriodoMedia(20);       // candles para a amplitude media
+  PeriodoContexto(5);     // candles de 15m para exigir nova min/max (0 = desliga)
+  PintarCandle(true);     // pinta o candle que fecha o 15m com sinal
+  UsarAlerta(true);       // alerta quando o 15m fecha com sinal
+
+var
+  // candle de 5 minutos (o atual)
+  vCorpo5, vAmp5, vPavSup5, vPavInf5, vMedia5 : Float;
+  bFundo5Bar, bTopo5Bar : Boolean;
+  // candle de 15 minutos montado
+  vHora, vMinuto, vPos   : Integer;
+  vBloco                 : Integer;
+  vAbe15, vMax15, vMin15 : Float;
+  vCorpo15, vAmp15, vPavSup15, vPavInf15 : Float;
+  vMedia15               : Float;
+  vFundo5, vTopo5        : Integer;   // pavio longo no 5m que fez o extremo
+  vSinalFundo, vSinalTopo : Integer;
+  bNovoBloco, bFimBloco, bCtxF, bCtxT : Boolean;
+  vDist                  : Float;
+
+begin
+  // ---------------- 5 minutos: pavio do candle atual ----------------
+  vCorpo5  := Abs(Close - Open);
+  vAmp5    := High - Low;
+  vPavSup5 := High - Max(Open, Close);
+  vPavInf5 := Min(Open, Close) - Low;
+  vMedia5  := Media(PeriodoMedia, vAmp5);
+
+  bFundo5Bar := (vAmp5 > 0)
+                and (vPavInf5 >= vAmp5 * PercPavio / 100)
+                and (vPavInf5 >= vCorpo5 * MultCorpo)
+                and (vPavInf5 >= vPavSup5 * MultPavioOposto)
+                and (vPavInf5 >= vMedia5 * MultMedia);
+
+  bTopo5Bar  := (vAmp5 > 0)
+                and (vPavSup5 >= vAmp5 * PercPavio / 100)
+                and (vPavSup5 >= vCorpo5 * MultCorpo)
+                and (vPavSup5 >= vPavInf5 * MultPavioOposto)
+                and (vPavSup5 >= vMedia5 * MultMedia);
+
+  // ---------------- monta o candle de 15 minutos ----------------
+  vHora   := Floor(Time / 100);
+  vMinuto := Time - vHora * 100;
+  vBloco  := vHora * 4 + Floor(vMinuto / 15);
+  vPos    := vMinuto - Floor(vMinuto / 15) * 15;   // 0, 5 ou 10
+  bFimBloco := (vPos = 10);                        // 3o candle de 5 min
+
+  if CurrentBar <= 1 then
+    bNovoBloco := true
+  else
+    bNovoBloco := (Date <> Date[1]) or (vBloco <> vBloco[1]);
+
+  if bNovoBloco then
+  begin
+    vAbe15 := Open;
+    vMax15 := High;
+    vMin15 := Low;
+    if bFundo5Bar then vFundo5 := 1 else vFundo5 := 0;
+    if bTopo5Bar  then vTopo5  := 1 else vTopo5  := 0;
+  end
+  else
+  begin
+    vAbe15 := vAbe15[1];
+    vMax15 := Max(vMax15[1], High);
+    vMin15 := Min(vMin15[1], Low);
+
+    // o pavio do 5m que importa e o do candle que fez a minima do 15m
+    if Low < vMin15[1] then
+    begin
+      if bFundo5Bar then vFundo5 := 1 else vFundo5 := 0;
+    end
+    else if (Low = vMin15[1]) and bFundo5Bar then
+      vFundo5 := 1
+    else
+      vFundo5 := vFundo5[1];
+
+    // ... e o do candle que fez a maxima do 15m
+    if High > vMax15[1] then
+    begin
+      if bTopo5Bar then vTopo5 := 1 else vTopo5 := 0;
+    end
+    else if (High = vMax15[1]) and bTopo5Bar then
+      vTopo5 := 1
+    else
+      vTopo5 := vTopo5[1];
+  end;
+
+  vAmp15    := vMax15 - vMin15;
+  vCorpo15  := Abs(Close - vAbe15);
+  vPavSup15 := vMax15 - Max(vAbe15, Close);
+  vPavInf15 := Min(vAbe15, Close) - vMin15;
+
+  // amplitude media dos candles de 15m (media exponencial, so nos fechamentos)
+  if CurrentBar <= 1 then
+    vMedia15 := 0
+  else
+    vMedia15 := vMedia15[1];
+
+  vSinalFundo := 0;
+  vSinalTopo  := 0;
+
+  if bFimBloco and (vAmp15 > 0) then
+  begin
+    if (CurrentBar > PeriodoMedia * 3) and (vMedia15 > 0) then
+    begin
+      bCtxF := true;
+      bCtxT := true;
+      if PeriodoContexto > 0 then
+      begin
+        bCtxF := vMin15 <= Lowest(Low, PeriodoContexto * 3);
+        bCtxT := vMax15 >= Highest(High, PeriodoContexto * 3);
+      end;
+
+      // FUNDO: pavio inferior longo no 15m E no 5m que fez a minima
+      if bCtxF and (vFundo5 = 1)
+         and (vPavInf15 >= vAmp15 * PercPavio / 100)
+         and (vPavInf15 >= vCorpo15 * MultCorpo)
+         and (vPavInf15 >= vPavSup15 * MultPavioOposto)
+         and (vPavInf15 >= vMedia15 * MultMedia) then
+        vSinalFundo := 1;
+
+      // TOPO: pavio superior longo no 15m E no 5m que fez a maxima
+      if bCtxT and (vTopo5 = 1)
+         and (vPavSup15 >= vAmp15 * PercPavio / 100)
+         and (vPavSup15 >= vCorpo15 * MultCorpo)
+         and (vPavSup15 >= vPavInf15 * MultPavioOposto)
+         and (vPavSup15 >= vMedia15 * MultMedia) then
+        vSinalTopo := 1;
+    end;
+
+    // atualiza a media de 15m depois de usar a anterior
+    if vMedia15 = 0 then
+      vMedia15 := vAmp15
+    else
+      vMedia15 := vMedia15 + (vAmp15 - vMedia15) * 2 / (PeriodoMedia + 1);
+  end;
+
+  // ---------------- marcas no grafico ----------------
+  vDist := vMedia5 * 0.3;
+
+  if vSinalFundo = 1 then
+  begin
+    Plot(vMin15 - vDist);
+    if PintarCandle then PaintBar(clLime);
+  end
+  else
+    NoPlot(1);
+
+  if vSinalTopo = 1 then
+  begin
+    Plot2(vMax15 + vDist);
+    if PintarCandle then PaintBar(clRed);
+  end
+  else
+    NoPlot(2);
+
+  // alerta com o candle de 15m ja fechado (1o tick do candle seguinte)
+  if UsarAlerta and (CurrentBar > 2) then
+  begin
+    if vSinalFundo[1] = 1 then Alert(clLime);
+    if vSinalTopo[1]  = 1 then Alert(clRed);
+  end;
+
+  SetPlotColor(1, clLime);
+  SetPlotColor(2, clRed);
+  SetPlotWidth(1, 3);
+  SetPlotWidth(2, 3);
+end;
