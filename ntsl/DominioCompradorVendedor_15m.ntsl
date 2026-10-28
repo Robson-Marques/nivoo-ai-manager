@@ -66,7 +66,8 @@
 //   - O peso do candle aberto usa o relogio do computador. Em replay ou
 //     com o mercado fechado o candle atual entra com peso cheio.
 //   - Os limites (0,30 / 0,15) e periodos (4 / 16) sao pontos de partida
-//     justificados abaixo, nao regras comprovadas. Valide no seu historico.
+//     justificados nos comentarios dos inputs, nao regras comprovadas.
+//     Valide no seu historico.
 // =====================================================================
 
 input
