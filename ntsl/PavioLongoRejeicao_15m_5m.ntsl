@@ -21,7 +21,8 @@
 //   5. (so no 15m, opcional) o candle de 15m fez a menor minima / maior
 //      maxima dos ultimos PeriodoContexto candles de 15m. 0 = desliga.
 //
-// A marca aparece no 3o candle de 5 min do bloco (o que fecha o 15m).
+// A marca (texto FUNDO/TOPO + candle pintado) aparece no 3o candle de
+// 5 min do bloco, o que fecha o 15m.
 // O alerta dispara assim que o candle de 15 minutos fecha.
 // Time() retorna o horario de ABERTURA do candle (manual NTSL, 16.55).
 // =====================================================================
@@ -49,7 +50,6 @@ var
   vFundo5, vTopo5        : Integer;   // pavio longo no 5m que fez o extremo
   vSinalFundo, vSinalTopo : Integer;
   bNovoBloco, bFimBloco, bCtxF, bCtxT : Boolean;
-  vDist                  : Float;
 
 begin
   // ---------------- 5 minutos: pavio do candle atual ----------------
@@ -170,23 +170,22 @@ begin
   end;
 
   // ---------------- marcas no grafico ----------------
-  vDist := vMedia5 * 0.3;
-
+  // texto direto no candle (sem Plot, para nao bagunçar a escala)
   if vSinalFundo = 1 then
   begin
-    Plot(vMin15 - vDist);
+    PlotText("FUNDO", clLime, 0, 9);
     if PintarCandle then PaintBar(clLime);
-  end
-  else
-    NoPlot(1);
+  end;
 
   if vSinalTopo = 1 then
   begin
-    Plot2(vMax15 + vDist);
+    PlotText("TOPO", clRed, 2, 9);
     if PintarCandle then PaintBar(clRed);
-  end
-  else
-    NoPlot(2);
+  end;
+
+  // aviso se o grafico nao for de 5 minutos
+  if LastBarOnChart and (GraphicOffset <> 5) then
+    PlotText("USE NO GRAFICO DE 5 MINUTOS", clYellow, 2, 10);
 
   // alerta com o candle de 15m ja fechado (1o tick do candle seguinte)
   if UsarAlerta and (CurrentBar > 2) then
@@ -195,8 +194,4 @@ begin
     if vSinalTopo[1]  = 1 then Alert(clRed);
   end;
 
-  SetPlotColor(1, clLime);
-  SetPlotColor(2, clRed);
-  SetPlotWidth(1, 3);
-  SetPlotWidth(2, 3);
 end;
