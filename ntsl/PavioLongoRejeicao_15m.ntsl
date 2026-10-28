@@ -1,0 +1,97 @@
+// =====================================================================
+// Pavio Longo de Rejeicao - grafico de 15 minutos (Topo e Fundo)
+// APLICAR EM GRAFICO DE 15 MINUTOS.
+//
+// A marca sai no proprio candle de 15m, depois que ele fecha:
+//   FUNDO: candle VENDEDOR (fecha abaixo da abertura) com pavio inferior
+//          longo -> o preco foi rejeitado embaixo.
+//   TOPO:  candle COMPRADOR (fecha acima da abertura) com pavio superior
+//          longo -> o preco foi rejeitado em cima.
+//
+// "Pavio longo":
+//   1. Pavio >= PercPavio % do candle inteiro (maxima - minima)
+//   2. Pavio >= MultCorpo x o corpo
+//   3. Pavio >= MultPavioOposto x o pavio do lado contrario
+//   4. Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
+//      candles
+//   5. (opcional) o candle fez a menor minima / maior maxima dos ultimos
+//      PeriodoContexto candles. 0 = desliga.
+//
+// Enquanto o candle esta aberto a marca pode aparecer e sumir; vale o
+// estado no fechamento. O alerta so toca depois que o candle fecha.
+// =====================================================================
+
+input
+  PercPavio(50.0);        // pavio minimo em % do candle inteiro
+  MultCorpo(2.0);         // pavio minimo em vezes o corpo
+  MultPavioOposto(2.0);   // pavio minimo em vezes o pavio do outro lado
+  MultMedia(0.6);         // pavio minimo em vezes a amplitude media
+  PeriodoMedia(20);       // candles para a amplitude media
+  PeriodoContexto(5);     // candles para exigir nova min/max (0 = desliga)
+  PintarCandle(false);    // pinta o candle de rejeicao
+  UsarAlerta(true);       // alerta quando o candle fecha com sinal
+
+var
+  vCorpo, vAmp, vPavSup, vPavInf, vMedia : Float;
+  vSinalFundo, vSinalTopo : Integer;
+  bCtxF, bCtxT : Boolean;
+
+begin
+  vCorpo  := Abs(Close - Open);
+  vAmp    := High - Low;
+  vPavSup := High - Max(Open, Close);
+  vPavInf := Min(Open, Close) - Low;
+  vMedia  := Media(PeriodoMedia, High) - Media(PeriodoMedia, Low);
+
+  vSinalFundo := 0;
+  vSinalTopo  := 0;
+
+  if (CurrentBar > PeriodoMedia) and (vAmp > 0) then
+  begin
+    bCtxF := true;
+    bCtxT := true;
+    if PeriodoContexto > 0 then
+    begin
+      bCtxF := Low  <= Lowest(Low, PeriodoContexto);
+      bCtxT := High >= Highest(High, PeriodoContexto);
+    end;
+
+    // FUNDO: fechou VENDEDOR e deixou pavio inferior longo
+    if bCtxF and (Close < Open)
+       and (vPavInf >= vAmp * PercPavio / 100)
+       and (vPavInf >= vCorpo * MultCorpo)
+       and (vPavInf >= vPavSup * MultPavioOposto)
+       and (vPavInf >= vMedia * MultMedia) then
+      vSinalFundo := 1;
+
+    // TOPO: fechou COMPRADOR e deixou pavio superior longo
+    if bCtxT and (Close > Open)
+       and (vPavSup >= vAmp * PercPavio / 100)
+       and (vPavSup >= vCorpo * MultCorpo)
+       and (vPavSup >= vPavInf * MultPavioOposto)
+       and (vPavSup >= vMedia * MultMedia) then
+      vSinalTopo := 1;
+  end;
+
+  if vSinalFundo = 1 then
+  begin
+    PlotText("FUNDO", clLime, 0, 9);
+    if PintarCandle then PaintBar(clLime);
+  end;
+
+  if vSinalTopo = 1 then
+  begin
+    PlotText("TOPO", clRed, 2, 9);
+    if PintarCandle then PaintBar(clRed);
+  end;
+
+  if LastBarOnChart and (GraphicOffset <> 15) then
+    PlotText("USE NO GRAFICO DE 15 MINUTOS", clYellow, 2, 10);
+
+  // alerta com o candle ja fechado (1o tick do candle seguinte)
+  if UsarAlerta and (CurrentBar > 1) then
+  begin
+    if vSinalFundo[1] = 1 then Alert(clLime);
+    if vSinalTopo[1]  = 1 then Alert(clRed);
+  end;
+end;
