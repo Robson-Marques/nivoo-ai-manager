@@ -77,7 +77,6 @@ input
   LimiteSaida(0.15);      // placar para SAIR do dominio (metade da entrada)
   LimiteAgressao(0.10);   // saldo de agressao relevante (10% do total)
   PintarCandles(true);    // pinta os candles com o estado do movimento maior
-  Diagnostico(false);     // mostra os valores brutos de agressao do candle
 
 var
   // series por candle
@@ -231,22 +230,64 @@ begin
     end;
   end;
 
-  // ---------------- graficos ----------------
-  // Plot 1: placar do movimento maior (histograma, -100 a +100)
+  // ---------------- leituras qualitativas ----------------
+  // correcao x virada (so quando o atual vai contra o maior)
+  // 0 = sem conflito, 1 = correcao, 2 = possivel virada
+  vLeitura := 0;
+  if (vEstM = 1) and (vEstA = -1) then
+  begin
+    if (vPM < 0) and (vFA <= -LimiteAgressao) then vLeitura := 2
+    else vLeitura := 1;
+  end
+  else if (vEstM = -1) and (vEstA = 1) then
+  begin
+    if (vPM > 0) and (vFA >= LimiteAgressao) then vLeitura := 2
+    else vLeitura := 1;
+  end;
+
+  // agressao x preco: 0 neutra, 1 confirma, 2 absorvida / sem resultado
+  vAgr := 0;
+  if (vFM >= LimiteAgressao) or (vFM <= -LimiteAgressao) then
+  begin
+    if ((vFM > 0) and (vSM >= LimiteSaida)) or ((vFM < 0) and (vSM <= -LimiteSaida)) then
+      vAgr := 1
+    else
+      vAgr := 2;
+  end;
+
+  // ---------------- janela do indicador ----------------
+  // Plot 1: placar do movimento maior, histograma grosso
+  //         verde = comprador, vermelho = vendedor, cinza = disputa
   Plot(vSM * 100);
   SetPlotType(1, 1);
+  SetPlotWidth(1, 4);
   if vEstM = 1 then SetPlotColor(1, clLime)
   else if vEstM = -1 then SetPlotColor(1, clRed)
   else SetPlotColor(1, clCinza);
 
-  // Plot 2: placar do movimento atual (linha amarela)
+  // Plot 2: placar do movimento atual (1 hora), linha branca
   Plot2(vSA * 100);
-  SetPlotColor(2, clAmarelo);
+  SetPlotColor(2, clBranco);
   SetPlotWidth(2, 2);
 
-  // Plot 3: saldo de agressao do movimento maior (linha azul)
+  // Plot 3: saldo de agressao (4 horas), linha fina
+  //         azul = confirma o preco, amarelo = absorvida / sem resultado
   Plot3(vFM * 100);
-  SetPlotColor(3, clAqua);
+  SetPlotWidth(3, 1);
+  if vAgr = 1 then SetPlotColor(3, clAqua)
+  else if vAgr = 2 then SetPlotColor(3, clAmarelo)
+  else SetPlotColor(3, clCinza);
+
+  // Plots 4 e 5: linhas de referencia do limite de entrada (+30 / -30)
+  // tambem garantem que a escala da janela mostre pelo menos essa faixa
+  Plot4(LimiteEntrada * 100);
+  Plot5(-LimiteEntrada * 100);
+  SetPlotColor(4, clCinzaEscuro);
+  SetPlotColor(5, clCinzaEscuro);
+  SetPlotStyle(4, 2);
+  SetPlotStyle(5, 2);
+  SetPlotWidth(4, 1);
+  SetPlotWidth(5, 1);
 
   if PintarCandles then
   begin
@@ -254,77 +295,38 @@ begin
     else if vEstM = -1 then PaintBar(clRed);
   end;
 
-  // ---------------- leitura em texto (so no ultimo candle) ----------------
-  // linhas de texto na janela do indicador: +95, +80, +65 (escala -100/+100)
+  // ---------------- texto (um unico texto, so no ultimo candle) ----------------
   if LastBarOnChart then
   begin
     vCompra := 50 + 50 * vSM;
     vVenda  := 100 - vCompra;
 
-    // linha 1: estado do movimento maior e intensidade de cada lado
     if vEstM = 1 then
-      PlotText("DOMINIO COMPRADOR   compra " + FloatToString(vCompra, 0) +
-               "% x venda " + FloatToString(vVenda, 0) + "%", clLime, 3, 10, 95)
-    else if vEstM = -1 then
-      PlotText("DOMINIO VENDEDOR   compra " + FloatToString(vCompra, 0) +
-               "% x venda " + FloatToString(vVenda, 0) + "%", clRed, 3, 10, 95)
-    else
-      PlotText("DISPUTA / INDEFINICAO   compra " + FloatToString(vCompra, 0) +
-               "% x venda " + FloatToString(vVenda, 0) + "%", clCinza, 3, 10, 95);
-
-    // linha 2: movimento atual e, se for contra o maior, correcao x virada
-    // 0 = sem conflito, 1 = correcao, 2 = possivel virada
-    vLeitura := 0;
-    if (vEstM = 1) and (vEstA = -1) then
     begin
-      if (vPM < 0) and (vFA <= -LimiteAgressao) then vLeitura := 2
-      else vLeitura := 1;
-    end
-    else if (vEstM = -1) and (vEstA = 1) then
-    begin
-      if (vPM > 0) and (vFA >= LimiteAgressao) then vLeitura := 2
-      else vLeitura := 1;
-    end;
-
-    if vLeitura = 2 then
-      PlotText("ATUAL CONTRA O MAIOR: POSSIVEL VIRADA", clAmarelo, 3, 9, 80)
-    else if vLeitura = 1 then
-      PlotText("ATUAL CONTRA O MAIOR: CORRECAO", clBranco, 3, 9, 80)
-    else if vEstA = 1 then
-      PlotText("atual: comprador", clBranco, 3, 9, 80)
-    else if vEstA = -1 then
-      PlotText("atual: vendedor", clBranco, 3, 9, 80)
-    else
-      PlotText("atual: em disputa", clBranco, 3, 9, 80);
-
-    // linha 3: a agressao confirma o preco ou esta sendo absorvida?
-    // 0 neutra, 1 confirma, 2 absorvida, 3 agride sem resultado
-    vAgr := 0;
-    if (vFM >= LimiteAgressao) or (vFM <= -LimiteAgressao) then
-    begin
-      if ((vFM > 0) and (vSM >= LimiteSaida)) or ((vFM < 0) and (vSM <= -LimiteSaida)) then
-        vAgr := 1
-      else if ((vFM > 0) and (vSM <= -LimiteSaida)) or ((vFM < 0) and (vSM >= LimiteSaida)) then
-        vAgr := 2
+      if vLeitura = 2 then
+        PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "% - POSSIVEL VIRADA P/ VENDA",
+                 clAmarelo, 3, 10, LimiteEntrada * 100)
+      else if vLeitura = 1 then
+        PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "% - correcao vendedora",
+                 clLime, 3, 10, LimiteEntrada * 100)
       else
-        vAgr := 3;
-    end;
-
-    if vAgr = 1 then
-      PlotText("agressao confirma o movimento (saldo " + FloatToString(vFM * 100, 0) + "%)", clAqua, 3, 9, 65)
-    else if vAgr = 2 then
-      PlotText("agressao ABSORVIDA: preco vai contra o saldo (" + FloatToString(vFM * 100, 0) + "%)", clAmarelo, 3, 9, 65)
-    else if vAgr = 3 then
-      PlotText("agressao SEM RESULTADO no preco (saldo " + FloatToString(vFM * 100, 0) + "%)", clAmarelo, 3, 9, 65)
+        PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "%",
+                 clLime, 3, 10, LimiteEntrada * 100);
+    end
+    else if vEstM = -1 then
+    begin
+      if vLeitura = 2 then
+        PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "% - POSSIVEL VIRADA P/ COMPRA",
+                 clAmarelo, 3, 10, LimiteEntrada * 100)
+      else if vLeitura = 1 then
+        PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "% - correcao compradora",
+                 clRed, 3, 10, LimiteEntrada * 100)
+      else
+        PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "%",
+                 clRed, 3, 10, LimiteEntrada * 100);
+    end
     else
-      PlotText("agressao equilibrada (saldo " + FloatToString(vFM * 100, 0) + "%)", clCinza, 3, 9, 65);
-
-    if GraphicOffset <> 15 then
-      PlotText("USE NO GRAFICO DE 15 MINUTOS", clAmarelo, 3, 10, -95);
-
-    if Diagnostico then
-      PlotText("agr. compra " + FloatToString(vBuy, 0) + " / venda " +
-               FloatToString(vSell, 0) + " | peso candle " + FloatToString(vPeso, 2),
-               clAmarelo, 3, 9, -80);
+      PlotText("DISPUTA  compra " + FloatToString(vCompra, 0) + "% x venda " +
+               FloatToString(vVenda, 0) + "%", clCinza, 3, 10, LimiteEntrada * 100);
   end;
 end;
