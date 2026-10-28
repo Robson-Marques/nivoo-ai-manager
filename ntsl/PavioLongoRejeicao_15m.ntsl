@@ -1,44 +1,43 @@
 // =====================================================================
-// Pavio Longo de Rejeicao 15m + 5m (Topo e Fundo) - Profit Ultra
+// Pavio de Rejeicao 15m + 5m (Topo e Fundo) - Profit Ultra
 // APLICAR EM GRAFICO DE 15 MINUTOS.
 //
-// A marca sai no proprio candle de 15m, depois que ele fecha, quando a
-// rejeicao existe nos DOIS tempos ao mesmo tempo:
-//   FUNDO: o candle de 15m fecha VENDEDOR (abaixo da abertura) com pavio
-//          inferior longo E o candle de 5m que fez essa minima tambem e
-//          VENDEDOR com pavio inferior longo.
-//   TOPO:  o mesmo ao contrario: candles COMPRADORES com pavio superior
-//          longo, e o 5m que fez a maxima do 15m.
+// A marca sai no proprio candle de 15m, depois que ele fecha:
+//   FUNDO: o candle de 15m fecha VENDEDOR (abaixo da abertura), fez a
+//          menor minima dos ultimos PeriodoContexto candles e deixou
+//          pavio inferior; E o candle de 5m que fez essa minima tambem
+//          tem pavio inferior (o 5m pode ser comprador ou vendedor).
+//   TOPO:  o mesmo ao contrario: 15m COMPRADOR, maior maxima recente,
+//          pavio superior no 15m e no 5m que fez a maxima.
+//
+// Calibrado com os exemplos de fundo do usuario:
+//   ex. 1: 15m pavio inf. 23% do candle, 0,65x o corpo; 5m 39% do candle
+//   ex. 2: 15m pavio inf. 48% do candle, 1,07x o corpo; 5m 70% do candle
+//
+// Regras do pavio (cada tempo com os seus parametros):
+//   - Pavio >= Perc % do candle inteiro (maxima - minima)
+//   - Pavio >= MultCorpo x o corpo
+//   - Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
+//     candles daquele tempo grafico
 //
 // Os candles de 5m sao lidos com Asset(GetAsset, itMinute, 5), que exige
-// Profit Ultra ou Automacao 2.0. O indicador procura, entre os ultimos
-// candles de 5m, o que fez a minima (fundo) / maxima (topo) do 15m.
-//
-// "Pavio longo" (vale para o 15m e para o 5m, cada um no seu tempo):
-//   1. Pavio >= PercPavio % do candle inteiro (maxima - minima)
-//   2. Pavio >= MultCorpo x o corpo
-//   3. Pavio >= MultPavioOposto x o pavio do lado contrario
-//   4. Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
-//      candles daquele tempo grafico
-//   5. (so no 15m, opcional) o candle fez a menor minima / maior maxima
-//      dos ultimos PeriodoContexto candles. 0 = desliga.
-//
+// Profit Ultra ou Automacao 2.0.
 // Confirma5m = false desliga a confirmacao do 5m (fica so o 15m).
-// Diagnostico = true escreve no ultimo candle os candles de 5m que o
-// indicador esta lendo, para conferir com o grafico de 5m.
+// Diagnostico = true escreve no ultimo candle os candles de 5m lidos.
 // =====================================================================
 
 const
   A5 = Asset(GetAsset, itMinute, 5);
 
 input
-  PercPavio(50.0);        // pavio minimo em % do candle inteiro
-  MultCorpo(2.0);         // pavio minimo em vezes o corpo
-  MultPavioOposto(2.0);   // pavio minimo em vezes o pavio do outro lado
-  MultMedia(0.6);         // pavio minimo em vezes a amplitude media
+  PercPavio15(20.0);      // 15m: pavio minimo em % do candle inteiro
+  MultCorpo15(0.5);       // 15m: pavio minimo em vezes o corpo
+  PercPavio5(35.0);       // 5m: pavio minimo em % do candle inteiro
+  MultCorpo5(0.5);        // 5m: pavio minimo em vezes o corpo
+  MultMedia(0.3);         // pavio minimo em vezes a amplitude media
   PeriodoMedia(20);       // candles para a amplitude media
-  PeriodoContexto(5);     // candles para exigir nova min/max (0 = desliga)
-  Confirma5m(true);       // exige a rejeicao tambem no 5m
+  PeriodoContexto(5);     // candles de 15m para exigir nova min/max (0 = desliga)
+  Confirma5m(true);       // exige o pavio tambem no 5m
   PintarCandle(false);    // pinta o candle de rejeicao
   UsarAlerta(true);       // alerta quando o candle fecha com sinal
   Diagnostico(false);     // mostra os candles de 5m lidos
@@ -69,7 +68,7 @@ begin
   aO[3] := A5.Open[3];  aH[3] := A5.High[3];  aL[3] := A5.Low[3];  aC[3] := A5.Close[3];
   vMedia5 := Media(PeriodoMedia, A5.High) - Media(PeriodoMedia, A5.Low);
 
-  // procura o 5m que fez a minima / maxima deste 15m e confere a rejeicao
+  // procura o 5m que fez a minima / maxima deste 15m e confere o pavio
   bFundo5 := false;
   bTopo5  := false;
   for i := 0 to 3 do
@@ -79,21 +78,17 @@ begin
     vPavSup5 := aH[i] - Max(aO[i], aC[i]);
     vPavInf5 := Min(aO[i], aC[i]) - aL[i];
 
-    // 5m dentro do 15m, com a mesma minima, VENDEDOR e pavio inferior longo
+    // 5m dentro do 15m, com a mesma minima, e pavio inferior
     if (vAmp5 > 0) and (Abs(aL[i] - Low) < 0.0000001) and (aH[i] <= High)
-       and (aC[i] < aO[i])
-       and (vPavInf5 >= vAmp5 * PercPavio / 100)
-       and (vPavInf5 >= vCorpo5 * MultCorpo)
-       and (vPavInf5 >= vPavSup5 * MultPavioOposto)
+       and (vPavInf5 >= vAmp5 * PercPavio5 / 100)
+       and (vPavInf5 >= vCorpo5 * MultCorpo5)
        and (vPavInf5 >= vMedia5 * MultMedia) then
       bFundo5 := true;
 
-    // 5m dentro do 15m, com a mesma maxima, COMPRADOR e pavio superior longo
+    // 5m dentro do 15m, com a mesma maxima, e pavio superior
     if (vAmp5 > 0) and (Abs(aH[i] - High) < 0.0000001) and (aL[i] >= Low)
-       and (aC[i] > aO[i])
-       and (vPavSup5 >= vAmp5 * PercPavio / 100)
-       and (vPavSup5 >= vCorpo5 * MultCorpo)
-       and (vPavSup5 >= vPavInf5 * MultPavioOposto)
+       and (vPavSup5 >= vAmp5 * PercPavio5 / 100)
+       and (vPavSup5 >= vCorpo5 * MultCorpo5)
        and (vPavSup5 >= vMedia5 * MultMedia) then
       bTopo5 := true;
   end;
@@ -118,19 +113,17 @@ begin
       bCtxT := High >= Highest(High, PeriodoContexto);
     end;
 
-    // FUNDO: 15m fechou VENDEDOR com pavio inferior longo (+ 5m igual)
+    // FUNDO: 15m fechou VENDEDOR na minima recente e deixou pavio inferior
     if bCtxF and bFundo5 and (Close < Open)
-       and (vPavInf >= vAmp * PercPavio / 100)
-       and (vPavInf >= vCorpo * MultCorpo)
-       and (vPavInf >= vPavSup * MultPavioOposto)
+       and (vPavInf >= vAmp * PercPavio15 / 100)
+       and (vPavInf >= vCorpo * MultCorpo15)
        and (vPavInf >= vMedia * MultMedia) then
       vSinalFundo := 1;
 
-    // TOPO: 15m fechou COMPRADOR com pavio superior longo (+ 5m igual)
+    // TOPO: 15m fechou COMPRADOR na maxima recente e deixou pavio superior
     if bCtxT and bTopo5 and (Close > Open)
-       and (vPavSup >= vAmp * PercPavio / 100)
-       and (vPavSup >= vCorpo * MultCorpo)
-       and (vPavSup >= vPavInf * MultPavioOposto)
+       and (vPavSup >= vAmp * PercPavio15 / 100)
+       and (vPavSup >= vCorpo * MultCorpo15)
        and (vPavSup >= vMedia * MultMedia) then
       vSinalTopo := 1;
   end;
@@ -151,7 +144,7 @@ begin
   if LastBarOnChart and (GraphicOffset <> 15) then
     PlotText("USE NO GRAFICO DE 15 MINUTOS", clYellow, 2, 10);
 
-  // mostra no ultimo candle as minimas/maximas dos 5m lidos ([0] a [2])
+  // mostra no ultimo candle as maximas/minimas dos 5m lidos ([0] a [2])
   if Diagnostico and LastBarOnChart then
     PlotText("5m[0] " + FloatToString(aH[0], 0) + "/" + FloatToString(aL[0], 0) +
              "  5m[1] " + FloatToString(aH[1], 0) + "/" + FloatToString(aL[1], 0) +
