@@ -280,14 +280,24 @@ begin
 
   // Plots 4 e 5: linhas de referencia do limite de entrada (+30 / -30)
   // tambem garantem que a escala da janela mostre pelo menos essa faixa
-  Plot4(LimiteEntrada * 100);
-  Plot5(-LimiteEntrada * 100);
+  Plot4(85);
+  Plot5(-85);
   SetPlotColor(4, clCinzaEscuro);
   SetPlotColor(5, clCinzaEscuro);
   SetPlotStyle(4, 2);
   SetPlotStyle(5, 2);
   SetPlotWidth(4, 1);
   SetPlotWidth(5, 1);
+
+  // Plots 6 e 7: ancoras fixas em +100 / -100 (escala maxima do placar).
+  // Mantem a escala da janela sempre de -100 a +100, para o grafico nao
+  // "achatar" nem mudar de tamanho quando voce rola ou muda o zoom.
+  Plot6(100);
+  Plot7(-100);
+  SetPlotColor(6, clAzulMarinho);
+  SetPlotColor(7, clAzulMarinho);
+  SetPlotWidth(6, 1);
+  SetPlotWidth(7, 1);
 
   if PintarCandles then
   begin
@@ -305,28 +315,28 @@ begin
     begin
       if vLeitura = 2 then
         PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "% - POSSIVEL VIRADA P/ VENDA",
-                 clAmarelo, 3, 10, LimiteEntrada * 100)
+                 clAmarelo, 3, 10, 85)
       else if vLeitura = 1 then
         PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "% - correcao vendedora",
-                 clLime, 3, 10, LimiteEntrada * 100)
+                 clLime, 3, 10, 85)
       else
         PlotText("COMPRADOR " + FloatToString(vCompra, 0) + "%",
-                 clLime, 3, 10, LimiteEntrada * 100);
+                 clLime, 3, 10, 85);
     end
     else if vEstM = -1 then
     begin
       if vLeitura = 2 then
         PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "% - POSSIVEL VIRADA P/ COMPRA",
-                 clAmarelo, 3, 10, LimiteEntrada * 100)
+                 clAmarelo, 3, 10, 85)
       else if vLeitura = 1 then
         PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "% - correcao compradora",
-                 clRed, 3, 10, LimiteEntrada * 100)
+                 clRed, 3, 10, 85)
       else
         PlotText("VENDEDOR " + FloatToString(vVenda, 0) + "%",
-                 clRed, 3, 10, LimiteEntrada * 100);
+                 clRed, 3, 10, 85);
     end
     else
       PlotText("DISPUTA  compra " + FloatToString(vCompra, 0) + "% x venda " +
-               FloatToString(vVenda, 0) + "%", clCinza, 3, 10, LimiteEntrada * 100);
+               FloatToString(vVenda, 0) + "%", clCinza, 3, 10, 85);
   end;
 end;
