@@ -170,7 +170,7 @@ begin
   end;
 
   // ---------------- marcas no grafico ----------------
-  // texto direto no candle (sem Plot, para nao bagunçar a escala)
+  // texto direto no candle (sem Plot, para nao baguncar a escala)
   if vSinalFundo = 1 then
   begin
     PlotText("FUNDO", clLime, 0, 9);
