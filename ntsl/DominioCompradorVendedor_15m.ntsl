@@ -280,8 +280,8 @@ begin
 
   // Plots 4 e 5: linhas de referencia do limite de entrada (+30 / -30)
   // tambem garantem que a escala da janela mostre pelo menos essa faixa
-  Plot4(85);
-  Plot5(-85);
+  Plot4(LimiteEntrada * 100);
+  Plot5(-LimiteEntrada * 100);
   SetPlotColor(4, clCinzaEscuro);
   SetPlotColor(5, clCinzaEscuro);
   SetPlotStyle(4, 2);
