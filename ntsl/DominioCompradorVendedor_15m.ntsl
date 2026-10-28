@@ -83,13 +83,14 @@ var
   vBuy, vSell, vCLV, vMove : Float;
   // peso do candle em formacao
   vElap : Integer;
-  vPeso, vClose : Float;
+  vPeso, vClose, vFechAnt, vRefM, vRefA : Float;
   // horizonte maior
   vSBM, vSSM, vFM, vDM, vPM, vCM, vSM, vPathM, vHHM, vLLM : Float;
   // horizonte atual
   vSBA, vSSA, vFA, vDA, vPA, vCA, vSA, vPathA, vHHA, vLLA : Float;
   // estados: 1 = comprador, -1 = vendedor, 0 = disputa
   vEstM, vEstA : Integer;
+  vEstMAnt, vEstAAnt : Integer;   // estados do candle anterior
   vCompra, vVenda : Float;
   vLeitura, vAgr : Integer;
 
@@ -103,10 +104,7 @@ begin
   else
     vCLV := 0;
 
-  if CurrentBar > 0 then
-    vMove := Abs(Close - Close[1])
-  else
-    vMove := 0;
+  vMove := Abs(Close - Close[1]);
 
   // ---------------- peso do candle em formacao ----------------
   // candles fechados: peso 1. Candle aberto: minutos decorridos / 15.
@@ -120,10 +118,15 @@ begin
 
   // preco efetivo: no inicio do candle fica perto do fechamento anterior
   // e vai para o preco atual conforme o candle amadurece
-  if CurrentBar > 0 then
-    vClose := Close[1] + vPeso * (Close - Close[1])
-  else
-    vClose := Close;
+  vFechAnt := Close[1];
+  vClose := vFechAnt + vPeso * (Close - vFechAnt);
+  vRefM  := Close[PeriodoMaior];
+  vRefA  := Close[PeriodoAtual];
+
+  // estados do candle anterior lidos fora de qualquer condicao
+  // (o manual desaconselha acesso [n] dentro de if/laco)
+  vEstMAnt := vEstM[1];
+  vEstAAnt := vEstA[1];
 
   vEstM := 0;
   vEstA := 0;
@@ -143,9 +146,9 @@ begin
       vFM := (vSBM - vSSM) / (vSBM + vSSM);
 
     // eficiencia do deslocamento
-    vPathM := Summation(vMove, PeriodoMaior) - vMove + Abs(vClose - Close[1]);
+    vPathM := Summation(vMove, PeriodoMaior) - vMove + Abs(vClose - vFechAnt);
     if vPathM > 0 then
-      vDM := (vClose - Close[PeriodoMaior]) / vPathM
+      vDM := (vClose - vRefM) / vPathM
     else
       vDM := 0;
 
@@ -168,9 +171,9 @@ begin
     if (vSBA + vSSA) > 0 then
       vFA := (vSBA - vSSA) / (vSBA + vSSA);
 
-    vPathA := Summation(vMove, PeriodoAtual) - vMove + Abs(vClose - Close[1]);
+    vPathA := Summation(vMove, PeriodoAtual) - vMove + Abs(vClose - vFechAnt);
     if vPathA > 0 then
-      vDA := (vClose - Close[PeriodoAtual]) / vPathA
+      vDA := (vClose - vRefA) / vPathA
     else
       vDA := 0;
 
@@ -187,13 +190,13 @@ begin
 
     // ================= ESTADOS COM HISTERESE =================
     // movimento maior
-    if vEstM[1] = 1 then
+    if vEstMAnt = 1 then
     begin
       if vSM >= LimiteSaida then vEstM := 1
       else if vSM <= -LimiteEntrada then vEstM := -1
       else vEstM := 0;
     end
-    else if vEstM[1] = -1 then
+    else if vEstMAnt = -1 then
     begin
       if vSM <= -LimiteSaida then vEstM := -1
       else if vSM >= LimiteEntrada then vEstM := 1
@@ -207,13 +210,13 @@ begin
     end;
 
     // movimento atual
-    if vEstA[1] = 1 then
+    if vEstAAnt = 1 then
     begin
       if vSA >= LimiteSaida then vEstA := 1
       else if vSA <= -LimiteEntrada then vEstA := -1
       else vEstA := 0;
     end
-    else if vEstA[1] = -1 then
+    else if vEstAAnt = -1 then
     begin
       if vSA <= -LimiteSaida then vEstA := -1
       else if vSA >= LimiteEntrada then vEstA := 1
