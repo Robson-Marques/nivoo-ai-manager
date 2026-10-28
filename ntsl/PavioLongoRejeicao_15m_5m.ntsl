@@ -23,7 +23,7 @@
 //
 // A marca aparece no 3o candle de 5 min do bloco (o que fecha o 15m).
 // O alerta dispara assim que o candle de 15 minutos fecha.
-// Obs.: considera que Time e o horario de ABERTURA do candle.
+// Time() retorna o horario de ABERTURA do candle (manual NTSL, 16.55).
 // =====================================================================
 
 input
@@ -57,7 +57,8 @@ begin
   vAmp5    := High - Low;
   vPavSup5 := High - Max(Open, Close);
   vPavInf5 := Min(Open, Close) - Low;
-  vMedia5  := Media(PeriodoMedia, vAmp5);
+  // media de (maxima - minima) = media das maximas - media das minimas
+  vMedia5  := Media(PeriodoMedia, High) - Media(PeriodoMedia, Low);
 
   bFundo5Bar := (vAmp5 > 0)
                 and (vPavInf5 >= vAmp5 * PercPavio / 100)
@@ -75,7 +76,7 @@ begin
   vHora   := Floor(Time / 100);
   vMinuto := Time - vHora * 100;
   vBloco  := vHora * 4 + Floor(vMinuto / 15);
-  vPos    := vMinuto - Floor(vMinuto / 15) * 15;   // 0, 5 ou 10
+  vPos    := Mod(vMinuto, 15);                      // 0, 5 ou 10
   bFimBloco := (vPos = 10);                        // 3o candle de 5 min
 
   if CurrentBar <= 1 then
