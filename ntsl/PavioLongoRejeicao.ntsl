@@ -1,0 +1,114 @@
+// =====================================================================
+// Pavio Longo de Rejeicao (Topo e Fundo) - grafico de 15 minutos
+// ---------------------------------------------------------------------
+// Marca candles com pavio longo, indicando rejeicao de preco:
+//   - FUNDO (verde): pavio inferior longo -> o mercado vendeu, foi
+//     rejeitado e voltou. Sinal de possivel forca compradora.
+//   - TOPO (vermelho): pavio superior longo -> o mercado comprou, foi
+//     rejeitado e voltou. Sinal de possivel forca vendedora.
+//
+// O que conta como "pavio longo" (todas as regras precisam valer):
+//   1. Pavio >= PercPavio % do tamanho total do candle (maxima - minima)
+//   2. Pavio >= MultCorpo x o corpo do candle
+//   3. Pavio >= MultPavioOposto x o pavio do lado contrario
+//   4. Pavio >= MultMedia x a amplitude media dos ultimos PeriodoMedia
+//      candles (filtra candles pequenos, sem relevancia)
+//   5. (opcional) O candle fez a menor minima (fundo) ou a maior maxima
+//      (topo) dos ultimos PeriodoContexto candles. Use 0 para desligar.
+//
+// Confirmacao no fechamento: a marca fica no proprio candle. Enquanto o
+// candle de 15 min esta se formando ela pode aparecer e sumir; o que vale
+// e o estado final, quando o candle fecha. O alerta so dispara depois que
+// o candle fechou (no primeiro tick do candle seguinte).
+// =====================================================================
+
+input
+  PercPavio(50.0);        // pavio minimo em % do candle inteiro
+  MultCorpo(2.0);         // pavio minimo em vezes o corpo
+  MultPavioOposto(2.0);   // pavio minimo em vezes o pavio do outro lado
+  MultMedia(0.6);         // pavio minimo em vezes a amplitude media
+  PeriodoMedia(20);       // candles para a amplitude media
+  PeriodoContexto(5);     // candles para exigir nova minima/maxima (0 = desliga)
+  PintarCandle(true);     // pinta o candle sinalizado
+  UsarAlerta(true);       // alerta quando o candle fecha com sinal
+
+var
+  vCorpo     : Float;
+  vAmp       : Float;
+  vPavioSup  : Float;
+  vPavioInf  : Float;
+  vMediaAmp  : Float;
+  vDist      : Float;
+  vFundo     : Integer;
+  vTopo      : Integer;
+  bContextoF : Boolean;
+  bContextoT : Boolean;
+
+begin
+  vCorpo    := Abs(Close - Open);
+  vAmp      := High - Low;
+  vPavioSup := High - Max(Open, Close);
+  vPavioInf := Min(Open, Close) - Low;
+  vMediaAmp := Media(PeriodoMedia, vAmp);
+  vDist     := vMediaAmp * 0.15;   // distancia da marca ate o candle
+
+  vFundo := 0;
+  vTopo  := 0;
+
+  if (CurrentBar > PeriodoMedia) and (vAmp > 0) then
+  begin
+    // Contexto: o candle precisa ter feito nova minima/maxima recente
+    bContextoF := true;
+    bContextoT := true;
+    if PeriodoContexto > 0 then
+    begin
+      bContextoF := Low  <= Lowest(Low, PeriodoContexto);
+      bContextoT := High >= Highest(High, PeriodoContexto);
+    end;
+
+    // FUNDO: pavio inferior longo (rejeicao da venda)
+    if bContextoF
+       and (vPavioInf >= vAmp * PercPavio / 100)
+       and (vPavioInf >= vCorpo * MultCorpo)
+       and (vPavioInf >= vPavioSup * MultPavioOposto)
+       and (vPavioInf >= vMediaAmp * MultMedia) then
+      vFundo := 1;
+
+    // TOPO: pavio superior longo (rejeicao da compra)
+    if bContextoT
+       and (vPavioSup >= vAmp * PercPavio / 100)
+       and (vPavioSup >= vCorpo * MultCorpo)
+       and (vPavioSup >= vPavioInf * MultPavioOposto)
+       and (vPavioSup >= vMediaAmp * MultMedia) then
+      vTopo := 1;
+  end;
+
+  // Marcas no grafico
+  if vFundo = 1 then
+  begin
+    Plot(Low - vDist);
+    if PintarCandle then PaintBar(clLime);
+  end
+  else
+    NoPlot(1);
+
+  if vTopo = 1 then
+  begin
+    Plot2(High + vDist);
+    if PintarCandle then PaintBar(clRed);
+  end
+  else
+    NoPlot(2);
+
+  // Alerta somente com o candle anterior ja fechado
+  if UsarAlerta and (CurrentBar > PeriodoMedia + 1) then
+  begin
+    if vFundo[1] = 1 then Alert(clLime);
+    if vTopo[1]  = 1 then Alert(clRed);
+  end;
+
+  SetPlotColor(1, clLime);
+  SetPlotColor(2, clRed);
+  SetPlotWidth(1, 3);
+  SetPlotWidth(2, 3);
+end;
