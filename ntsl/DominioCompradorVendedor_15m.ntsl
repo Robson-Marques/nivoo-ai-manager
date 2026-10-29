@@ -94,8 +94,11 @@ var
 
 begin
   // ---------------- dados de cada candle ----------------
-  vBuy  := AgressionVolBuy;
-  vSell := AgressionVolSell;
+  // Abs: o "TR - Volume de Agressao - Venda" pode vir negativo (desenhado
+  // para baixo). Sem o Abs, compra + venda fica perto de zero e o saldo
+  // explode (foi o que esticou a escala da janela para 128 mil).
+  vBuy  := Abs(AgressionVolBuy);
+  vSell := Abs(AgressionVolSell);
 
   if High > Low then
     vCLV := ((Close - Low) - (High - Close)) / (High - Low)
@@ -162,6 +165,12 @@ begin
     // estrutura dos candles
     vCM := (Summation(vCLV, PeriodoMaior + 1) - (1 - vPeso) * vCLV) / (PeriodoMaior + vPeso);
 
+    // trava cada componente entre -1 e +1 (protecao contra dado ruim)
+    vFM := Max(-1, Min(1, vFM));
+    vDM := Max(-1, Min(1, vDM));
+    vPM := Max(-1, Min(1, vPM));
+    vCM := Max(-1, Min(1, vCM));
+
     vSM := (vDM + vPM + vCM) / 3;
 
     // ================= HORIZONTE ATUAL =================
@@ -184,6 +193,11 @@ begin
       vPA := 0;
 
     vCA := (Summation(vCLV, PeriodoAtual + 1) - (1 - vPeso) * vCLV) / (PeriodoAtual + vPeso);
+
+    vFA := Max(-1, Min(1, vFA));
+    vDA := Max(-1, Min(1, vDA));
+    vPA := Max(-1, Min(1, vPA));
+    vCA := Max(-1, Min(1, vCA));
 
     vSA := (vDA + vPA + vCA) / 3;
 
