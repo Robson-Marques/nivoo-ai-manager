@@ -75,6 +75,8 @@ input
   LimiteSaida(0.15);      // placar para SAIR do dominio (metade da entrada)
   LimiteAgressao(0.10);   // saldo de agressao relevante (10% do total)
   PintarCandles(true);    // pinta os candles com o estado do movimento maior
+  MostrarTexto(false);    // texto no ultimo candle (desligado: o PlotText
+                          // na janela do indicador estragava a escala)
 
 var
   // series por candle
@@ -318,8 +320,11 @@ begin
     else if vEstM = -1 then PaintBar(clRed);
   end;
 
-  // ---------------- texto (um unico texto, so no ultimo candle) ----------------
-  if LastBarOnChart then
+  // ---------------- texto (opcional, so no ultimo candle) ----------------
+  // O PlotText e o unico elemento que so existe no ultimo candle. Com ele
+  // ligado, a escala da janela quebrava sempre que o candle do dia ficava
+  // visivel na tela. Por isso vem desligado.
+  if MostrarTexto and LastBarOnChart then
   begin
     vCompra := 50 + 50 * vSM;
     vVenda  := 100 - vCompra;
