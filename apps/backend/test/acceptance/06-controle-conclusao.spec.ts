@@ -105,6 +105,12 @@ describe('Controle de conclusão', () => {
     expect(j.blockedReason).toBe('REPETICAO_IMPRODUTIVA');
     expect(j.attempts).toHaveLength(3);
     expect(new Set(j.attempts.map((a: any) => a.outputHash)).size).toBe(1);
+    // Lição registrada na memória do projeto, com referência às tentativas.
+    const licoes = (await h.http().get(`/api/projects/${pid}/memory?category=PENDENCIA`)).body.filter((m: any) => m.references?.origem === 'licao-automatica' && m.references.jobId === j.id);
+    expect(licoes).toHaveLength(1);
+    expect(licoes[0].references.motivo).toBe('REPETICAO_IMPRODUTIVA');
+    expect(licoes[0].references.attemptIds).toHaveLength(3);
+    expect(licoes[0].content).toMatch(/ModuleNotFoundError: pandas/);
   });
 
   it('respeita limite de tentativas quando as falhas variam → FALHOU', async () => {
@@ -217,6 +223,6 @@ describe('Controle de conclusão', () => {
     const v2 = (await h.http().post(`/api/projects/${pid}/memory/${first.id}/supersede`).send({ content: 'v2' }).expect(201)).body;
     expect(v2.version).toBe(2);
     const all = (await h.http().get(`/api/projects/${pid}/memory?category=PENDENCIA&all=1`)).body;
-    expect(all.map((m: any) => m.content).sort()).toEqual(['v1', 'v2']);
+    expect(all.filter((m: any) => m.references?.origem !== 'licao-automatica').map((m: any) => m.content).sort()).toEqual(['v1', 'v2']);
   });
 });

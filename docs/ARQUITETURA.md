@@ -185,3 +185,16 @@ cada nota nova (deduplicada por hash) para a memória: `HIPOTESE` → `HIPOTESE_
 
 Dados de experimento: o dataset é copiado para `dados/` do worktree após conferir o sha256
 registrado (alteração → job bloqueado). `dados/` fica fora do git.
+
+## 11. Ideias incorporadas da análise do ECC (2026-10-31)
+
+Ver `docs/AVALIACAO-ECC.md`. Resumo técnico:
+
+* **Imunidade do harness** — `claude -p --restricted --strict-mcp-config …` ignora configurações de
+  usuário/projeto/local (hooks, plugins, `CLAUDE.md`) e confina ferramentas de arquivo ao diretório de
+  trabalho; `WorkspaceService.sanitizeHarnessFiles` remove arquivos de harness antes/depois de cada sessão.
+* **Orçamento de contexto** — `worker/context-builder.ts` (`NIVOO_CONTEXT_MAX_CHARS`, padrão 60000).
+* **Lições** — `StepExecutorService.recordLesson` → `MemoryEntry` (PENDENCIA, `references.origem = licao-automatica`).
+* **Critérios permanentes** — modelo `ProjectInvariant`; aplicados em `JobsService.create`.
+* **Orçamento do projeto** — `Project.maxCostUsd`; verificado antes de cada tentativa.
+* **Aprovação por hash** — `Approval.subjectHash` (`stepHash`, `criterionHash`, `uri:sha256` do dataset).

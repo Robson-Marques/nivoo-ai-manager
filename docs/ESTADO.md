@@ -4,6 +4,25 @@
 > Auditoria que motivou esta etapa: `docs/AUDITORIA.md`. Procedimento dos executores reais:
 > `docs/PROCEDIMENTO-CLI.md`. Evidências brutas: `docs/evidencias/2026-10-27/`.
 
+## Etapa 4 — ideias do ECC incorporadas (2026-10-31)
+
+Detalhes e justificativas: `docs/AVALIACAO-ECC.md`. Evidências: `docs/evidencias/2026-10-31/`.
+
+| Item | Prova | Natureza |
+|---|---|---|
+| **Brecha fechada**: hook plantado em `.claude/settings.json` executava shell (contornando Bash negado) e `CLAUDE.md` injetava instruções ocultas | antes: hook executou e o agente obedeceu à regra oculta; depois: `real-05-harness.json` → `hookExecutou: false`, `respostaSeguiuInstrucaoOculta: false`, arquivo pedido criado | **Claude real** |
+| Limpeza de arquivos de harness no workspace | `acceptance/11` | automatizado (stub) |
+| Orçamento de contexto + memória completa em `.nivoo/memoria.md` | `unit/context-builder`, `acceptance/11` | automatizado |
+| Lições de falha por projeto (não vazam para outros projetos) | `acceptance/06`, `acceptance/11` | automatizado |
+| Critérios permanentes do projeto | `acceptance/11` | automatizado |
+| Orçamento de custo do projeto | `acceptance/11` (custo anterior simulado no banco) | automatizado |
+| Aprovação presa ao hash do conteúdo | `acceptance/11` (adulteração simulada no banco) | automatizado |
+| Regressão das provas reais com `--restricted` | `real-01` (3 testes), `real-02`, `real-03`, `real-05`: **6/6 passando** | **Claude real** |
+
+Suíte automatizada: **63 passando** (2 execuções seguidas), 7 opt-in reais pulados.
+Correção adicional: ordem dos critérios de um job agora é determinística.
+Codex: argumento `-c project_doc_max_bytes=0` adicionado, **não testado** (Codex continua sem login).
+
 ## Etapa 3 — instalação em servidor Debian (2026-10-28)
 
 Entregue: `deploy/install-debian.sh` (instalador idempotente, root, sem sudo), comando `deploy/nivoo`

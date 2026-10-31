@@ -1,0 +1,105 @@
+{
+  "geradoEm": "2026-10-31T14:00:39.000Z",
+  "teste": "real-01b-falha-execucao",
+  "job": {
+    "id": "e00d74d6-91ba-43a8-a814-8398e0f5314d",
+    "titulo": "falha",
+    "status": "FALHOU",
+    "motivo": "LIMITE_TENTATIVAS",
+    "detalhe": "etapa x: limite de 1 tentativa(s) com falha atingido",
+    "custoUsd": 0,
+    "tempoAtivoSeg": 2
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "648c670ea05a23a3078569cc7eecd4bbf77134edfe299005322a01a8ca6299da",
+      "texto": "Provocar erro real do provedor."
+    }
+  ],
+  "etapas": [
+    {
+      "key": "x",
+      "provider": "claude-code-cli",
+      "status": "FALHOU",
+      "detalhe": "limite de 1 tentativa(s) com falha atingido",
+      "opcoes": {
+        "model": "modelo-inexistente-nivoo"
+      }
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "x",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "FALHA",
+      "sessionId": "4d337da1-4925-4a86-8c60-5f891297a1be",
+      "termino": "api_error",
+      "turnos": 1,
+      "custoUsd": 0,
+      "notasImportadas": 0,
+      "progresso": false,
+      "erro": "api_error: There's an issue with the selected model (modelo-inexistente-nivoo). It may not exist or you may not have access to it. Run --model to pick a different model. [claude-code:unrecognized_model] {\"model\":\"modelo-inexistente-nivoo\",\"query_source\":\"sdk\"}",
+      "inicio": "2026-10-31T14:00:35.434Z",
+      "fim": "2026-10-31T14:00:37.140Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/x/tentativa-1.md",
+      "sha256": "a353d12565d6b19482b95fa7b071f14f7473ab6d4d21dbd87c1b0afb9c8fbc5b",
+      "bytes": 2062,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    }
+  ],
+  "criterios": [
+    {
+      "key": "c",
+      "kind": "COMMAND",
+      "status": "PENDENTE",
+      "evidencia": null
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/x/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "28f1746d994dd324fd3cb464b3d237307a5db911eff6c9a5da4ef85099bd60ff",
+      "bytes": 428
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "falha definitiva na etapa x",
+      "commit": "f1b60c6f484a6bafd80f82df3a2eaf27839b5c92"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste real falha",
+      "referencias": {}
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Lição: etapa \"x\" (falha) — LIMITE_TENTATIVAS",
+      "autor": "sistema:licoes",
+      "conteudo": "Abordagem sem sucesso. Instruções da etapa: Responda ok.. Motivo: limite de 1 tentativa(s) com falha atingido. Tentativas: #1 FALHA (api_error): api_error: There's an issue with the selected model (modelo-inexistente-nivoo). It may not exist or you may not have access to it. Run --model to pick a different model. [claude-code:unrecognized_model] {\"model\":\"modelo-inexistente-nivoo\",\"query_source\":\"",
+      "referencias": {
+        "jobId": "e00d74d6-91ba-43a8-a814-8398e0f5314d",
+        "motivo": "LIMITE_TENTATIVAS",
+        "origem": "licao-automatica",
+        "stepId": "b2699f61-6ee5-46c5-bf3b-9cf6b103e8f6",
+        "attemptIds": [
+          "0104164c-daf1-414f-b198-3b87190df4b4"
+        ]
+      }
+    }
+  ]
+}

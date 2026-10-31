@@ -32,6 +32,12 @@ export class ApprovalsService {
     if (!a) throw new NotFoundException('Aprovação não encontrada');
     if (a.status !== 'PENDENTE') throw new ConflictException(`Aprovação já decidida (${a.status})`);
     if (body?.projectId && body.projectId !== a.projectId) throw new NotFoundException('Aprovação não pertence ao projeto');
+    if (a.kind === 'LIBERAR_DATASET_RESERVADO' && decision === 'APROVADO' && a.subjectHash) {
+      const ds = await this.prisma.dataset.findUnique({ where: { id: a.subjectId } });
+      if (!ds || `${ds.uri}:${ds.sha256 ?? 'sem-hash'}` !== a.subjectHash) {
+        throw new ConflictException('O conjunto de dados mudou desde a solicitação; peça uma nova liberação');
+      }
+    }
     await this.prisma.approval.update({ where: { id: a.id }, data: { status: decision, decidedBy, reason, decidedAt: new Date() } });
 
     if (a.kind === 'LIBERAR_DATASET_RESERVADO') {

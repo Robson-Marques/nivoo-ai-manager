@@ -108,7 +108,15 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // Isolamento: NENHUMA regra genérica (ex.: "Write") — ela liberaria escrita em qualquer caminho.
     // Com acceptEdits e sem regras extras, o Claude Code só lê/edita dentro do diretório de trabalho;
     // fora dele a permissão é negada no modo não interativo (comprovado em test/integration/real-01).
-    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits', '--disallowedTools', ...ClaudeCodeCliProvider.DENIED];
+    // --restricted: ignora configurações de usuário/projeto/local (hooks, plugins, CLAUDE.md do workspace),
+    // remove ferramentas que executam código e confina as ferramentas de arquivo ao diretório de trabalho.
+    // --strict-mcp-config: nenhum servidor MCP além dos passados explicitamente (nenhum).
+    // Comprovado: sem isso, um .claude/settings.json plantado no workspace executava shell na sessão seguinte.
+    const args = [
+      '-p', '--output-format', 'stream-json', '--verbose',
+      '--restricted', '--strict-mcp-config',
+      '--permission-mode', 'acceptEdits', '--disallowedTools', ...ClaudeCodeCliProvider.DENIED,
+    ];
     const extra = ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
     if (extra.length) args.push('--allowedTools', ...extra);
     const model = req.options?.model ?? process.env.NIVOO_CLAUDE_MODEL;

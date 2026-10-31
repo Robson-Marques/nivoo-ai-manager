@@ -1,0 +1,214 @@
+{
+  "geradoEm": "2026-10-31T14:00:34.815Z",
+  "teste": "real-01a-fim-de-sessao",
+  "job": {
+    "id": "a1ef0047-5ab4-4426-8c41-52cd82660206",
+    "titulo": "arquivos em sessões curtas",
+    "status": "CONCLUIDO",
+    "motivo": null,
+    "detalhe": "todos os critérios verificados com evidências",
+    "custoUsd": 0.1351,
+    "tempoAtivoSeg": 15
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "a5e8cca07fe8f100b2b196fcefd9bcb9b8e144fb8cd260e836604db74d720ca1",
+      "texto": "Criar out/a1.txt, out/a2.txt, out/a3.txt e out/a4.txt contendo respectivamente 1, 2, 3 e 4."
+    }
+  ],
+  "etapas": [
+    {
+      "key": "criar",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 2; commit afdc84c906",
+      "opcoes": {
+        "maxTurns": 3
+      }
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "criar",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "SESSAO_ENCERRADA",
+      "sessionId": "0faf7718-a058-43c7-a185-523f3fb84256",
+      "termino": "max_turns",
+      "turnos": 4,
+      "custoUsd": 0.0655,
+      "notasImportadas": 0,
+      "progresso": true,
+      "erro": "verificação da etapa falhou (exit 2): grep: out/a4.txt: No such file or directory",
+      "inicio": "2026-10-31T14:00:19.206Z",
+      "fim": "2026-10-31T14:00:26.145Z"
+    },
+    {
+      "etapa": "criar",
+      "numero": 2,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "SUCESSO",
+      "sessionId": "67640cc5-1c53-4c94-b9f6-6143f724f282",
+      "termino": "max_turns",
+      "turnos": 4,
+      "custoUsd": 0.0696,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-31T14:00:26.236Z",
+      "fim": "2026-10-31T14:00:33.981Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/criar/tentativa-1.md",
+      "sha256": "d6af6dc31568fc0fef7634d6b8996bdd90d01301cfe9044dbd730fc1a365f2e9",
+      "bytes": 2533,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/criar/tentativa-2.md",
+      "sha256": "f087b8507c0b1fd916da05629144d4b4a766c10f07afe5319b095744062cc21b",
+      "bytes": 3033,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    }
+  ],
+  "criterios": [
+    {
+      "key": "arquivos",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "",
+        "comando": "for i in 1 2 3 4; do grep -qx \"$i\" out/a$i.txt; done",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/criar/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "4cae4848ae20dc5c36bc1e8b42829fad24c86a0db0c7278649aabc166272857c",
+      "bytes": 93
+    },
+    {
+      "nome": "a1.txt",
+      "tipo": "FILE",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    {
+      "nome": "a2.txt",
+      "tipo": "FILE",
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "bytes": 2
+    },
+    {
+      "nome": "a3.txt",
+      "tipo": "FILE",
+      "sha256": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+      "bytes": 2
+    },
+    {
+      "nome": "logs/criar/tentativa-2.log",
+      "tipo": "LOG",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "bytes": 1
+    },
+    {
+      "nome": "a4.txt",
+      "tipo": "FILE",
+      "sha256": "7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d",
+      "bytes": 2
+    },
+    {
+      "nome": "criterios/arquivos.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "7f81927979ef5e0613504d552474a9c94778faca7230b007504e57b0d7693f0f",
+      "bytes": 337
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "sessão 1 encerrada sem concluir criar",
+      "commit": "8d9b6410d72a211b4d7da52f43cdb83db35babfa"
+    },
+    {
+      "seq": 2,
+      "rotulo": "etapa criar concluída (tentativa 2)",
+      "commit": "afdc84c9067b32155026c3e40ed2882c4020bdd2"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste real sessao",
+      "referencias": {}
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "out/a4.txt criado",
+      "autor": "agente:claude-code-cli:sessao:67640cc5-1c53-4c94-b9f6-6143f724f282",
+      "conteudo": "[progresso] Sessão 3: criado out/a4.txt com conteúdo '4'. a1-a3 já existiam de sessões anteriores. Nada mais a fazer na etapa criar; aguarda verificação do backend.",
+      "referencias": {
+        "jobId": "a1ef0047-5ab4-4426-8c41-52cd82660206",
+        "origem": "notas-do-agente",
+        "noteHash": "9c37383799cc67f02f0c63bc36f319cf6b477843f01ae5c0509a8ea632c5c4aa",
+        "attemptId": "e97ca6fb-2c70-48fc-9d31-d4802b75aab0",
+        "sessionId": "67640cc5-1c53-4c94-b9f6-6143f724f282"
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Arquivos da etapa criar",
+      "autor": "agente:claude-code-cli:sessao:67640cc5-1c53-4c94-b9f6-6143f724f282",
+      "conteudo": "out/a1.txt..out/a4.txt contendo 1..4",
+      "referencias": {
+        "jobId": "a1ef0047-5ab4-4426-8c41-52cd82660206",
+        "origem": "notas-do-agente",
+        "noteHash": "2c922975d7cb882b1d2e29b3758e6265f6cd4267d1a1677aa916267e782e23fe",
+        "attemptId": "e97ca6fb-2c70-48fc-9d31-d4802b75aab0",
+        "gitCommit": "8d9b6410d72a211b4d7da52f43cdb83db35babfa",
+        "sessionId": "67640cc5-1c53-4c94-b9f6-6143f724f282",
+        "parameters": {},
+        "artifactIds": [
+          "6727f2f7-2c33-4043-bf54-f7ca40464db5",
+          "70bec021-2cb6-4584-885d-ad052e7f2411",
+          "0040b5dc-eee2-47e1-86a3-e1b57101af9b",
+          "1fd9ed5d-9251-4bc9-952c-544ad05c5c0c"
+        ]
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Evidência do job \"arquivos em sessões curtas\"",
+      "autor": "sistema:verificador",
+      "conteudo": "Job concluído pelo verificador do backend. Commit afdc84c9067b32155026c3e40ed2882c4020bdd2. Artefatos: a1.txt (4355a46b19d3), a2.txt (53c234e5e847), a3.txt (1121cfccd591), a4.txt (7de1555df0c2).",
+      "referencias": {
+        "jobId": "a1ef0047-5ab4-4426-8c41-52cd82660206",
+        "gitCommit": "afdc84c9067b32155026c3e40ed2882c4020bdd2",
+        "datasetIds": [],
+        "parameters": {},
+        "artifactIds": [
+          "1fd9ed5d-9251-4bc9-952c-544ad05c5c0c",
+          "0040b5dc-eee2-47e1-86a3-e1b57101af9b",
+          "70bec021-2cb6-4584-885d-ad052e7f2411",
+          "6727f2f7-2c33-4043-bf54-f7ca40464db5"
+        ],
+        "experimentIds": []
+      }
+    }
+  ]
+}

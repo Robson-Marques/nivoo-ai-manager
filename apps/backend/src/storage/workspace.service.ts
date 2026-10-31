@@ -68,8 +68,32 @@ export class WorkspaceService {
     const exclude = path.join(dirs.repo, '.git', 'info', 'exclude');
     fs.mkdirSync(path.dirname(exclude), { recursive: true });
     const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-    if (!current.split('\n').includes('dados/')) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}dados/\n`);
+    const missing = ['dados/', '.nivoo/memoria.md'].filter((l) => !current.split('\n').includes(l));
+    if (missing.length) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}${missing.join('\n')}\n`);
     return wt;
+  }
+
+  /**
+   * Arquivos de configuração/instrução de harnesses de agentes (hooks, plugins, memória oculta).
+   * Nunca fazem parte do trabalho: são removidos do workspace antes e depois de cada sessão de IA.
+   */
+  static readonly HARNESS_FILES = ['.claude', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'AGENTS.override.md', '.codex', '.mcp.json', '.cursor', 'GEMINI.md', '.gemini'];
+
+  sanitizeHarnessFiles(worktree: string): string[] {
+    const removed: string[] = [];
+    const walk = (dir: string, depth: number) => {
+      if (depth > 6 || !fs.existsSync(dir)) return;
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === '.git' || e.name === 'node_modules') continue;
+        const p = path.join(dir, e.name);
+        if (WorkspaceService.HARNESS_FILES.includes(e.name)) {
+          fs.rmSync(p, { recursive: true, force: true });
+          removed.push(path.relative(worktree, p));
+        } else if (e.isDirectory() && !e.isSymbolicLink()) walk(p, depth + 1);
+      }
+    };
+    walk(worktree, 0);
+    return removed;
   }
 
   /** Impressão digital (nomes, tamanhos, mtimes) de um diretório, para detectar alterações indevidas. */

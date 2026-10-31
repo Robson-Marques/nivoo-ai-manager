@@ -119,6 +119,7 @@ export class MarketService {
         projectId,
         kind: 'LIBERAR_DATASET_RESERVADO',
         subjectId: ds.id,
+        subjectHash: `${ds.uri}:${ds.sha256 ?? 'sem-hash'}`,
         description: `Liberar conjunto reservado "${ds.name}" para uso em experimento. Motivo: ${reqString(body, 'reason', 2000)}`,
       },
     });

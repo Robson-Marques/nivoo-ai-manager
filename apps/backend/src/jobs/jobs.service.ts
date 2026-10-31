@@ -127,6 +127,13 @@ export class JobsService {
     const steps = this.parseSteps(body.steps ?? [], defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
+    // Critérios permanentes do projeto (regressão): entram em todo job novo, sem opção de remover.
+    const invariants = await this.prisma.projectInvariant.findMany({ where: { projectId, active: true }, orderBy: { createdAt: 'asc' } });
+    for (const inv of invariants) {
+      const key = `invariante:${inv.key}`;
+      if (criteria.some((c) => c.key === key)) continue;
+      criteria.push({ key, description: `[permanente do projeto] ${inv.description}`, kind: inv.kind, config: inv.config as Prisma.InputJsonValue });
+    }
     const researchId = optString(body, 'researchId', 60);
     if (researchId) {
       const r = await this.prisma.research.findFirst({ where: { id: researchId, projectId } });
@@ -187,6 +194,40 @@ export class JobsService {
     return this.get(projectId, job.id);
   }
 
+  // ---------- Critérios permanentes do projeto ----------
+  listInvariants(projectId: string) {
+    return this.prisma.projectInvariant.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  async createInvariant(projectId: string, body: any) {
+    if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
+    const [c] = this.parseCriteria([body]);
+    if (c.kind === 'MANUAL_APPROVAL') throw new BadRequestException('Critério permanente deve ser verificável automaticamente');
+    const exists = await this.prisma.projectInvariant.findUnique({ where: { projectId_key: { projectId, key: c.key } } });
+    if (exists) throw new ConflictException(`Critério permanente ${c.key} já existe`);
+    return this.prisma.projectInvariant.create({
+      data: { projectId, key: c.key, description: c.description, kind: c.kind, config: c.config, author: optString(body, 'author', 100) ?? 'operador' },
+    });
+  }
+
+  /** Desativar não altera jobs já criados (seus critérios ficam congelados); só os próximos. */
+  async setInvariantActive(projectId: string, id: string, body: any) {
+    const inv = await this.prisma.projectInvariant.findFirst({ where: { id, projectId } });
+    if (!inv) throw new NotFoundException('Critério permanente não encontrado neste projeto');
+    if (typeof body?.active !== 'boolean') throw new BadRequestException('active deve ser true ou false');
+    return this.prisma.projectInvariant.update({ where: { id }, data: { active: body.active } });
+  }
+
+  async setProjectBudget(projectId: string, body: any) {
+    if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
+    const v = body?.maxCostUsd;
+    const maxCostUsd = v === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
+    if (maxCostUsd === undefined) throw new BadRequestException('Informe maxCostUsd (número) ou null para remover o limite');
+    const agg = await this.prisma.job.aggregate({ where: { projectId }, _sum: { costSpentUsd: true } });
+    const p = await this.prisma.project.update({ where: { id: projectId }, data: { maxCostUsd } });
+    return { ...p, custoGastoUsd: agg._sum.costSpentUsd ?? 0 };
+  }
+
   async list(projectId: string) {
     return this.prisma.job.findMany({
       where: { projectId },
@@ -209,7 +250,7 @@ export class JobsService {
       where: { id: jobId, projectId },
       include: {
         objectives: { orderBy: { version: 'asc' } },
-        criteria: { orderBy: { createdAt: 'asc' }, include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } },
+        criteria: { orderBy: [{ createdAt: 'asc' }, { key: 'asc' }], include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } },
         steps: { orderBy: { order: 'asc' } },
         attempts: { orderBy: { startedAt: 'asc' } },
         checkpoints: { orderBy: { seq: 'asc' } },

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
-import { sha256File } from '../common/hash';
+import { sha256, sha256File } from '../common/hash';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { BlockedReason } from '../common/status';
@@ -26,6 +26,10 @@ export interface EvaluationReport {
   pendingSteps: string[];
   criteria: CriterionResult[];
   pendencias: string[];
+}
+
+export function criterionHash(c: Pick<AcceptanceCriterion, 'kind' | 'description' | 'config'>): string {
+  return sha256(JSON.stringify([c.kind, c.description, c.config ?? {}]));
 }
 
 const OPS: Record<string, (a: number, b: number) => boolean> = {
@@ -200,8 +204,10 @@ export class CompletionService {
           };
         }
         case 'MANUAL_APPROVAL': {
+          const hash = criterionHash(c);
+          // Só conta a decisão sobre o conteúdo atual do critério.
           const approvals = await this.prisma.approval.findMany({
-            where: { jobId: job.id, subjectId: c.id, kind: 'CRITERIO_SUBJETIVO' },
+            where: { jobId: job.id, subjectId: c.id, kind: 'CRITERIO_SUBJETIVO', subjectHash: hash },
             orderBy: { requestedAt: 'desc' },
           });
           const latest = approvals[0];
@@ -214,7 +220,7 @@ export class CompletionService {
           const pending =
             latest ??
             (await this.prisma.approval.create({
-              data: { jobId: job.id, projectId: job.projectId, kind: 'CRITERIO_SUBJETIVO', subjectId: c.id, description: `Critério subjetivo: ${c.description}` },
+              data: { jobId: job.id, projectId: job.projectId, kind: 'CRITERIO_SUBJETIVO', subjectId: c.id, subjectHash: hash, description: `Critério subjetivo: ${c.description}` },
             }));
           return { ...base, passed: false, pendingApproval: true, evidence: { aprovacaoId: pending.id, status: 'PENDENTE' } };
         }

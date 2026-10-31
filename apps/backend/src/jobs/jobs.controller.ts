@@ -16,6 +16,26 @@ export class JobsController {
     private readonly prisma: PrismaService,
   ) {}
 
+  @Get('invariants')
+  invariants(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.jobs.listInvariants(pid);
+  }
+
+  @Post('invariants')
+  createInvariant(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
+    return this.jobs.createInvariant(pid, body);
+  }
+
+  @Patch('invariants/:iid')
+  setInvariant(@Param('pid', ParseUUIDPipe) pid: string, @Param('iid', ParseUUIDPipe) iid: string, @Body() body: any) {
+    return this.jobs.setInvariantActive(pid, iid, body);
+  }
+
+  @Patch('budget')
+  budget(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
+    return this.jobs.setProjectBudget(pid, body);
+  }
+
   @Get('jobs')
   list(@Param('pid', ParseUUIDPipe) pid: string) {
     return this.jobs.list(pid);

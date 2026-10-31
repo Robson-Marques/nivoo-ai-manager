@@ -25,3 +25,10 @@
 | 021 | 2026-10-28 | Instalação de produção: `deploy/install-debian.sh` (root, idempotente), Node oficial em `/opt/nivoo/node`, usuário `nivoo`, systemd endurecido, API em 127.0.0.1 + túnel SSH, comando `nivoo` | Servidor Debian do responsável, sem sudo; isolamento em nível de SO |
 | 022 | 2026-10-28 | Conclusão do job, atualização do experimento e evidência na memória na mesma transação | Corrida observada: job CONCLUIDO com experimento ainda sem métricas |
 | 023 | 2026-10-28 | Na interrupção, checkpoint antes de liberar a etapa | Etapa retomável só com estado salvo |
+| 024 | 2026-10-31 | Não instalar o ECC; reimplementar ideias selecionadas (ver `docs/AVALIACAO-ECC.md`) | Hooks fora do modelo de permissões, memória paralela entre projetos, risco de cadeia de suprimentos |
+| 025 | 2026-10-31 | Claude Code com `--restricted --strict-mcp-config` e limpeza de arquivos de harness no workspace; Codex com `project_doc_max_bytes=0` | Achado real: hook em `.claude/settings.json` plantado no workspace executava shell e `CLAUDE.md` injetava instruções ocultas |
+| 026 | 2026-10-31 | Orçamento de contexto por prioridade + memória completa em `.nivoo/memoria.md` | Saturação de contexto em pesquisas longas, sem resumo por IA |
+| 027 | 2026-10-31 | Lições automáticas de falha na memória do projeto | Evitar repetir abordagens fracassadas entre jobs, de forma auditável |
+| 028 | 2026-10-31 | Critérios permanentes do projeto | Regressão: nenhum job pode quebrar invariantes do projeto |
+| 029 | 2026-10-31 | Orçamento de custo por projeto | Limite global além do limite por job |
+| 030 | 2026-10-31 | Aprovação vinculada ao hash do conteúdo aprovado | Aprovar uma coisa não autoriza outra |

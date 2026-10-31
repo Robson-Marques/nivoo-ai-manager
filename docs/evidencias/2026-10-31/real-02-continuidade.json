@@ -1,0 +1,346 @@
+{
+  "geradoEm": "2026-10-31T14:09:08.295Z",
+  "teste": "real-02-continuidade",
+  "job": {
+    "id": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+    "titulo": "indicadores em várias sessões",
+    "status": "CONCLUIDO",
+    "motivo": null,
+    "detalhe": "todos os critérios verificados com evidências",
+    "custoUsd": 0.3482,
+    "tempoAtivoSeg": 54
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "6098e2abd7d60e3d542fb5d336ac466dbad21e7b2319743ffe08625c6206b295",
+      "texto": "Implementar em Python as funções de indicadores media_movel, desvio_padrao e zscore (uma por arquivo em src/) usando a janela padrão definida nas decisões aprovadas do projeto, e documentar em out/resumo.md citando a hipótese em investigação. [marcador-objetivo: OBJ-CONT-91X]"
+    }
+  ],
+  "etapas": [
+    {
+      "key": "funcoes",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 3; commit 8e86d4fd87",
+      "opcoes": {
+        "maxTurns": 4
+      }
+    },
+    {
+      "key": "resumo",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 1; commit f6da0cd61f",
+      "opcoes": {}
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "funcoes",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-A-real",
+      "status": "SESSAO_ENCERRADA",
+      "sessionId": "d74a2614-7a78-4b22-bbcc-62d68713070e",
+      "termino": "max_turns",
+      "turnos": 5,
+      "custoUsd": 0.0901,
+      "notasImportadas": 1,
+      "progresso": true,
+      "erro": "verificação da etapa falhou (exit 1): Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import inspect,media_movel as a,desvio_padrao as b,zscore as c; assert all(inspect.signature(f).parameters['n'].default==20 for f in (a.media_movel,b.desvio_padrao,c.zscore)); xs=[float(i) for i in range(1,41)]; assert abs(a.media_movel(xs)-30.5)<1e-9; assert abs(b.desvio_padrao(xs)-5.766281297335398)<1e-6; assert abs(c.zscore(xs)-(40-30.5)/5.766281297335398)<1e-6\n    ^^^^^^^^^^^^^",
+      "inicio": "2026-10-31T14:08:05.337Z",
+      "fim": "2026-10-31T14:08:17.558Z"
+    },
+    {
+      "etapa": "funcoes",
+      "numero": 2,
+      "conector": "claude-code-cli",
+      "worker": "worker-A-real",
+      "status": "INTERROMPIDA",
+      "sessionId": null,
+      "termino": null,
+      "turnos": null,
+      "custoUsd": 0,
+      "notasImportadas": 0,
+      "progresso": true,
+      "erro": "worker perdido (worker-A-real); lease expirado",
+      "inicio": "2026-10-31T14:08:17.731Z",
+      "fim": "2026-10-31T14:08:25.338Z"
+    },
+    {
+      "etapa": "funcoes",
+      "numero": 3,
+      "conector": "claude-code-cli",
+      "worker": "worker-B-real",
+      "status": "SUCESSO",
+      "sessionId": "983c0494-1e4e-4fb1-8e0b-3c4a47e1fb25",
+      "termino": "max_turns",
+      "turnos": 5,
+      "custoUsd": 0.1162,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-31T14:08:25.368Z",
+      "fim": "2026-10-31T14:08:40.662Z"
+    },
+    {
+      "etapa": "resumo",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-B-real",
+      "status": "SUCESSO",
+      "sessionId": "50e1650f-42a4-40f7-8ed7-70b241bb0376",
+      "termino": "completed",
+      "turnos": 8,
+      "custoUsd": 0.1419,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-10-31T14:08:41.152Z",
+      "fim": "2026-10-31T14:09:06.100Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/funcoes/tentativa-1.md",
+      "sha256": "8d24d739ae94b56bc6c394ee7986b531ff461d8e47eb7d3efc35fdef855291f3",
+      "bytes": 3985,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/funcoes/tentativa-2.md",
+      "sha256": "bf6a0277db19ff78aa6a9b6db53a6b2a9d4d6f307fcb279ab51b3f7888dbedb9",
+      "bytes": 4914,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": true
+    },
+    {
+      "nome": "prompts/funcoes/tentativa-3.md",
+      "sha256": "40fc1380c62fbf439ed13354da7252a80ad9653bd4bc3ce8f740d0a1d0c9819e",
+      "bytes": 5001,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": true
+    },
+    {
+      "nome": "prompts/resumo/tentativa-1.md",
+      "sha256": "100b2bb0a2e30d250c31e6423cda0ab1619d9ede76e314993e7ce7f5b7fcede4",
+      "bytes": 4332,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": true
+    }
+  ],
+  "criterios": [
+    {
+      "key": "arquivos",
+      "kind": "FILE_EXISTS",
+      "status": "APROVADO",
+      "evidencia": {
+        "bytes": 581,
+        "existe": true,
+        "sha256": "9ff3d0a9dadc5a39db2cc48ed0752cc217e8c28886c11bc9e5c80858770d1c70",
+        "caminho": "src/zscore.py",
+        "minBytes": 1
+      }
+    },
+    {
+      "key": "resumo",
+      "kind": "ARTIFACT_PRESENT",
+      "status": "APROVADO",
+      "evidencia": {
+        "nome": "resumo.md",
+        "bytes": 1688,
+        "sha256": "a78f903208b4a3b8c6fe83a8b81ee59e2732f71cecaf0efe56b1e89cf3e415cb",
+        "artefatoId": "8591da0f-9d9d-4bff-9bd3-a6f5c9b80a80"
+      }
+    },
+    {
+      "key": "testes",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "",
+        "comando": "cd src && python3 -c \"import zscore; xs=[float(i) for i in range(1,41)]; assert abs(zscore.zscore(xs)-9.5/5.766281297335398)<1e-6\"",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/funcoes/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "f8f718ed06821d457c56f41aca11cecf2dae9741b1f93f3302a964641ebe1bbc",
+      "bytes": 607
+    },
+    {
+      "nome": "logs/funcoes/tentativa-3.log",
+      "tipo": "LOG",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "bytes": 1
+    },
+    {
+      "nome": "logs/resumo/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "5356fc4e421299af9737e25305efd6f959ced304976d71afd1ac69694e109037",
+      "bytes": 1480
+    },
+    {
+      "nome": "resumo.md",
+      "tipo": "FILE",
+      "sha256": "a78f903208b4a3b8c6fe83a8b81ee59e2732f71cecaf0efe56b1e89cf3e415cb",
+      "bytes": 1688
+    },
+    {
+      "nome": "criterios/arquivos.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "e4064b7b763247fb3202fea63477bd513bc690558c9556aa7f7ce07cba88fdd3",
+      "bytes": 343
+    },
+    {
+      "nome": "criterios/resumo.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "746cb1ebf23ff8c1b16746be5d2230d4317ce007e2bea151210978bed3977aee",
+      "bytes": 359
+    },
+    {
+      "nome": "criterios/testes.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "dde562522591228a72298218aad098ce9a00b2c42b223f4c4235c92a6bccc5df",
+      "bytes": 413
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "sessão 1 encerrada sem concluir funcoes",
+      "commit": "5bcb54dc7d8fc036726ead3b5ef25b553e6de2f1"
+    },
+    {
+      "seq": 2,
+      "rotulo": "etapa funcoes concluída (tentativa 3)",
+      "commit": "8e86d4fd876e7f492d0bcf896b741d568c45cd22"
+    },
+    {
+      "seq": 3,
+      "rotulo": "etapa resumo concluída (tentativa 1)",
+      "commit": "f6da0cd61f8109952c4fb729b112f98aede9da57"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste continuidade real",
+      "referencias": {}
+    },
+    {
+      "categoria": "HIPOTESE_INVESTIGACAO",
+      "titulo": "H-CONT-7Q: o z-score de 20 períodos identifica excessos que revertem",
+      "autor": "operador",
+      "conteudo": "código de rastreio H-CONT-7Q",
+      "referencias": {
+        "hypothesisId": "5615278f-88f4-4767-8cff-f111000f4197"
+      }
+    },
+    {
+      "categoria": "DECISAO_APROVADA",
+      "titulo": "D-JAN-20: janela padrão",
+      "autor": "operador",
+      "conteudo": "Decisão D-JAN-20: a janela padrão dos indicadores é 20 períodos.",
+      "referencias": {}
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "media_movel criada",
+      "autor": "agente:claude-code-cli:sessao:d74a2614-7a78-4b22-bbcc-62d68713070e",
+      "conteudo": "[progresso] Sessão 2: criado src/media_movel.py com media_movel(xs, n=20) (D-JAN-20). Falta: src/desvio_padrao.py e src/zscore.py.",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "origem": "notas-do-agente",
+        "noteHash": "2eeb3935d88f5ec6d6dbef4aed691370133813fb4ecd7099e63b9b8647eea2ed",
+        "attemptId": "9c9608d2-a8e1-4e13-adc5-63c3d6a58f89",
+        "sessionId": "d74a2614-7a78-4b22-bbcc-62d68713070e"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "desvio_padrao confirmado",
+      "autor": "agente:claude-code-cli:sessao:983c0494-1e4e-4fb1-8e0b-3c4a47e1fb25",
+      "conteudo": "[progresso] Sessão 4: src/desvio_padrao.py (criado na sessão 3, sem nota) revisado: desvio_padrao(xs, n=20) populacional (D-JAN-20), correto. Falta: src/zscore.py.",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "origem": "notas-do-agente",
+        "noteHash": "86c47b2a2c9444b738912c4ecc1658a7eff866261fde4228674114926f1276ea",
+        "attemptId": "68b3759f-bef6-489c-ad0a-cfc4915ecd71",
+        "sessionId": "983c0494-1e4e-4fb1-8e0b-3c4a47e1fb25"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "zscore criado",
+      "autor": "agente:claude-code-cli:sessao:983c0494-1e4e-4fb1-8e0b-3c4a47e1fb25",
+      "conteudo": "[progresso] Sessão 4: criado src/zscore.py com zscore(xs, n=20) = (último - media_movel)/desvio_padrao da janela final (D-JAN-20), importando de media_movel e desvio_padrao. As três funções da etapa 'funcoes' estão criadas. Falta: etapa 'resumo' (out/resumo.md citando H-CONT-7Q e D-JAN-20); a verificação é feita pelo backend.",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "origem": "notas-do-agente",
+        "noteHash": "9b7663bd87640b5788cf65b4a8c7e7b1a2f140165b7207fec927b92e7b8c3b7d",
+        "attemptId": "68b3759f-bef6-489c-ad0a-cfc4915ecd71",
+        "sessionId": "983c0494-1e4e-4fb1-8e0b-3c4a47e1fb25"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "resumo escrito",
+      "autor": "agente:claude-code-cli:sessao:50e1650f-42a4-40f7-8ed7-70b241bb0376",
+      "conteudo": "[progresso] Etapa resumo, sessão 2: criado out/resumo.md descrevendo media_movel, desvio_padrao (populacional) e zscore, citando literalmente H-CONT-7Q e D-JAN-20. Sem shell disponível nesta sessão: grep de verificação e testes não foram executados por mim; ficam a cargo do backend. A validação empírica de H-CONT-7Q não faz parte do escopo.",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "origem": "notas-do-agente",
+        "noteHash": "11d9f8e7401f717965ae99772f9b03fe616ca1335eb7786d2140dae6d2914b55",
+        "attemptId": "04c766b8-c8e9-4bda-ae6a-81ca6fd59680",
+        "sessionId": "50e1650f-42a4-40f7-8ed7-70b241bb0376"
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "resumo.md",
+      "autor": "agente:claude-code-cli:sessao:50e1650f-42a4-40f7-8ed7-70b241bb0376",
+      "conteudo": "Resumo das três funções com citação de H-CONT-7Q e D-JAN-20.",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "origem": "notas-do-agente",
+        "noteHash": "8247ca8d8073ab805a468c5f2eaba27ee61cc70df8246c01e935723eec33c301",
+        "attemptId": "04c766b8-c8e9-4bda-ae6a-81ca6fd59680",
+        "gitCommit": "8e86d4fd876e7f492d0bcf896b741d568c45cd22",
+        "sessionId": "50e1650f-42a4-40f7-8ed7-70b241bb0376",
+        "parameters": {},
+        "artifactIds": [
+          "8591da0f-9d9d-4bff-9bd3-a6f5c9b80a80"
+        ]
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Evidência do job \"indicadores em várias sessões\"",
+      "autor": "sistema:verificador",
+      "conteudo": "Job concluído pelo verificador do backend. Commit f6da0cd61f8109952c4fb729b112f98aede9da57. Artefatos: resumo.md (a78f903208b4).",
+      "referencias": {
+        "jobId": "b7ea525b-19d5-4be6-9b6d-45cdac0f38c1",
+        "gitCommit": "f6da0cd61f8109952c4fb729b112f98aede9da57",
+        "datasetIds": [],
+        "parameters": {},
+        "artifactIds": [
+          "8591da0f-9d9d-4bff-9bd3-a6f5c9b80a80"
+        ],
+        "experimentIds": []
+      }
+    }
+  ],
+  "tentativaInterrompidaPelaQuedaDoWorker": "d924247b-4bb2-4407-8588-4c8aae402add",
+  "comandosManuaisDeContinuacao": 0
+}
