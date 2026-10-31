@@ -7,10 +7,21 @@ Não é um chatbot: é um gerenciador de **projetos, conhecimento, evidências e
 Resolve perda de continuidade, fragmentação de trabalhos longos, saturação de contexto,
 encerramento prematuro de pesquisas e ausência de validação integral.
 
-* Arquitetura: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md)
-* Decisões: [`docs/DECISOES.md`](docs/DECISOES.md)
-* Estado atual / retomada: [`docs/ESTADO.md`](docs/ESTADO.md)
-* Operação detalhada: [`docs/OPERACAO.md`](docs/OPERACAO.md)
+## Comece aqui
+
+**[`docs/README.md`](docs/README.md)** é o índice da documentação, com a ordem de leitura para cada
+papel (conhecer o projeto, operar o servidor, desenvolver). Atalhos:
+
+| Preciso de… | Leia |
+|---|---|
+| saber o que está pronto e o que falta | [`docs/ESTADO.md`](docs/ESTADO.md) |
+| instalar no servidor Debian | [`docs/INSTALACAO-DEBIAN.md`](docs/INSTALACAO-DEBIAN.md) |
+| usar e configurar no dia a dia | [`docs/OPERACAO.md`](docs/OPERACAO.md) |
+| entender como funciona por dentro | [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) |
+| mexer no código | [`docs/GUIA-DESENVOLVEDOR.md`](docs/GUIA-DESENVOLVEDOR.md) e [`docs/API.md`](docs/API.md) |
+| saber por que algo foi feito assim | [`docs/DECISOES.md`](docs/DECISOES.md) |
+
+> O desenvolvimento está na branch `claude/lucid-lamport-z7zup1`; a `main` ainda não recebeu o código.
 
 > **Nenhuma operação financeira real é permitida nesta versão.** Não há estratégias de trading
 > implementadas nem conexão com corretoras.
@@ -103,7 +114,7 @@ createdb nivoo_test
 npm test                                   # build + todos os testes (unitários e de aceitação)
 node apps/web/e2e/ui-smoke.cjs             # fumaça da interface (requer API+worker rodando e Playwright)
 # Provas com executores REAIS (opt-in, no host autorizado do worker) — ver docs/PROCEDIMENTO-CLI.md
-cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[123]   # Claude Code CLI
+cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1235]  # Claude Code CLI
 cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04     # Codex CLI
 ```
 
@@ -118,11 +129,16 @@ cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-
 | Bloqueio de conclusão sem evidências exigidas | `test/acceptance/06-controle-conclusao.spec.ts` |
 | Isolamento entre projetos | `test/acceptance/07-isolamento.spec.ts` |
 | Funcionamento com navegador fechado | `test/acceptance/08-navegador-fechado.spec.ts` |
-| Documentação de instalação e operação | este README + `docs/OPERACAO.md` |
+| Documentação de instalação e operação | este README + `docs/` (índice em `docs/README.md`) |
+
+Testes adicionais: `09-sessoes-simuladas` (limite do provedor e sessões sem progresso, com stub),
+`10-ciclo-cientifico-deterministico` (dados sintéticos, regra pré-registrada, sem IA),
+`11-ideias-ecc` (limpeza de harness, orçamento de contexto, lições, critérios permanentes, orçamento do
+projeto, aprovação por hash), `unit/context-builder`.
 
 Provas com executores reais (Claude Code CLI): `test/integration/real-01` (classificação de término
 e isolamento), `real-02` (continuidade entre sessões e queda de worker), `real-03` (ciclo científico com
-dados sintéticos). Evidências em `docs/evidencias/`. Estado e bloqueios: `docs/ESTADO.md`.
+dados sintéticos), `real-05` (hooks e `CLAUDE.md` plantados não têm efeito). Evidências em `docs/evidencias/`. Estado e bloqueios: `docs/ESTADO.md`.
 
 Mocks: somente os binários `test/support/stubs/*.sh`, marcados **TEST-ONLY**, usados em
 `test/unit/cli-adapters.spec.ts` e `test/acceptance/09-sessoes-simuladas.spec.ts` (caminhos de limite do provedor e sessões sem progresso). Eles não são
