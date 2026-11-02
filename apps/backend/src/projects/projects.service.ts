@@ -43,7 +43,8 @@ export class ProjectsService {
       },
     });
     if (!p) throw new NotFoundException('Projeto não encontrado');
-    return p;
+    const agg = await this.prisma.job.aggregate({ where: { projectId: id }, _sum: { costSpentUsd: true } });
+    return { ...p, custoGastoUsd: agg._sum.costSpentUsd ?? 0 };
   }
 
   async assertExists(id: string) {

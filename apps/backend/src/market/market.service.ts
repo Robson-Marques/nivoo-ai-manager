@@ -221,8 +221,15 @@ export class MarketService {
       };
       const category = status === 'VALIDADA' ? 'RESULTADO_VALIDADO' : 'HIPOTESE_REJEITADA';
       await this.memory.validateRefs(projectId, category, references as any);
-      await this.prisma.memoryEntry.create({
-        data: { projectId, researchId: h.researchId, category, title: h.statement.slice(0, 200), content: conclusion!, references: references as Prisma.InputJsonValue, author },
+      await this.prisma.$transaction(async (tx) => {
+        const created = await tx.memoryEntry.create({
+          data: { projectId, researchId: h.researchId, category, title: h.statement.slice(0, 200), content: conclusion!, references: references as Prisma.InputJsonValue, author },
+        });
+        // A entrada "em investigação" é substituída pela decisão: a memória nunca diz as duas coisas ao mesmo tempo.
+        await tx.memoryEntry.updateMany({
+          where: { projectId, category: 'HIPOTESE_INVESTIGACAO', supersededById: null, references: { path: ['hypothesisId'], equals: h.id } },
+          data: { supersededById: created.id },
+        });
       });
     }
     return this.prisma.hypothesis.update({ where: { id: h.id }, data: { status, conclusion } });

@@ -71,6 +71,10 @@ describe('Ciclo científico determinístico (dados sintéticos, sem IA)', () => 
     expect(d1.status).toBe('VALIDADA');
     expect(d2.status).toBe('REJEITADA');
     expect(d1.conclusion).toMatch(/regra pré-registrada taxa_reversao >= 0.65/);
+    // A entrada "em investigação" foi substituída pela decisão (memória sem contradição).
+    const emInvestigacao = (await h.http().get(`/api/projects/${p.id}/memory?category=HIPOTESE_INVESTIGACAO`)).body;
+    expect(emInvestigacao.some((m: any) => m.references?.hypothesisId === h1.id)).toBe(false);
+    expect(emInvestigacao.some((m: any) => m.references?.hypothesisId === h3.id)).toBe(true);
     await h.http().post(`/api/projects/${p.id}/hypotheses/${h1.id}/decide`).send({ experimentId: exp.id }).expect(400); // já decidida
 
     // Ainda há H3 em investigação → encerramento recusado; após rejeitá-la, encerra.

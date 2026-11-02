@@ -5,9 +5,10 @@ import { useApi } from '../hooks';
 import { Datasets } from './projeto/Datasets';
 import { Jobs } from './projeto/Jobs';
 import { Memoria } from './projeto/Memoria';
+import { Configuracoes } from './projeto/Configuracoes';
 import { Pesquisas } from './projeto/Pesquisas';
 
-const TABS = ['Pesquisas', 'Jobs', 'Datasets', 'Memória'] as const;
+const TABS = ['Pesquisas', 'Jobs', 'Datasets', 'Memória', 'Configurações'] as const;
 
 export function Projeto() {
   const { pid } = useParams();
@@ -31,6 +32,7 @@ export function Projeto() {
       {tab === 'Jobs' && <Jobs project={project} />}
       {tab === 'Datasets' && <Datasets project={project} reloadProject={reload} />}
       {tab === 'Memória' && <Memoria project={project} />}
+      {tab === 'Configurações' && <Configuracoes project={project} reloadProject={reload} />}
     </>
   );
 }

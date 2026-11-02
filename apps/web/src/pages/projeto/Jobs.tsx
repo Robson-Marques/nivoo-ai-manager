@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { Card, Empty, ErrorBox, Status, When } from '../../components';
 import { useAction, useApi } from '../../hooks';
 
-interface StepRow { key: string; title: string; instructions: string; provider: string; dependsOn: string; verifyCommand: string }
+interface StepRow { key: string; title: string; instructions: string; provider: string; dependsOn: string; verifyCommand: string; maxTurns: string }
 interface CritRow { key: string; description: string; kind: string; config: string }
 
 const KIND_HELP: Record<string, string> = {
@@ -15,7 +15,7 @@ const KIND_HELP: Record<string, string> = {
   MANUAL_APPROVAL: '{}',
 };
 
-const emptyStep = (n: number): StepRow => ({ key: `etapa${n}`, title: '', instructions: '', provider: '', dependsOn: n > 1 ? `etapa${n - 1}` : '', verifyCommand: '' });
+const emptyStep = (n: number): StepRow => ({ key: `etapa${n}`, title: '', instructions: '', provider: '', dependsOn: n > 1 ? `etapa${n - 1}` : '', verifyCommand: '', maxTurns: '' });
 
 export function Jobs({ project }: { project: any }) {
   const { data: jobs, reload } = useApi<any[]>(`/projects/${project.id}/jobs`, 5000);
@@ -28,7 +28,7 @@ export function Jobs({ project }: { project: any }) {
   const [researchId, setResearchId] = useState('');
   const [steps, setSteps] = useState<StepRow[]>([emptyStep(1)]);
   const [criteria, setCriteria] = useState<CritRow[]>([{ key: 'evidencia', description: '', kind: 'ARTIFACT_PRESENT', config: KIND_HELP.ARTIFACT_PRESENT }]);
-  const [limits, setLimits] = useState({ maxAttemptsPerStep: 3, maxDurationSec: 3600, maxCostUsd: 5, stepTimeoutSec: 900 });
+  const [limits, setLimits] = useState({ maxAttemptsPerStep: 3, maxSessionsPerStep: 8, maxDurationSec: 3600, maxCostUsd: 5, stepTimeoutSec: 900 });
   const [exp, setExp] = useState({ enabled: false, name: '', hypothesisId: '', datasetId: '', parameters: '{}' });
   const { data: research } = useApi<any>(researchId ? `/projects/${project.id}/researches/${researchId}` : null);
 
@@ -48,6 +48,7 @@ export function Jobs({ project }: { project: any }) {
           provider: s.provider || undefined,
           dependsOn: s.dependsOn.split(',').map((x) => x.trim()).filter(Boolean),
           verifyCommand: s.verifyCommand || undefined,
+          providerOptions: s.maxTurns ? { maxTurns: Number(s.maxTurns) } : undefined,
         })),
         criteria: criteria.map((c) => ({ key: c.key, description: c.description || c.key, kind: c.kind, config: JSON.parse(c.config || '{}') })),
       };
@@ -129,7 +130,10 @@ export function Jobs({ project }: { project: any }) {
               <label>Instruções (prompt para IA ou comando para local-shell)
                 <textarea rows={3} value={s.instructions} onChange={(e) => upStep(i, { instructions: e.target.value })} required />
               </label>
-              <label>Verificação da etapa (comando opcional; exit 0 = ok)<input value={s.verifyCommand} onChange={(e) => upStep(i, { verifyCommand: e.target.value })} /></label>
+              <div className="grid2">
+                <label>Verificação da etapa (comando; exit 0 = ok — obrigatória para conectores de IA)<input value={s.verifyCommand} onChange={(e) => upStep(i, { verifyCommand: e.target.value })} /></label>
+                <label>Turnos por sessão de IA (opcional)<input type="number" min="1" value={s.maxTurns} onChange={(e) => upStep(i, { maxTurns: e.target.value })} /></label>
+              </div>
               {steps.length > 1 && <button type="button" className="link danger" onClick={() => setSteps(steps.filter((_, j) => j !== i))}>remover etapa</button>}
             </fieldset>
           ))}
@@ -155,8 +159,9 @@ export function Jobs({ project }: { project: any }) {
           <button type="button" className="secondary" onClick={() => setCriteria([...criteria, { key: `c${criteria.length + 1}`, description: '', kind: 'COMMAND', config: KIND_HELP.COMMAND }])}>+ critério</button>
 
           <h3>Limites</h3>
-          <div className="grid4">
-            <label>Tentativas por etapa<input type="number" value={limits.maxAttemptsPerStep} onChange={(e) => setLimits({ ...limits, maxAttemptsPerStep: +e.target.value })} /></label>
+          <div className="grid5">
+            <label>Tentativas com falha por etapa<input type="number" value={limits.maxAttemptsPerStep} onChange={(e) => setLimits({ ...limits, maxAttemptsPerStep: +e.target.value })} /></label>
+            <label>Sessões de IA por etapa<input type="number" value={limits.maxSessionsPerStep} onChange={(e) => setLimits({ ...limits, maxSessionsPerStep: +e.target.value })} /></label>
             <label>Tempo total (s)<input type="number" value={limits.maxDurationSec} onChange={(e) => setLimits({ ...limits, maxDurationSec: +e.target.value })} /></label>
             <label>Timeout por tentativa (s)<input type="number" value={limits.stepTimeoutSec} onChange={(e) => setLimits({ ...limits, stepTimeoutSec: +e.target.value })} /></label>
             <label>Orçamento (US$)<input type="number" step="0.1" value={limits.maxCostUsd} onChange={(e) => setLimits({ ...limits, maxCostUsd: +e.target.value })} /></label>

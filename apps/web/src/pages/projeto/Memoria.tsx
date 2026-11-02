@@ -18,6 +18,7 @@ export function Memoria({ project }: { project: any }) {
   const { data, reload } = useApi<any[]>(`/projects/${project.id}/memory`);
   const act = useAction();
   const [form, setForm] = useState({ category: 'DECISAO_APROVADA', title: '', content: '', author: '', references: '{}' });
+  if (!data) return <p className="muted">Carregando memória…</p>;
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -31,11 +32,13 @@ export function Memoria({ project }: { project: any }) {
   return (
     <>
       {CATEGORIES.map(([cat, label]) => {
-        const items = (data ?? []).filter((m) => m.category === cat);
+        const items = data.filter((m) => m.category === cat);
         return (
           <Card key={cat} title={<>{label} <span className="muted">({items.length})</span></>}>
             {items.length === 0 ? <Empty>—</Empty> : items.map((m) => (
               <div key={m.id} className="mem">
+                {m.references?.origem === 'licao-automatica' && <span className="tag bad">lição automática</span>}
+                {m.references?.origem === 'notas-do-agente' && <span className="tag">nota do agente</span>}
                 <b>{m.title}</b> <span className="small muted">v{m.version} · {m.author} · <When date={m.createdAt} /></span>
                 <div className="pre">{m.content}</div>
                 {Object.keys(m.references ?? {}).length > 0 && <details><summary className="small">referências reproduzíveis</summary><Json value={m.references} /></details>}

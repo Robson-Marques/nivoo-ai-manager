@@ -61,13 +61,14 @@ h4 { font-size: 13px; margin: 4px 0; }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.grid5 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
 .grid-side { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 14px; }
 @media (max-width: 900px) {
   .layout { flex-direction: column; }
   .nav { width: auto; height: auto; position: static; flex-direction: row; flex-wrap: wrap; }
   .nav-note { display: none; }
   .main { padding: 16px; }
-  .grid2, .grid3, .grid4, .grid-side { grid-template-columns: 1fr; }
+  .grid2, .grid3, .grid4, .grid5, .grid-side { grid-template-columns: 1fr; }
 }
 
 table { width: 100%; border-collapse: collapse; }
@@ -98,9 +99,9 @@ label.check input { width: auto; }
 .s-AGUARDANDO_APROVACAO, .s-AGUARDANDO_RECURSO { background: var(--warn-soft); color: var(--warn); }
 .s-PENDENTE { background: var(--line); color: var(--muted); }
 .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; font-size: 11px; background: var(--line); color: var(--text); margin: 0 4px 2px 0; }
-.tag.ok, .c-APROVADO, .a-SUCESSO, .h-VALIDADA { background: var(--ok-soft); color: var(--ok); }
+.tag.ok, .c-APROVADO, .a-SUCESSO, .h-VALIDADA, .r-ENCERRADA { background: var(--ok-soft); color: var(--ok); }
 .tag.bad, .c-REPROVADO, .a-FALHA, .h-REJEITADA { background: var(--bad-soft); color: var(--bad); }
-.c-AGUARDANDO_APROVACAO, .a-INTERROMPIDA, .a-RECURSO_INDISPONIVEL { background: var(--warn-soft); color: var(--warn); }
+.c-AGUARDANDO_APROVACAO, .a-INTERROMPIDA, .a-RECURSO_INDISPONIVEL, .a-SESSAO_ENCERRADA, .r-EM_ANDAMENTO { background: var(--warn-soft); color: var(--warn); }
 .bad-text { color: var(--bad); }
 
 .kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }

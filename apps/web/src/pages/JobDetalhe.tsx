@@ -5,6 +5,15 @@ import { Card, Empty, ErrorBox, Json, short, Status, When } from '../components'
 import { useAction, useApi } from '../hooks';
 import { ApprovalRow } from './Painel';
 
+const ATTEMPT_LABEL: Record<string, string> = {
+  EXECUTANDO: 'executando',
+  SUCESSO: 'sucesso',
+  FALHA: 'falha',
+  INTERROMPIDA: 'interrompida',
+  RECURSO_INDISPONIVEL: 'recurso indisponível',
+  SESSAO_ENCERRADA: 'sessão encerrada',
+};
+
 interface LogRow { id: string; level: string; source: string; message: string; createdAt: string; stepId?: string }
 
 export function JobDetalhe() {
@@ -168,25 +177,42 @@ export function JobDetalhe() {
         </div>
       </Card>
 
-      <div className="grid2">
-        <Card title="Tentativas">
-          {job.attempts.length === 0 ? <Empty>nenhuma</Empty> : (
+      <Card title="Sessões e tentativas">
+        <p className="small muted">Cada linha de IA é uma sessão real do provedor. "Sessão encerrada" = o agente parou sem a verificação da etapa passar; o sistema abre outra sessão sozinho.</p>
+        {job.attempts.length === 0 ? <Empty>nenhuma</Empty> : (
+          <div className="scroll">
             <table>
-              <thead><tr><th>Etapa</th><th>#</th><th>Conector</th><th>Worker</th><th>Resultado</th></tr></thead>
+              <thead><tr><th>Etapa</th><th>#</th><th>Conector / worker</th><th>Sessão</th><th>Término</th><th>Contexto</th><th>Custo</th><th>Resultado</th></tr></thead>
               <tbody>
-                {job.attempts.map((a: any) => (
-                  <tr key={a.id}>
-                    <td>{stepKey(a.stepId)}</td>
-                    <td>{a.number}</td>
-                    <td className="small">{a.provider}</td>
-                    <td className="small">{a.workerId}</td>
-                    <td><span className={`tag a-${a.status}`}>{a.status.toLowerCase().replace('_', ' ')}</span>{a.error && <div className="small muted trunc" title={a.error}>{a.error}</div>}</td>
-                  </tr>
-                ))}
+                {job.attempts.map((a: any) => {
+                  const ctx = a.contextStats;
+                  const prompt = a.promptArtifactId ? job.artifacts.find((x: any) => x.id === a.promptArtifactId) : null;
+                  return (
+                    <tr key={a.id}>
+                      <td>{stepKey(a.stepId)}</td>
+                      <td>{a.number}</td>
+                      <td className="small">{a.provider}<div className="muted">{a.workerId}</div></td>
+                      <td className="small"><code title={a.sessionId ?? ''}>{short(a.sessionId, 8)}</code>{prompt && <div><a href={artifactUrl(pid!, prompt.id)} target="_blank" rel="noreferrer">prompt</a></div>}</td>
+                      <td className="small">{a.stopReason ?? '—'}{a.numTurns ? <div className="muted">{a.numTurns} turnos</div> : null}</td>
+                      <td className="small">
+                        {ctx ? <>{Math.round(ctx.totalChars / 1000)}k/{Math.round(ctx.budgetChars / 1000)}k{ctx.memoryOmitted ? <div className="muted">{ctx.memoryOmitted} memórias omitidas</div> : null}</> : '—'}
+                      </td>
+                      <td className="small">{Number(a.costUsd) ? `US$ ${Number(a.costUsd).toFixed(3)}` : '—'}</td>
+                      <td>
+                        <span className={`tag a-${a.status}`}>{ATTEMPT_LABEL[a.status] ?? a.status}</span>
+                        {a.notesIngested ? <div className="small muted">{a.notesIngested} nota(s) do agente</div> : null}
+                        {a.error && <div className="small muted trunc" title={a.error}>{a.error}</div>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-          )}
-        </Card>
+          </div>
+        )}
+      </Card>
+
+      <div className="grid2">
         <Card title="Checkpoints">
           {job.checkpoints.length === 0 ? <Empty>nenhum</Empty> : (
             <table>

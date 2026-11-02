@@ -1,8 +1,13 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../../api';
-import { Card, Empty, ErrorBox, Json, Status, short } from '../../components';
+import { api, getToken } from '../../api';
+import { Card, Empty, ErrorBox, Json, Status, short, When } from '../../components';
 import { useAction, useApi } from '../../hooks';
+
+function authHeaders(): Record<string, string> {
+  const t = getToken();
+  return t ? { authorization: `Bearer ${t}` } : {};
+}
 
 export function Pesquisas({ project, reloadProject, initial }: { project: any; reloadProject: () => void; initial: string | null }) {
   const act = useAction();
@@ -66,15 +71,22 @@ function PesquisaDetalhe({ pid, rid, onChange }: { pid: string; rid: string; onC
   const act = useAction();
   const [statement, setStatement] = useState('');
   const [rationale, setRationale] = useState('');
+  const [rule, setRule] = useState({ metric: '', op: '>=', value: '', datasetRole: 'VALIDACAO' });
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const [pendencias, setPendencias] = useState<string[] | null>(null);
   if (error) return <ErrorBox error={error} />;
   if (!r) return <p className="muted">Carregando…</p>;
 
   const addHyp = (e: FormEvent) => {
     e.preventDefault();
     act.run(async () => {
-      await api(`/projects/${pid}/researches/${rid}/hypotheses`, 'POST', { statement, rationale });
+      const decisionRule = rule.metric
+        ? { metric: rule.metric, op: rule.op, value: Number(rule.value), ...(rule.datasetRole ? { datasetRole: rule.datasetRole } : {}) }
+        : undefined;
+      await api(`/projects/${pid}/researches/${rid}/hypotheses`, 'POST', { statement, rationale, decisionRule });
       setStatement('');
       setRationale('');
+      setRule({ metric: '', op: '>=', value: '', datasetRole: 'VALIDACAO' });
       reload();
       onChange();
     });
@@ -90,11 +102,50 @@ function PesquisaDetalhe({ pid, rid, onChange }: { pid: string; rid: string; onC
       onChange();
     });
 
+  // Experimentos que podem decidir uma hipótese: concluídos, desta hipótese ou sem vínculo.
+  const elegiveis = (h: any) => r.experiments.filter((e: any) => e.status === 'CONCLUIDO' && (!e.hypothesisId || e.hypothesisId === h.id));
+  const decidir = (h: any) =>
+    act.run(async () => {
+      const exps = elegiveis(h);
+      const experimentId = chosen[h.id] ?? exps[0]?.id;
+      if (!experimentId) return;
+      await api(`/projects/${pid}/hypotheses/${h.id}/decide`, 'POST', { experimentId });
+      reload();
+      reloadCmp();
+      onChange();
+    });
+  const encerrar = () =>
+    act.run(async () => {
+      setPendencias(null);
+      const res = await fetch(`/api/projects/${pid}/researches/${rid}/close`, { method: 'POST', headers: authHeaders() });
+      const body = await res.json();
+      if (!res.ok) {
+        setPendencias(body.pendencias ?? [body.message]);
+        return;
+      }
+      reload();
+      onChange();
+    });
+
   return (
     <>
-      <Card title={r.title} actions={<Link to={`/projetos/${pid}?tab=jobs`}>+ job/experimento</Link>}>
+      <Card
+        title={<>{r.title} <span className={`tag r-${r.status}`}>{r.status.replace('_', ' ').toLowerCase()}</span></>}
+        actions={
+          <>
+            <Link to={`/projetos/${pid}?tab=jobs`}>+ job/experimento</Link>{' '}
+            {r.status !== 'ENCERRADA' && <button className="secondary" onClick={encerrar} disabled={act.busy}>Encerrar pesquisa</button>}
+          </>
+        }
+      >
         <p>{r.question}</p>
         <p className="small">Ativos: {r.assets.map((a: any) => <span key={a.asset.code} className="tag">{a.asset.code}</span>)}</p>
+        {pendencias && (
+          <div className="warn">
+            <b>A pesquisa não pode ser encerrada enquanto houver pendências:</b>
+            <ul>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>
+          </div>
+        )}
       </Card>
       <Card title="Hipóteses">
         <ErrorBox error={act.error} />
@@ -106,11 +157,32 @@ function PesquisaDetalhe({ pid, rid, onChange }: { pid: string; rid: string; onC
                 <td>
                   <b>{h.statement}</b>
                   {h.rationale && <div className="small muted">{h.rationale}</div>}
+                  {h.decisionRule && (
+                    <div className="small">
+                      Regra pré-registrada: <code>{h.decisionRule.metric} {h.decisionRule.op} {h.decisionRule.value}</code>
+                      {h.decisionRule.datasetRole && <> em dados {h.decisionRule.datasetRole}</>}
+                      <span className="muted"> · registrada em <When date={h.decisionRuleSetAt} /></span>
+                    </div>
+                  )}
                   {h.conclusion && <div className="small">Conclusão: {h.conclusion}</div>}
                 </td>
                 <td><span className={`tag h-${h.status}`}>{h.status.replace('_', ' ').toLowerCase()}</span></td>
                 <td className="nowrap">
-                  {h.status === 'EM_INVESTIGACAO' && (
+                  {h.status === 'EM_INVESTIGACAO' && h.decisionRule && (
+                    elegiveis(h).length === 0 ? (
+                      <span className="small muted">aguardando experimento concluído</span>
+                    ) : (
+                      <>
+                        {elegiveis(h).length > 1 && (
+                          <select value={chosen[h.id] ?? elegiveis(h)[0].id} onChange={(e) => setChosen({ ...chosen, [h.id]: e.target.value })}>
+                            {elegiveis(h).map((e: any) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                          </select>
+                        )}{' '}
+                        <button onClick={() => decidir(h)} disabled={act.busy}>Decidir pela regra</button>
+                      </>
+                    )
+                  )}
+                  {h.status === 'EM_INVESTIGACAO' && !h.decisionRule && (
                     <>
                       <button onClick={() => setHyp(h, 'VALIDADA')} disabled={act.busy}>Validar</button>{' '}
                       <button className="danger" onClick={() => setHyp(h, 'REJEITADA')} disabled={act.busy}>Rejeitar</button>
@@ -124,9 +196,18 @@ function PesquisaDetalhe({ pid, rid, onChange }: { pid: string; rid: string; onC
         <form onSubmit={addHyp} className="form">
           <label>Nova hipótese<input value={statement} onChange={(e) => setStatement(e.target.value)} required /></label>
           <label>Fundamentação<textarea rows={2} value={rationale} onChange={(e) => setRationale(e.target.value)} /></label>
+          <fieldset className="fs">
+            <legend className="small">Regra de decisão pré-registrada (recomendado; não pode mudar depois que um experimento começar)</legend>
+            <div className="grid4">
+              <label>Métrica (em metrics.json)<input value={rule.metric} onChange={(e) => setRule({ ...rule, metric: e.target.value })} placeholder="taxa_reversao" /></label>
+              <label>Operador<select value={rule.op} onChange={(e) => setRule({ ...rule, op: e.target.value })}>{['>=', '>', '<=', '<', '==', '!='].map((o) => <option key={o}>{o}</option>)}</select></label>
+              <label>Valor<input type="number" step="any" value={rule.value} onChange={(e) => setRule({ ...rule, value: e.target.value })} required={!!rule.metric} /></label>
+              <label>Dados exigidos<select value={rule.datasetRole} onChange={(e) => setRule({ ...rule, datasetRole: e.target.value })}><option value="VALIDACAO">VALIDAÇÃO</option><option value="RESERVADO">RESERVADO</option><option value="TREINO">TREINO</option><option value="">qualquer</option></select></label>
+            </div>
+          </fieldset>
           <button disabled={act.busy}>Registrar hipótese</button>
         </form>
-        <p className="small muted">Validar exige experimentos desta hipótese CONCLUÍDOS pelo verificador (com commit e métricas).</p>
+        <p className="small muted">Com regra pré-registrada, a hipótese é decidida pelo sistema aplicando a regra às métricas de um experimento concluído pelo verificador. Sem regra, a decisão manual exige experimentos verificados.</p>
       </Card>
       <Card title="Comparação de experimentos">
         {!cmp || cmp.rows.length === 0 ? <Empty>Nenhum experimento. Crie um job com experimento na aba Jobs.</Empty> : (
