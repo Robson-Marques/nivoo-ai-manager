@@ -4,6 +4,14 @@
 > Auditoria que motivou esta etapa: `docs/AUDITORIA.md`. Procedimento dos executores reais:
 > `docs/PROCEDIMENTO-CLI.md`. Evidências brutas: `docs/evidencias/2026-10-27/`.
 
+## Etapa 6 — revisão independente (2026-11-02)
+
+Ver `docs/REVISAO-2026-11-02.md`: 10 problemas confirmados e corrigidos (3 de segurança/integridade:
+link simbólico em `dados/`, hash de dataset substituído em silêncio, sessões paralelas na retomada;
+e `nivoo restore`, que não funcionava). Cada um tem teste de regressão que falha no código antigo.
+Suíte: 72 passando. Claude real: `real-01` e `real-05` passando. Debian 12 real: atualização de uma
+instalação existente (migração + dados preservados) e restauração de backup verificadas.
+
 ## Etapa 5 — telas completas, Debian real e incorporação à main (2026-11-02)
 
 **Telas.** Todos os recursos agora aparecem na interface: regra pré-registrada e "Decidir pela regra",

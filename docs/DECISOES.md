@@ -33,3 +33,7 @@
 | 029 | 2026-10-31 | Orçamento de custo por projeto | Limite global além do limite por job |
 | 030 | 2026-10-31 | Aprovação vinculada ao hash do conteúdo aprovado | Aprovar uma coisa não autoriza outra |
 | 031 | 2026-11-02 | Código incorporado à `main` (avanço direto do histórico da branch de desenvolvimento, sem reescrita); CI roda em todos os pushes | Pedido do responsável: tudo versionado na `main` |
+| 032 | 2026-11-02 | Retomada recusada enquanto o worker da sessão interrompida estiver vivo | Evitar duas sessões no mesmo workspace (revisão #2) |
+| 033 | 2026-11-02 | O hash registrado do dataset só muda criando um novo dataset; validação e liberação conferem o arquivo real | Integridade científica (revisão #4) |
+| 034 | 2026-11-02 | Custo de sessões encerradas à força estimado pelos tokens (`NIVOO_PRECO_ENTRADA_USD_MTOK`, `NIVOO_PRECO_SAIDA_USD_MTOK`) | Orçamento não pode ignorar gasto real (revisão #7) |
+| 035 | 2026-11-02 | Decisão de hipótese é definitiva; limites contam a partir da retomada; fila conta só quedas | Revisão #5, #10, #8 |

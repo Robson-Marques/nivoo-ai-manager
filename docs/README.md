@@ -34,6 +34,7 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 | [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) | Instalação de produção em Debian, como root, sem sudo. |
 | [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) | Login oficial dos executores de IA e como rodar as provas reais. |
 | [`AUDITORIA.md`](AUDITORIA.md) | Lacunas encontradas na V1 que motivaram a etapa de continuidade real. |
+| [`REVISAO-2026-11-02.md`](REVISAO-2026-11-02.md) | Revisão independente do código: 10 problemas, correções e testes. |
 | [`AVALIACAO-ECC.md`](AVALIACAO-ECC.md) | Avaliação do projeto ECC: o que foi aproveitado, o que foi rejeitado e por quê. |
 | [`evidencias/`](evidencias/) | Dados brutos das execuções reais (sessões, prompts, critérios, relatórios), por data. |
 

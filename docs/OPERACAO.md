@@ -62,6 +62,7 @@ pendências.
 | `NIVOO_API_TOKEN` | — | se definido, exige `Authorization: Bearer` |
 | `NIVOO_CLAUDE_BIN` / `NIVOO_CODEX_BIN` | `claude` / `codex` | caminho dos CLIs |
 | `NIVOO_CLAUDE_ALLOWED_TOOLS` | vazio | regras extras **restritas a caminho** (ex.: `Edit(./src/**)`); regras genéricas como `Write` são recusadas porque liberariam escrita fora do workspace. Bash/WebFetch/WebSearch sempre negados |
+| `NIVOO_PRECO_ENTRADA_USD_MTOK` / `NIVOO_PRECO_SAIDA_USD_MTOK` | 3 / 15 | preço por milhão de tokens usado só para ESTIMAR o custo de sessões encerradas à força (o CLI não informa o custo nesses casos) |
 | `NIVOO_CONTEXT_MAX_CHARS` | 60000 | orçamento de contexto por sessão de IA (memória excedente fica em `.nivoo/memoria.md`) |
 | `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão (padrão; também por etapa em `providerOptions.maxTurns`) |
 | `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` | — | modelo opcional |

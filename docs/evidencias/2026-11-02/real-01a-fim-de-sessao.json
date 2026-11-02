@@ -1,0 +1,198 @@
+{
+  "geradoEm": "2026-11-02T22:50:14.579Z",
+  "teste": "real-01a-fim-de-sessao",
+  "job": {
+    "id": "152ea425-0011-44d0-8490-90dd21515459",
+    "titulo": "arquivos em sessões curtas",
+    "status": "CONCLUIDO",
+    "motivo": null,
+    "detalhe": "todos os critérios verificados com evidências",
+    "custoUsd": 0.1402,
+    "tempoAtivoSeg": 14
+  },
+  "objetivo": [
+    {
+      "versao": 1,
+      "sha256": "a5e8cca07fe8f100b2b196fcefd9bcb9b8e144fb8cd260e836604db74d720ca1",
+      "texto": "Criar out/a1.txt, out/a2.txt, out/a3.txt e out/a4.txt contendo respectivamente 1, 2, 3 e 4."
+    }
+  ],
+  "etapas": [
+    {
+      "key": "criar",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 2; commit 965db8d4c7",
+      "opcoes": {
+        "maxTurns": 3
+      }
+    }
+  ],
+  "sessoes": [
+    {
+      "etapa": "criar",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "SESSAO_ENCERRADA",
+      "sessionId": "a71757ad-7dbf-494e-874d-4ce25f2d447c",
+      "termino": "max_turns",
+      "turnos": 4,
+      "custoUsd": 0.0725,
+      "notasImportadas": 0,
+      "progresso": true,
+      "erro": "verificação da etapa falhou (exit 2): grep: out/a4.txt: No such file or directory",
+      "inicio": "2026-11-02T22:49:58.891Z",
+      "fim": "2026-11-02T22:50:05.562Z"
+    },
+    {
+      "etapa": "criar",
+      "numero": 2,
+      "conector": "claude-code-cli",
+      "worker": "worker-real-1",
+      "status": "SUCESSO",
+      "sessionId": "26fa547a-c133-464d-b918-040273a7a463",
+      "termino": "max_turns",
+      "turnos": 4,
+      "custoUsd": 0.0677,
+      "notasImportadas": 1,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-11-02T22:50:05.635Z",
+      "fim": "2026-11-02T22:50:12.652Z"
+    }
+  ],
+  "prompts": [
+    {
+      "nome": "prompts/criar/tentativa-1.md",
+      "sha256": "d6af6dc31568fc0fef7634d6b8996bdd90d01301cfe9044dbd730fc1a365f2e9",
+      "bytes": 2533,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/criar/tentativa-2.md",
+      "sha256": "1d12f3387701083c836a7461972bef844921f079eab66c91d33b6e4a21fcbfaf",
+      "bytes": 3033,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": false
+    }
+  ],
+  "criterios": [
+    {
+      "key": "arquivos",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "",
+        "comando": "for i in 1 2 3 4; do grep -qx \"$i\" out/a$i.txt; done",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    }
+  ],
+  "artefatos": [
+    {
+      "nome": "logs/criar/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "4cae4848ae20dc5c36bc1e8b42829fad24c86a0db0c7278649aabc166272857c",
+      "bytes": 93
+    },
+    {
+      "nome": "a1.txt",
+      "tipo": "FILE",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    {
+      "nome": "a2.txt",
+      "tipo": "FILE",
+      "sha256": "53c234e5e8472b6ac51c1ae1cab3fe06fad053beb8ebfd8977b010655bfdd3c3",
+      "bytes": 2
+    },
+    {
+      "nome": "a3.txt",
+      "tipo": "FILE",
+      "sha256": "1121cfccd5913f0a63fec40a6ffd44ea64f9dc135c66634ba001d10bcf4302a2",
+      "bytes": 2
+    },
+    {
+      "nome": "logs/criar/tentativa-2.log",
+      "tipo": "LOG",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "bytes": 1
+    },
+    {
+      "nome": "a4.txt",
+      "tipo": "FILE",
+      "sha256": "7de1555df0c2700329e815b93b32c571c3ea54dc967b89e81ab73b9972b72d1d",
+      "bytes": 2
+    },
+    {
+      "nome": "criterios/arquivos.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "b1d06f432d35d067b659b2c07545f602a73ae17bfdf56e54d8475b0377813c29",
+      "bytes": 337
+    }
+  ],
+  "checkpoints": [
+    {
+      "seq": 1,
+      "rotulo": "sessão 1 encerrada sem concluir criar",
+      "commit": "0a7389d7d6b366323d3c3b6a5b3411b38e3c3e67"
+    },
+    {
+      "seq": 2,
+      "rotulo": "etapa criar concluída (tentativa 2)",
+      "commit": "965db8d4c7d521daabd16060c157b9e5444df0dc"
+    }
+  ],
+  "memoria": [
+    {
+      "categoria": "ESPECIFICACAO",
+      "titulo": "Especificação inicial",
+      "autor": "operador",
+      "conteudo": "Projeto de teste real sessao",
+      "referencias": {}
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "out/a4.txt criado",
+      "autor": "agente:claude-code-cli:sessao:26fa547a-c133-464d-b918-040273a7a463",
+      "conteudo": "Sessão 3: criado out/a4.txt contendo 4. a1-a3 já existiam de sessões anteriores (não reinspecionados, conforme instrução). Nada pendente do meu lado; verificação fica a cargo do backend.",
+      "referencias": {
+        "jobId": "152ea425-0011-44d0-8490-90dd21515459",
+        "origem": "notas-do-agente",
+        "noteHash": "c722f7b85957961c217f5fc6287a70a2451890c4ee8cc7fe1993c04b767a49c1",
+        "attemptId": "99ca2aa2-a303-4f21-ada8-61429dd85ec9",
+        "gitCommit": "0a7389d7d6b366323d3c3b6a5b3411b38e3c3e67",
+        "sessionId": "26fa547a-c133-464d-b918-040273a7a463",
+        "parameters": {},
+        "artifactIds": [
+          "041ba0b8-0245-4e20-b0ea-d0b6d352952b"
+        ]
+      }
+    },
+    {
+      "categoria": "EVIDENCIA",
+      "titulo": "Evidência do job \"arquivos em sessões curtas\"",
+      "autor": "sistema:verificador",
+      "conteudo": "Job concluído pelo verificador do backend. Commit 965db8d4c7d521daabd16060c157b9e5444df0dc. Artefatos: a1.txt (4355a46b19d3), a2.txt (53c234e5e847), a3.txt (1121cfccd591), a4.txt (7de1555df0c2).",
+      "referencias": {
+        "jobId": "152ea425-0011-44d0-8490-90dd21515459",
+        "gitCommit": "965db8d4c7d521daabd16060c157b9e5444df0dc",
+        "datasetIds": [],
+        "parameters": {},
+        "artifactIds": [
+          "2971a3f5-e726-4b24-81aa-8af36633fc08",
+          "807f35ad-52b1-437a-8406-003bef5bf3b7",
+          "68e50d26-190e-4593-87f3-49c2b4bd5194",
+          "041ba0b8-0245-4e20-b0ea-d0b6d352952b"
+        ],
+        "experimentIds": []
+      }
+    }
+  ]
+}
