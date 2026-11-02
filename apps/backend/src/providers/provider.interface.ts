@@ -47,6 +47,8 @@ export interface ExecutionResult {
   resourceUnavailable?: boolean;
   interrupted?: boolean;
   costUsd?: number;
+  /** true quando o provedor não informou o custo (timeout/interrupção) e ele foi estimado pelos tokens. */
+  costEstimated?: boolean;
   inputTokens?: number;
   outputTokens?: number;
   /**

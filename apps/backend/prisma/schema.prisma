@@ -348,6 +348,7 @@ model Step {
   status        ExecStatus @default(PENDENTE)
   statusDetail  String?
   attemptCount  Int        @default(0)
+  resumeFromAttempt Int    @default(0) // limites e repetição contam só tentativas com número maior (zerado a cada retomada)
   lastOutput    String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -383,6 +384,7 @@ model Attempt {
   outputHash  String?
   error       String?
   costUsd     Decimal       @default(0) @db.Decimal(12, 4)
+  costEstimated Boolean     @default(false) // custo estimado por tokens (o provedor não informou: timeout/interrupção)
   inputTokens  Int?
   outputTokens Int?
   startedAt   DateTime      @default(now())
@@ -480,6 +482,8 @@ model QueueTask {
   lockedBy    String?
   lockedUntil DateTime?
   claims      Int             @default(0)
+  recoveries  Int             @default(0) // reivindicações de lease EXPIRADO (worker caiu); só isso conta como "loop de quedas"
+  resourceWaits Int           @default(0) // esperas por recurso indisponível (define a espera crescente)
   lastError   String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt

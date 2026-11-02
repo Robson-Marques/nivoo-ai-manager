@@ -20,6 +20,14 @@ import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } fro
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
 
+function isDanglingLink(p: string): boolean {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
 export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
   return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, step.provider ?? null]));
@@ -97,7 +105,7 @@ export class StepExecutorService {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO_PROJETO, `custo do projeto US$ ${spent} ≥ orçamento do projeto US$ ${job.project.maxCostUsd}`);
       }
     }
-    const failures = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'FALHA' } });
+    const failures = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } } });
     if (failures >= job.maxAttemptsPerStep) {
       return this.failStep(task, workerId, job, step, `limite de ${job.maxAttemptsPerStep} tentativa(s) com falha atingido`);
     }
@@ -127,6 +135,9 @@ export class StepExecutorService {
     const outputDir = path.join(worktree, 'out');
 
     const isAi = provider.kind !== 'executor';
+    // Defesa em profundidade: o diretório de dados do projeto não pode ser alterado durante a tentativa.
+    // A impressão digital é tirada ANTES de qualquer escrita do próprio worker no workspace.
+    const protectedBefore = isAi ? this.workspace.dirFingerprint(dataDir, ['verificador.py']) : null;
     const prep = await this.prepareExperimentData(job.id, worktree);
     if (prep) {
       return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, prep);
@@ -136,8 +147,6 @@ export class StepExecutorService {
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
     }
     const treeBefore = await this.workspace.snapshotHash(worktree);
-    // Defesa em profundidade: o diretório de dados do projeto não pode ser alterado pelo agente.
-    const protectedBefore = isAi ? this.workspace.dirFingerprint(dataDir, ['verificador.py']) : null;
 
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
     const attempt = await this.prisma.$transaction(async (tx) => {
@@ -223,7 +232,17 @@ export class StepExecutorService {
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(dataDir, ['verificador.py']);
       if (protectedAfter !== protectedBefore) {
-        await this.prisma.attempt.update({ where: { id: attempt.id }, data: { status: 'FALHA', error: 'violação de isolamento: diretório de dados alterado', endedAt: new Date() } });
+        // O custo e o tempo da sessão contam no orçamento mesmo quando ela é descartada.
+        await this.prisma.$transaction([
+          this.prisma.attempt.update({
+            where: { id: attempt.id },
+            data: {
+              status: 'FALHA', error: 'violação de isolamento: diretório de dados alterado', endedAt: new Date(),
+              costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
+            },
+          }),
+          this.prisma.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } }),
+        ]);
         await L('VIOLAÇÃO DE ISOLAMENTO: a sessão alterou o diretório de dados do projeto (fora do workspace). Job bloqueado.', 'ERROR', attempt.id);
         return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (diretório de dados do projeto)');
       }
@@ -261,6 +280,7 @@ export class StepExecutorService {
           outputHash,
           error: result.error?.slice(0, 5000),
           costUsd: result.costUsd ?? 0,
+          costEstimated: !!result.costEstimated,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           sessionId: result.sessionId,
@@ -313,7 +333,7 @@ export class StepExecutorService {
 
     // FALHA: repetição improdutiva?
     const recent = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'FALHA' },
+      where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
       take: job.repetitionWindow,
     });
@@ -344,7 +364,7 @@ export class StepExecutorService {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
     });
     const sessions = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'SESSAO_ENCERRADA' },
+      where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
     const recent = sessions.slice(0, job.repetitionWindow);
@@ -401,10 +421,25 @@ export class StepExecutorService {
     if (!fs.existsSync(src)) return `arquivo do dataset ${ds.uri} não existe`;
     const hash = await sha256File(src);
     if (ds.sha256 && hash !== ds.sha256) return `dataset ${ds.name} alterado (sha256 ${hash.slice(0, 12)} ≠ registrado ${ds.sha256.slice(0, 12)})`;
-    const dest = path.join(worktree, 'dados', path.basename(ds.uri));
-    if (!fs.existsSync(dest) || (await sha256File(dest)) !== hash) {
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.copyFileSync(src, dest);
+    // Nunca segue links: o agente pode ter trocado dados/ ou o arquivo por um link para fora do workspace.
+    const dadosDir = path.join(worktree, 'dados');
+    if (fs.existsSync(dadosDir) || isDanglingLink(dadosDir)) {
+      if (!fs.lstatSync(dadosDir).isDirectory()) fs.rmSync(dadosDir, { force: true });
+    }
+    fs.mkdirSync(dadosDir, { recursive: true });
+    const dest = path.join(dadosDir, path.basename(ds.uri));
+    let intacto = false;
+    try {
+      const st = fs.lstatSync(dest);
+      intacto = st.isFile() && (await sha256File(dest)) === hash;
+      if (!intacto) fs.rmSync(dest, { recursive: true, force: true }); // remove o link em si, não o alvo
+    } catch {
+      /* não existe */
+    }
+    if (!intacto) {
+      const tmp = path.join(dadosDir, `.${path.basename(ds.uri)}.${process.pid}.tmp`);
+      fs.copyFileSync(src, tmp);
+      fs.renameSync(tmp, dest);
     }
     return null;
   }
@@ -542,7 +577,7 @@ export class StepExecutorService {
 
   private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string): Promise<StepOutcome> {
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
-    const delay = RESOURCE_BACKOFF_MS[Math.min(task.claims - 1, RESOURCE_BACKOFF_MS.length - 1)] ?? 60_000;
+    const delay = RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.step.update({ where: { id: step.id }, data: { status: 'AGUARDANDO_RECURSO', statusDetail: detail.slice(0, 1000) } });
@@ -553,7 +588,7 @@ export class StepExecutorService {
       level: 'WARN',
       source: 'worker',
     });
-    await this.queue.requeue(task.id, workerId, new Date(Date.now() + delay), detail);
+    await this.queue.requeue(task.id, workerId, new Date(Date.now() + delay), detail, true);
     return 'AGUARDANDO_RECURSO';
   }
 

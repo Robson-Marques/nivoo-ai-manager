@@ -38,6 +38,37 @@ export class ClaudeCodeCliProvider implements AiProvider {
     return rules;
   }
 
+  /**
+   * Estimativa de custo pelos tokens das mensagens já recebidas (cada mensagem contada uma vez).
+   * Preços por milhão de tokens configuráveis; padrão conservador de modelo intermediário.
+   */
+  static estimateFromStream(stdout: string): { costUsd: number; inputTokens: number; outputTokens: number } {
+    const perMessage = new Map<string, any>();
+    for (const line of stdout.split('\n')) {
+      try {
+        const ev = JSON.parse(line);
+        if (ev.type === 'assistant' && ev.message?.usage) perMessage.set(ev.message.id ?? `${perMessage.size}`, ev.message.usage);
+      } catch {
+        /* linha parcial */
+      }
+    }
+    const pin = Number(process.env.NIVOO_PRECO_ENTRADA_USD_MTOK ?? 3);
+    const pout = Number(process.env.NIVOO_PRECO_SAIDA_USD_MTOK ?? 15);
+    let input = 0;
+    let output = 0;
+    let cost = 0;
+    for (const u of perMessage.values()) {
+      const inp = u.input_tokens ?? 0;
+      const create = u.cache_creation_input_tokens ?? 0;
+      const read = u.cache_read_input_tokens ?? 0;
+      const out = u.output_tokens ?? 0;
+      input += inp + create + read;
+      output += out;
+      cost += ((inp + create * 1.25 + read * 0.1) * pin + out * pout) / 1_000_000;
+    }
+    return { costUsd: Math.round(cost * 10000) / 10000, inputTokens: input, outputTokens: output };
+  }
+
   /** Resume um evento stream-json do Claude Code em uma linha de log legível. */
   static logEvent(line: string, onLog: (l: string, level?: 'INFO' | 'WARN' | 'ERROR') => void): void {
     if (!line.trim()) return;
@@ -141,8 +172,13 @@ export class ClaudeCodeCliProvider implements AiProvider {
       },
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
-    if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
-    if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
+    // Sessão encerrada à força: o CLI não emite o custo final. Estima pelos tokens já informados no stream,
+    // para que o orçamento do job e do projeto continue valendo.
+    if (r.aborted || r.timedOut) {
+      const est = ClaudeCodeCliProvider.estimateFromStream(r.stdout);
+      const base = { exitCode: -1, output: '', costUsd: est.costUsd, costEstimated: true, inputTokens: est.inputTokens, outputTokens: est.outputTokens };
+      return r.aborted ? { ...base, interrupted: true, error: 'interrompido' } : { ...base, error: `timeout após ${req.timeoutMs} ms` };
+    }
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
     let parsed: any = null;
     for (const line of r.stdout.trim().split('\n').reverse()) {

@@ -95,10 +95,10 @@ export class MarketService {
     const abs = resolveInside(this.workspace.projectDirs(ds.project.slug).data, ds.uri);
     if (!fs.existsSync(abs)) throw new BadRequestException(`Arquivo ${ds.uri} não existe no diretório de dados do projeto`);
     const hash = await sha256File(abs);
-    if (ds.sha256 && ds.sha256 !== hash) {
-      await this.prisma.dataset.update({ where: { id: ds.id }, data: { notes: `${ds.notes}\n[alerta] sha256 alterado de ${ds.sha256} para ${hash}`.trim() } });
-    }
-    await this.prisma.dataset.update({ where: { id: ds.id }, data: { sha256: hash } });
+    // O hash registrado é o que vale para experimentos e aprovações: a validação nunca o substitui em
+    // silêncio. Arquivo diferente do registrado = dataset inválido (registre um novo dataset para a nova versão).
+    const divergente = !!ds.sha256 && ds.sha256 !== hash;
+    if (!ds.sha256) await this.prisma.dataset.update({ where: { id: ds.id }, data: { sha256: hash } });
     const report = await validateOhlcvCsv(abs, {
       code: ds.asset.code,
       tickSize: Number(ds.asset.tickSize),
@@ -106,7 +106,12 @@ export class MarketService {
       sessionClose: ds.asset.sessionClose,
       validation: ds.asset.validation as any,
     });
-    return { datasetId: ds.id, sha256: hash, ...report };
+    if (divergente) {
+      report.valid = false;
+      report.errorCount += 1;
+      report.errors.unshift({ line: 0, issue: `arquivo difere do registrado (registrado ${ds.sha256}, atual ${hash}); registre um novo dataset para usar esta versão` });
+    }
+    return { datasetId: ds.id, sha256Registrado: ds.sha256 ?? hash, sha256Atual: hash, integro: !divergente, ...report };
   }
 
   async requestRelease(projectId: string, datasetId: string, body: any) {
@@ -195,6 +200,9 @@ export class MarketService {
     const h = await this.prisma.hypothesis.findFirst({ where: { id: hypothesisId, research: { projectId } }, include: { research: true } });
     if (!h) throw new NotFoundException('Hipótese não encontrada neste projeto');
     const status = oneOf(body, 'status', ['EM_INVESTIGACAO', 'REJEITADA', 'VALIDADA'] as const) as HypothesisStatus;
+    if (h.status !== 'EM_INVESTIGACAO') {
+      throw new BadRequestException(`Hipótese já decidida (${h.status}); decisões são definitivas — registre uma nova hipótese para revisitar`);
+    }
     if (h.decisionRule && !viaRule && status !== 'EM_INVESTIGACAO') {
       throw new BadRequestException('Hipótese com regra pré-registrada: decida por POST /hypotheses/:id/decide');
     }

@@ -90,11 +90,13 @@ case "$cmd" in
     ts="${1:?informe o carimbo do backup (veja ls $BACKUP_DIR)}"
     read -rp "Isto SUBSTITUI o banco e os dados atuais pelo backup $ts. Digite SIM para continuar: " ans
     [ "$ans" = SIM ] || { echo "cancelado"; exit 1; }
+    [ -f "$BACKUP_DIR/nivoo-db-$ts.dump" ] && [ -f "$BACKUP_DIR/nivoo-data-$ts.tar.gz" ] || { echo "backup $ts incompleto ou inexistente" >&2; exit 1; }
     systemctl stop nivoo-api nivoo-worker
-    runuser -u postgres -- pg_restore --clean --if-exists -d nivoo "$BACKUP_DIR/nivoo-db-$ts.dump"
+    trap 'systemctl start nivoo-api nivoo-worker' EXIT   # os serviços voltam mesmo se a restauração falhar
+    # O arquivo é do root (600): o root o lê e entrega pela entrada padrão ao pg_restore (usuário postgres).
+    runuser -u postgres -- pg_restore --clean --if-exists -d nivoo < "$BACKUP_DIR/nivoo-db-$ts.dump"
     rm -rf "$NIVOO_HOME/data" && tar -C "$NIVOO_HOME" -xzf "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
-    systemctl start nivoo-api nivoo-worker
     echo "ok: restaurado"
     ;;
   tunnel)

@@ -33,7 +33,11 @@ export function JobDetalhe() {
     es.onerror = () => setLive('desconectado');
     es.addEventListener('logs', (ev) => {
       const rows = JSON.parse((ev as MessageEvent).data) as LogRow[];
-      setLogs((prev) => [...prev, ...rows].slice(-3000));
+      // Nunca duplica: após uma reconexão, só entram logs com id maior que o último exibido.
+      setLogs((prev) => {
+        const last = prev.length ? BigInt(prev[prev.length - 1].id) : -1n;
+        return [...prev, ...rows.filter((r) => BigInt(r.id) > last)].slice(-3000);
+      });
     });
     es.addEventListener('state', () => {
       reload();

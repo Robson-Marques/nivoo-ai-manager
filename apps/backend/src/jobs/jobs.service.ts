@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
+import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
 import { oneOf, optNumber, optString, reqString } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
@@ -353,20 +354,30 @@ export class JobsService {
     if (!['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(job.status)) {
       throw new ConflictException(`Job em ${job.status} não pode ser retomado`);
     }
+    // Uma sessão ainda em andamento (worker vivo encerrando o processo após a interrupção) impede a
+    // retomada: senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace.
+    const vivos = await this.prisma.attempt.findMany({ where: { jobId, status: 'EXECUTANDO' } });
+    const limite = new Date(Date.now() - 2 * appConfig().leaseMs);
+    for (const a of vivos) {
+      const hb = await this.prisma.workerHeartbeat.findUnique({ where: { id: a.workerId } });
+      if (hb && hb.lastSeenAt > limite) {
+        throw new ConflictException(`A sessão #${a.number} ainda está sendo encerrada pelo worker ${a.workerId}. Aguarde alguns segundos e retome de novo.`);
+      }
+    }
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
-      const running = await tx.queueTask.findMany({ where: { jobId, status: 'RUNNING' }, select: { stepId: true } });
-      const busy = new Set(running.map((t) => t.stepId));
       for (const s of job.steps) {
-        if (s.status === 'EXECUTANDO' && !busy.has(s.id)) {
-          // Worker caiu durante a interrupção: tentativa órfã é encerrada; etapa volta para PENDENTE.
+        const ultima = await tx.attempt.aggregate({ where: { stepId: s.id }, _max: { number: true } });
+        const recomeco = { resumeFromAttempt: ultima._max.number ?? 0 }; // limites contam a partir da retomada
+        if (s.status === 'EXECUTANDO') {
+          // Worker morreu (sem sinal): a tentativa órfã é encerrada; a etapa volta para PENDENTE.
           await tx.attempt.updateMany({
             where: { stepId: s.id, status: 'EXECUTANDO' },
-            data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'tentativa órfã encerrada na retomada' },
+            data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'tentativa órfã encerrada na retomada (worker sem sinal)' },
           });
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada' } });
+          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
         } else if (['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) {
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada' } });
+          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
         }
       }
       await tx.job.update({

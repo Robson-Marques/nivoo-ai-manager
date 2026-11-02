@@ -1,4 +1,4 @@
-import { Body, Controller, Get, MessageEvent, Param, ParseUUIDPipe, Patch, Post, Query, Res, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Headers, MessageEvent, Param, ParseUUIDPipe, Patch, Post, Query, Res, Sse } from '@nestjs/common';
 import type { Response } from 'express';
 import { Observable } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -104,9 +104,16 @@ export class JobsController {
 
   /** Tempo real: SSE com logs novos e snapshot de estado. Fechar o navegador não afeta a execução. */
   @Sse('jobs/:jid/events')
-  events(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Query('after') after?: string): Observable<MessageEvent> {
+  events(
+    @Param('pid', ParseUUIDPipe) pid: string,
+    @Param('jid', ParseUUIDPipe) jid: string,
+    @Query('after') after?: string,
+    @Headers('last-event-id') lastEventId?: string,
+  ): Observable<MessageEvent> {
     return new Observable<MessageEvent>((sub) => {
-      let cursor = BigInt(after ?? '0');
+      // Ao reconectar, o navegador envia Last-Event-ID: continua de onde parou, sem reenviar o histórico.
+      const parse = (v?: string) => (v && /^\d+$/.test(v) ? BigInt(v) : 0n);
+      let cursor = parse(after) > parse(lastEventId) ? parse(after) : parse(lastEventId);
       let lastState = '';
       let closed = false;
       const tick = async () => {
@@ -128,7 +135,7 @@ export class JobsController {
           const rows = await this.logs.since(jid, cursor, 500);
           if (rows.length) {
             cursor = BigInt(rows[rows.length - 1].id);
-            sub.next({ type: 'logs', data: rows });
+            sub.next({ type: 'logs', id: rows[rows.length - 1].id, data: rows });
           }
         } catch (e) {
           /* erro transitório; continua */
