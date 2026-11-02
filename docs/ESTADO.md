@@ -1,8 +1,50 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
-> Atualizado em 2026-10-27. Branch: `claude/lucid-lamport-z7zup1` (a `main` não foi alterada).
+> Atualizado em 2026-11-02. Código na `main` (histórico de desenvolvimento da branch `claude/lucid-lamport-z7zup1` incorporado).
 > Auditoria que motivou esta etapa: `docs/AUDITORIA.md`. Procedimento dos executores reais:
 > `docs/PROCEDIMENTO-CLI.md`. Evidências brutas: `docs/evidencias/2026-10-27/`.
+
+## Etapa 5 — telas completas, Debian real e incorporação à main (2026-11-02)
+
+**Telas.** Todos os recursos agora aparecem na interface: regra pré-registrada e "Decidir pela regra",
+"Encerrar pesquisa" com pendências, aba Configurações do projeto (orçamento com gasto acumulado e
+critérios permanentes), tabela de sessões de IA (sessão do provedor, término, turnos, orçamento de
+contexto, link para o prompt exato, custo, notas), lições e notas do agente na memória, campos de
+turnos por sessão e limite de sessões no formulário de job.
+
+**Teste de interface ponta a ponta** (`apps/web/e2e/ui-smoke.cjs`, Playwright, sem chamar a API
+diretamente): painel → orçamento e critério permanente → pesquisa e hipótese com regra → encerramento
+prematuro recusado → job pelo formulário → CONCLUÍDO com critério permanente aplicado, sessões, logs e
+artefatos → hipótese VALIDADA pela regra → pesquisa ENCERRADA → resultado na memória → conectores.
+
+**Instalador em Debian real** (máquinas limpas com systemd; código em `/opt/nivoo/app`; como root):
+
+| Verificação | Debian 12.15 (PostgreSQL 15, Python 3.11) | Debian 13.7 (PostgreSQL 17, Python 3.13) |
+|---|---|---|
+| Instalação do zero | 1 min 10 s | 1 min 37 s |
+| Serviços como `nivoo` (não root) | sim | sim |
+| `systemd-analyze security nivoo-worker` | 3.1 OK | 3.1 OK |
+| `nivoo check` (API, worker, conectores com status real) | ok | ok |
+| Job de ponta a ponta (executor local) | CONCLUIDO, checkpoint git | CONCLUIDO, checkpoint git |
+| Teste de interface completo no servidor instalado | 6/6 passos | 6/6 passos |
+| Reinstalação por cima (idempotente) | config e dados preservados | — |
+| Reinício da máquina | serviços voltam, dados preservados | serviços voltam |
+| Backup | permissão 600 | — |
+
+**Problemas reais encontrados e corrigidos nesta etapa:**
+
+* Memória contraditória: ao decidir uma hipótese, a entrada "em investigação" continuava vigente ao
+  lado do resultado; sessões de IA receberiam as duas. Agora é substituída pela decisão
+  (teste em `acceptance/10`).
+* Tela de memória mostrava "(0)" em todas as categorias enquanto carregava.
+* Instalador: versão do npm não aparecia no passo 2 (cosmético) e saída excessiva do apt.
+
+Suíte automatizada: 63 passando. Provas com Claude real: inalteradas desde 2026-10-31 (6/6), pois o
+adaptador de IA não mudou.
+
+**Continua pendente:** Codex sem login (nenhuma execução real); sessão de IA real **dentro** do serviço
+instalado depende do `nivoo login-claude` no seu servidor; clone por chave de deploy SSH não exercitado
+aqui.
 
 ## Etapa 4 — ideias do ECC incorporadas (2026-10-31)
 
@@ -53,10 +95,7 @@ Correções encontradas durante esta etapa (bugs reais do produto, não do teste
 
 **Pendências precisas:**
 
-1. **Não testado em Debian real.** A política de rede desta sessão bloqueia `deb.debian.org` e todos
-   os espelhos do Debian (CONNECT 403). O teste foi feito em **Ubuntu 24.04** (derivado do Debian:
-   mesmos pacotes, apt, systemd e PostgreSQL). Para testar em Debian 12/13 aqui, libere
-   `deb.debian.org` e `security.debian.org` em *Allowed domains* do ambiente.
+1. ~~Não testado em Debian real~~ — **resolvido em 2026-11-02**: testado em Debian 12 e 13 reais (ver Etapa 5).
 2. Clone via chave de deploy SSH (passo 1 do guia) não exercitado aqui (sem acesso SSH ao GitHub).
 3. Sessão real de IA **dentro do serviço** systemd não testada (depende do seu `nivoo login-claude`);
    os binários `claude` e `codex` executam dentro do sandbox (versão e status de login conferidos).

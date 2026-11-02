@@ -57,9 +57,9 @@ has_systemd() { [ "$NIVOO_SKIP_SYSTEMD" != 1 ] && [ -d /run/systemd/system ]; }
 # -----------------------------------------------------------------------------
 step "1/9 Pacotes do sistema"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
+apt-get update -qq
 apt-get install -y -q --no-install-recommends \
-  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux >/dev/null
+  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux >/dev/null 2>&1
 ok "git $(git --version | awk '{print $3}'), python $(python3 -V | awk '{print $2}'), $(psql -V)"
 
 # -----------------------------------------------------------------------------
@@ -80,7 +80,7 @@ else
   rm -rf "$NODE_DIR" && mkdir -p "$NODE_DIR"
   tar -xJf "$TMP/$TARBALL" -C "$NODE_DIR" --strip-components=1
   rm -rf "$TMP"
-  ok "node $("$NODE_DIR/bin/node" -v), npm $("$NODE_DIR/bin/npm" -v) (sha256 conferido)"
+  ok "node $("$NODE_DIR/bin/node" -v), npm $(PATH="$NODE_DIR/bin:$PATH" "$NODE_DIR/bin/npm" -v) (sha256 conferido)"
 fi
 export PATH="$NODE_DIR/bin:$PATH"
 

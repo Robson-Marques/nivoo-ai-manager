@@ -5,7 +5,7 @@
 Na data de início (2026-10-27) o repositório continha apenas `README.md` e um commit inicial.
 Não havia código, motores de trading ou estratégias existentes — portanto nada foi alterado
 além da criação da aplicação. A `main` é preservada; todo o desenvolvimento ocorre na branch
-de desenvolvimento `claude/lucid-lamport-z7zup1`.
+de desenvolvimento `claude/lucid-lamport-z7zup1`, incorporada à `main` em 2026-11-02.
 
 ## 2. Visão geral
 

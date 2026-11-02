@@ -39,5 +39,5 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 
 ## Onde está o código
 
-O desenvolvimento está na branch **`claude/lucid-lamport-z7zup1`**. A `main` ainda contém só o
-commit inicial; nada foi mesclado nela. Para ler o código no GitHub, troque para essa branch.
+Tudo está na branch **`main`**, versionado. O histórico de desenvolvimento (branch
+`claude/lucid-lamport-z7zup1`) foi incorporado à `main` sem reescrever commits.

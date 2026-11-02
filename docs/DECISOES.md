@@ -32,3 +32,4 @@
 | 028 | 2026-10-31 | Critérios permanentes do projeto | Regressão: nenhum job pode quebrar invariantes do projeto |
 | 029 | 2026-10-31 | Orçamento de custo por projeto | Limite global além do limite por job |
 | 030 | 2026-10-31 | Aprovação vinculada ao hash do conteúdo aprovado | Aprovar uma coisa não autoriza outra |
+| 031 | 2026-11-02 | Código incorporado à `main` (avanço direto do histórico da branch de desenvolvimento, sem reescrita); CI roda em todos os pushes | Pedido do responsável: tudo versionado na `main` |

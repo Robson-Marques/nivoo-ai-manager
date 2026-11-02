@@ -2,6 +2,9 @@
 
 Para Debian 12 ou 13, logado como **root** (sem `sudo`). Tudo abaixo é para copiar e colar.
 
+> Testado em máquinas Debian 12.15 e 13.7 limpas, com systemd (2026-11-02): instalação, serviços,
+> job de ponta a ponta, todas as telas pela interface, reinício e reinstalação. Ver `docs/ESTADO.md`.
+
 O que fica instalado:
 
 | O quê | Onde |
@@ -47,7 +50,7 @@ Depois, no servidor:
 
 ```bash
 ssh -o StrictHostKeyChecking=accept-new -T github-nivoo   # deve responder "successfully authenticated"
-git clone -b claude/lucid-lamport-z7zup1 github-nivoo:robson-marques/nivoo-ai-manager.git /opt/nivoo/app
+git clone github-nivoo:robson-marques/nivoo-ai-manager.git /opt/nivoo/app
 ```
 
 > Sem chave? Alternativa: baixe o ZIP da branch no GitHub pelo seu computador, envie com

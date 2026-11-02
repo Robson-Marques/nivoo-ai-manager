@@ -21,7 +21,7 @@ papel (conhecer o projeto, operar o servidor, desenvolver). Atalhos:
 | mexer no código | [`docs/GUIA-DESENVOLVEDOR.md`](docs/GUIA-DESENVOLVEDOR.md) e [`docs/API.md`](docs/API.md) |
 | saber por que algo foi feito assim | [`docs/DECISOES.md`](docs/DECISOES.md) |
 
-> O desenvolvimento está na branch `claude/lucid-lamport-z7zup1`; a `main` ainda não recebeu o código.
+> Todo o código e a documentação estão na `main`, versionados. Histórico de decisões em `docs/DECISOES.md`.
 
 > **Nenhuma operação financeira real é permitida nesta versão.** Não há estratégias de trading
 > implementadas nem conexão com corretoras.
