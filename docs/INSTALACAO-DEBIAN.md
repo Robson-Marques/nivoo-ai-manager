@@ -97,6 +97,7 @@ Alternativa para o Claude sem navegador: no seu computador rode `claude setup-to
 nivoo status           # serviços
 nivoo logs             # logs ao vivo (Ctrl+C sai)
 nivoo check            # API, workers e conectores
+nivoo verificar        # job de teste de ponta a ponta (sem IA): deve imprimir OK
 nivoo backup           # banco + dados + configuração em /var/backups/nivoo
 nivoo update           # backup + git pull + reinstala + migra (sem perder dados)
 nivoo restart

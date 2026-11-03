@@ -11,6 +11,7 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 
 **Quem vai instalar e operar o servidor:**
 1. [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) — instalação em Debian como root, passo a passo para copiar e colar.
+   (ou entregue [`PROMPT-INSTALACAO-AGENTE.md`](PROMPT-INSTALACAO-AGENTE.md) a um agente de IA com acesso ao servidor)
 2. [`OPERACAO.md`](OPERACAO.md) — fluxo de trabalho, critérios, estados, variáveis de ambiente, limitações.
 3. [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) — login oficial do Claude Code e do Codex e as provas reais.
 
@@ -32,6 +33,7 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 | [`DECISOES.md`](DECISOES.md) | Registro de decisões de arquitetura (ADR), com data e motivo. |
 | [`OPERACAO.md`](OPERACAO.md) | Uso do dia a dia, configuração e limitações conhecidas. |
 | [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) | Instalação de produção em Debian, como root, sem sudo. |
+| [`PROMPT-INSTALACAO-AGENTE.md`](PROMPT-INSTALACAO-AGENTE.md) | Prompt pronto para um agente de IA instalar o Nivoo num servidor Linux. |
 | [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) | Login oficial dos executores de IA e como rodar as provas reais. |
 | [`AUDITORIA.md`](AUDITORIA.md) | Lacunas encontradas na V1 que motivaram a etapa de continuidade real. |
 | [`REVISAO-2026-11-02.md`](REVISAO-2026-11-02.md) | Revisão independente do código: 10 problemas, correções e testes. |

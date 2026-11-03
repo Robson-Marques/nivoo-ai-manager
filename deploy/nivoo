@@ -99,6 +99,10 @@ case "$cmd" in
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
     echo "ok: restaurado"
     ;;
+  verificar)
+    # Job de ponta a ponta (sem IA) para confirmar que API, worker, banco e workspaces funcionam.
+    bash "$APP_DIR/deploy/verificar-instalacao.sh" "$API"
+    ;;
   tunnel)
     ip="$(hostname -I | awk '{print $1}')"
     echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT root@$ip"
@@ -112,6 +116,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo logs [api|worker]   acompanhar logs ao vivo
   nivoo start|stop|restart  controlar os serviços
   nivoo check               conferir API, workers e conectores de IA
+  nivoo verificar           roda um job de teste de ponta a ponta (sem IA)
   nivoo login-claude        login oficial do Claude Code para o worker
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)
