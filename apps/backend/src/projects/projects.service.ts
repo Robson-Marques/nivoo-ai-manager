@@ -14,6 +14,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { BlockedReason } from '../common/status';
 import { ConversationsService } from '../conversations/conversations.service';
 import { QueueService } from '../queue/queue.service';
+import { checkBranch, GitService, normalizeRepoUrl } from '../git/git.service';
 
 /** IAs que conversam e trabalham num projeto: agentes que leem e editam arquivos (o executor local não é IA). */
 export const AI_PROVIDERS = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-cli', 'gemini-api'];
@@ -30,6 +31,7 @@ export class ProjectsService {
     private readonly areas: AreasService,
     private readonly registry: ProviderRegistry,
     private readonly queue: QueueService,
+    private readonly git: GitService,
   ) {}
 
   async create(body: any) {
@@ -40,11 +42,21 @@ export class ProjectsService {
     const area = await this.resolveArea(optString(body, 'base', 60) ?? DEFAULT_AREA);
     const provider = this.checkProvider(optString(body, 'provider', 60) ?? 'claude-code-cli');
     const dirKey = `areas/${area.slug}/projetos/${slug}`;
+    // Projeto a partir de um repositório Git existente: clona primeiro; a branch escolhida vira a pasta principal.
+    let git: { url: string; branch: string; accountId: string | null } | null = null;
+    if (body?.git?.url) {
+      const url = normalizeRepoUrl(body.git.url);
+      const branch = checkBranch(body.git.branch);
+      git = { url, branch, accountId: this.git.accountFor(url, body.git.accountId ?? null)?.id ?? null };
+      const destino = this.workspace.projectDirs(dirKey).repo;
+      if (fs.existsSync(destino)) throw new ConflictException('Já existe uma pasta para este projeto');
+      await this.git.cloneInto(destino, git);
+    }
     const dirs = await this.workspace.ensureProject(dirKey);
     await this.workspace.ensureKnowledge(dirs.knowledge);
     const description = optString(body, 'description', 20000) ?? '';
     const author = optString(body, 'author', 100) ?? 'usuario';
-    const project = await this.prisma.project.create({ data: { name, slug, description, areaId: area.id, dirKey, workspacePath: dirs.root, provider } });
+    const project = await this.prisma.project.create({ data: { name, slug, description, areaId: area.id, dirKey, workspacePath: dirs.root, provider, gitUrl: git?.url, gitBranch: git?.branch, gitAccountId: git?.accountId } });
     if (description) {
       await this.prisma.memoryEntry.create({ data: { projectId: project.id, category: 'ESPECIFICACAO', title: 'Sobre o projeto', content: description, author } });
     }

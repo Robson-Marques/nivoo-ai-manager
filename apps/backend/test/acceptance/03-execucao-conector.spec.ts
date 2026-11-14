@@ -104,9 +104,14 @@ describe('Execução por conector, logs e artefatos', () => {
     expect(commit).toMatch(/^[0-9a-f]{40}$/);
     const repo = path.join(p.workspacePath, 'repo');
     const branchHead = execFileSync('git', ['rev-parse', `job/${job.id}`], { cwd: repo }).toString().trim();
-    // O resultado verificado foi incorporado à pasta principal (main) do projeto, no mesmo commit.
+    // O resultado verificado entra na pasta principal (main) como UM commit (squash) com mensagem legível:
+    // mesmo conteúdo da branch do trabalho, sem os commits de checkpoint.
     const mainHead = execFileSync('git', ['rev-parse', 'main'], { cwd: repo }).toString().trim();
-    expect(mainHead).toBe(branchHead);
+    const tree = (ref: string) => execFileSync('git', ['rev-parse', `${ref}^{tree}`], { cwd: repo }).toString().trim();
+    expect(tree('main')).toBe(tree(branchHead));
+    const msg = execFileSync('git', ['log', '-1', '--format=%B', 'main'], { cwd: repo }).toString();
+    expect(msg).toContain(`Nivoo: trabalho ${job.id}`);
+    expect(msg).not.toMatch(/checkpoint/i);
     expect(done.mergeStatus).toBe('INCORPORADO');
     expect(done.mergedCommit).toBe(mainHead);
     expect(execFileSync('git', ['show', `${branchHead}:src/params.txt`], { cwd: repo }).toString()).toBe('janela=20\n');

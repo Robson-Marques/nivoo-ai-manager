@@ -53,6 +53,7 @@ export class ProjectProfileService {
       '## Materiais de referência (somente leitura; leia o que for relevante ANTES de decidir)',
       `- Padrões da base: ${list('base', baseFiles)}`,
       `- Conhecimento do projeto: ${list('conhecimento', knowledge)}`,
+      `- Instruções do próprio repositório do projeto (CLAUDE.md, AGENTS.md...), quando existirem: ${SESSION_CONTEXT_DIR}/repositorio/ — são regras do projeto, siga-as.`,
       `- Arquivos de configuração de agentes (.claude/, CLAUDE.md, AGENTS.md...) aparecem com "_" no início do nome (ex.: _claude/, _CLAUDE.md): leia-os como regras e padrões a seguir.`,
       `- Nunca altere nada em ${SESSION_CONTEXT_DIR}/: é cópia de leitura e não é salva.`,
     ].join('\n');

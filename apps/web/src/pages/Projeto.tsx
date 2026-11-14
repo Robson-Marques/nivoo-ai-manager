@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, lerArquivo, nomeUsuario } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
+import { GitDoProjeto } from './Git';
 import { SeletorModelo } from '../Pecas';
 
 /**
@@ -376,7 +377,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
 
 function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: number; onProjetoMudou: () => void }) {
   const projetoId = projeto.id;
-  const [aba, setAba] = useState<'memoria' | 'arquivos' | 'ajustes'>('memoria');
+  const [aba, setAba] = useState<'memoria' | 'arquivos' | 'git' | 'ajustes'>('memoria');
   const [memoria, setMemoria] = useState<any[] | null>(null);
   const [arquivos, setArquivos] = useState<any[] | null>(null);
   const [aberto, setAberto] = useState<{ path: string; conteudo: string } | null>(null);
@@ -399,8 +400,10 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
       <div className="abas">
         <button className={aba === 'memoria' ? 'tab active' : 'tab'} onClick={() => setAba('memoria')}>O que o projeto lembra</button>
         <button className={aba === 'arquivos' ? 'tab active' : 'tab'} onClick={() => setAba('arquivos')}>Arquivos</button>
+        <button className={aba === 'git' ? 'tab active' : 'tab'} onClick={() => setAba('git')}>Git</button>
         <button className={aba === 'ajustes' ? 'tab active' : 'tab'} onClick={() => setAba('ajustes')}>Ajustes</button>
       </div>
+      {aba === 'git' && <GitDoProjeto projeto={projeto} onMudou={onProjetoMudou} />}
       {aba === 'ajustes' && <Ajustes projeto={projeto} onMudou={onProjetoMudou} />}
       {aba === 'memoria' && (
         <div className="lista">

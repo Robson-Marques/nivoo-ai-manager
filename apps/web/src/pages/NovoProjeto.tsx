@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, nomeUsuario } from '../api';
+import { SeletorContaGit } from './Git';
 
 /** Novo projeto: nome, do que se trata, modelo e qual IA vai trabalhar nele. */
 export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCriado: (id: string) => void }) {
@@ -10,10 +11,16 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
   const [ia, setIa] = useState('claude-code-cli');
   const [modelos, setModelos] = useState<any[]>([]);
   const [contas, setContas] = useState<any[]>([]);
+  const [origem, setOrigem] = useState<'zero' | 'git'>('zero');
+  const [repo, setRepo] = useState('');
+  const [branch, setBranch] = useState('main');
+  const [contaGit, setContaGit] = useState('');
+  const [contasGit, setContasGit] = useState<any[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   useEffect(() => {
     api<any[]>('/areas').then(setModelos).catch(() => undefined);
+    api<any[]>('/git/accounts').then(setContasGit).catch(() => undefined);
     api<any[]>('/accounts')
       .then((c) => {
         setContas(c);
@@ -27,7 +34,8 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
     setOcupado(true);
     setErro(null);
     try {
-      const p = await api('/projects', 'POST', { name: nome, description: sobre, base: modelo, provider: ia, author: nomeUsuario() });
+      const git = origem === 'git' ? { url: repo, branch, accountId: contaGit || undefined } : undefined;
+      const p = await api('/projects', 'POST', { name: nome, description: sobre, base: modelo, provider: ia, author: nomeUsuario(), git });
       onCriado(p.id);
     } catch (err: any) {
       setErro(err.message);
@@ -41,6 +49,20 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
         <h2>Novo projeto</h2>
         <label>Nome do projeto<input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Sistema da Pizzaria do Zé" /></label>
         <label>Sobre o que é este projeto?<textarea rows={3} value={sobre} onChange={(e) => setSobre(e.target.value)} placeholder="Conte o objetivo em poucas palavras. Isso vira a primeira memória do projeto." /></label>
+        <div className="campo">
+          <span>Começar</span>
+          <div className="tipos">
+            <button type="button" className={origem === 'zero' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('zero')}><b>Do zero</b><span>pasta nova e vazia</span></button>
+            <button type="button" className={origem === 'git' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('git')}><b>Trazer de um repositório Git</b><span>projeto que você já tem no GitHub/GitLab</span></button>
+          </div>
+          {origem === 'git' && (
+            <>
+              <label>Endereço do repositório<input value={repo} onChange={(e) => setRepo(e.target.value)} required placeholder="https://git.suaempresa.com.br/grupo/projeto.git (ou git@...)" /></label>
+              <label>Branch<input value={branch} onChange={(e) => setBranch(e.target.value)} /></label>
+              <SeletorContaGit contas={contasGit} valor={contaGit} onChange={setContaGit} />
+            </>
+          )}
+        </div>
         <div className="campo">
           <span>Modelo</span>
           <div className="tipos">
@@ -74,7 +96,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
         {erro && <div className="error">{erro}</div>}
         <div className="row fim">
           <button type="button" className="secondary" onClick={onFechar}>Cancelar</button>
-          <button disabled={ocupado || !nome.trim()}>Criar projeto</button>
+          <button disabled={ocupado || !nome.trim() || (origem === 'git' && !repo.trim())}>{ocupado ? (origem === 'git' ? 'Baixando o repositório…' : 'Criando…') : 'Criar projeto'}</button>
         </div>
       </form>
     </div>

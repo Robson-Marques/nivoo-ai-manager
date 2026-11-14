@@ -197,6 +197,40 @@ export class WorkspaceService {
     return full.length > maxChars ? `${full.slice(0, maxChars)}\n… (cortado; leia os arquivos alterados diretamente)` : full || '(nenhuma mudança)';
   }
 
+  /**
+   * Instruções de agente que o PRÓPRIO repositório versiona (ex.: CLAUDE.md/AGENTS.md de um projeto
+   * clonado do GitLab). Antes da sessão viram cópia legível em contexto/repositorio/ (renomeadas com "_",
+   * inertes como configuração) e saem da pasta de trabalho; depois da sessão voltam intactas do git —
+   * nunca são apagadas nem alteradas no repositório por causa da limpeza de segurança.
+   */
+  async hideRepoHarness(workdir: string, tracked?: string[]): Promise<string[]> {
+    const files = tracked ?? (await this.trackedHarnessFiles(workdir));
+    for (const rel of files) {
+      const src = path.join(workdir, rel);
+      if (!fs.existsSync(src) || this.isLink(src) || !fs.lstatSync(src).isFile()) continue;
+      const dest = path.join(workdir, SESSION_CONTEXT_DIR, 'repositorio', WorkspaceService.sessionPath(rel));
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.copyFileSync(src, dest);
+    }
+    return files;
+  }
+
+  /**
+   * Arquivos de instrução de agente que são do próprio repositório do projeto: versionados na pasta principal
+   * (main). Um arquivo desses criado por uma etapa do trabalho NÃO conta — é plantio e é removido.
+   */
+  async trackedHarnessFiles(worktree: string): Promise<string[]> {
+    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'main']);
+    if (r.exitCode !== 0) return [];
+    return r.stdout.split('\0').filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
+  }
+
+  /** Devolve à pasta de trabalho as instruções de agente versionadas, exatamente como estão no git. */
+  async restoreRepoHarness(worktree: string, files: string[]): Promise<void> {
+    if (!files.length) return;
+    await this.gitOk(worktree, ['checkout', 'HEAD', '--', ...files]);
+  }
+
   private isLink(p: string): boolean {
     try {
       return fs.lstatSync(p).isSymbolicLink();
@@ -224,7 +258,7 @@ export class WorkspaceService {
     const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
     // contexto/: cópias de leitura (padrões da base e conhecimento do projeto); .nivoo/: notas e memória
     // (já gravadas no banco). Nada disso entra no git, para não conflitar ao integrar jobs na pasta principal.
-    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/'].filter((l) => !current.split('\n').includes(l));
+    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/', 'out/'].filter((l) => !current.split('\n').includes(l));
     if (missing.length) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}${missing.join('\n')}\n`);
     return wt;
   }
@@ -324,11 +358,25 @@ export class WorkspaceService {
   }
 
   /** Avança a pasta principal (main) até o resultado do job. Falha se a main mudou no meio do caminho. */
-  async fastForwardMain(dirKey: string, jobId: string): Promise<{ ok: boolean; commit: string | null }> {
+  /**
+   * Incorpora o trabalho verificado à pasta principal como UM commit (squash), com mensagem legível — o
+   * histórico do projeto (e do repositório Git, quando ligado) fica limpo, sem os checkpoints internos.
+   * Só acontece se a pasta principal não mudou desde a verificação (main contida na branch do job);
+   * senão devolve ok=false e a conclusão reintegra e reverifica.
+   */
+  async integrateIntoMain(dirKey: string, jobId: string, message: string): Promise<{ ok: boolean; commit: string | null }> {
     const repo = this.projectDirs(dirKey).repo;
-    const r = await this.git(repo, ['merge', '--ff-only', '-q', this.jobBranch(jobId)]);
+    const branch = this.jobBranch(jobId);
+    if ((await this.git(repo, ['merge-base', '--is-ancestor', 'main', branch])).exitCode !== 0) return { ok: false, commit: null };
+    const sq = await this.git(repo, ['merge', '--squash', '-q', branch]);
+    if (sq.exitCode !== 0) {
+      await this.git(repo, ['reset', '--hard', '-q', 'HEAD']);
+      return { ok: false, commit: null };
+    }
+    const mudou = (await this.git(repo, ['diff', '--cached', '--quiet'])).exitCode !== 0;
+    if (mudou) await this.gitOk(repo, ['commit', '-q', '-m', message]);
     const head = await this.git(repo, ['rev-parse', 'HEAD']);
-    return { ok: r.exitCode === 0, commit: head.exitCode === 0 ? head.stdout.trim() : null };
+    return { ok: true, commit: head.exitCode === 0 ? head.stdout.trim() : null };
   }
 
   /** Arquivos da pasta principal (main) do projeto. */

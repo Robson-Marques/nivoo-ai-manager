@@ -13,8 +13,11 @@
  *  4. Conversa → "Posso fazer isto" → Fazer → conferência das regras → Pronto; memória e arquivos
  *  5. A IA recebeu o perfil do projeto (regras, materiais, conhecimento)
  *  6. Várias conversas: nova, arquivar, excluir; excluir o projeto
+ *  7. Git: projeto trazido de um repositório (repositório local de teste; a API precisa de
+ *     NIVOO_GIT_PERMITIR_LOCAL=1), aba Git com o estado, envio com tag
  */
 const { chromium } = require('playwright');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -192,6 +195,42 @@ const plano = {
     await page.getByRole('button', { name: 'Excluir este projeto' }).click();
     await page.locator('.proj', { hasText: nome }).waitFor({ state: 'detached' });
     passo('projeto excluído');
+
+    // 7. Git: trazer um projeto existente e enviar com tag
+    const remoto = path.join(tmp, 'remoto.git');
+    const semente = path.join(tmp, 'semente');
+    const g = (cwd, ...a) => execFileSync('git', a, { cwd, stdio: 'pipe' }).toString().trim();
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remoto]);
+    fs.mkdirSync(semente);
+    g(semente, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(semente, 'README.md'), '# Loja existente\n');
+    fs.writeFileSync(path.join(semente, 'CLAUDE.md'), `Regra do repositório GIT-${stamp}\n`);
+    g(semente, 'add', '-A');
+    g(semente, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'inicio');
+    g(semente, 'push', '-q', remoto, 'main');
+    await page.goto(`${base}/contas`);
+    await page.getByRole('heading', { name: 'Git (GitHub e GitLab)' }).waitFor();
+    await page.getByRole('button', { name: '+ Novo projeto' }).click();
+    const nomeGit = `Loja ${stamp}`;
+    await page.getByLabel('Nome do projeto').fill(nomeGit);
+    await page.locator('.modal .tipo', { hasText: 'Trazer de um repositório Git' }).click();
+    await page.getByLabel('Endereço do repositório').fill(remoto);
+    await shot(page, '10-novo-projeto-git');
+    await page.getByRole('button', { name: 'Criar projeto' }).click();
+    await page.getByRole('heading', { name: nomeGit }).waitFor();
+    await page.getByRole('button', { name: 'Git', exact: true }).click();
+    await page.getByText(/0 commit\(s\) para enviar/).waitFor();
+    await page.getByText('inicio').waitFor();
+    await page.getByPlaceholder(/Versão\/tag/).fill('v0.1.0');
+    await page.getByRole('button', { name: 'Enviar para o Git' }).click();
+    await page.getByText('Enviado ao Git com a tag v0.1.0.').waitFor();
+    await shot(page, '11-git-do-projeto');
+    if (g(remoto, 'tag') !== 'v0.1.0') throw new Error('tag não chegou ao repositório');
+    page.once('dialog', (d) => d.accept(nomeGit));
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    await page.getByRole('button', { name: 'Excluir este projeto' }).click();
+    await page.locator('.proj', { hasText: nomeGit }).waitFor({ state: 'detached' });
+    passo('projeto trazido do Git, estado na aba Git, enviado com tag');
     if (erros.length) throw new Error(`erros no navegador: ${erros.join('; ')}`);
     console.log('CHAT-SMOKE OK');
   } catch (e) {

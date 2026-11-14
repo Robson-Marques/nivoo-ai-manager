@@ -67,6 +67,25 @@ Credenciais ficam em `segredos.json` (permissão 600) ou nos arquivos do própri
 | GET | `/projects/:pid/files` | Arquivos da pasta principal (`main`). |
 | GET | `/projects/:pid/files/content?path=` | Conteúdo de um arquivo da pasta principal (sandbox). |
 
+## Git (GitHub e GitLab próprio)
+
+Tokens ficam em `git-contas.json` (600) no servidor; nenhuma rota devolve o token.
+
+| Método | Rota | Função |
+|---|---|---|
+| GET | `/git/accounts` | Contas Git (sem token). |
+| POST | `/git/accounts` | `{ "tipo": "github" \| "gitlab", "host"? (GitLab próprio, ex.: `https://git.empresa.com.br`), "token", "nome"?, "usuario"?, "autorNome"?, "autorEmail"?, "verificar"? (padrão true: confere o token na API do servidor) }`. |
+| DELETE | `/git/accounts/:id` | Remove a conta. |
+| GET | `/projects/:pid/git` | `{ ligado, url, branch, conta, autoEnvio, enviar, receber, remotoVazio, erro, commits[] }` (faz `fetch`). |
+| POST | `/projects/:pid/git/link` | `{ "url", "branch"?, "accountId"? }` — liga um projeto existente a um repositório (vazio ou com o mesmo histórico). |
+| DELETE | `/projects/:pid/git` | Desliga do repositório (nada é apagado). |
+| PATCH | `/projects/:pid/git` | `{ "autoEnvio": true \| false }` — enviar sozinho a cada trabalho concluído. |
+| POST | `/projects/:pid/git/pull` | Atualiza a pasta principal com o repositório; conflito → 409 e nada muda. |
+| POST | `/projects/:pid/git/push` | `{ "tag"?, "mensagem"? }` — envia a pasta principal para a branch; tag anotada opcional. Repositório à frente → 409 (atualize antes). |
+
+`POST /projects` também aceita `"git": { "url", "branch"?, "accountId"? }` para criar o projeto a partir de
+um repositório existente.
+
 ## Memória do projeto
 
 Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVIDENCIA`, `PENDENCIA`.

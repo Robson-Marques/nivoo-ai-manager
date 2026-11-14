@@ -188,3 +188,4 @@ textarea { resize: vertical; line-height: 1.5; }
 .parar { color: var(--bad) !important; font-size: 12px; }
 .chat-main { flex-direction: column; }
 .aviso-worker { background: var(--bad-soft); color: var(--bad); padding: 8px 16px; font-size: 13px; }
+.mono { font-family: ui-monospace, Menlo, monospace; word-break: break-all; }

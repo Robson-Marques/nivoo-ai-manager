@@ -10,6 +10,7 @@ import { evaluatePolicy } from '../security/policy';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { LogService } from './log.service';
+import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 
 export interface CriterionResult {
@@ -56,6 +57,7 @@ export class CompletionService {
     private readonly artifacts: ArtifactStoreService,
     private readonly workspace: WorkspaceService,
     private readonly logs: LogService,
+    private readonly git: GitService,
   ) {}
 
   async evaluate(jobId: string): Promise<EvaluationReport> {
@@ -127,7 +129,7 @@ export class CompletionService {
       const ff = await this.prisma.$transaction(
         async (tx) => {
           await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:' + job.projectId}))) AS l`;
-          return this.workspace.fastForwardMain(job.project.dirKey, job.id);
+          return this.workspace.integrateIntoMain(job.project.dirKey, job.id, await this.commitMessage(job));
         },
         { timeout: 120_000, maxWait: 120_000 },
       );
@@ -156,11 +158,33 @@ export class CompletionService {
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
+    if (updated && status === 'CONCLUIDO' && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
     });
     return report;
+  }
+
+  /** Mensagem do commit do trabalho na pasta principal (e no repositório Git, se ligado). */
+  private async commitMessage(job: Job & { title: string }): Promise<string> {
+    const obj = await this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } });
+    const objetivo = (obj?.text ?? '').trim();
+    return [job.title, '', objetivo.length > 1500 ? `${objetivo.slice(0, 1500)}…` : objetivo, '', `Nivoo: trabalho ${job.id} — critérios verificados e conferência das regras aprovada.`].join('\n');
+  }
+
+  /** Envio automático ao Git depois de concluir. Falha não desfaz a conclusão: vira aviso e pendência. */
+  private async autoPush(job: Job & { title: string }): Promise<void> {
+    try {
+      await this.git.push(job.projectId);
+      await this.logs.log(job.id, 'Enviado ao repositório Git (envio automático).', { source: 'git' });
+    } catch (e: any) {
+      const motivo = String(e?.response?.message ?? e?.message ?? e);
+      await this.logs.log(job.id, `Envio automático ao Git falhou: ${motivo}`, { source: 'git', level: 'WARN' });
+      await this.prisma.memoryEntry.create({
+        data: { projectId: job.projectId, category: 'PENDENCIA', title: 'Envio ao Git pendente', content: `O trabalho "${job.title}" foi concluído, mas o envio automático ao Git falhou: ${motivo}. Use "Enviar para o Git".`, references: { jobId: job.id, origem: 'git' }, author: 'sistema:git' },
+      });
+    }
   }
 
   /** Conflito ao integrar com a pasta principal: o job NÃO é dado como concluído; pendência registrada. */

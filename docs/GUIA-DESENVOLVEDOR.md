@@ -40,6 +40,11 @@ apps/backend/
     login-sessions.service.ts     login oficial pela tela (ponte Python com pty): Claude, Codex, Gemini
     secrets.ts                    segredos.json (600); variáveis de ambiente prevalecem
 
+  src/git/
+    git-accounts.ts               contas GitHub/GitLab em git-contas.json (600)
+    git.service.ts                clonar, ligar, estado, pull, push + tag, envio automático (GIT_ASKPASS)
+    git.controller.ts             rotas /git/accounts e /projects/:pid/git
+
   src/areas/                      modelos: area-templates.ts (prontos), texto versionado, materiais em git
   src/projects/
     projects.service.ts           criar/editar/excluir projeto, regras do projeto, conhecimento, pasta principal
@@ -87,11 +92,12 @@ apps/web/src/
   Pecas.tsx                       peças comuns: editor de regras (importar PDF/Word/texto) e materiais
   api.ts | styles.css
   pages/Inicio.tsx                boas-vindas
-  pages/Projeto.tsx               chat, "Posso fazer isto" + Fazer, andamento, painel (lembra/Arquivos/Ajustes)
+  pages/Projeto.tsx               chat, "Posso fazer isto" + Fazer, andamento, painel (lembra/Arquivos/Git/Ajustes)
   pages/Ajustes.tsx               regras do projeto, conhecimento, IA, limite de gasto, excluir projeto
   pages/Modelos.tsx               lista, novo modelo a partir de um pronto, texto e materiais
-  pages/Contas.tsx                conectar Claude, ChatGPT e Gemini
-  pages/NovoProjeto.tsx           nome, sobre, modelo, IA
+  pages/Contas.tsx                conectar Claude, ChatGPT e Gemini (+ seção Git)
+  pages/Git.tsx                   contas Git, aba Git do projeto, seletor de conta
+  pages/NovoProjeto.tsx           nome, sobre, do zero ou de um repositório Git, modelo, IA
 apps/web/e2e/chat-smoke.cjs       fumaça da interface pelo navegador (Playwright + stub)
 
 deploy/install-debian.sh          instalador de produção (root, idempotente, umask 022)
@@ -114,7 +120,7 @@ worker reivindica tarefa (lease) ─► step-executor:
    ─► SESSÃO do agente ─► verificação da etapa ─► artefatos de out/ ─► notas → memória
    ─► SUCESSO | SESSAO_ENCERRADA | FALHA | RECURSO_INDISPONIVEL | INTERROMPIDA
 todas as etapas concluídas ─► EVALUATE_JOB ─► completion.service:
-   sincroniza com a main ─► critérios ─► avanço rápido da main ─► CONCLUIDO
+   sincroniza com a main ─► critérios ─► squash na main (1 commit legível) ─► CONCLUIDO
    (ou BLOQUEADO com pendências / AGUARDANDO_APROVACAO / CONFLITO_INCORPORACAO)
 ```
 

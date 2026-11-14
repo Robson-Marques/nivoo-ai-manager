@@ -77,8 +77,13 @@ export class PlannerService {
     try {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
-      this.workspace.sanitizeHarnessFiles(tmp);
       this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp);
+      // Instruções de agente do repositório do projeto: legíveis em contexto/repositorio/, inertes.
+      const harness = (await runProcess('bash', ['-c', 'git -C "$1" ls-tree -r --name-only main', '_', repo], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 })).stdout
+        .split('\n')
+        .filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
+      await this.workspace.hideRepoHarness(tmp, harness);
+      this.workspace.sanitizeHarnessFiles(tmp);
 
       const profile = await this.profiles.build(project.id);
       const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text);

@@ -3,6 +3,35 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 12 — Git: GitHub e GitLab próprio (2026-11-14)
+
+**Contas Git** (menu Contas, seção "Git"): GitHub ou GitLab próprio (endereço do servidor) + token de
+acesso; o token é conferido no servidor Git ao salvar e fica em `git-contas.json` (permissão 600, ao lado
+de `segredos.json`), nunca no banco, no git ou para a IA. Autor dos commits opcional por conta.
+
+* **Novo projeto → "Trazer de um repositório Git"**: endereço (https ou `git@…`, convertido para https),
+  branch e conta (automática pelo servidor do endereço). O repositório é clonado como pasta principal do
+  projeto; repositório vazio ganha um commit inicial. Instruções do próprio repositório (`CLAUDE.md`,
+  `AGENTS.md`, `.claude/`…) **continuam no repositório** e chegam à IA como regras do projeto, em cópia de
+  leitura (`contexto/repositorio/`) — a IA não as altera e o envio não as apaga.
+* **Aba Git do projeto**: estado (commits para enviar / novos no repositório), últimos commits,
+  **Atualizar do Git** (pull: avanço direto ou commit de junção; em conflito nada muda e a tela avisa),
+  **Enviar para o Git** com **versão/tag** opcional (tag anotada), **envio automático** depois de cada
+  trabalho concluído, ligar um projeto existente a um repositório e desligar.
+* **Commits legíveis**: cada trabalho entra na pasta principal como **um commit** (squash) com título,
+  objetivo e "critérios verificados e conferência das regras aprovada" — os checkpoints internos ficam só
+  na branch do trabalho e não vão para o GitHub/GitLab.
+* Envio recusado porque o repositório andou → a tela pede "Atualizar do Git" antes (nunca força).
+* Correção achada pela suíte: arquivo de agente criado por uma etapa do trabalho era tratado como
+  instrução do repositório; agora só conta o que está versionado na pasta principal (o resto é plantio e
+  é removido antes da sessão de IA).
+
+Testes: suíte 90/90 (+ 7 de IA real puladas), incluindo `15-git` (endereços, contas, clonar branch
+`develop` preservando o `CLAUDE.md`, commits sem checkpoint, envio + tag, envio recusado, pull, conflito,
+repositório vazio, envio automático); interface pela tela (`chat-smoke.cjs`) com o passo 7: projeto
+trazido de um repositório, aba Git e envio com tag. Não testado: tokens reais de GitHub/GitLab (só
+repositórios locais de teste).
+
 ## Etapa 11 — escolher o modelo de cada IA no projeto (2026-11-14)
 
 No topo do chat (e em Ajustes), ao lado da IA, um seletor de **modelo**. A lista vem do programa oficial da

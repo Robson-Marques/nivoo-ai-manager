@@ -8,6 +8,7 @@ import { AccountsService } from './accounts/accounts.service';
 import { LoginSessionsService } from './accounts/login-sessions.service';
 import { AreasService } from './areas/areas.service';
 import { AreasController } from './areas/areas.controller';
+import { GitController } from './git/git.controller';
 import { ConversationsController } from './conversations/conversations.controller';
 import { MemoryController } from './memory/memory.controller';
 import { ProjectsController } from './projects/projects.controller';
@@ -15,7 +16,7 @@ import { SystemController } from './system/system.controller';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AccountsController, AreasController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController],
+  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController],
   providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService],
 })
 export class AppModule implements OnModuleInit {

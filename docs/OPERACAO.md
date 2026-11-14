@@ -28,6 +28,11 @@
    **Arquivar** (sai da lista; fica em "conversas arquivadas", e para continuar nela é só desarquivar) e
    **Excluir** (apaga as mensagens; o que o projeto aprendeu continua). Projetos também podem ser
    **arquivados** em Ajustes (ficam em "projetos arquivados", na lateral).
+10. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
+    com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
+    No "+ Novo projeto", **Trazer de um repositório Git** baixa um projeto que você já tem. Na aba **Git**
+    do projeto: **Atualizar do Git**, **Enviar para o Git** (com versão/tag opcional) e o envio
+    automático depois de cada trabalho pronto. Cada trabalho vira um commit com mensagem legível.
 
 ## 2. Critérios de aceitação (para quem usa a API)
 
@@ -64,6 +69,7 @@ ganham o critério `conferencia-regras`.
 | `HOST` / `PORT` | `0.0.0.0` / 3000 (instalador: `127.0.0.1`) | endereço e porta da API |
 | `NIVOO_WORKSPACES_ROOT` | `./data/workspaces` | raiz autorizada (modelos, projetos, worktrees) |
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
+| `NIVOO_GIT_ACCOUNTS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json` | contas Git e tokens (permissão 600) |
 | `NIVOO_SECRETS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json` | credenciais conectadas pela tela (permissão 600) |
 | `NIVOO_WORKER_ID` | `hostname-pid` | identificador do worker |
 | `NIVOO_LEASE_MS` | 30000 | lease de tarefas (recuperação após queda) |

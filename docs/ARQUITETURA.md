@@ -43,6 +43,7 @@ por `projectId`).
                                                  .../worktrees/<jobId>   worktree de cada trabalho (branch job/<id>)
 <NIVOO_ARTIFACTS_ROOT>/<projectId>/                               artefatos por sha256
 <pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json              credenciais conectadas pela tela (600)
+<pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json            contas Git (GitHub/GitLab) e tokens (600)
 ```
 
 O caminho do projeto fica em `Project.dirKey` (projetos migrados do antigo modelo Mercado mantêm o
@@ -84,7 +85,7 @@ Estados (job e etapa): `PENDENTE`, `EXECUTANDO`, `AGUARDANDO_RECURSO`, `AGUARDAN
 
 ```
 PENDENTE ─start─▶ EXECUTANDO ─todas etapas ok (inclusive conferencia-regras)─▶ EVALUATE_JOB
-   sincroniza com a main ─ critérios automáticos ok + manuais aprovados ─▶ avanço rápido da main ─▶ CONCLUIDO
+   sincroniza com a main ─ critérios automáticos ok + manuais aprovados ─▶ squash na main (1 commit legível) ─▶ CONCLUIDO
    critérios automáticos ok + manuais pendentes ─▶ AGUARDANDO_APROVACAO
    critério automático falhou                   ─▶ BLOQUEADO (pendências listadas)
    conflito ao integrar com a main              ─▶ BLOQUEADO / CONFLITO_INCORPORACAO
@@ -198,7 +199,7 @@ uso, então a conexão vale sem reiniciar. Sessões de login ficam na memória d
   `DROP`...) exigem `Approval`. (A antiga proibição de operações financeiras era específica do Mercado e
   saiu com ele.)
 * Arquivos servidos ao navegador (materiais, conhecimento, artefatos) vão com `Content-Security-Policy: sandbox`.
-* Cada job trabalha na branch `job/<id>`; a `main` só avança por avanço rápido depois do verificador.
+* Cada job trabalha na branch `job/<id>`; a `main` só recebe o trabalho (um commit por squash) depois do verificador; tokens Git nunca chegam à IA (`GIT_ASKPASS`).
 
 ## 12. Decisões
 

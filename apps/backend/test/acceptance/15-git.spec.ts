@@ -1,0 +1,164 @@
+/**
+ * Git do projeto (GitHub/GitLab): projeto a partir de repositório existente, IA trabalhando em cima dele
+ * sem apagar as instruções do repositório (CLAUDE.md), commit único por trabalho, envio (push + tag),
+ * atualização (pull), recusa de envio com o remoto à frente, envio automático e ligar projeto que começou
+ * do zero. O "servidor Git" é um repositório bare local (NIVOO_GIT_PERMITIR_LOCAL=1, só nos testes);
+ * o login por token é exercitado na conferência das contas e no Debian real.
+ */
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { appConfig } from '../../src/config';
+import { normalizeRepoUrl } from '../../src/git/git.service';
+import { createHarness, Harness, truncateAll, waitFor } from '../support/harness';
+
+const CTL = path.join(process.env.TMPDIR ?? '/tmp', 'nivoo-cli-stub');
+const ok = [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }];
+const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'Robson', GIT_AUTHOR_EMAIL: 'r@x', GIT_COMMITTER_NAME: 'Robson', GIT_COMMITTER_EMAIL: 'r@x' } }).toString().trim();
+
+describe('Git do projeto (GitHub/GitLab)', () => {
+  let h: Harness;
+  let base: string;
+  let remoto: string;
+  let dev: string; // "outra pessoa" trabalhando no repositório
+  beforeAll(async () => {
+    process.env.NIVOO_GIT_PERMITIR_LOCAL = '1';
+    process.env.NIVOO_CLAUDE_BIN = path.join(__dirname, '..', 'support', 'stubs', 'claude-stub.sh');
+    fs.rmSync(CTL, { recursive: true, force: true });
+    base = fs.mkdtempSync(path.join(os.tmpdir(), 'git-remoto-'));
+    remoto = path.join(base, 'loja.git');
+    git(base, 'init', '-q', '--bare', '-b', 'develop', remoto);
+    dev = path.join(base, 'dev');
+    git(base, 'clone', '-q', remoto, dev);
+    git(dev, 'checkout', '-q', '-b', 'develop');
+    fs.writeFileSync(path.join(dev, 'app.txt'), 'versão 1\n');
+    fs.writeFileSync(path.join(dev, 'CLAUDE.md'), 'Regra do repositório: REPO-RULE-9.\n');
+    git(dev, 'add', '-A');
+    git(dev, 'commit', '-q', '-m', 'inicial');
+    git(dev, 'push', '-q', 'origin', 'develop');
+    h = await createHarness();
+    await truncateAll(h.prisma);
+    h.worker.start();
+  });
+  afterAll(async () => {
+    await h.close();
+    delete process.env.NIVOO_GIT_PERMITIR_LOCAL;
+    delete process.env.NIVOO_CLAUDE_BIN;
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+
+  const job = async (pid: string, body: any) => {
+    const j = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'objetivo do trabalho', criteria: ok, ...body }).expect(201)).body;
+    await h.http().post(`/api/projects/${pid}/jobs/${j.id}/start`).expect(201);
+    return waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${pid}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 30_000);
+  };
+
+  it('endereços: https, git@host:grupo/repo e ssh:// viram https; usuário/token no endereço é recusado', () => {
+    delete process.env.NIVOO_GIT_PERMITIR_LOCAL;
+    try {
+      expect(normalizeRepoUrl('git@git.nivoo.dev.br:nivoo-dev/studio-workflow.git')).toBe('https://git.nivoo.dev.br/nivoo-dev/studio-workflow.git');
+      expect(normalizeRepoUrl('ssh://git@gitlab.exemplo.com:2222/grupo/app')).toBe('https://gitlab.exemplo.com/grupo/app.git');
+      expect(normalizeRepoUrl('https://github.com/fulano/app')).toBe('https://github.com/fulano/app.git');
+      expect(() => normalizeRepoUrl('https://user:tok@github.com/fulano/app')).toThrow(/usuário ou token/);
+      expect(() => normalizeRepoUrl('/etc/algum-repo')).toThrow(); // caminho local só nos testes
+    } finally {
+      process.env.NIVOO_GIT_PERMITIR_LOCAL = '1';
+    }
+  });
+
+  it('contas Git: token guardado fora do banco (arquivo 600), nunca devolvido pela API', async () => {
+    const c = (await h.http().post('/api/git/accounts').send({ tipo: 'gitlab', host: 'git.exemplo.com.br/', token: 'glpat-TOKEN-DE-TESTE-123', verificar: false, autorNome: 'Robson', autorEmail: 'r@x' }).expect(201)).body;
+    expect(c).toMatchObject({ tipo: 'gitlab', host: 'https://git.exemplo.com.br', usuario: 'oauth2' });
+    expect(c.token).toBeUndefined();
+    expect(JSON.stringify((await h.http().get('/api/git/accounts')).body)).not.toContain('glpat-TOKEN');
+    const arq = path.join(path.dirname(appConfig().workspacesRoot), 'git-contas.json');
+    expect(fs.statSync(arq).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(arq, 'utf8')).toContain('glpat-TOKEN-DE-TESTE-123');
+    await h.http().post('/api/git/accounts').send({ tipo: 'outro', token: 'x'.repeat(20) }).expect(400);
+    await h.http().delete(`/api/git/accounts/${c.id}`).expect(200);
+    expect((await h.http().get('/api/git/accounts')).body).toHaveLength(0);
+  });
+
+  let pid = '';
+  it('projeto a partir do repositório: clona a branch; a IA lê CLAUDE.md do repositório sem apagá-lo; um commit por trabalho', async () => {
+    await h.http().post('/api/projects').send({ name: 'Loja', git: { url: remoto, branch: 'nao-existe' } }).expect(400);
+    const p = (await h.http().post('/api/projects').send({ name: 'Loja', git: { url: remoto, branch: 'develop' } }).expect(201)).body;
+    pid = p.id;
+    expect(p).toMatchObject({ gitUrl: remoto, gitBranch: 'develop' });
+    expect((await h.http().get(`/api/projects/${pid}/files`)).body.arquivos.map((f: any) => f.path)).toEqual(expect.arrayContaining(['app.txt', 'CLAUDE.md']));
+
+    fs.mkdirSync(CTL, { recursive: true });
+    fs.rmSync(path.join(CTL, 'mode'), { force: true });
+    const d = await job(pid, {
+      title: 'Ajusta a versão',
+      defaultProvider: 'claude-code-cli',
+      conferencia: false,
+      steps: [{ key: 's', instructions: 'x', verifyCommand: 'grep -q REPO-RULE-9 contexto/repositorio/_CLAUDE.md && test ! -e CLAUDE.md' }],
+    });
+    expect(d.status).toBe('CONCLUIDO');
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toContain('contexto/repositorio/');
+    const repo = path.join(p.workspacePath, 'repo');
+    expect(git(repo, 'show', 'main:CLAUDE.md')).toBe('Regra do repositório: REPO-RULE-9.'); // intacto
+    // Um trabalho de IA de verdade muda arquivos: aqui, um trabalho local que edita app.txt.
+    const d2 = await job(pid, { title: 'Versão 2 do app', steps: [{ key: 's', instructions: 'echo "versão 2" > app.txt' }] });
+    expect(d2.status).toBe('CONCLUIDO');
+    expect(git(repo, 'log', '-1', '--format=%s', 'main')).toBe('Versão 2 do app');
+    expect(git(repo, 'log', '-1', '--format=%B', 'main')).toContain('conferência das regras');
+    expect(git(repo, 'log', '--format=%s', 'main')).not.toContain('checkpoint'); // sem commits internos
+  });
+
+  it('enviar: push + tag; com o remoto à frente o envio é recusado até atualizar (pull); conflito não estraga nada', async () => {
+    const st = (await h.http().get(`/api/projects/${pid}/git`).expect(200)).body;
+    expect(st).toMatchObject({ ligado: true, branch: 'develop', enviar: 1, receber: 0 });
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0', mensagem: 'primeira versão' }).expect(201);
+    git(dev, 'pull', '-q', 'origin', 'develop');
+    expect(fs.readFileSync(path.join(dev, 'app.txt'), 'utf8')).toBe('versão 2\n');
+    expect(git(dev, 'ls-remote', '--tags', 'origin')).toContain('refs/tags/v1.0.0');
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0' }).expect(409); // tag repetida
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'nome inválido' }).expect(400);
+
+    // Alguém envia direto ao repositório; aqui também sai um trabalho novo (arquivo diferente).
+    fs.writeFileSync(path.join(dev, 'LEIAME.md'), 'feito fora do Nivoo\n');
+    git(dev, 'add', '-A');
+    git(dev, 'commit', '-q', '-m', 'mudança externa');
+    git(dev, 'push', '-q', 'origin', 'develop');
+    await job(pid, { title: 'Novo arquivo', steps: [{ key: 's', instructions: 'echo novo > novo.txt' }] });
+    expect((await h.http().get(`/api/projects/${pid}/git`)).body).toMatchObject({ enviar: 1, receber: 1 });
+    await h.http().post(`/api/projects/${pid}/git/push`).expect(409); // remoto à frente
+    const pull = (await h.http().post(`/api/projects/${pid}/git/pull`).expect(201)).body;
+    expect(pull.resultado).toBe('atualizado');
+    await h.http().post(`/api/projects/${pid}/git/push`).expect(201);
+    git(dev, 'pull', '-q', 'origin', 'develop');
+    expect(fs.existsSync(path.join(dev, 'novo.txt'))).toBe(true);
+
+    // Conflito: os dois lados mudam app.txt de jeitos diferentes → atualização recusada, nada muda.
+    fs.writeFileSync(path.join(dev, 'app.txt'), 'versão do colega\n');
+    git(dev, 'commit', '-q', '-am', 'colega');
+    git(dev, 'push', '-q', 'origin', 'develop');
+    await job(pid, { title: 'Versão 3', steps: [{ key: 's', instructions: 'echo "versão 3" > app.txt' }] });
+    const repo = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: pid } })).workspacePath, 'repo');
+    const antes = git(repo, 'rev-parse', 'main');
+    await h.http().post(`/api/projects/${pid}/git/pull`).expect(409);
+    expect(git(repo, 'rev-parse', 'main')).toBe(antes);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
+  it('envio automático ao concluir; projeto que começou do zero pode ser ligado a um repositório vazio', async () => {
+    const vazio = path.join(base, 'novo.git');
+    git(base, 'init', '-q', '--bare', '-b', 'main', vazio);
+    const p = (await h.http().post('/api/projects').send({ name: 'Do zero' }).expect(201)).body;
+    await h.http().patch(`/api/projects/${p.id}/git`).send({ autoEnvio: true }).expect(400); // ainda não ligado
+    const st = (await h.http().post(`/api/projects/${p.id}/git/link`).send({ url: vazio, branch: 'main' }).expect(201)).body;
+    expect(st).toMatchObject({ ligado: true, remotoVazio: true });
+    await h.http().patch(`/api/projects/${p.id}/git`).send({ autoEnvio: true }).expect(200);
+    const d = await job(p.id, { title: 'Primeira página', steps: [{ key: 's', instructions: 'echo "<h1>oi</h1>" > index.html' }] });
+    expect(d.status).toBe('CONCLUIDO');
+    await waitFor(async () => (execFileSync('git', ['--git-dir', vazio, 'log', '--format=%s', 'main']).toString().includes('Primeira página') ? true : null), 15_000);
+    await h.http().delete(`/api/projects/${p.id}/git`).expect(200);
+    expect((await h.http().get(`/api/projects/${p.id}/git`)).body.ligado).toBe(false);
+  });
+});

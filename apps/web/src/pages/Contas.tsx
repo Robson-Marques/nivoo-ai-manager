@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { ContasGit } from './Git';
 
 /**
  * Contas de IA: conectar Claude, ChatGPT e Gemini pelo navegador, com o login oficial de cada uma
@@ -15,8 +16,8 @@ export function Contas() {
     <div className="pagina">
       <header className="conversa-topo">
         <div>
-          <h1>Contas de IA</h1>
-          <span className="muted small">Conecte as suas contas. Cada projeto escolhe qual IA trabalha nele.</span>
+          <h1>Contas</h1>
+          <span className="muted small">IAs que trabalham nos projetos e contas Git para trazer e enviar projetos.</span>
         </div>
       </header>
       <div className="cartoes uma-coluna">
@@ -27,6 +28,7 @@ export function Contas() {
             {contas?.filter((c) => c.ia === ia).map((c) => <Conta key={c.id} conta={c} onMudou={carregar} />)}
           </section>
         ))}
+        <ContasGit />
       </div>
     </div>
   );

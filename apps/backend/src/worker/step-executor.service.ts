@@ -136,12 +136,15 @@ export class StepExecutorService {
     // Defesa em profundidade: o conhecimento original do projeto (fora do workspace) não pode ser alterado
     // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
     const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
+    let repoHarness: string[] = [];
     if (isAi) {
-      const planted = this.workspace.sanitizeHarnessFiles(worktree);
-      if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
       // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
       const ctx = this.workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
       if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
+      // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
+      repoHarness = await this.workspace.hideRepoHarness(worktree);
+      const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !f.startsWith('contexto/'));
+      if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
     }
     const treeBefore = await this.workspace.snapshotHash(worktree);
 
@@ -248,8 +251,11 @@ export class StepExecutorService {
     }
     if (isAi) {
       const planted = this.workspace.sanitizeHarnessFiles(worktree);
-      if (planted.length) {
-        await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${planted.join(', ')}`, 'WARN', attempt.id);
+      // Os do repositório voltam intactos (a IA não altera nem apaga instruções versionadas do projeto).
+      await this.workspace.restoreRepoHarness(worktree, repoHarness).catch(async (e) => L(`Falha ao restaurar instruções do repositório: ${e?.message ?? e}`, 'ERROR', attempt.id));
+      const novos = planted.filter((f) => !repoHarness.includes(f));
+      if (novos.length) {
+        await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);
       }
     }
     const notes = await this.ingestNotes(job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
