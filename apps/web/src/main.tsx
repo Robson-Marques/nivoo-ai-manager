@@ -15,6 +15,7 @@ function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Inicio />} />
           <Route path="/p/:pid" element={<Projeto />} />
+          <Route path="/p/:pid/c/:cid" element={<Projeto />} />
           <Route path="/modelos" element={<Modelos />} />
           <Route path="/contas" element={<Contas />} />
           <Route path="*" element={<Navigate to="/" replace />} />

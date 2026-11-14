@@ -3,6 +3,18 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 9 — várias conversas por projeto, arquivar e excluir (2026-11-14)
+
+Pedido: a lista não pode crescer sem fim. Agora cada projeto tem **várias conversas** (como no ChatGPT):
+"+ Nova conversa" começa limpa, mas a IA continua sabendo tudo do projeto (memória, regras, conhecimento,
+arquivos) — o histórico enviado à IA é só o da conversa aberta. Cada conversa pode ser **renomeada**,
+**arquivada** (sai da lista; conversa arquivada não recebe mensagens até ser desarquivada) ou
+**excluída** (apaga as mensagens; o que o projeto aprendeu continua). Projetos também podem ser
+**arquivados**. Migração `20261114200000_arquivar_conversas_projetos` (só colunas novas).
+Testes: suíte 73/73 (novo caso em `acceptance/13`: memória chega na conversa nova, histórico de outra
+não; arquivar, desarquivar, excluir; projeto arquivado); interface pela tela (`chat-smoke.cjs`): nova
+conversa, arquivar, ver arquivadas e excluir.
+
 ## Etapa 8 — modelos, fine-tune do projeto, trava e contas de IA pela tela (2026-11-14)
 
 **Pedido do responsável:** um sistema simples, com o chat na frente, que sirva para qualquer assunto;

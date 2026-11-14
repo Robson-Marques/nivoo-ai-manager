@@ -1,5 +1,5 @@
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, lerArquivo, nomeUsuario } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
@@ -44,8 +44,9 @@ function conferenciaFalhou(job: any): boolean {
 }
 
 export function Projeto() {
-  const { pid } = useParams();
-  const { recarregar } = useProjetos();
+  const { pid, cid } = useParams();
+  const nav = useNavigate();
+  const { recarregar, recarregarConversas } = useProjetos();
   const [projeto, setProjeto] = useState<any>(null);
   const [painel, setPainel] = useState(true);
   const carregar = useCallback(async () => setProjeto(await api(`/projects/${pid}`)), [pid]);
@@ -53,15 +54,26 @@ export function Projeto() {
     setProjeto(null);
     carregar().catch(() => undefined);
   }, [carregar]);
+  // Sem conversa na rota: abre a mais recente ou começa uma nova.
+  useEffect(() => {
+    if (cid || !pid) return;
+    (async () => {
+      const lista = await api<any[]>(`/projects/${pid}/conversations`);
+      const c = lista[0] ?? (await api(`/projects/${pid}/conversations`, 'POST', {}));
+      if (!lista[0]) await recarregarConversas();
+      nav(`/p/${pid}/c/${c.id}`, { replace: true });
+    })().catch(() => undefined);
+  }, [pid, cid, nav, recarregarConversas]);
   const mudou = useCallback(() => {
     carregar().catch(() => undefined);
     recarregar().catch(() => undefined);
   }, [carregar, recarregar]);
-  if (!projeto) return null;
-  return <Conversa key={projeto.id} projeto={projeto} painel={painel} onPainel={() => setPainel(!painel)} onProjetoMudou={mudou} />;
+  if (!projeto || !cid) return null;
+  return <Conversa key={cid} projeto={projeto} conversaId={cid} painel={painel} onPainel={() => setPainel(!painel)} onProjetoMudou={mudou} />;
 }
 
-function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any; painel: boolean; onPainel: () => void; onProjetoMudou: () => void }) {
+function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { projeto: any; conversaId: string; painel: boolean; onPainel: () => void; onProjetoMudou: () => void }) {
+  const { recarregarConversas } = useProjetos();
   const [conv, setConv] = useState<any>(null);
   const [texto, setTexto] = useState('');
   const [erro, setErro] = useState<string | null>(null);
@@ -69,11 +81,7 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
   const [versaoPainel, setVersaoPainel] = useState(0);
   const fim = useRef<HTMLDivElement>(null);
 
-  const carregar = useCallback(async () => {
-    let lista = await api<any[]>(`/projects/${projeto.id}/conversations`);
-    if (!lista.length) lista = [await api(`/projects/${projeto.id}/conversations`, 'POST', { title: 'Conversa' })];
-    setConv(await api(`/projects/${projeto.id}/conversations/${lista[0].id}`));
-  }, [projeto.id]);
+  const carregar = useCallback(async () => setConv(await api(`/projects/${projeto.id}/conversations/${conversaId}`)), [projeto.id, conversaId]);
 
   useEffect(() => {
     carregar().catch((e) => setErro(e.message));
@@ -104,6 +112,7 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
     try {
       setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto }));
       setTexto('');
+      recarregarConversas().catch(() => undefined); // título e ordem da lista
     } catch (err: any) {
       setErro(err.message);
     } finally {
@@ -135,6 +144,8 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
           <div>
             <h1>{projeto.name}</h1>
             <span className="tag">{projeto.area?.name}</span> <span className="tag">IA: {NOME_IA[projeto.provider] ?? projeto.provider}</span>
+            {projeto.archivedAt && <span className="tag">projeto arquivado</span>}
+            {conv && <div className="muted small titulo-conversa">{conv.title}</div>}
           </div>
           <button className="secondary" onClick={onPainel}>{painel ? 'Ocultar painel' : 'Memória, arquivos e ajustes'}</button>
         </header>
@@ -142,7 +153,8 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
         <div className="mensagens">
           {mensagens.length === 0 && (
             <div className="dica">
-              <p>Conte o que você quer neste projeto. Exemplos:</p>
+              <p>Nova conversa. A IA já conhece as regras, o conhecimento, os arquivos e a memória deste projeto.</p>
+              <p>Conte o que você quer. Exemplos:</p>
               {['Crie a estrutura inicial do projeto seguindo o modelo', 'O que você sabe sobre este projeto?', 'Quais regras você segue aqui?'].map((s) => (
                 <button key={s} className="chip" onClick={() => setTexto(s)}>{s}</button>
               ))}
@@ -154,6 +166,20 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
           <div ref={fim} />
         </div>
 
+        {conv?.archivedAt ? (
+          <div className="entrada arquivada-aviso">
+            <span>Conversa arquivada. Para continuar nela, desarquive.</span>
+            <button
+              onClick={async () => {
+                await api(`/projects/${projeto.id}/conversations/${conv.id}`, 'PATCH', { archived: false });
+                await carregar();
+                recarregarConversas().catch(() => undefined);
+              }}
+            >
+              Desarquivar
+            </button>
+          </div>
+        ) : (
         <form className="entrada" onSubmit={enviar}>
           {erro && <div className="error">{erro}</div>}
           <textarea
@@ -166,6 +192,7 @@ function Conversa({ projeto, painel, onPainel, onProjetoMudou }: { projeto: any;
           />
           <button disabled={ocupado || pensando || !texto.trim()}>Enviar</button>
         </form>
+        )}
       </div>
       {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} />}
     </div>

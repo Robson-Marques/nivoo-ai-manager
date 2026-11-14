@@ -53,10 +53,10 @@ Credenciais ficam em `segredos.json` (permissão 600) ou nos arquivos do própri
 
 | Método | Rota | Função |
 |---|---|---|
-| GET | `/projects` | Lista projetos (com o modelo). |
+| GET | `/projects` | Lista projetos ativos (com o modelo); `?arquivados=1` lista os arquivados. |
 | POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (`claude-code-cli` \| `codex-cli` \| `gemini-cli`; padrão Claude), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
 | GET | `/projects/:pid` | Projeto com regras vigentes, arquivos de conhecimento e `custoGastoUsd` (trabalhos + conversa). |
-| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "maxCostUsd"? (número ou `null`) }`. |
+| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
 | DELETE | `/projects/:pid` | Exclui o projeto: registros no banco, pasta e artefatos. 409 se houver trabalho EXECUTANDO / AGUARDANDO_RECURSO / AGUARDANDO_APROVACAO ou a IA ainda estiver respondendo. |
 | POST | `/projects/:pid/rules` | `{ "text", "reason"?, "author"? }` — nova versão das regras do projeto. |
 | GET | `/projects/:pid/rules/history` | Todas as versões das regras. |
@@ -81,7 +81,9 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 
 | Método | Rota | Função |
 |---|---|---|
-| GET / POST | `/projects/:pid/conversations` | Lista / cria conversa `{ "title"? }`. |
+| GET / POST | `/projects/:pid/conversations` | Lista as conversas ativas (`?arquivadas=1` para as arquivadas) / cria conversa `{ "title"? }` (sem título: "Nova conversa", que vira o começo da primeira mensagem). Todas compartilham memória, regras, conhecimento e arquivos do projeto; o histórico enviado à IA é só o da conversa. |
+| PATCH | `/projects/:pid/conversations/:cid` | `{ "title"?, "archived"? }` — renomear / arquivar / desarquivar. Conversa arquivada não recebe mensagens (409). |
+| DELETE | `/projects/:pid/conversations/:cid` | Exclui a conversa (mensagens). Memória, arquivos e trabalhos do projeto continuam. 409 se a IA ainda estiver respondendo. |
 | GET | `/projects/:pid/conversations/:cid` | Conversa com as mensagens (`status`: PENDENTE, PRONTA, ERRO; `kind`: resposta, plano, sistema, erro). |
 | POST | `/projects/:pid/conversations/:cid/messages` | `{ "content" }` — enfileira a resposta da IA do projeto (409 se ainda houver uma pendente). |
 | POST | `/projects/:pid/conversations/:cid/messages/:mid/approve` | `{ "decidedBy", "start"? }` — o "Fazer": transforma o plano em trabalho (sempre com a conferência das regras) e inicia. 400 sem `decidedBy`; 409 se já aprovado. |

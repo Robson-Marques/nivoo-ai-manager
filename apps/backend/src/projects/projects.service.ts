@@ -66,8 +66,10 @@ export class ProjectsService {
     return id;
   }
 
-  list() {
+  /** Projetos ativos (arquivados só com `arquivados=1`). */
+  list(archived = false) {
     return this.prisma.project.findMany({
+      where: { archivedAt: archived ? { not: null } : null },
       orderBy: { createdAt: 'desc' },
       include: { area: { select: { id: true, slug: true, name: true } } },
     });
@@ -89,7 +91,7 @@ export class ProjectsService {
     };
   }
 
-  /** Ajustes simples: nome, descrição, IA do projeto e limite de gasto (null = sem limite). */
+  /** Ajustes simples: nome, descrição, IA do projeto, limite de gasto (null = sem limite) e arquivar. */
   async update(id: string, body: any) {
     await this.assertExists(id);
     const data: Record<string, unknown> = {};
@@ -99,6 +101,7 @@ export class ProjectsService {
     if (description !== undefined) data.description = description;
     const provider = optString(body, 'provider', 60);
     if (provider) data.provider = this.checkProvider(provider);
+    if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
     return this.get(id);

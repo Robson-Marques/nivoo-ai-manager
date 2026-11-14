@@ -22,6 +22,12 @@
    (a trava). Se ela apontar violação, o trabalho não fica pronto.
 8. **Pronto** — o resultado entra na pasta principal do projeto (aba **Arquivos**) e o próximo trabalho
    parte dele. O que foi combinado na conversa aparece em **O que o projeto lembra** (dá para "esquecer").
+9. **Várias conversas** — dentro do projeto, "+ Nova conversa" abre uma conversa limpa (sem o histórico
+   longo das outras), mas a IA continua sabendo tudo do projeto: memória, regras, conhecimento e arquivos.
+   A conversa ganha como nome o começo da primeira mensagem. No "⋯" de cada conversa: **Renomear**,
+   **Arquivar** (sai da lista; fica em "conversas arquivadas", e para continuar nela é só desarquivar) e
+   **Excluir** (apaga as mensagens; o que o projeto aprendeu continua). Projetos também podem ser
+   **arquivados** em Ajustes (ficam em "projetos arquivados", na lateral).
 
 ## 2. Critérios de aceitação (para quem usa a API)
 

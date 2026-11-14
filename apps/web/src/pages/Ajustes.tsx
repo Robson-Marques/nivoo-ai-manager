@@ -65,6 +65,19 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         </div>
       </div>
       <div className="campo">
+        <b>{projeto.archivedAt ? 'Projeto arquivado' : 'Arquivar projeto'}</b>
+        <span className="muted small">
+          {projeto.archivedAt
+            ? 'Este projeto está fora da lista principal. Desarquive para ele voltar.'
+            : 'Tira o projeto da lista principal sem apagar nada. Ele fica em "projetos arquivados".'}
+        </span>
+        <div className="row">
+          <button className="secondary" onClick={() => salvar({ archived: !projeto.archivedAt }, projeto.archivedAt ? 'Projeto desarquivado.' : 'Projeto arquivado.')}>
+            {projeto.archivedAt ? 'Desarquivar projeto' : 'Arquivar projeto'}
+          </button>
+        </div>
+      </div>
+      <div className="campo">
         <b>Excluir projeto</b>
         <span className="muted small">Apaga a conversa, a memória, as regras, o conhecimento e os arquivos deste projeto. Não dá para desfazer.</span>
         <div className="row">

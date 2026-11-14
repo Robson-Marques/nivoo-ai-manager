@@ -11,7 +11,8 @@
  *  2. Modelos: novo modelo a partir de "Software", regras importadas de um PDF, pasta de materiais
  *  3. Novo projeto no modelo, com a IA escolhida; Ajustes: regras do projeto e conhecimento
  *  4. Conversa → "Posso fazer isto" → Fazer → conferência das regras → Pronto; memória e arquivos
- *  5. A IA recebeu o perfil do projeto (regras, materiais, conhecimento); excluir o projeto
+ *  5. A IA recebeu o perfil do projeto (regras, materiais, conhecimento)
+ *  6. Várias conversas: nova, arquivar, excluir; excluir o projeto
  */
 const { chromium } = require('playwright');
 const fs = require('node:fs');
@@ -162,7 +163,28 @@ const plano = {
     await page.getByRole('button', { name: 'Fechar' }).click();
     passo('arquivo criado aparece na pasta do projeto');
 
-    // 5. Excluir o projeto
+    // 5. Várias conversas: nova, arquivar, excluir
+    const primeira = page.locator('.conversa-item.on');
+    await primeira.waitFor();
+    if (!(await primeira.innerText()).includes('Quero o cardápio')) throw new Error('a conversa não ganhou o título da primeira mensagem');
+    await page.getByRole('button', { name: '+ Nova conversa' }).click();
+    await page.getByText(/Nova conversa\. A IA já conhece/).waitFor();
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).hover();
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).getByRole('button', { name: /Opções/ }).click();
+    await page.getByRole('button', { name: 'Arquivar', exact: true }).click();
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).waitFor({ state: 'detached' });
+    await page.getByRole('button', { name: 'conversas arquivadas' }).click();
+    const arquivada = page.locator('.conversa-item.arquivada', { hasText: 'Quero o cardápio' });
+    await arquivada.waitFor();
+    await shot(page, '9-conversas-arquivadas');
+    await arquivada.hover();
+    await arquivada.getByRole('button', { name: /Opções/ }).click();
+    page.once('dialog', (d) => d.accept());
+    await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+    await arquivada.waitFor({ state: 'detached' });
+    passo('nova conversa, conversa arquivada e excluída');
+
+    // 6. Excluir o projeto
     page.once('dialog', (d) => d.accept(nome));
     await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
     await page.getByRole('button', { name: 'Excluir este projeto' }).click();

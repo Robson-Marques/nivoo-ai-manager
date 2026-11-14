@@ -315,6 +315,48 @@ sys.stdout.buffer.write(b.getvalue())`]);
     }
   });
 
+  it('várias conversas por projeto: título automático, arquivar, excluir; a memória do projeto vale em todas', async () => {
+    const p = await projeto('Muitas conversas', 'geral');
+    ctl('mode', 'texto');
+    ctl('resposta.txt', '```json\n' + JSON.stringify({ tipo: 'resposta', texto: 'ok', memoria: [{ tipo: 'FATO', titulo: 'Cor', conteudo: 'Azul-marinho CONV-MEM-5.' }] }) + '\n```');
+    const c1 = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    expect(c1.title).toBe('Nova conversa');
+    await h.http().post(`/api/projects/${p.id}/conversations/${c1.id}/messages`).send({ content: 'A cor da marca é azul-marinho, guarde isso por favor' }).expect(201);
+    await resposta(p.id, c1.id, 1);
+    expect((await h.http().get(`/api/projects/${p.id}/conversations/${c1.id}`)).body.title).toBe('A cor da marca é azul-marinho, guarde isso por favor');
+
+    // Conversa nova começa limpa, mas a memória do projeto chega nela.
+    const c2 = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    ctl('resposta.txt', '```json\n' + JSON.stringify({ tipo: 'resposta', texto: 'ok', memoria: [] }) + '\n```');
+    await h.http().post(`/api/projects/${p.id}/conversations/${c2.id}/messages`).send({ content: 'qual é a cor?' }).expect(201);
+    await resposta(p.id, c2.id, 1);
+    const prompt = lido('prompt.txt');
+    expect(prompt).toContain('CONV-MEM-5'); // memória do projeto
+    expect(prompt).not.toContain('guarde isso por favor'); // histórico da outra conversa não vem junto
+
+    // Arquivar: some da lista principal, aparece nas arquivadas, não aceita mensagem até desarquivar.
+    await h.http().patch(`/api/projects/${p.id}/conversations/${c1.id}`).send({ archived: true, title: 'Marca' }).expect(200);
+    expect((await h.http().get(`/api/projects/${p.id}/conversations`)).body.map((c: any) => c.id)).toEqual([c2.id]);
+    const arq = (await h.http().get(`/api/projects/${p.id}/conversations?arquivadas=1`)).body;
+    expect(arq.map((c: any) => [c.id, c.title])).toEqual([[c1.id, 'Marca']]);
+    await h.http().post(`/api/projects/${p.id}/conversations/${c1.id}/messages`).send({ content: 'oi' }).expect(409);
+    await h.http().patch(`/api/projects/${p.id}/conversations/${c1.id}`).send({ archived: false }).expect(200);
+
+    // Excluir: mensagens somem; a memória do projeto continua.
+    await h.http().delete(`/api/projects/${p.id}/conversations/${c1.id}`).expect(200);
+    await h.http().get(`/api/projects/${p.id}/conversations/${c1.id}`).expect(404);
+    expect((await h.http().get(`/api/projects/${p.id}/memory`)).body.some((m: any) => m.content.includes('CONV-MEM-5'))).toBe(true);
+
+    // Projeto arquivado sai da lista principal e volta ao desarquivar.
+    await h.http().patch(`/api/projects/${p.id}`).send({ archived: true }).expect(200);
+    expect((await h.http().get('/api/projects')).body.some((x: any) => x.id === p.id)).toBe(false);
+    expect((await h.http().get('/api/projects?arquivados=1')).body.map((x: any) => x.id)).toContain(p.id);
+    await h.http().patch(`/api/projects/${p.id}`).send({ archived: false }).expect(200);
+    expect((await h.http().get('/api/projects')).body.some((x: any) => x.id === p.id)).toBe(true);
+    ctl('mode', null);
+    ctl('resposta.txt', null);
+  });
+
   it('limite de gasto do projeto vale também para a conversa', async () => {
     const p = await projeto('Com limite', 'geral');
     await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 0 }).expect(200);

@@ -160,3 +160,24 @@ textarea { resize: vertical; line-height: 1.5; }
 .arquivos-lista li { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
 .texto-arquivo { white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 70vh; overflow: auto; margin: 0; }
 .voltar { display: block; margin-bottom: 2px; font-size: 12px; }
+
+/* Conversas do projeto na lateral */
+.conversas { margin: 2px 0 8px 10px; padding-left: 6px; border-left: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; gap: 1px; }
+.nova-conversa { background: none; color: #9fb4e6; text-align: left; padding: 4px 6px; font-size: 12px; }
+.conversa-item { position: relative; display: flex; align-items: center; border-radius: 6px; }
+.conversa-item a { flex: 1; min-width: 0; color: #b8c0d0; font-size: 12px; padding: 5px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
+.conversa-item:hover, .conversa-item.on { background: rgba(255,255,255,.08); }
+.conversa-item.on a { color: #fff; }
+.conversa-item.arquivada a { font-style: italic; color: #8d96a8; }
+.conversa-item .mais { background: none; color: #8d96a8; padding: 0 6px; font-size: 14px; visibility: hidden; }
+.conversa-item:hover .mais, .conversa-item.on .mais { visibility: visible; }
+.menu-conversa { position: absolute; right: 0; top: 100%; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 130px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.menu-conversa button { background: none; color: var(--text); text-align: left; padding: 6px 10px; font-size: 13px; }
+.menu-conversa button:hover { background: var(--accent-soft); }
+.menu-conversa .perigo { color: var(--bad); }
+.chat-side .link.mini { color: #8d96a8; font-size: 11px; text-align: left; padding: 4px 6px; text-decoration: none; }
+.chat-side .link.mini:hover { color: #fff; }
+.mini.muted-side { color: #6b7385; font-size: 11px; padding: 0 6px; }
+.proj.arquivado { font-style: italic; color: #8d96a8; }
+.titulo-conversa { margin-top: 2px; }
+.arquivada-aviso { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 0 auto 16px; }
