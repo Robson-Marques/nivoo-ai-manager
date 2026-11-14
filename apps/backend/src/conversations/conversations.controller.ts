@@ -30,6 +30,11 @@ export class ConversationsController {
     return this.conversations.remove(pid, cid);
   }
 
+  @Post(':cid/cancel')
+  cancel(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string) {
+    return this.conversations.cancel(pid, cid);
+  }
+
   @Post(':cid/messages')
   send(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string, @Body() body: any) {
     return this.conversations.send(pid, cid, body);

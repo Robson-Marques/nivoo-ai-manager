@@ -5,6 +5,7 @@ import { CompletionService } from '../jobs/completion.service';
 import { LogService } from '../jobs/log.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { QueueTaskType } from '@prisma/client';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { StepExecutorService } from './step-executor.service';
 import { PlannerService } from './planner.service';
@@ -12,7 +13,14 @@ import { PlannerService } from './planner.service';
 /**
  * Loop do worker: reivindica tarefas da fila persistente, mantém heartbeat do lease e
  * publica o status dos conectores vistos neste host. Independente do navegador e da API.
+ * Duas faixas em paralelo: trabalhos (etapas e avaliação, um de cada vez — o worktree do job não é
+ * compartilhado) e conversa (respostas do chat), para o chat não ficar esperando um trabalho longo.
  */
+const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
+  { nome: 'trabalho', tipos: ['RUN_STEP', 'EVALUATE_JOB'] },
+  { nome: 'conversa', tipos: ['PLAN_MESSAGE'] },
+];
+
 @Injectable()
 export class WorkerRunnerService {
   private readonly logger = new Logger('Worker');
@@ -35,7 +43,7 @@ export class WorkerRunnerService {
   start(): void {
     if (this.running) return;
     this.running = true;
-    this.loopPromise = this.loop();
+    this.loopPromise = Promise.all(FAIXAS.map((f, i) => this.loop(f.tipos, i === 0))).then(() => undefined);
   }
 
   async stop(): Promise<void> {
@@ -52,16 +60,18 @@ export class WorkerRunnerService {
     });
   }
 
-  private async loop(): Promise<void> {
+  private async loop(tipos: QueueTaskType[], publicaSinal: boolean): Promise<void> {
     const { leaseMs, pollMs } = appConfig();
     let lastProviderPublish = 0;
-    this.logger.log(`Worker ${this.workerId} iniciado`);
+    if (publicaSinal) this.logger.log(`Worker ${this.workerId} iniciado`);
     while (this.running) {
       try {
-        const withProviders = Date.now() - lastProviderPublish > 60_000;
-        await this.publishHeartbeat(withProviders);
-        if (withProviders) lastProviderPublish = Date.now();
-        const task = await this.queue.claim(this.workerId, leaseMs);
+        if (publicaSinal) {
+          const withProviders = Date.now() - lastProviderPublish > 60_000;
+          await this.publishHeartbeat(withProviders);
+          if (withProviders) lastProviderPublish = Date.now();
+        }
+        const task = await this.queue.claim(this.workerId, leaseMs, tipos);
         if (!task) {
           await sleep(pollMs);
           continue;
@@ -72,7 +82,7 @@ export class WorkerRunnerService {
         await sleep(pollMs * 2);
       }
     }
-    this.logger.log(`Worker ${this.workerId} parado`);
+    if (publicaSinal) this.logger.log(`Worker ${this.workerId} parado`);
   }
 
   async process(task: ClaimedTask, leaseMs: number): Promise<void> {

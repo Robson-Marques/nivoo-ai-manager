@@ -357,6 +357,62 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('resposta.txt', null);
   });
 
+  it('trocar a IA do projeto: o trabalho parado esperando a IA anterior continua com a nova', async () => {
+    const p = await projeto('Troca de IA', 'geral', { provider: 'claude-code-cli' });
+    ctl('mode', null);
+    await h.http().patch('/api/providers/claude-code-cli').send({ enabled: false }).expect(200); // "acabou o crédito"
+    try {
+      const j = await job(p.id, { title: 'pagina', defaultProvider: 'claude-code-cli', conferencia: false, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      await ate(p.id, j.id, ['AGUARDANDO_RECURSO']);
+      await h.http().post('/api/accounts/claude-api/key').send({ key: 'sk-ant-api03-chave-de-teste-0123456789' }).expect(201);
+      const trocado = (await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'claude-api' }).expect(200)).body;
+      expect(trocado.provider).toBe('claude-api');
+      const d = await ate(p.id, j.id);
+      expect(d.status).toBe('CONCLUIDO');
+      expect(d.steps[0].provider).toBe('claude-api');
+      expect(d.attempts[d.attempts.length - 1].provider).toBe('claude-api');
+      expect(lido('args.txt')).toContain('--append-system-prompt'); // a nova IA recebeu o perfil do projeto
+    } finally {
+      await h.http().patch('/api/providers/claude-code-cli').send({ enabled: true }).expect(200);
+      await h.http().delete('/api/accounts/claude-api').expect(200);
+    }
+  });
+
+  it('o chat não espera atrás de um trabalho longo (faixas separadas no worker)', async () => {
+    const p = await projeto('Faixas', 'geral');
+    const longo = await job(p.id, { title: 'longo', steps: [{ key: 's', instructions: 'sleep 8' }] });
+    await ate(p.id, longo.id, ['EXECUTANDO']);
+    ctl('mode', 'texto');
+    ctl('resposta.txt', '```json\n' + JSON.stringify({ tipo: 'resposta', texto: 'respondi', memoria: [] }) + '\n```');
+    const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'oi' }).expect(201);
+    const r = await resposta(p.id, conv.id, 1);
+    expect(r.content).toBe('respondi');
+    expect((await h.http().get(`/api/projects/${p.id}/jobs/${longo.id}`)).body.status).toBe('EXECUTANDO'); // ainda rodando
+    await ate(p.id, longo.id);
+    ctl('mode', null);
+    ctl('resposta.txt', null);
+  });
+
+  it('"Pensando…" pode ser parado; excluir projeto para trabalho e resposta em andamento sozinho', async () => {
+    const p = await projeto('Para tudo', 'geral');
+    ctl('mode', 'lento'); // a IA "trava" (sessão que não termina)
+    const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'oi' }).expect(201);
+    const parada = (await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/cancel`).expect(201)).body;
+    expect(parada.messages.find((m: any) => m.role === 'ASSISTENTE').content).toBe('Resposta cancelada.');
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'de novo' }).expect(201); // chat liberado
+
+    const longo = await job(p.id, { title: 'longo', steps: [{ key: 's', instructions: 'sleep 60' }] });
+    await ate(p.id, longo.id, ['EXECUTANDO']);
+    await waitFor(async () => (await h.prisma.attempt.count({ where: { jobId: longo.id, status: 'EXECUTANDO' } })) > 0);
+    const r = (await h.http().delete(`/api/projects/${p.id}`).expect(200)).body; // não exige parar antes
+    expect(r.excluido).toBe('Para tudo');
+    await h.http().get(`/api/projects/${p.id}`).expect(404);
+    expect(fs.existsSync(p.workspacePath)).toBe(false);
+    ctl('mode', null);
+  });
+
   it('limite de gasto do projeto vale também para a conversa', async () => {
     const p = await projeto('Com limite', 'geral');
     await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 0 }).expect(200);
@@ -369,7 +425,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
 
   it('contas de IA: Claude, ChatGPT e Gemini; login pela tela com o fluxo oficial; chave guardada fora do banco', async () => {
     const contas = (await h.http().get('/api/accounts').expect(200)).body;
-    expect(contas.map((c: any) => c.nome)).toEqual(['Claude', 'ChatGPT', 'Gemini']);
+    expect(contas.map((c: any) => c.nome)).toEqual(['Claude (conta)', 'Claude (API)', 'ChatGPT (conta)', 'ChatGPT (API)', 'Gemini (conta)', 'Gemini (API)']);
 
     // Login do Claude pela tela (CLI simulado: mostra o link, lê o código e devolve o token oficial).
     const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-claude-')), 'claude');
@@ -404,10 +460,14 @@ exec ${process.env.NIVOO_CLAUDE_BIN} "$@"
     expect(fs.statSync(segredos).mode & 0o777).toBe(0o600);
 
     // Chave de API do Gemini (alternativa ao login com a conta).
-    await h.http().post('/api/accounts/gemini-cli/key').send({ key: 'curta' }).expect(400);
-    await h.http().post('/api/accounts/gemini-cli/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(201);
+    await h.http().post('/api/accounts/gemini-api/key').send({ key: 'curta' }).expect(400);
+    await h.http().post('/api/accounts/gemini-cli/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(400); // conta não usa chave
+    await h.http().post('/api/accounts/gemini-api/login').expect(400); // API não tem login de conta
+    await h.http().post('/api/accounts/gemini-api/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(201);
+    expect((await h.http().get('/api/accounts')).body.find((c: any) => c.id === 'gemini-api').conectado).toBe(true);
+    expect((await h.http().get('/api/accounts')).body.find((c: any) => c.id === 'gemini-cli').conectado).toBe(false); // conta e API são independentes
     expect(JSON.parse(fs.readFileSync(segredos, 'utf8')).GEMINI_API_KEY).toBe('AIzaSy-chave-de-teste-0123456789');
-    await h.http().delete('/api/accounts/gemini-cli').expect(200);
+    await h.http().delete('/api/accounts/gemini-api').expect(200);
     expect(JSON.parse(fs.readFileSync(segredos, 'utf8')).GEMINI_API_KEY).toBeUndefined();
     await h.http().post('/api/accounts/local-shell/login').expect(400);
   });

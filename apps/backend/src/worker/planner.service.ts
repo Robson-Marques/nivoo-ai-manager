@@ -44,7 +44,8 @@ export class PlannerService {
     }
     const project = msg.conversation.project;
     const fail = async (texto: string) => {
-      await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { status: 'ERRO', kind: 'erro', content: texto } });
+      // Só se ainda estiver pendente: o usuário pode ter cancelado a resposta.
+      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto } });
       await this.queue.complete(task.id, workerId);
     };
 
@@ -122,8 +123,8 @@ export class PlannerService {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
-      await this.prisma.conversationMessage.update({
-        where: { id: msg.id },
+      const gravada = await this.prisma.conversationMessage.updateMany({
+        where: { id: msg.id, status: 'PENDENTE' },
         data: {
           status: erro ? 'ERRO' : 'PRONTA',
           kind: erro ? 'erro' : kind,
@@ -133,6 +134,8 @@ export class PlannerService {
           costUsd: result.costUsd ?? 0,
         },
       });
+      // Resposta cancelada pelo usuário enquanto a IA trabalhava: o custo da sessão conta mesmo assim.
+      if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
       await this.queue.complete(task.id, workerId);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });

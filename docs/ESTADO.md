@@ -3,6 +3,23 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 10 — trocar de IA no meio do projeto, conta e API separadas, nada fica preso (2026-11-14)
+
+* **Seis opções de IA**, conectáveis ao mesmo tempo: Claude, ChatGPT e Gemini, cada uma **pela conta**
+  (assinatura) e **por chave de API** (cobrança por uso). Variantes API usam pasta de configuração própria
+  (`~/.nivoo-ia/<ia>-api`), então conta e chave nunca se misturam. Conectores: `claude-code-cli`,
+  `claude-api`, `codex-cli`, `codex-api`, `gemini-cli`, `gemini-api`.
+* **Trocar a IA do projeto** direto no topo do chat (ou em Ajustes). O trabalho ainda não terminado passa
+  para a nova IA e, se estava esperando a anterior (limite/crédito), continua na hora. A nova IA relê o
+  projeto (regras, conhecimento, memória, pasta, notas e checkpoints): nada depende da IA anterior.
+  Quando a IA esgota, o chat e o cartão do trabalho mostram **"Continuar com …"**.
+* **Nada fica preso:** "Pensando…" mostra o tempo e tem **parar**; **Ajustes → Trabalhos em andamento**
+  lista e **para** qualquer trabalho (inclusive os que não vieram do chat); **Excluir projeto** para
+  sozinho trabalhos e respostas em andamento antes de excluir; excluir conversa também.
+* **O chat não espera trabalho longo:** o worker tem duas faixas (trabalhos; respostas do chat).
+* Aviso no topo da tela quando o worker está parado (nada anda).
+* Testes: suíte 76/76; interface pela tela ok.
+
 ## Correção — login do Claude pela tela travava em "Conferindo o código…" (2026-11-14)
 
 Relato do usuário no servidor. Causa: o código de login do Claude é longo; escrito de uma vez no terminal

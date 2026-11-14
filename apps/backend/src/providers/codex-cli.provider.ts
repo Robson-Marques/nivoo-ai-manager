@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
   AiProvider,
@@ -15,11 +16,21 @@ import {
  */
 @Injectable()
 export class CodexCliProvider implements AiProvider {
-  readonly id = 'codex-cli';
-  readonly label = 'ChatGPT (Codex)';
+  readonly id: string = 'codex-cli';
+  readonly label: string = 'ChatGPT (conta)';
   readonly kind = 'cli' as const;
-  private readonly bin = process.env.NIVOO_CODEX_BIN ?? 'codex';
-  private readonly passKeys = ['CODEX_HOME'];
+  protected readonly bin = process.env.NIVOO_CODEX_BIN ?? 'codex';
+  protected readonly passKeys = ['CODEX_HOME'];
+
+  /** Ambiente do CLI. Conta: CODEX_HOME padrão do serviço (login com a conta do ChatGPT). */
+  env(extra: Record<string, string> = {}) {
+    return minimalEnv(extra, this.passKeys);
+  }
+
+  /** Conta: login feito com a conta do ChatGPT (não com chave de API). */
+  protected loggedIn(exitCode: number | null, out: string): boolean {
+    return exitCode === 0 && !/api key/i.test(out);
+  }
 
   async checkAvailability(): Promise<ProviderStatus> {
     const base: ProviderStatus = {
@@ -35,7 +46,7 @@ export class CodexCliProvider implements AiProvider {
       checkedAt: new Date().toISOString(),
       isAi: true,
     };
-    const env = minimalEnv({}, this.passKeys);
+    const env = this.env();
     const v = await runProcess(this.bin, ['--version'], { cwd: process.cwd(), env, timeoutMs: 15000 });
     if (v.exitCode !== 0) {
       base.errors.push(v.spawnError ? `CLI não encontrado (${this.bin})` : v.stderr.trim());
@@ -44,7 +55,7 @@ export class CodexCliProvider implements AiProvider {
     base.installed = true;
     base.version = v.stdout.trim();
     const s = await runProcess(this.bin, ['login', 'status'], { cwd: process.cwd(), env, timeoutMs: 15000 });
-    base.authenticated = s.exitCode === 0;
+    base.authenticated = this.loggedIn(s.exitCode, `${s.stdout}\n${s.stderr}`);
     if (!base.authenticated) base.errors.push('não conectado (conecte em Contas de IA)');
     base.available = base.authenticated === true;
     return base;
@@ -59,7 +70,7 @@ export class CodexCliProvider implements AiProvider {
     req.onLog(`codex ${args.join(' ')}`);
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: minimalEnv({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }, this.passKeys),
+      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
@@ -101,5 +112,23 @@ export class CodexCliProvider implements AiProvider {
       inputTokens,
       outputTokens,
     };
+  }
+}
+
+/**
+ * ChatGPT com chave de API da OpenAI (cobrança por uso). Mesmo CLI; CODEX_HOME próprio, onde a chave é
+ * registrada pelo comando oficial `codex login --with-api-key` — não mexe no login da conta.
+ */
+@Injectable()
+export class CodexApiProvider extends CodexCliProvider {
+  readonly id: string = 'codex-api';
+  readonly label: string = 'ChatGPT (API)';
+
+  env(extra: Record<string, string> = {}) {
+    return minimalEnv({ CODEX_HOME: isolatedHome('codex-api'), ...extra });
+  }
+
+  protected loggedIn(exitCode: number | null): boolean {
+    return exitCode === 0;
   }
 }

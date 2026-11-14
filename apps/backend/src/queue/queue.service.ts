@@ -35,7 +35,11 @@ export class QueueService {
     return tx.queueTask.create({ data: { type, jobId, stepId, runAt } });
   }
 
-  async claim(workerId: string, leaseMs: number): Promise<ClaimedTask | null> {
+  /**
+   * Reivindica a próxima tarefa pronta. `types` restringe a uma "faixa" (ex.: respostas do chat não esperam
+   * atrás de um trabalho longo).
+   */
+  async claim(workerId: string, leaseMs: number, types: QueueTaskType[] = ['RUN_STEP', 'EVALUATE_JOB', 'PLAN_MESSAGE']): Promise<ClaimedTask | null> {
     // Loop de quedas: a tarefa derrubou o worker MAX_RECOVERIES vezes. Vira DEAD e o job é BLOQUEADO
     // com motivo explícito (nunca fica parado em EXECUTANDO sem ninguém processar).
     const dead = await this.prisma.$queryRaw<Array<{ jobId: string | null; stepId: string | null; messageId: string | null }>>`
@@ -55,8 +59,9 @@ export class QueueService {
       WITH c AS (
         SELECT id, "lockedBy" AS prev_locked_by, status::text AS prev_status
         FROM "QueueTask"
-        WHERE (status = 'QUEUED' AND "runAt" <= now())
-           OR (status = 'RUNNING' AND "lockedUntil" < now())
+        WHERE ((status = 'QUEUED' AND "runAt" <= now())
+           OR (status = 'RUNNING' AND "lockedUntil" < now()))
+          AND type::text = ANY(${types}::text[])
         ORDER BY "runAt" ASC, "createdAt" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1

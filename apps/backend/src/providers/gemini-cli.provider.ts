@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getSecret, secretEnv } from '../accounts/secrets';
+import { getSecret, isolatedHome, secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
@@ -15,10 +15,10 @@ import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeRe
  */
 @Injectable()
 export class GeminiCliProvider implements AiProvider {
-  readonly id = 'gemini-cli';
-  readonly label = 'Gemini';
+  readonly id: string = 'gemini-cli';
+  readonly label: string = 'Gemini (conta)';
   readonly kind = 'cli' as const;
-  private readonly bin = process.env.NIVOO_GEMINI_BIN ?? 'gemini';
+  protected readonly bin = process.env.NIVOO_GEMINI_BIN ?? 'gemini';
 
   static readonly EXCLUDED_TOOLS = ['run_shell_command', 'web_fetch', 'google_web_search'];
 
@@ -32,8 +32,8 @@ export class GeminiCliProvider implements AiProvider {
    * O CLI só aceita arquivo de configuração "de sistema" em pasta do root, e o serviço não roda como root;
    * por isso a configuração vai no HOME do serviço. .gemini/ do workspace é removido antes de cada sessão.
    */
-  static ensureUserSettings(selectedType: 'oauth-personal' | 'gemini-api-key'): void {
-    const file = path.join(process.env.HOME ?? os.homedir(), '.gemini', 'settings.json');
+  static ensureUserSettings(selectedType: 'oauth-personal' | 'gemini-api-key', home = process.env.HOME ?? os.homedir()): void {
+    const file = path.join(home, '.gemini', 'settings.json');
     let atual: any = {};
     try {
       atual = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -51,9 +51,14 @@ export class GeminiCliProvider implements AiProvider {
     fs.writeFileSync(file, JSON.stringify(settings, null, 2), { mode: 0o600 });
   }
 
-  private env(extra: Record<string, string> = {}) {
-    GeminiCliProvider.ensureUserSettings(getSecret('GEMINI_API_KEY') ? 'gemini-api-key' : 'oauth-personal');
-    return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), ...extra });
+  /** Conta Google: login gravado pelo próprio CLI no HOME do serviço. Nunca a chave de API. */
+  protected env(extra: Record<string, string> = {}) {
+    GeminiCliProvider.ensureUserSettings('oauth-personal');
+    return minimalEnv(extra);
+  }
+
+  protected isAuthenticated(): boolean {
+    return fs.existsSync(GeminiCliProvider.oauthFile());
   }
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -77,7 +82,7 @@ export class GeminiCliProvider implements AiProvider {
     }
     base.installed = true;
     base.version = v.stdout.trim();
-    base.authenticated = !!getSecret('GEMINI_API_KEY') || fs.existsSync(GeminiCliProvider.oauthFile());
+    base.authenticated = this.isAuthenticated();
     if (!base.authenticated) base.errors.push('não conectado (conecte em Contas de IA)');
     base.available = base.authenticated === true;
     return base;
@@ -145,5 +150,25 @@ export class GeminiCliProvider implements AiProvider {
       inputTokens,
       outputTokens,
     };
+  }
+}
+
+/**
+ * Gemini com chave de API (Google AI Studio; cobrança por uso). Mesmo CLI; HOME próprio, com a
+ * configuração de chave — não mistura com o login da conta Google.
+ */
+@Injectable()
+export class GeminiApiProvider extends GeminiCliProvider {
+  readonly id: string = 'gemini-api';
+  readonly label: string = 'Gemini (API)';
+
+  protected env(extra: Record<string, string> = {}) {
+    const home = isolatedHome('gemini-api');
+    GeminiCliProvider.ensureUserSettings('gemini-api-key', home);
+    return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), HOME: home, ...extra });
+  }
+
+  protected isAuthenticated(): boolean {
+    return !!getSecret('GEMINI_API_KEY');
   }
 }

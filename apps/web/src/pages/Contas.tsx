@@ -20,7 +20,13 @@ export function Contas() {
         </div>
       </header>
       <div className="cartoes uma-coluna">
-        {contas?.map((c) => <Conta key={c.id} conta={c} onMudou={carregar} />)}
+        {['Claude', 'ChatGPT', 'Gemini'].map((ia) => (
+          <section key={ia} className="conta">
+            <h2>{ia}</h2>
+            <p className="muted small">Conecte pela conta (assinatura), por chave de API (cobrança por uso) ou pelos dois. Cada projeto escolhe qual usar.</p>
+            {contas?.filter((c) => c.ia === ia).map((c) => <Conta key={c.id} conta={c} onMudou={carregar} />)}
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -30,7 +36,6 @@ function Conta({ conta, onMudou }: { conta: any; onMudou: () => void }) {
   const [login, setLogin] = useState<any>(conta.login && ['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(conta.login.state) ? conta.login : null);
   const [codigo, setCodigo] = useState('');
   const [chave, setChave] = useState('');
-  const [usarChave, setUsarChave] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const emAndamento = login && ['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(login.state);
 
@@ -69,21 +74,20 @@ function Conta({ conta, onMudou }: { conta: any; onMudou: () => void }) {
     acao(async () => {
       await api(`/accounts/${conta.id}/key`, 'POST', { key: chave });
       setChave('');
-      setUsarChave(false);
       onMudou();
     });
   };
 
+  const titulo = conta.tipo === 'conta' ? `Conta (${conta.conta})` : 'Chave de API';
   return (
-    <section className="conta">
+    <div className="conta-opcao">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
-          <h2>{conta.nome}</h2>
-          <span className={conta.conectado ? 'selo ok' : 'selo'}>{conta.conectado ? 'Conectado' : 'Não conectado'}</span>
+          <b>{titulo}</b> <span className={conta.conectado ? 'selo ok' : 'selo'}>{conta.conectado ? 'Conectado' : 'Não conectado'}</span>
           {conta.desabilitado && <span className="muted small"> (desabilitado pelo administrador)</span>}
         </div>
         <div className="row">
-          {!conta.conectado && !emAndamento && <button onClick={conectar} disabled={!conta.instalado}>Conectar com a {conta.conta}</button>}
+          {conta.tipo === 'conta' && !conta.conectado && !emAndamento && <button onClick={conectar} disabled={!conta.instalado}>Conectar</button>}
           {conta.conectado && !conta.configuradoPeloAdministrador && (
             <button className="danger" onClick={() => window.confirm(`Desconectar ${conta.nome}?`) && acao(async () => { await api(`/accounts/${conta.id}`, 'DELETE'); onMudou(); })}>Desconectar</button>
           )}
@@ -116,18 +120,13 @@ function Conta({ conta, onMudou }: { conta: any; onMudou: () => void }) {
       {login && login.state === 'erro' && <div className="error">{login.message}</div>}
       {login && login.state === 'conectado' && <div className="ok-msg">{login.message}</div>}
 
-      {!conta.conectado && !emAndamento && (
-        <div>
-          <button className="link" onClick={() => setUsarChave(!usarChave)}>{usarChave ? 'cancelar' : 'ou usar uma chave de API (cobrança à parte)'}</button>
-          {usarChave && (
-            <form className="row" onSubmit={salvarChave}>
-              <input type="password" value={chave} onChange={(e) => setChave(e.target.value)} placeholder={`Chave de API (crie em ${conta.ondeChave})`} />
-              <button disabled={!chave.trim()}>Salvar chave</button>
-            </form>
-          )}
-        </div>
+      {conta.tipo === 'api' && !conta.conectado && (
+        <form className="row" onSubmit={salvarChave}>
+          <input type="password" value={chave} onChange={(e) => setChave(e.target.value)} placeholder={`Cole a chave de API (crie em ${conta.ondeChave})`} />
+          <button disabled={!chave.trim()}>Salvar chave</button>
+        </form>
       )}
       {erro && <div className="error">{erro}</div>}
-    </section>
+    </div>
   );
 }

@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 
@@ -50,4 +51,14 @@ export function secretEnv(keys: SecretKey[]): Record<string, string> {
     if (v) env[k] = v;
   }
   return env;
+}
+
+/**
+ * Pasta de configuração própria de uma variante "API" de uma IA (ex.: claude-api), dentro do HOME do
+ * serviço: o login da conta e o uso por chave de API nunca se misturam.
+ */
+export function isolatedHome(name: string): string {
+  const dir = path.join(process.env.HOME ?? os.homedir(), '.nivoo-ia', name);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
 }

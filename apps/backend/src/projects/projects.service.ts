@@ -10,9 +10,12 @@ import { optNumber, optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { WorkspaceService } from '../storage/workspace.service';
+import { BlockedReason } from '../common/status';
+import { ConversationsService } from '../conversations/conversations.service';
+import { QueueService } from '../queue/queue.service';
 
 /** IAs que conversam e trabalham num projeto: agentes que leem e editam arquivos (o executor local não é IA). */
-const AI_PROVIDERS = ['claude-code-cli', 'codex-cli', 'gemini-cli'];
+export const AI_PROVIDERS = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-cli', 'gemini-api'];
 
 /**
  * Projeto = pasta de trabalho + "fine-tune do projeto": base escolhida, regras próprias (versionadas),
@@ -25,6 +28,7 @@ export class ProjectsService {
     private readonly workspace: WorkspaceService,
     private readonly areas: AreasService,
     private readonly registry: ProviderRegistry,
+    private readonly queue: QueueService,
   ) {}
 
   async create(body: any) {
@@ -104,7 +108,34 @@ export class ProjectsService {
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
+    if (data.provider) await this.moveUnfinishedWork(id, String(data.provider));
     return this.get(id);
+  }
+
+  /**
+   * Trocou a IA do projeto (ex.: acabou o crédito de uma): o trabalho ainda não terminado passa para a
+   * nova IA e, se estava esperando a IA anterior voltar, continua já. Cada sessão reconstrói o contexto
+   * do projeto (regras, conhecimento, memória, pasta, notas e checkpoints), então nada depende da IA anterior.
+   */
+  private async moveUnfinishedWork(projectId: string, provider: string) {
+    const ai = AI_PROVIDERS;
+    const jobs = await this.prisma.job.findMany({
+      where: { projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO', 'BLOQUEADO', 'FALHOU'] } },
+      select: { id: true, defaultProvider: true },
+    });
+    for (const j of jobs) {
+      await this.prisma.$transaction([
+        // Etapas da IA (explícitas, ou sem conector próprio num job cuja IA padrão era a do projeto);
+        // etapas do executor local continuam no executor local.
+        this.prisma.step.updateMany({
+          where: { jobId: j.id, status: { not: 'CONCLUIDO' }, OR: [{ provider: { in: ai } }, ...(ai.includes(j.defaultProvider) ? [{ provider: null }] : [])] },
+          data: { provider },
+        }),
+        ...(ai.includes(j.defaultProvider) ? [this.prisma.job.update({ where: { id: j.id }, data: { defaultProvider: provider } })] : []),
+        // Quem esperava a IA anterior (limite/crédito) tenta de novo agora, com a nova.
+        this.prisma.queueTask.updateMany({ where: { jobId: j.id, type: 'RUN_STEP', status: 'QUEUED' }, data: { runAt: new Date(), resourceWaits: 0 } }),
+      ]);
+    }
   }
 
   /** Nova versão das regras do projeto (a anterior fica no histórico). */
@@ -170,19 +201,36 @@ export class ProjectsService {
 
   /**
    * Exclui o projeto: banco (conversas, trabalhos, memória, regras), pasta do projeto e artefatos.
-   * Recusado enquanto houver trabalho em andamento (interrompa antes).
+   * Antes, PARA tudo o que estiver rodando nele (trabalhos e respostas da IA) — excluir nunca fica preso.
    */
   async remove(id: string) {
     const p = await this.assertExists(id);
-    const ativos = await this.prisma.job.count({ where: { projectId: id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } } });
-    if (ativos) throw new ConflictException('Há trabalho em andamento neste projeto; pare-o antes de excluir');
-    if (await this.prisma.conversationMessage.count({ where: { conversation: { projectId: id }, status: 'PENDENTE' } })) {
-      throw new ConflictException('A IA ainda está respondendo neste projeto; aguarde e tente de novo');
-    }
+    await this.stopEverything(id);
     await this.prisma.$transaction([this.prisma.approval.deleteMany({ where: { projectId: id } }), this.prisma.project.delete({ where: { id } })]);
     fs.rmSync(this.workspace.projectDirs(p.dirKey).root, { recursive: true, force: true });
     fs.rmSync(resolveInside(appConfig().artifactsRoot, id), { recursive: true, force: true });
     return { excluido: p.name };
+  }
+
+  /** Interrompe trabalhos ativos e cancela respostas pendentes; espera (até 20 s) as sessões encerrarem. */
+  private async stopEverything(projectId: string) {
+    const ativos = await this.prisma.job.findMany({
+      where: { projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } },
+      select: { id: true },
+    });
+    for (const j of ativos) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.job.update({ where: { id: j.id }, data: { status: 'BLOQUEADO', blockedReason: BlockedReason.INTERROMPIDO, statusDetail: 'interrompido para excluir o projeto' } });
+        await this.queue.cancelForJob(tx, j.id);
+      });
+    }
+    await ConversationsService.cancelPending(this.prisma, { projectId });
+    // Sem lease, o worker aborta a sessão em poucos segundos; espera para não apagar a pasta com a IA dentro.
+    const fim = Date.now() + 20_000;
+    while (Date.now() < fim && (await this.prisma.attempt.count({ where: { job: { projectId }, status: 'EXECUTANDO' } }))) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    await this.prisma.attempt.updateMany({ where: { job: { projectId }, status: 'EXECUTANDO' }, data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'projeto excluído' } });
   }
 
   async assertExists(id: string) {

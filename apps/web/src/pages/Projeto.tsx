@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, lerArquivo, nomeUsuario } from '../api';
 import { useProjetos } from '../Layout';
@@ -10,7 +10,14 @@ import { Ajustes } from './Ajustes';
  * por uma IA separada contra as regras e só então entra na pasta do projeto.
  */
 
-export const NOME_IA: Record<string, string> = { 'claude-code-cli': 'Claude', 'codex-cli': 'ChatGPT', 'gemini-cli': 'Gemini' };
+export const NOME_IA: Record<string, string> = {
+  'claude-code-cli': 'Claude (conta)',
+  'claude-api': 'Claude (API)',
+  'codex-cli': 'ChatGPT (conta)',
+  'codex-api': 'ChatGPT (API)',
+  'gemini-cli': 'Gemini (conta)',
+  'gemini-api': 'Gemini (API)',
+};
 
 const MEMORIA_GRUPOS: Array<{ titulo: string; filtro: (m: any) => boolean }> = [
   { titulo: 'Decisões', filtro: (m) => m.category === 'DECISAO_APROVADA' },
@@ -37,6 +44,29 @@ const MOTIVO: Record<string, string> = {
   APROVACAO_REJEITADA: 'a confirmação foi recusada',
   FALHA_INFRAESTRUTURA: 'o servidor teve um problema',
 };
+
+/** IAs conectadas e a troca da IA do projeto (ex.: acabou o crédito de uma → continua com outra). */
+interface IaCtx {
+  contas: any[];
+  atual: string;
+  trocar: (id: string) => Promise<void>;
+}
+const IaContexto = createContext<IaCtx>({ contas: [], atual: '', trocar: async () => undefined });
+
+/** Botões "Continuar com …" para as outras IAs conectadas. */
+function TrocarIa({ depois }: { depois?: () => Promise<unknown> }) {
+  const { contas, atual, trocar } = useContext(IaContexto);
+  const outras = contas.filter((c) => c.conectado && c.id !== atual);
+  if (!outras.length) return <div className="small"><Link to="/contas">Conectar outra IA em Contas de IA</Link></div>;
+  return (
+    <div className="row troca-ia">
+      <span className="small">Continuar com:</span>
+      {outras.map((c) => (
+        <button key={c.id} className="secondary" onClick={async () => { await trocar(c.id); await depois?.(); }}>{c.nome}</button>
+      ))}
+    </div>
+  );
+}
 
 function conferenciaFalhou(job: any): boolean {
   const etapa = job.steps.find((s: any) => s.key === 'conferencia-regras');
@@ -80,6 +110,18 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
   const [ocupado, setOcupado] = useState(false);
   const [versaoPainel, setVersaoPainel] = useState(0);
   const fim = useRef<HTMLDivElement>(null);
+  const [contas, setContas] = useState<any[]>([]);
+  useEffect(() => {
+    api<any[]>('/accounts').then(setContas).catch(() => undefined);
+  }, []);
+  // Trocar a IA do projeto: o trabalho não terminado passa para a nova IA e continua (o servidor cuida).
+  const trocar = useCallback(
+    async (id: string) => {
+      await api(`/projects/${projeto.id}`, 'PATCH', { provider: id });
+      onProjetoMudou();
+    },
+    [projeto.id, onProjetoMudou],
+  );
 
   const carregar = useCallback(async () => setConv(await api(`/projects/${projeto.id}/conversations/${conversaId}`)), [projeto.id, conversaId]);
 
@@ -119,6 +161,11 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
       setOcupado(false);
     }
   };
+  // Depois de trocar de IA: manda de novo a última pergunta, agora para a nova IA.
+  const reenviar = async () => {
+    const ultima = [...(conv?.messages ?? [])].reverse().find((m: any) => m.role === 'USUARIO');
+    if (ultima) setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: ultima.content }));
+  };
   const tecla = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -138,12 +185,20 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
   const ultimaIa = [...mensagens].reverse().find((m) => m.role === 'ASSISTENTE');
 
   return (
+    <IaContexto.Provider value={{ contas, atual: projeto.provider, trocar }}>
     <div className={painel ? 'conversa com-painel' : 'conversa'}>
       <div className="conversa-col">
         <header className="conversa-topo">
           <div>
             <h1>{projeto.name}</h1>
-            <span className="tag">{projeto.area?.name}</span> <span className="tag">IA: {NOME_IA[projeto.provider] ?? projeto.provider}</span>
+            <span className="tag">{projeto.area?.name}</span>{' '}
+            <select className="seletor-ia" value={projeto.provider} onChange={(e) => trocar(e.target.value)} title="IA que trabalha neste projeto (pode trocar a qualquer momento)">
+              {(contas.length ? contas : [{ id: projeto.provider, nome: NOME_IA[projeto.provider] ?? projeto.provider, conectado: true }]).map((c) => (
+                <option key={c.id} value={c.id}>
+                  IA: {c.nome}{c.conectado ? '' : ' (não conectada)'}
+                </option>
+              ))}
+            </select>
             {projeto.archivedAt && <span className="tag">projeto arquivado</span>}
             {conv && <div className="muted small titulo-conversa">{conv.title}</div>}
           </div>
@@ -161,7 +216,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             </div>
           )}
           {mensagens.map((m) => (
-            <Mensagem key={m.id} m={m} projetoId={projeto.id} podeFazer={m === ultimaIa} onFazer={() => fazer(m)} onMudou={trabalhoMudou} />
+            <Mensagem key={m.id} m={m} projetoId={projeto.id} podeFazer={m === ultimaIa} onFazer={() => fazer(m)} onMudou={trabalhoMudou} onReenviar={m === ultimaIa ? reenviar : undefined} />
           ))}
           <div ref={fim} />
         </div>
@@ -196,17 +251,18 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
       </div>
       {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} />}
     </div>
+    </IaContexto.Provider>
   );
 }
 
-function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => void; onMudou: () => void }) {
+function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => void; onMudou: () => void; onReenviar?: () => Promise<void> }) {
   if (m.role === 'USUARIO') return <div className="msg eu">{m.content}</div>;
-  if (m.status === 'PENDENTE') return <div className="msg ia pensando">Pensando<span className="dots">…</span></div>;
+  if (m.status === 'PENDENTE') return <Pensando desde={m.createdAt} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />;
   if (m.status === 'ERRO') {
     return (
       <div className="msg ia erro">
         {m.content}
-        {/conectada|indisponível|Contas de IA/.test(m.content) && <div><Link to="/contas">Conectar em Contas de IA</Link></div>}
+        {/conectada|indisponível|limite|Contas de IA/.test(m.content) && <TrocarIa depois={onReenviar} />}
       </div>
     );
   }
@@ -230,6 +286,24 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou }: { m: any; proje
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** "Pensando…" com o tempo decorrido: a IA lê o projeto antes de responder e isso pode levar minutos. */
+function Pensando({ desde, projetoId, conversaId, onMudou }: { desde: string; projetoId: string; conversaId: string; onMudou: () => void }) {
+  const [agora, setAgora] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const seg = Math.max(0, Math.round((agora - new Date(desde).getTime()) / 1000));
+  const tempo = seg < 60 ? `${seg} s` : `${Math.floor(seg / 60)} min ${seg % 60} s`;
+  return (
+    <div className="msg ia pensando">
+      Pensando<span className="dots">…</span> <span className="small">({tempo})</span>{' '}
+      <button className="link parar" onClick={async () => { await api(`/projects/${projetoId}/conversations/${conversaId}/cancel`, 'POST'); onMudou(); }}>parar</button>
+      {seg > 120 && <div className="small">A IA está lendo o projeto e pode levar alguns minutos. Se passar de 5 minutos, ela avisa o que aconteceu.</div>}
     </div>
   );
 }
@@ -267,7 +341,12 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {['EXECUTANDO', 'PENDENTE'].includes(job.status) && (
         <span>Trabalhando… {feitas} de {job.steps.length} feito(s){atual ? ` — agora: ${atual.title || atual.key}` : ''}</span>
       )}
-      {job.status === 'AGUARDANDO_RECURSO' && <span>Esperando a IA ficar disponível (limite de uso ou conta desconectada). Continua sozinho.</span>}
+      {job.status === 'AGUARDANDO_RECURSO' && (
+        <span>
+          A IA está sem limite/crédito ou desconectada. Continua sozinho quando ela voltar, ou troque agora:
+          <TrocarIa depois={carregar} />
+        </span>
+      )}
       {job.status === 'AGUARDANDO_APROVACAO' && (
         <span>
           Preciso da sua confirmação{aprovacao ? `: ${aprovacao.description}` : ''}.{' '}

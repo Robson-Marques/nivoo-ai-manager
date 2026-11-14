@@ -4,6 +4,8 @@ import { useProjetos } from '../Layout';
 import { api, nomeUsuario } from '../api';
 import { EditorDeRegras, Materiais } from '../Pecas';
 
+const ESTADO: Record<string, string> = { PENDENTE: 'na fila', EXECUTANDO: 'trabalhando', AGUARDANDO_RECURSO: 'esperando a IA', AGUARDANDO_APROVACAO: 'esperando sua confirmação' };
+
 /** "Fine-tune" do projeto em linguagem simples: regras próprias, conhecimento, IA e limite de gasto. */
 export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
   const [contas, setContas] = useState<any[]>([]);
@@ -15,6 +17,16 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
   useEffect(() => {
     api<any[]>('/accounts').then(setContas).catch(() => undefined);
   }, []);
+  const [trabalhos, setTrabalhos] = useState<any[]>([]);
+  const carregarTrabalhos = useCallback(async () => {
+    const lista = await api<any[]>(`/projects/${projeto.id}/jobs`);
+    setTrabalhos(lista.filter((j) => ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'].includes(j.status)));
+  }, [projeto.id]);
+  useEffect(() => {
+    carregarTrabalhos().catch(() => undefined);
+    const t = setInterval(() => carregarTrabalhos().catch(() => undefined), 5000);
+    return () => clearInterval(t);
+  }, [carregarTrabalhos]);
   const listar = useCallback(async () => (await api(`/projects/${projeto.id}`)).knowledgeFiles, [projeto.id]);
   const salvar = async (dados: Record<string, unknown>, ok: string) => {
     setErro(null);
@@ -65,6 +77,30 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         </div>
       </div>
       <div className="campo">
+        <b>Trabalhos em andamento</b>
+        {trabalhos.length === 0 && <span className="muted small">Nenhum.</span>}
+        {trabalhos.map((j) => (
+          <div key={j.id} className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="small">{j.title} — {ESTADO[j.status] ?? j.status}</span>
+            <button
+              className="danger"
+              onClick={async () => {
+                setErro(null);
+                try {
+                  await api(`/projects/${projeto.id}/jobs/${j.id}/interrupt`, 'POST', { by: nomeUsuario() });
+                  await carregarTrabalhos();
+                  setMsg(`Trabalho "${j.title}" parado. Dá para continuar depois com "Tentar de novo" no chat.`);
+                } catch (e: any) {
+                  setErro(e.message);
+                }
+              }}
+            >
+              Parar
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="campo">
         <b>{projeto.archivedAt ? 'Projeto arquivado' : 'Arquivar projeto'}</b>
         <span className="muted small">
           {projeto.archivedAt
@@ -79,7 +115,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
       </div>
       <div className="campo">
         <b>Excluir projeto</b>
-        <span className="muted small">Apaga a conversa, a memória, as regras, o conhecimento e os arquivos deste projeto. Não dá para desfazer.</span>
+        <span className="muted small">Para o que estiver rodando e apaga as conversas, a memória, as regras, o conhecimento e os arquivos deste projeto. Não dá para desfazer.</span>
         <div className="row">
           <button
             className="danger"

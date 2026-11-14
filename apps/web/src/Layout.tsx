@@ -46,6 +46,17 @@ export function Layout() {
   useEffect(() => {
     recarregar().catch(() => setProjetos([]));
   }, [recarregar]);
+  // Sem worker ligado nada anda (respostas e trabalhos ficam parados): avisa em vez de deixar "Pensando…".
+  const [semWorker, setSemWorker] = useState(false);
+  useEffect(() => {
+    const ver = () =>
+      api<any[]>('/system/workers')
+        .then((w) => setSemWorker(!w.some((x) => x.online)))
+        .catch(() => undefined);
+    ver();
+    const t = setInterval(ver, 30_000);
+    return () => clearInterval(t);
+  }, []);
   useEffect(() => {
     setConversasArquivadas(null);
     recarregarConversas().catch(() => setConversas([]));
@@ -131,6 +142,11 @@ export function Layout() {
           </div>
         </aside>
         <main className="chat-main">
+          {semWorker && (
+            <div className="aviso-worker">
+              O processamento do servidor está parado: as respostas da IA e os trabalhos não andam. No servidor, rode <code>nivoo restart</code> (e, se continuar, <code>nivoo logs worker</code>).
+            </div>
+          )}
           <Outlet />
         </main>
         {novo && (

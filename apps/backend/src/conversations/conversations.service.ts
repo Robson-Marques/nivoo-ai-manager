@@ -60,15 +60,37 @@ export class ConversationsService {
 
   /**
    * Exclui a conversa (mensagens). O que ela gerou para o projeto continua: memória, arquivos e trabalhos.
-   * Recusado enquanto a IA ainda está respondendo nela.
+   * Uma resposta em andamento é parada antes.
    */
   async remove(projectId: string, conversationId: string) {
     await this.conversation(projectId, conversationId);
-    if (await this.prisma.conversationMessage.count({ where: { conversationId, status: 'PENDENTE' } })) {
-      throw new ConflictException('A IA ainda está respondendo nesta conversa; aguarde e tente de novo');
-    }
+    await ConversationsService.cancelPending(this.prisma, { conversationId }); // para a resposta em andamento
     await this.prisma.conversation.delete({ where: { id: conversationId } });
     return { excluida: conversationId };
+  }
+
+  /**
+   * Para a resposta em andamento ("Pensando…"): a mensagem vira "cancelada" e a tarefa sai da fila; se a
+   * IA já estava rodando, o worker perde o lease e encerra a sessão.
+   */
+  async cancel(projectId: string, conversationId: string) {
+    await this.conversation(projectId, conversationId);
+    await ConversationsService.cancelPending(this.prisma, { conversationId });
+    return this.get(projectId, conversationId);
+  }
+
+  static async cancelPending(prisma: PrismaService, where: { conversationId?: string; projectId?: string }): Promise<number> {
+    const msgs = await prisma.conversationMessage.findMany({
+      where: { status: 'PENDENTE', ...(where.conversationId ? { conversationId: where.conversationId } : { conversation: { projectId: where.projectId } }) },
+      select: { id: true },
+    });
+    if (!msgs.length) return 0;
+    const ids = msgs.map((m) => m.id);
+    await prisma.$transaction([
+      prisma.queueTask.updateMany({ where: { messageId: { in: ids }, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', lockedUntil: null } }),
+      prisma.conversationMessage.updateMany({ where: { id: { in: ids }, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: 'Resposta cancelada.' } }),
+    ]);
+    return ids.length;
   }
 
   /** Grava a mensagem e enfileira a resposta da IA (processada pelo worker, mesmo com o navegador fechado). */

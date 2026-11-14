@@ -181,3 +181,10 @@ textarea { resize: vertical; line-height: 1.5; }
 .proj.arquivado { font-style: italic; color: #8d96a8; }
 .titulo-conversa { margin-top: 2px; }
 .arquivada-aviso { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 0 auto 16px; }
+.conta-opcao { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.conta p { margin: 4px 0; }
+.seletor-ia { width: auto; display: inline-block; padding: 2px 8px; font-size: 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); border: 0; }
+.troca-ia { margin: 6px 0 0; }
+.parar { color: var(--bad) !important; font-size: 12px; }
+.chat-main { flex-direction: column; }
+.aviso-worker { background: var(--bad-soft); color: var(--bad); padding: 8px 16px; font-size: 13px; }

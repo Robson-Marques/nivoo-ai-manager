@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { secretEnv } from '../accounts/secrets';
+import { getSecret, isolatedHome, secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
   AiProvider,
@@ -18,11 +18,11 @@ import {
  */
 @Injectable()
 export class ClaudeCodeCliProvider implements AiProvider {
-  readonly id = 'claude-code-cli';
-  readonly label = 'Claude';
+  readonly id: string = 'claude-code-cli';
+  readonly label: string = 'Claude (conta)';
   readonly kind = 'cli' as const;
-  private readonly bin = process.env.NIVOO_CLAUDE_BIN ?? 'claude';
-  private readonly passKeys = ['CLAUDE_CONFIG_DIR'];
+  protected readonly bin = process.env.NIVOO_CLAUDE_BIN ?? 'claude';
+  protected readonly passKeys = ['CLAUDE_CONFIG_DIR'];
 
   static readonly DENIED = ['Bash', 'WebFetch', 'WebSearch'];
 
@@ -96,9 +96,25 @@ export class ClaudeCodeCliProvider implements AiProvider {
     }
   }
 
-  private env(extra: Record<string, string> = {}) {
-    // Token oficial / chave de API entregues pela tela "Contas de IA" (ou pelo administrador no ambiente).
-    return minimalEnv({ ...secretEnv(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']), ...extra }, this.passKeys);
+  /** Conta (assinatura): token oficial do login pela tela (ou do administrador). Nunca a chave de API. */
+  protected credentials(): Record<string, string> {
+    return secretEnv(['CLAUDE_CODE_OAUTH_TOKEN']);
+  }
+
+  protected env(extra: Record<string, string> = {}) {
+    return minimalEnv({ ...this.credentials(), ...extra }, this.passKeys);
+  }
+
+  /** Conta: o próprio CLI diz se há login. */
+  protected async authenticated(base: ProviderStatus): Promise<boolean | 'desconhecido'> {
+    const auth = await runProcess(this.bin, ['auth', 'status'], { cwd: process.cwd(), env: this.env(), timeoutMs: 15000 });
+    try {
+      const parsed = JSON.parse(auth.stdout);
+      if (parsed.authMethod) base.limits.metodoAutenticacao = String(parsed.authMethod);
+      return parsed.loggedIn === true;
+    } catch {
+      return auth.exitCode === 0 ? 'desconhecido' : false;
+    }
   }
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -124,14 +140,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     }
     base.installed = true;
     base.version = v.stdout.trim();
-    const auth = await runProcess(this.bin, ['auth', 'status'], { cwd: process.cwd(), env: this.env(), timeoutMs: 15000 });
-    try {
-      const parsed = JSON.parse(auth.stdout);
-      base.authenticated = parsed.loggedIn === true;
-      if (parsed.authMethod) base.limits.metodoAutenticacao = String(parsed.authMethod);
-    } catch {
-      base.authenticated = auth.exitCode === 0 ? 'desconhecido' : false;
-    }
+    base.authenticated = await this.authenticated(base);
     if (base.authenticated === false) base.errors.push('não conectado (conecte em Contas de IA)');
     base.available = base.authenticated !== false;
     return base;
@@ -217,5 +226,29 @@ export class ClaudeCodeCliProvider implements AiProvider {
       inputTokens: parsed?.usage?.input_tokens,
       outputTokens: parsed?.usage?.output_tokens,
     };
+  }
+}
+
+/**
+ * Claude com chave de API (cobrança por uso, à parte da assinatura). Mesmo CLI e mesmas proteções; usa
+ * só ANTHROPIC_API_KEY e uma pasta de configuração própria, para nunca misturar com o login da conta.
+ */
+@Injectable()
+export class ClaudeApiProvider extends ClaudeCodeCliProvider {
+  readonly id: string = 'claude-api';
+  readonly label: string = 'Claude (API)';
+
+  protected credentials(): Record<string, string> {
+    const dir = isolatedHome('claude-api');
+    return { ...secretEnv(['ANTHROPIC_API_KEY']), CLAUDE_CONFIG_DIR: dir };
+  }
+
+  protected env(extra: Record<string, string> = {}) {
+    return minimalEnv({ ...this.credentials(), ...extra });
+  }
+
+  protected async authenticated(base: ProviderStatus): Promise<boolean> {
+    base.limits.metodoAutenticacao = 'chave de API';
+    return !!getSecret('ANTHROPIC_API_KEY');
   }
 }

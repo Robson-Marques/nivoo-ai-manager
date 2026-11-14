@@ -90,6 +90,8 @@ const plano = {
     // 1. Contas de IA
     await page.goto(`${base}/contas`);
     for (const nome of ['Claude', 'ChatGPT', 'Gemini']) await page.getByRole('heading', { name: nome, exact: true }).waitFor();
+    await page.getByText('Chave de API').first().waitFor();
+    await page.waitForTimeout(500);
     await shot(page, '1-contas');
     passo('Contas de IA: Claude, ChatGPT e Gemini');
 
@@ -121,7 +123,7 @@ const plano = {
     await page.getByLabel('Nome do projeto').fill(nome);
     await page.getByLabel(/Sobre o que/).fill('Sistema de pedidos da pizzaria do bairro.');
     await page.locator('.modal .tipo', { hasText: modelo }).click();
-    await page.locator('.modal .tipo', { hasText: 'Claude' }).click();
+    await page.locator('.modal .tipo', { hasText: 'Claude (conta)' }).click();
     await shot(page, '4-novo-projeto');
     await page.getByRole('button', { name: 'Criar projeto' }).click();
     await page.getByRole('heading', { name: nome }).waitFor();
