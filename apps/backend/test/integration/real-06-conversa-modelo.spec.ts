@@ -73,9 +73,16 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
 
     const c2 = (await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages/${r1.id}/approve`).send({ decidedBy: 'teste real' }).expect(201)).body;
     const jobId = c2.messages.find((m: any) => m.id === r1.id).jobId;
+    const aprovacoes: string[] = [];
     const job = await waitFor(
       async () => {
         const x = (await h.http().get(`/api/projects/${p.id}/jobs/${jobId}`)).body;
+        // A IA pode incluir um critério subjetivo (ex.: "o usuário aprova o tom"): aqui faz o papel do
+        // botão "Pode seguir" da tela, registrando quem aprovou.
+        for (const a of x.approvals.filter((y: any) => y.status === 'PENDENTE')) {
+          aprovacoes.push(a.description);
+          await h.http().post(`/api/approvals/${a.id}/decide`).send({ decision: 'APROVADO', decidedBy: 'teste real (conferido)' }).expect(201);
+        }
         return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
       },
       1_200_000,
@@ -99,6 +106,7 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
       })),
       memoriaDaConversa: memoria1.map((m: any) => ({ categoria: m.category, titulo: m.title, conteudo: m.content })),
       legenda,
+      aprovacoesPedidasPelaIA: aprovacoes,
       mergeStatus: job.mergeStatus,
     });
 

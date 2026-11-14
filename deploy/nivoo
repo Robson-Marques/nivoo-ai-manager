@@ -75,7 +75,7 @@ case "$cmd" in
       echo "código sem .git: substitua os arquivos em $APP_DIR pela nova versão e rode 'nivoo update' de novo" >&2
     fi
     nivoo backup
-    bash "$APP_DIR/deploy/install-debian.sh"
+    (umask 022; bash "$APP_DIR/deploy/install-debian.sh")
     ;;
   backup)
     install -d -m 700 "$BACKUP_DIR"

@@ -26,6 +26,9 @@
 #   NODE_VERSION=22.22.0   versão do Node.js
 # =============================================================================
 set -euo pipefail
+# Código, dependências e interface precisam ser legíveis pelo usuário 'nivoo' (os serviços não rodam
+# como root). Quem chama (ex.: 'nivoo update', que usa umask 077 para backups) não pode impor outra.
+umask 022
 
 NODE_VERSION="${NODE_VERSION:-22.22.0}"
 NIVOO_HOST="${NIVOO_HOST:-127.0.0.1}"
@@ -163,18 +166,24 @@ step "6/9 Dependências e compilação (pode levar alguns minutos)"
 cd "$APP_DIR"
 npm ci --no-audit --no-fund --loglevel=error
 npm run build --silent >/dev/null
+# Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
+# código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
+find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
 ok "backend e interface compilados"
 
 # -----------------------------------------------------------------------------
 step "7/9 Migrações do banco e ativos WIN/WDO"
 set -a; . "$ENV_FILE"; set +a
 (cd apps/backend && npx prisma migrate deploy >/dev/null && node dist/seed.js)
+# O seed cria a base da área Mercado (git) em data/: tudo em data/ pertence ao serviço, nunca ao root.
+chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
 ok "banco atualizado"
 
 # -----------------------------------------------------------------------------
 step "8/9 Claude Code CLI e Codex CLI (oficiais)"
 if [ "$NIVOO_INSTALL_CLIS" = 1 ]; then
   npm i -g --no-audit --no-fund --loglevel=error @anthropic-ai/claude-code @openai/codex
+  find "$NODE_DIR" -type l -prune -o -exec chmod go+rX {} +
   ok "claude $(claude --version 2>/dev/null | awk '{print $1}'), $(codex --version 2>/dev/null)"
 else
   warn "pulado (NIVOO_INSTALL_CLIS=0)"
