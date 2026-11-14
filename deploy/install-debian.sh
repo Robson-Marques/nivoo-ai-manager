@@ -144,11 +144,11 @@ NIVOO_WORKSPACES_ROOT=$NIVOO_HOME/data/workspaces
 NIVOO_ARTIFACTS_ROOT=$NIVOO_HOME/data/artifacts
 NIVOO_WORKER_ID=$(hostname)-worker
 $API_TOKEN_LINE
-# Claude Code: alternativa ao login interativo (token oficial gerado por 'claude setup-token')
-# CLAUDE_CODE_OAUTH_TOKEN=
-# Conectores de API opcionais
-# ANTHROPIC_API_KEY=
-# OPENAI_API_KEY=
+# Contas de IA: conecte pela tela "Contas de IA" (recomendado). Os valores abaixo, se definidos,
+# têm prioridade sobre os da tela e só podem ser removidos aqui.
+# CLAUDE_CODE_OAUTH_TOKEN=   (token oficial gerado por 'claude setup-token')
+# ANTHROPIC_API_KEY=         (alternativa paga ao login do Claude)
+# GEMINI_API_KEY=            (alternativa ao login com conta Google)
 EOF
   umask 022
   ok "criada"

@@ -18,10 +18,12 @@ import { setSecret } from './secrets';
  */
 
 const PTY_BRIDGE = `
-import os, pty, sys, select, signal
+import fcntl, os, pty, select, signal, struct, sys, termios
 pid, fd = pty.fork()
 if pid == 0:
     os.execvp(sys.argv[1], sys.argv[1:])
+# Terminal largo: links longos não são quebrados em várias linhas.
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', 60, 1000, 0, 0))
 signal.signal(signal.SIGTERM, lambda *a: (os.kill(pid, signal.SIGKILL), sys.exit(143)))
 while True:
     r, _, _ = select.select([fd, sys.stdin], [], [], 0.5)
@@ -63,7 +65,7 @@ function clean(s: string): string {
 
 @Injectable()
 export class LoginSessionsService implements OnModuleDestroy {
-  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; output: string; timer: NodeJS.Timeout }>();
+  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout }>();
 
   constructor(private readonly registry: ProviderRegistry) {}
 
@@ -89,10 +91,13 @@ export class LoginSessionsService implements OnModuleDestroy {
     });
     const info: LoginSession = { provider, state: 'iniciando', message: 'Preparando o login…', startedAt: new Date().toISOString() };
     const timer = setTimeout(() => this.finish(provider, 'erro', 'O login expirou (15 minutos). Tente de novo.'), TIMEOUT_MS);
-    const entry = { info, child, output: '', timer };
+    const entry = { info, child, raw: '', output: '', timer };
     this.sessions.set(provider, entry);
     const onData = (d: Buffer) => {
-      entry.output = (entry.output + clean(d.toString('utf8'))).slice(-50_000);
+      entry.raw = (entry.raw + d.toString('utf8')).slice(-100_000);
+      // Links em hyperlink de terminal (OSC 8) vêm completos no parâmetro: preservados antes da limpeza.
+      const links = [...entry.raw.matchAll(/\x1b\]8;[^;]*;(https:\/\/[^\x07\x1b]+)/g)].map((m) => m[1]);
+      entry.output = `${[...new Set(links)].join(' ')}\n${clean(entry.raw)}`;
       this.react(provider);
     };
     child.stdout!.on('data', onData);
@@ -128,10 +133,9 @@ export class LoginSessionsService implements OnModuleDestroy {
     if (provider === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: {} };
     if (provider === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: {} };
     if (provider === 'gemini-cli') {
-      // Força o login com conta Google (sem perguntar o método) e grava a credencial no HOME do serviço.
-      const settings = path.join(scratch, 'settings.json');
-      fs.writeFileSync(settings, JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }), { mode: 0o600 });
-      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: { GEMINI_CLI_SYSTEM_SETTINGS_PATH: settings } };
+      // Login com conta Google (sem perguntar o método); o CLI grava a credencial no HOME do serviço.
+      GeminiCliProvider.ensureUserSettings('oauth-personal');
+      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: {} };
     }
     throw new BadRequestException('Esta IA não tem login pela tela');
   }

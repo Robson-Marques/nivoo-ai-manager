@@ -55,9 +55,9 @@ Se falhar de novo, pare e me mostre as últimas 60 linhas da saída e:
 PASSO 4 — Verificar (todos precisam passar)
 nivoo check
     → serviços "active active active", API {"ok":true}, worker "online", local-shell "DISPONÍVEL".
-      claude-code-cli e codex-cli aparecerem "indisponível ... sem login" é normal neste momento.
+      IAs aparecerem "indisponível ... sem login / não conectado" é normal neste momento.
 nivoo verificar
-    → deve imprimir "OK: job de verificação CONCLUIDO pelo verificador".
+    → deve imprimir "OK: job de verificação CONCLUIDO pelo verificador" (o projeto de teste é excluído no fim).
 ps -o user=,cmd= -C node
     → os processos do Nivoo rodam como usuário "nivoo" (não root).
 ss -ltnp | grep ':3000'
@@ -65,18 +65,20 @@ ss -ltnp | grep ':3000'
 systemctl is-enabled nivoo-api nivoo-worker
     → "enabled" para os dois (sobem sozinhos ao reiniciar).
 
-PASSO 5 — Login do Claude Code (depende de mim)
-  → PARE e me pergunte qual opção eu prefiro:
+PASSO 5 — Conectar as IAs (depende de mim)
+O jeito principal é pela interface: eu abro o túnel SSH (comando no RELATÓRIO FINAL, item 5), entro em
+"Contas de IA" e conecto Claude, ChatGPT ou Gemini com o login oficial de cada um. Você NÃO precisa fazer
+nada aqui, a menos que eu peça a alternativa pelo terminal:
 (a) Eu gero um token no MEU computador com `claude setup-token` e te passo.
       Você roda:  nivoo set-claude-token 'TOKEN_QUE_EU_PASSAR'
       (não repita o token no relatório)
 (b) Eu mesmo faço o login interativo no servidor com:  nivoo login-claude
-Depois: nivoo check  → claude-code-cli deve aparecer "DISPONÍVEL".
+(c) ChatGPT:  nivoo login-codex  → me passe o link e o código que aparecerem; eu autorizo no navegador.
+Depois de qualquer opção: nivoo check  → a IA conectada deve aparecer "DISPONÍVEL".
 
-PASSO 6 — Login do Codex (opcional; depende de mim)
-Só se eu pedir. Rode:  nivoo login-codex
-Ele mostra um link e um código: me passe os dois, eu autorizo no navegador, e você confirma com
-nivoo check  → codex-cli "DISPONÍVEL".
+PASSO 6 — Conferir ferramentas instaladas
+command -v pdftotext claude codex gemini
+    → os quatro caminhos devem aparecer (poppler-utils, Claude Code, Codex e Gemini CLI).
 
 PASSO 7 — Backup inicial
 nivoo backup
@@ -97,6 +99,6 @@ RELATÓRIO FINAL (me entregue neste formato)
 ## Observações
 
 * O prompt foi escrito para o instalador testado em Debian 12.15 e 13.7 (máquinas limpas com systemd).
-* `nivoo verificar` cria um pequeno projeto de teste ("Verificacao da instalacao …"); ele pode ser
-  ignorado.
+* `nivoo verificar` cria um pequeno projeto de teste e o exclui no fim.
+* Conectar as IAs é feito pela tela **Contas de IA**; os comandos `nivoo login-*` são alternativa.
 * Guia manual equivalente: [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md).

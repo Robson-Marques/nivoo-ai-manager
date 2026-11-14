@@ -2,17 +2,19 @@
 
 Para Debian 12 ou 13, logado como **root** (sem `sudo`). Tudo abaixo é para copiar e colar.
 
-> Testado em máquinas Debian 12.15 e 13.7 limpas, com systemd (2026-11-02): instalação, serviços,
-> job de ponta a ponta, todas as telas pela interface, reinício e reinstalação. Ver `docs/ESTADO.md`.
+> Testado em máquinas Debian 12.15 e 13.7 limpas, com systemd (2026-11-02 e 2026-11-14): instalação,
+> atualização, serviços, job de ponta a ponta, reinício e reinstalação. Ver `docs/ESTADO.md`.
 
 O que fica instalado:
 
 | O quê | Onde |
 |---|---|
 | Código | `/opt/nivoo/app` |
+| Claude Code, Codex e Gemini CLI | instalados globalmente pelo npm do Node oficial |
+| `poppler-utils` (`pdftotext`) | para transformar PDF em texto |
 | Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
 | Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |
-| Dados (workspaces, artefatos, logins dos CLIs) | `/var/lib/nivoo` |
+| Dados (modelos, projetos, artefatos, `segredos.json`, logins dos CLIs) | `/var/lib/nivoo` |
 | Banco | PostgreSQL local, banco `nivoo` (só localhost) |
 | Serviços | `nivoo-api` e `nivoo-worker` (systemd, usuário `nivoo`, **não** root) |
 | Comando de administração | `nivoo` |
@@ -77,19 +79,33 @@ ssh -N -L 3000:127.0.0.1:3000 root@IP_DO_SERVIDOR
 
 Deixe esse terminal aberto e acesse **http://localhost:3000** no navegador.
 
-## 4. Login dos executores de IA (oficial)
+## 4. Conectar as IAs (pela tela)
 
-No servidor:
+Na interface, abra **Contas de IA** e conecte pelo menos uma IA, com o login oficial de cada uma:
+
+| IA | O que acontece |
+|---|---|
+| Claude | "Conectar" → abra o link, entre com a sua conta do Claude, copie o código e cole na tela |
+| ChatGPT | "Conectar" → abra o link, entre com a sua conta do ChatGPT e digite o código mostrado na tela |
+| Gemini | "Conectar" → abra o link, entre com a sua conta Google, copie o código e cole na tela |
+
+Também dá para usar uma chave de API ("ou usar uma chave de API"). As credenciais ficam em
+`/var/lib/nivoo/data/segredos.json` (permissão 600) ou nos arquivos do próprio CLI no HOME do serviço
+(`/var/lib/nivoo/.codex`, `/var/lib/nivoo/.gemini`); nunca no git nem no banco.
+
+> Gemini e ChatGPT ainda não foram testados com conta real neste desenvolvimento (ver `docs/ESTADO.md`).
+
+**Alternativa pelo terminal** (no servidor):
 
 ```bash
-nivoo login-claude     # abre o Claude Code: escolha login com sua conta, abra o link no seu
-                       # computador, cole o código; depois digite /exit
-nivoo login-codex      # mostra um link e um código de dispositivo; autorize no navegador
-nivoo check            # claude-code-cli e codex-cli devem aparecer como DISPONÍVEL
+nivoo login-claude       # login interativo do Claude Code; ao terminar digite /exit
+nivoo set-claude-token   # cole um token gerado com 'claude setup-token' (grava em /etc/nivoo/nivoo.env)
+nivoo login-codex        # mostra um link e um código de dispositivo
+nivoo check              # status dos conectores
 ```
 
-Alternativa para o Claude sem navegador: no seu computador rode `claude setup-token` e, no servidor,
-`nivoo set-claude-token` (cole o token).
+Os três comandos reiniciam a API e o worker no fim. Um token gravado por `nivoo set-claude-token` fica
+em `/etc/nivoo/nivoo.env` e tem prioridade sobre o da tela (que mostra "configurado pelo administrador").
 
 ## 5. Dia a dia
 
@@ -97,14 +113,16 @@ Alternativa para o Claude sem navegador: no seu computador rode `claude setup-to
 nivoo status           # serviços
 nivoo logs             # logs ao vivo (Ctrl+C sai)
 nivoo check            # API, workers e conectores
-nivoo verificar        # job de teste de ponta a ponta (sem IA): deve imprimir OK
+nivoo verificar        # job de teste de ponta a ponta (sem IA): deve imprimir OK; exclui o projeto de teste no fim
 nivoo backup           # banco + dados + configuração em /var/backups/nivoo
 nivoo update           # backup + git pull + reinstala + migra (sem perder dados)
-# Versões anteriores a 2026-11-14: se depois de um 'nivoo update' a API não subir ("Cannot find module"),
-# rode 'bash /opt/nivoo/app/deploy/install-debian.sh' com o código novo: ele repara as permissões.
 nivoo restart
 nivoo help
 ```
+
+> Versões anteriores a 2026-11-14: se depois de um `nivoo update` a API não subir ("Cannot find module"),
+> rode `bash /opt/nivoo/app/deploy/install-debian.sh` com o código novo: ele repara as permissões
+> (o `nivoo update` herdava `umask 077`; o instalador agora força `umask 022`).
 
 Os serviços sobem sozinhos quando o servidor reinicia. Se o worker cair, o systemd o reinicia, e os
 trabalhos em andamento são retomados do último checkpoint.
@@ -113,10 +131,12 @@ trabalhos em andamento são retomados do último checkpoint.
 
 ```bash
 NIVOO_PORT=8080 bash /opt/nivoo/app/deploy/install-debian.sh        # outra porta
-NIVOO_HOST=0.0.0.0 bash /opt/nivoo/app/deploy/install-debian.sh     # expor na rede (gera token de API;
-                                                                    # cole-o em "Conectores e configurações")
-NIVOO_INSTALL_CLIS=0 bash /opt/nivoo/app/deploy/install-debian.sh   # sem Claude Code/Codex
+NIVOO_HOST=0.0.0.0 bash /opt/nivoo/app/deploy/install-debian.sh     # expor na rede (gera NIVOO_API_TOKEN)
+NIVOO_INSTALL_CLIS=0 bash /opt/nivoo/app/deploy/install-debian.sh   # sem Claude Code/Codex/Gemini CLI
 ```
+
+Com token exigido (`NIVOO_API_TOKEN`), a tela pede o token na primeira vez e guarda neste navegador.
+O valor está em `/etc/nivoo/nivoo.env`. Mesmo assim, prefira o túnel SSH.
 
 Expor na internet sem HTTPS não é recomendado: prefira o túnel SSH, ou coloque um proxy reverso com
 TLS na frente.
@@ -128,13 +148,15 @@ TLS na frente.
   capacidades. `systemd-analyze security nivoo-worker` → **3.1 OK**.
 * Segredos só em `/etc/nivoo/nivoo.env` (root:nivoo, 640); backups com permissão 600.
 * Banco acessível apenas em localhost, com senha aleatória.
-* Claude Code roda sem permissões genéricas: não escreve nem lê fora do workspace do job.
+* Credenciais conectadas pela tela: `/var/lib/nivoo/data/segredos.json`, permissão 600.
+* As IAs rodam sem shell e sem permissões genéricas: não escrevem fora do diretório de trabalho.
 
 ## Problemas comuns
 
 | Sintoma | Verifique |
 |---|---|
-| `nivoo check` mostra claude-code-cli indisponível | rode `nivoo login-claude` |
+| IA aparece "não conectada" | conecte em **Contas de IA** (ou `nivoo login-claude` / `nivoo login-codex`) |
+| "Importar de PDF" falha | `apt-get install -y poppler-utils` (o instalador já instala) |
 | Interface não abre | o túnel SSH está aberto? `nivoo status`; `nivoo logs api` |
 | Jobs parados em "Aguardando recurso" | `nivoo check` (login/limite do provedor); `nivoo logs worker` |
 | Erro durante a instalação | rode o instalador de novo; ele continua de onde estava |

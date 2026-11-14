@@ -123,11 +123,29 @@ e rode `bash /opt/nivoo/app/deploy/install-debian.sh` (repara as permissões).
 
 ### Resultados dos testes
 
-<!-- RESULTADOS-TESTES -->
+| Verificação | Resultado |
+|---|---|
+| Suíte automatizada (`npx jest test/unit test/acceptance`) | **72/72** passando (`acceptance/13`: 12 casos novos — modelos, fine-tune do projeto, trava, conversa, limite de gasto, contas de IA) |
+| Interface pela tela (`apps/web/e2e/chat-smoke.cjs`, IA simulada) | todos os passos: contas → novo modelo com regras importadas de PDF e pasta de materiais → novo projeto → ajustes → conversa → Fazer → conferência → pronto → memória e arquivos → excluir |
+| **Claude real** (`real-06`, evidência em `docs/evidencias/2026-11-14/real-06-conversa-modelo.json`) | pedido fora do escopo ("script de imposto de renda") **recusado** com explicação; pedido no escopo → plano → trabalho real → **conferência real por sessão separada** (`conforme: true`, leu `contexto/base/_CLAUDE.md`, as regras da casa e o cardápio) → CONCLUÍDO e incorporado; legenda segue o modelo (termina com CASA-PZ-9137, só ingredientes do cardápio, sem inventar preço); memória "público: famílias do bairro" gravada e lembrada na pergunta seguinte. Custo ≈ US$ 0,55 |
+| Debian 12 real (systemd): instala a `main` anterior (com Mercado), cria dados (inclusive hipótese de pesquisa) e roda `nivoo update` | dados preservados; projeto antigo passa ao modelo "Geral"; memória de hipótese convertida; job novo em projeto antigo CONCLUÍDO e incorporado; `pdftotext` e Gemini CLI instalados; conversa sem IA conectada orienta a conectar; `nivoo verificar` ok e sem deixar projeto de teste; `nivoo check` lista Claude, ChatGPT, Gemini e executor local |
+| Login pela tela **no serviço instalado** (usuário `nivoo`, isolamento do systemd) | Claude: link completo do login oficial + espera do código; ChatGPT: link + código de dispositivo; Gemini: link do Google + espera do código. (Concluir o login exige a conta real do usuário.) |
+
+Problemas encontrados nesta rodada de testes e corrigidos:
+
+* No servidor, o link de login do Claude vinha cortado (terminal simulado estreito): o terminal agora é
+  largo e o link é lido do hyperlink do terminal.
+* O Gemini CLI ignora arquivo de configuração "de sistema" fora de pasta do root; como o serviço não roda
+  como root, o login ficava parado e a exclusão de shell/web não valeria. A configuração passou para o
+  arquivo do usuário do serviço (`~/.gemini/settings.json`), que o CLI aceita.
+* `nivoo check` ainda consultava os conectores de API removidos e parava com erro: corrigido.
+* A tela não tinha como informar o token de acesso (`NIVOO_API_TOKEN`): agora pede o token quando o
+  servidor exige e guarda no navegador.
+* O limite de gasto do projeto não valia para a conversa: agora vale (mensagem clara ao atingir).
 
 ### Continua pendente
 
-* Codex e Gemini sem execução real com conta (só stub).
+* Codex e Gemini sem execução real com conta (o login pela tela foi testado até a etapa que exige a conta do usuário; o trabalho em si, só com simulação).
 * Geração de imagem/vídeo de verdade exige um conector próprio; hoje a IA entrega textos, briefings,
   prompts e peças em SVG/HTML.
 * Sessões de login pela tela ficam na memória do processo da API: um reinício da API no meio do login

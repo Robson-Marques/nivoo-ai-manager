@@ -9,9 +9,9 @@ import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeRe
 /**
  * Gemini CLI (`gemini -p`), oficial do Google, com o login da conta Google do usuário (feito na tela
  * "Contas de IA", que usa o fluxo oficial do próprio CLI) ou com GEMINI_API_KEY.
- * Isolamento: configuração de sistema própria por execução (sobrepõe a do usuário) que exclui shell e
- * acesso à web; edições aprovadas automaticamente apenas dentro do diretório de trabalho (auto_edit);
- * .gemini/ e GEMINI.md do workspace são removidos antes da sessão (limpeza de harness do executor).
+ * Isolamento: configuração do usuário do serviço que exclui shell e acesso à web; edições aprovadas
+ * automaticamente apenas dentro do diretório de trabalho (auto_edit); .gemini/ e GEMINI.md do workspace
+ * são removidos antes da sessão (limpeza de harness do executor).
  */
 @Injectable()
 export class GeminiCliProvider implements AiProvider {
@@ -27,20 +27,33 @@ export class GeminiCliProvider implements AiProvider {
     return path.join(process.env.HOME ?? os.homedir(), '.gemini', 'oauth_creds.json');
   }
 
-  private settingsFile(): string {
-    const file = path.join(os.tmpdir(), `nivoo-gemini-${process.pid}.json`);
+  /**
+   * Configuração do usuário do serviço (~/.gemini/settings.json): método de login e ferramentas proibidas.
+   * O CLI só aceita arquivo de configuração "de sistema" em pasta do root, e o serviço não roda como root;
+   * por isso a configuração vai no HOME do serviço. .gemini/ do workspace é removido antes de cada sessão.
+   */
+  static ensureUserSettings(selectedType: 'oauth-personal' | 'gemini-api-key'): void {
+    const file = path.join(process.env.HOME ?? os.homedir(), '.gemini', 'settings.json');
+    let atual: any = {};
+    try {
+      atual = JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      atual = {};
+    }
     const settings = {
-      security: { auth: { selectedType: getSecret('GEMINI_API_KEY') ? 'gemini-api-key' : 'oauth-personal' } },
-      tools: { exclude: GeminiCliProvider.EXCLUDED_TOOLS },
-      general: { disableAutoUpdate: true },
-      privacy: { usageStatisticsEnabled: false },
+      ...atual,
+      security: { ...(atual.security ?? {}), auth: { ...(atual.security?.auth ?? {}), selectedType } },
+      tools: { ...(atual.tools ?? {}), exclude: GeminiCliProvider.EXCLUDED_TOOLS },
+      general: { ...(atual.general ?? {}), enableAutoUpdate: false },
+      privacy: { ...(atual.privacy ?? {}), usageStatisticsEnabled: false },
     };
-    fs.writeFileSync(file, JSON.stringify(settings), { mode: 0o600 });
-    return file;
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, JSON.stringify(settings, null, 2), { mode: 0o600 });
   }
 
   private env(extra: Record<string, string> = {}) {
-    return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), GEMINI_CLI_SYSTEM_SETTINGS_PATH: this.settingsFile(), ...extra });
+    GeminiCliProvider.ensureUserSettings(getSecret('GEMINI_API_KEY') ? 'gemini-api-key' : 'oauth-personal');
+    return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), ...extra });
   }
 
   async checkAvailability(): Promise<ProviderStatus> {

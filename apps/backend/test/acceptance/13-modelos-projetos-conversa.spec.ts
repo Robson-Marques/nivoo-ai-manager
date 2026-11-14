@@ -315,6 +315,16 @@ sys.stdout.buffer.write(b.getvalue())`]);
     }
   });
 
+  it('limite de gasto do projeto vale também para a conversa', async () => {
+    const p = await projeto('Com limite', 'geral');
+    await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 0 }).expect(200);
+    const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'oi' }).expect(201);
+    const m = await resposta(p.id, conv.id, 1);
+    expect(m.status).toBe('ERRO');
+    expect(m.content).toMatch(/limite de gasto/);
+  });
+
   it('contas de IA: Claude, ChatGPT e Gemini; login pela tela com o fluxo oficial; chave guardada fora do banco', async () => {
     const contas = (await h.http().get('/api/accounts').expect(200)).body;
     expect(contas.map((c: any) => c.nome)).toEqual(['Claude', 'ChatGPT', 'Gemini']);
@@ -323,7 +333,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-claude-')), 'claude');
     fs.writeFileSync(fake, `#!/usr/bin/env bash
 if [ "$1" = setup-token ]; then
-  echo "Use the url below to sign in"; echo "https://claude.com/cai/oauth/authorize?code=true&state=abc"
+  printf 'Use the url below to sign in\\n\\033]8;id=1;https://claude.com/cai/oauth/authorize?code=true&state=abc\\007https://claude.com/cai/oauth/auth\\033]8;;\\007\\n'
   read -r code; [ "$code" = "CODIGO-OK" ] || { echo "invalid code"; exit 1; }
   echo "Your token: sk-ant-oat01-TOKENDETESTE1234567890abcdef"; exit 0
 fi

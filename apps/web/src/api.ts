@@ -16,6 +16,21 @@ export function setToken(t: string): void {
   }
 }
 
+/**
+ * Servidor com acesso protegido (NIVOO_API_TOKEN): pede o token uma vez e guarda neste navegador.
+ * O token está em /etc/nivoo/nivoo.env no servidor (linha NIVOO_API_TOKEN).
+ */
+let ultimoPedido = 0;
+function pedirToken(): boolean {
+  // Sem insistir: as telas atualizam sozinhas e não podem abrir uma pergunta atrás da outra.
+  if (Date.now() - ultimoPedido < 30_000) return false;
+  ultimoPedido = Date.now();
+  const t = window.prompt('Este servidor pede o token de acesso (está no arquivo /etc/nivoo/nivoo.env, linha NIVOO_API_TOKEN):');
+  if (!t?.trim()) return false;
+  setToken(t.trim());
+  return true;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -26,7 +41,11 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   const token = getToken();
   if (token) headers.authorization = `Bearer ${token}`;
-  const res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (res.status === 401 && pedirToken()) {
+    headers.authorization = `Bearer ${getToken()}`;
+    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  }
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (!res.ok) {
@@ -103,6 +122,7 @@ export function nomeUsuario(): string {
 /** Abre um arquivo de texto servido pela API (com o token, se houver). */
 export async function lerArquivo(url: string): Promise<string> {
   const token = getToken();
-  const res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   return res.ok ? res.text() : 'Não foi possível abrir este arquivo.';
 }

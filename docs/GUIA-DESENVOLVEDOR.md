@@ -5,35 +5,52 @@ Para quem vai manter ou estender o Nivoo. Pressupõe que você leu o [`README`](
 
 ## 1. Princípios que não podem ser quebrados
 
-1. **O banco é a fonte da verdade.** Estado de jobs, fila, memória e evidências ficam no PostgreSQL.
-   Nada de estado só em memória de processo, nem de "resumo de conversa" como única fonte.
-2. **A IA nunca conclui nada sozinha.** Etapa: só termina com `verifyCommand` passando.
-   Job: só o `CompletionService` marca `CONCLUIDO`, com evidência por critério.
-3. **Isolamento por projeto.** Toda consulta de recurso de projeto filtra por `projectId`; arquivos
-   passam pelo `resolveInside` (PathGuard).
-4. **O agente roda confinado.** Ambiente mínimo, sem Bash, sem permissões genéricas, `--restricted`,
-   sem arquivos de harness no workspace. Qualquer mudança no adaptador de IA exige rodar `real-01` e `real-05`.
-5. **Nada simulado se passa por real.** Stubs só em `test/support/stubs` (TEST-ONLY).
-6. **Operação financeira real é proibida** (política em `security/policy.ts`, não aprovável).
+1. **O banco é a fonte da verdade.** Estado de jobs, fila, memória, regras e evidências ficam no
+   PostgreSQL. Nada de estado só em memória de processo (exceção consciente: login em andamento pela tela).
+2. **A IA nunca conclui nada sozinha.** Etapa: só termina com `verifyCommand` passando. Job: só o
+   `CompletionService` marca `CONCLUIDO`, com evidência por critério — inclusive a conferência das regras.
+3. **A trava não se desliga pelo chat.** Planos aprovados na conversa sempre ganham `conferencia-regras`.
+4. **Texto do usuário vale como está.** Regras de modelo e de projeto não são reescritas pelo sistema.
+5. **Isolamento por projeto.** Toda consulta filtra por `projectId`; arquivos passam por `resolveInside`.
+6. **O agente roda confinado.** Ambiente mínimo, sem shell, sem permissões genéricas, sem arquivos de
+   harness ativos. Qualquer mudança num adaptador de IA exige rodar `real-01`, `real-05` e `real-06`.
+7. **Nada simulado se passa por real.** Stubs só em `test/support/stubs` (TEST-ONLY).
+8. **Remoção é completa.** Ao tirar algo, saem código, rotas, telas, testes, configuração e documentação.
 
 ## 2. Mapa do código
 
 ```
 apps/backend/
   prisma/schema.prisma            modelo de dados (ler primeiro)
-  prisma/migrations/              migrações versionadas (nunca editar as já aplicadas)
+  prisma/migrations/              migrações versionadas (nunca editar as já aplicadas);
+                                  20261114180000_bases_sem_mercado remove o Mercado
   src/main.ts                     API (HTTP + SSE) e serve a interface compilada
   src/worker.ts                   processo worker (consome a fila)
-  src/seed.ts                     cadastra WIN/WDO
-  src/config.ts                   variáveis de ambiente
+  src/seed.ts                     garante o modelo padrão "Geral"
+  src/config.ts                   variáveis de ambiente básicas
+  src/app-setup.ts                prefixo /api e limite de corpo (NIVOO_BODY_LIMIT), usado pela API e testes
   src/app.module.ts | worker.module.ts | core.module.ts   módulos Nest (API, worker, compartilhado)
 
+  src/accounts/
+    accounts.controller.ts        rotas /accounts (Contas de IA)
+    accounts.service.ts           lista as 3 IAs, chave de API, desconectar
+    login-sessions.service.ts     login oficial pela tela (ponte Python com pty): Claude, Codex, Gemini
+    secrets.ts                    segredos.json (600); variáveis de ambiente prevalecem
+
+  src/areas/                      modelos: area-templates.ts (prontos), texto versionado, materiais em git
+  src/projects/
+    projects.service.ts           criar/editar/excluir projeto, regras do projeto, conhecimento, pasta principal
+    project-profile.service.ts    "fine-tune do projeto": perfil que vai em toda sessão de IA
+  src/conversations/              conversa (chat): mensagens, aprovação do plano ("Fazer") → job
+  src/memory/                     memória categorizada (5 categorias); "esquecer"
+
   src/jobs/
-    jobs.service.ts               criar job, validar etapas/critérios, iniciar, interromper, retomar,
-                                  versões de objetivo, critérios permanentes, orçamento do projeto
+    jobs.service.ts               criar job (acrescenta a trava), validar etapas/critérios/plano,
+                                  iniciar, interromper, retomar, versões de objetivo
+    rule-review.ts                a trava: etapa e critério conferencia-regras
     orchestrator.service.ts       agenda etapas prontas e a avaliação final (lock por job)
-    completion.service.ts         ÚNICO lugar que conclui um job: avalia critérios e grava evidências
-    approvals.service.ts          aprovações (ação destrutiva, critério subjetivo, dados reservados)
+    completion.service.ts         ÚNICO lugar que conclui um job; integra com a pasta principal
+    approvals.service.ts          aprovações (ação destrutiva, critério subjetivo)
     log.service.ts                logs sequenciais (base do tempo real)
     jobs.controller.ts            rotas de jobs, artefatos, SSE, aprovações
 
@@ -42,94 +59,83 @@ apps/backend/
     step-executor.service.ts      executa UMA sessão/tentativa: limites, política, conector,
                                   verificação, classificação, checkpoint, notas, lições
     context-builder.ts            orçamento de contexto do prompt
-    planner.service.ts            responde no chat (tarefa PLAN_MESSAGE): cópia descartável, plano, memória automática
+    planner.service.ts            responde no chat (PLAN_MESSAGE) com a IA do projeto; recusa fora do escopo
 
   src/queue/queue.service.ts      fila em PostgreSQL (SKIP LOCKED + lease)
-  src/providers/                  conectores: interface comum + claude-code-cli, codex-cli,
-                                  anthropic-api/openai-api, local-shell; registry com status
+  src/providers/                  interface comum + claude-code-cli, codex-cli, gemini-cli
+                                  (gemini-cli.provider.ts), local-shell; registry com status
   src/storage/
-    workspace.service.ts          repositório git por projeto, worktree por job, snapshot, limpeza de harness
+    workspace.service.ts          git por projeto, worktree por job, pastas de conhecimento,
+                                  cópias em contexto/, diffAgainstMain, limpeza de harness
     artifact-store.service.ts     artefatos por sha256, separados por projeto
-  src/market/                     ativos WIN/WDO, datasets e validação, pesquisas, hipóteses,
-                                  regra de decisão pré-registrada, experimentos, encerramento
-  src/memory/                     memória categorizada do projeto (8 categorias); "esquecer"
-  src/areas/                      áreas/modelos: modelos prontos (area-templates.ts), regras versionadas,
-                                  base de conhecimento em git, importação de pasta
-  src/conversations/              conversa (chat): mensagens, aprovação do plano → job
-  src/app-setup.ts                prefixo /api e limite de corpo (usado pela API e pelos testes)
-  src/security/policy.ts          ações destrutivas (exigem aprovação) e financeiras (proibidas)
-  src/common/                     exec (processos), hash, path-guard, validação, estados
-  src/system/system.controller.ts saúde, workers, conectores, painel
+  src/security/policy.ts          ações destrutivas (exigem aprovação)
+  src/common/                     exec, hash, path-guard, validate, status,
+                                  text-extract.ts (PDF/DOCX → texto), knowledge-upload.ts (envio de arquivos)
+  src/system/system.controller.ts saúde, workers, conectores, /extract-text
 
-  test/unit/                      unitários (política, PathGuard, contexto, adaptadores com stub)
-  test/acceptance/01..11          aceitação contra PostgreSQL real (sem IA)
-  test/integration/real-01..05    provas com Claude Code/Codex REAIS (opt-in)
-  test/support/                   harness de teste, stubs TEST-ONLY, gerador de dados sintéticos
+  test/unit/                      cli-adapters (stubs), context-builder, seguranca
+  test/acceptance/                02–09, 11, 12, 13-modelos-projetos-conversa (PostgreSQL real, sem IA)
+  test/integration/               real-01, real-02, real-04 (Codex), real-05, real-06 — IA REAL, opt-in
+  test/support/                   harness de teste, stubs TEST-ONLY
 
 apps/web/src/
-  main.tsx                        rotas e menu
-  api.ts | hooks.ts | components.tsx | styles.css
-  pages/Painel.tsx                Painel Mercado
-  pages/Projetos.tsx, Projeto.tsx, projeto/{Pesquisas,Jobs,Datasets,Memoria}.tsx
-  pages/Execucao.tsx, JobDetalhe.tsx   execução e acompanhamento em tempo real (SSE)
-  pages/Conectores.tsx            conectores, workers, configuração de WIN/WDO
-  e2e/ui-smoke.cjs                teste de fumaça da interface avançada (Playwright)
-  e2e/chat-smoke.cjs              teste de fumaça do chat e dos modelos (Playwright + stub)
-  src/pages/Chat.tsx              tela inicial (chat, painel de memória e arquivos)
-  src/pages/Modelos.tsx           modelos: regras e envio de pasta de padrões
+  main.tsx                        rotas: /, /p/:pid, /modelos, /contas
+  Layout.tsx                      lateral: projetos por modelo, "+ Novo projeto", Modelos, Contas de IA
+  Pecas.tsx                       peças comuns: editor de regras (importar PDF/Word/texto) e materiais
+  api.ts | styles.css
+  pages/Inicio.tsx                boas-vindas
+  pages/Projeto.tsx               chat, "Posso fazer isto" + Fazer, andamento, painel (lembra/Arquivos/Ajustes)
+  pages/Ajustes.tsx               regras do projeto, conhecimento, IA, limite de gasto, excluir projeto
+  pages/Modelos.tsx               lista, novo modelo a partir de um pronto, texto e materiais
+  pages/Contas.tsx                conectar Claude, ChatGPT e Gemini
+  pages/NovoProjeto.tsx           nome, sobre, modelo, IA
+apps/web/e2e/chat-smoke.cjs       fumaça da interface pelo navegador (Playwright + stub)
 
-deploy/install-debian.sh          instalador de produção (root, idempotente)
+deploy/install-debian.sh          instalador de produção (root, idempotente, umask 022)
 deploy/nivoo                      comando de administração do servidor
+deploy/verificar-instalacao.sh    job de teste de ponta a ponta (nivoo verificar)
 docs/                             documentação (índice em docs/README.md)
 ```
 
-## 3. Ciclo de vida de um job
+## 3. Ciclo de vida de um trabalho
 
 ```
-POST /jobs ──► Job PENDENTE (objetivo v1 + etapas + critérios [+ critérios permanentes do projeto])
-POST /start ─► EXECUTANDO ─► orchestrator agenda etapas sem dependência pendente (QueueTask RUN_STEP)
+chat: mensagem ─► PLAN_MESSAGE ─► planner (IA do projeto, perfil, cópia descartável da main)
+      ─► resposta | plano ─► "Fazer" ─► validatePlan ─► JobsService.create
+POST /jobs ──► Job PENDENTE (objetivo v1 + etapas + critérios + conferencia-regras se houver IA)
+start ─► EXECUTANDO ─► orchestrator agenda etapas prontas (RUN_STEP)
 worker reivindica tarefa (lease) ─► step-executor:
    limites (tempo, custo do job, custo do projeto, tentativas) ─► política ─► aprovação (hash)
-   ─► conector disponível? ─► dados do experimento (sha256) ─► limpeza de harness
-   ─► prompt (contexto com orçamento; guardado como artefato) ─► SESSÃO do agente
-   ─► verificação da etapa ─► artefatos de out/ ─► notas .nivoo/notas.jsonl → memória
-   ─► classificação:
-        SUCESSO              etapa CONCLUIDO, checkpoint, agenda as próximas
-        SESSAO_ENCERRADA     nova sessão automática (limites: sessões, falta de progresso)
-        FALHA                nova tentativa até o limite → FALHOU (+ lição)
-        RECURSO_INDISPONIVEL AGUARDANDO_RECURSO, reagenda com espera crescente
-        INTERROMPIDA         checkpoint, etapa volta a PENDENTE
+   ─► conector disponível? ─► limpeza de harness ─► cópias em contexto/
+   ─► prompt (perfil + contexto com orçamento; guardado como artefato) [+ diff, na conferência]
+   ─► SESSÃO do agente ─► verificação da etapa ─► artefatos de out/ ─► notas → memória
+   ─► SUCESSO | SESSAO_ENCERRADA | FALHA | RECURSO_INDISPONIVEL | INTERROMPIDA
 todas as etapas concluídas ─► EVALUATE_JOB ─► completion.service:
-   critérios automáticos ok + manuais aprovados ─► CONCLUIDO (experimento + evidência na mesma transação)
-   critério automático falhou                   ─► BLOQUEADO (pendências listadas)
-   critério manual pendente                     ─► AGUARDANDO_APROVACAO
+   sincroniza com a main ─► critérios ─► avanço rápido da main ─► CONCLUIDO
+   (ou BLOQUEADO com pendências / AGUARDANDO_APROVACAO / CONFLITO_INCORPORACAO)
 ```
-
-Se o worker morrer, o lease expira e outro worker reivindica a tarefa, encerra o processo órfão e
-retoma do último checkpoint.
 
 ## 4. Glossário
 
 | Termo | Significado |
 |---|---|
-| Projeto | Unidade de isolamento: workspace git, dados, artefatos, memória e orçamento próprios. |
-| Pesquisa | Pergunta de pesquisa ligada a ativos (WIN/WDO), com hipóteses e experimentos. |
-| Job | Trabalho durável com objetivo versionado, etapas, critérios e limites. |
+| Modelo (`Area`) | Jeito de trabalhar de um tipo de projeto: texto "Como a IA deve funcionar" + materiais. |
+| Projeto | Unidade de isolamento: pasta git, conhecimento, artefatos, memória, regras, IA e orçamento próprios. |
+| Fine-tune do projeto | Perfil persistente (regras do modelo e do projeto, conhecimento, memória, IA). Não é treino. |
+| A trava | Etapa final `conferencia-regras`, feita por outra sessão de IA, cobrada por critério do backend. |
+| Pasta principal | Branch `main` do projeto; acumula o trabalho concluído. |
+| Job / trabalho | Trabalho durável com objetivo versionado, etapas, critérios e limites. |
 | Etapa (Step) | Parte de um job, executada por um conector; pode depender de outras. |
 | Tentativa / sessão (Attempt) | Uma execução de uma etapa; para IA, uma sessão real do provedor. |
-| Critério de aceitação | Condição verificável pelo backend: `COMMAND`, `FILE_EXISTS`, `ARTIFACT_PRESENT`, `METRIC_THRESHOLD`, `MANUAL_APPROVAL`. |
-| Critério permanente | Critério do projeto copiado para todo job novo (regressão). |
+| Critério de aceitação | `COMMAND`, `FILE_EXISTS`, `ARTIFACT_PRESENT`, `METRIC_THRESHOLD`, `MANUAL_APPROVAL`. |
 | Checkpoint | Estado salvo + commit git na branch `job/<id>`. |
 | Artefato | Arquivo produzido (ou evidência), guardado por sha256. |
-| Memória | Entradas categorizadas do projeto: especificação, restrições, decisões, hipóteses, evidências, resultados, pendências; inclui notas do agente e lições automáticas. |
-| Lição | Memória gerada pelo sistema quando uma abordagem falha; orienta sessões futuras do mesmo projeto. |
-| Regra de decisão pré-registrada | Métrica + limite definidos antes do experimento; decide a hipótese automaticamente. |
-| Conjunto RESERVADO | Dados de validação final, bloqueados até aprovação de liberação. |
+| Memória | ESPECIFICACAO, ARQUITETURA_RESTRICOES, DECISAO_APROVADA, EVIDENCIA, PENDENCIA; inclui memória da conversa, notas do agente e lições. |
 
 ## 5. Rodar em desenvolvimento
 
 ```bash
-# PostgreSQL local rodando; bancos nivoo e nivoo_test criados
+# PostgreSQL local; bancos nivoo e nivoo_test criados; python3 e pdftotext (poppler-utils) instalados
 npm ci
 cp .env.example apps/backend/.env          # ajuste DATABASE_URL
 npm run db:migrate && npm run build && npm run db:seed
@@ -144,31 +150,37 @@ reinicie API/worker.
 ## 6. Testes
 
 ```bash
-npm test                                             # tudo o que não usa IA (unit + aceitação), ~2 min
-cd apps/backend && npx jest test/acceptance/04       # um arquivo
-NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1235]   # Claude Code real (custa ~US$ 1,50)
+npm test                                             # unit + aceitação (sem IA)
+cd apps/backend && npx jest test/acceptance/13       # um arquivo
+NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1256]   # Claude Code real (custa dinheiro)
+NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04      # Codex real
+node apps/web/e2e/chat-smoke.cjs                     # interface pelo navegador (instruções no arquivo)
 ```
 
 * Os testes usam o banco `nivoo_test`, aplicam migrações com `migrate deploy` e fazem TRUNCATE.
   Nunca use `prisma migrate reset`.
-* Execução sempre serial (`maxWorkers: 1`): os testes compartilham o banco.
-* Testes reais dependem de modelo não determinístico: asserte propriedades (classificação,
-  integridade, conclusão pelo verificador), nunca a transcrição.
+* Execução serial (`--runInBand`): os testes compartilham o banco.
+* Testes reais dependem de modelo não determinístico: asserte propriedades, nunca a transcrição.
+* Não há prova real do Gemini ainda.
 
 ## 7. Como estender
 
-**Novo conector de IA.** Implemente `AiProvider` (`providers/provider.interface.ts`): `checkAvailability()`
-informando instalado/autenticado/limites/erros com verdade, e `execute()` devolvendo `exitCode`,
-`sessionEnded`, `resourceUnavailable`, `sessionId`, custo. Use `minimalEnv` e `runProcess` (`common/exec.ts`).
-Registre em `providers.module.ts` e `provider-registry.service.ts`. Escreva stub TEST-ONLY para o
-parsing e uma prova real em `test/integration`.
+**Novo modelo pronto.** Acrescente uma entrada em `areas/area-templates.ts` (chave, nome, descrição,
+texto, arquivos iniciais) e um teste em `acceptance/13`.
 
-**Novo tipo de critério.** Enum `CriterionKind` no schema (migração) → validação em
-`jobs.service.ts#parseCriteria` → verificação em `completion.service.ts#check`, sempre devolvendo
-evidência → teste de aceitação.
+**Nova IA.** Implemente `AiProvider` (`providers/provider.interface.ts`): `checkAvailability()` com a
+verdade sobre instalado/conectado/erros, e `execute()` devolvendo `exitCode`, `sessionEnded`,
+`resourceUnavailable`, `sessionId`, custo. Use `minimalEnv`/`runProcess` (`common/exec.ts`) e só as
+credenciais dela (`secretEnv`). Registre em `providers.module.ts` e `provider-registry.service.ts`, inclua
+em `AI_PROVIDERS` (`projects.service.ts`) e em `ACCOUNTS` (`accounts.service.ts`) com o fluxo de login
+oficial em `login-sessions.service.ts`; acrescente os arquivos de harness dela em
+`WorkspaceService.HARNESS_FILES`. Escreva stub TEST-ONLY para o parsing e uma prova real em `test/integration`.
 
-**Mudança no modelo de dados.** Edite `schema.prisma`, rode
-`npx prisma migrate dev --name descricao` em `apps/backend` e faça commit da migração.
+**Novo tipo de critério.** Enum `CriterionKind` (migração) → `jobs.service.ts#parseCriteria` →
+`completion.service.ts#check`, sempre com evidência → teste de aceitação.
+
+**Mudança no modelo de dados.** Edite `schema.prisma`, rode `npx prisma migrate dev --name descricao` em
+`apps/backend` e faça commit da migração.
 
 **Nova regra de segurança.** `security/policy.ts` + `test/unit/seguranca.spec.ts`.
 
@@ -178,9 +190,12 @@ evidência → teste de aceitação.
 
 | Sintoma | Onde olhar |
 |---|---|
-| Job parado em EXECUTANDO sem progresso | worker online? (`/api/system/workers`, `nivoo check`); tarefa na `QueueTask` |
-| AGUARDANDO_RECURSO | `statusDetail` do job; status do conector (`/api/providers`) |
-| BLOQUEADO | `blockedReason` + `GET /jobs/:id/report` (pendências exatas) |
-| O agente "fez" mas a etapa não conclui | log da verificação da etapa; prompt da sessão em `prompts/<etapa>/tentativa-N.md` |
-| O que o agente fez em cada turno | logs `[ferramenta]` e `[ferramenta negada/erro]` do job |
+| Chat não responde | worker online? (`/api/system/workers`); IA do projeto conectada? (`/api/accounts`) |
+| Job parado em EXECUTANDO | worker online? (`nivoo check`); tarefa na `QueueTask` |
+| AGUARDANDO_RECURSO | `statusDetail` do job; `/api/providers` |
+| BLOQUEADO na conferência | `out/conferencia-regras.json` do worktree (`violacoes`); logs da etapa `conferencia-regras` |
+| BLOQUEADO (outro) | `blockedReason` + `GET /jobs/:id/report` (pendências exatas) |
+| O agente "fez" mas a etapa não conclui | log da verificação; prompt em `prompts/<etapa>/tentativa-N.md` |
+| Login pela tela não termina | `GET /api/accounts/:id/login` (mensagem com o fim da saída do CLI); logs da API |
+| "Importar de PDF" falha | `pdftotext` instalado? (`poppler-utils`) |
 | Contexto truncado | `Attempt.contextStats`; memória completa em `.nivoo/memoria.md` do worktree |

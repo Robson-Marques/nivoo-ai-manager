@@ -1,13 +1,6 @@
-# Nivoo AI Manager — Arquitetura (Mercado V1)
+# Nivoo AI Manager — Arquitetura
 
-## 1. Inspeção inicial do repositório
-
-Na data de início (2026-10-27) o repositório continha apenas `README.md` e um commit inicial.
-Não havia código, motores de trading ou estratégias existentes — portanto nada foi alterado
-além da criação da aplicação. A `main` é preservada; todo o desenvolvimento ocorre na branch
-de desenvolvimento `claude/lucid-lamport-z7zup1`, incorporada à `main` em 2026-11-02.
-
-## 2. Visão geral
+## 1. Visão geral
 
 ```
 ┌──────────────┐  HTTP/SSE   ┌──────────────────────┐         ┌──────────────────────┐
@@ -17,207 +10,186 @@ de desenvolvimento `claude/lucid-lamport-z7zup1`, incorporada à `main` em 2026-
 └──────────────┘             └──────────┬───────────┘         └──────────┬───────────┘
                                         │      PostgreSQL (fonte da verdade)  │
                                         └──────────────┬──────────────────────┘
-                                                       │
                        ┌───────────────────────────────┼─────────────────────────────┐
                        │ queue_tasks (fila persistente, lease + SKIP LOCKED)         │
+                       │ modelos / projetos / regras / conversas / memória           │
                        │ jobs / steps / attempts / checkpoints / logs / artifacts     │
-                       │ memória do projeto / hipóteses / experimentos / aprovações   │
                        └─────────────────────────────────────────────────────────────┘
                                                        │
-                     Worker ─ executa conectores ─▶ workspaces isolados (git por projeto)
-                                                    + armazenamento de artefatos (sha256)
+   Worker ─ executa as IAs (Claude / Codex / Gemini CLI) e o executor local ─▶ pastas git por projeto
+                                                         + artefatos (sha256) fora das pastas
 ```
 
-* **API** (`apps/backend/src/main.ts`): CRUD, máquina de estados, verificação de conclusão,
-  aprovações, SSE para acompanhamento em tempo real. Não executa agentes.
-* **Worker** (`apps/backend/src/worker.ts`): processo independente que consome a fila
-  persistente. Continua executando com o navegador fechado e com a API parada.
-* **Web** (`apps/web`): a tela inicial é o **chat** (projetos na lateral, conversa, plano para aprovar,
-  painel "O que o projeto lembra" e "Arquivos") e a tela **Modelos** (regras + pasta de padrões).
-  As telas detalhadas ficam no **Modo avançado** — Painel Mercado, Projetos e Pesquisas,
-  Execução (tempo real) e Conectores/Configurações.
+* **API** (`apps/backend/src/main.ts`): CRUD, máquina de estados, verificação de conclusão, aprovações,
+  SSE, contas de IA (login pela tela). Não executa trabalho de IA.
+* **Worker** (`apps/backend/src/worker.ts`): consome a fila persistente — respostas do chat
+  (`PLAN_MESSAGE`), etapas (`RUN_STEP`) e avaliação final (`EVALUATE_JOB`). Continua com o navegador fechado.
+* **Web** (`apps/web`): lateral com projetos agrupados por modelo, chat do projeto (com painel "O que o
+  projeto lembra", "Arquivos" e "Ajustes"), **Modelos** e **Contas de IA**. Sem JSON nem configuração
+  técnica na tela.
 
-Instância única, sem multi-tenant. Isolamento é por **projeto** (workspace, artefatos e consultas
-filtradas por `projectId`).
+Instância única, sem multi-tenant. Isolamento é por **projeto** (pastas, artefatos e consultas filtradas
+por `projectId`).
+
+> Histórico: até 2026-11-13 havia o módulo Mercado (ativos WIN/WDO, datasets, pesquisas, hipóteses,
+> experimentos) e o "Modo avançado". Foi removido por completo (ADR-041).
+
+## 2. Pastas no disco
+
+```
+<NIVOO_WORKSPACES_ROOT>/areas/<modelo>/base/                      materiais do modelo (git próprio)
+<NIVOO_WORKSPACES_ROOT>/areas/<modelo>/projetos/<projeto>/repo/   repositório do projeto; branch main = pasta principal
+                                                 .../conhecimento/ conhecimento do projeto (git próprio)
+                                                 .../worktrees/<jobId>   worktree de cada trabalho (branch job/<id>)
+<NIVOO_ARTIFACTS_ROOT>/<projectId>/                               artefatos por sha256
+<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json              credenciais conectadas pela tela (600)
+```
+
+O caminho do projeto fica em `Project.dirKey` (projetos migrados do antigo modelo Mercado mantêm o
+caminho original).
 
 ## 3. Fila persistente
 
-Tabela `queue_tasks` em PostgreSQL (sem Redis), consumida com
-`SELECT ... FOR UPDATE SKIP LOCKED`. Cada tarefa reivindicada recebe um *lease*
-(`lockedBy`, `lockedUntil`) renovado por *heartbeat*. Se o worker morrer (kill -9, reinício da
-máquina), o lease expira e outra instância (ou a mesma, reiniciada) reivindica a tarefa;
-a tentativa órfã é marcada como `INTERROMPIDA` e o passo é retomado do último checkpoint.
-
-Tipos de tarefa: `RUN_STEP` (executa um passo) e `EVALUATE_JOB` (verifica critérios de conclusão).
-
-Justificativa (ADR-002): fila transacional no mesmo banco que o estado elimina inconsistência
-entre "fila" e "estado do job" e reduz dependências operacionais.
+Tabela `queue_tasks` em PostgreSQL (sem Redis), consumida com `SELECT ... FOR UPDATE SKIP LOCKED`.
+Cada tarefa reivindicada recebe um *lease* renovado por *heartbeat*. Se o worker morrer, o lease expira e
+outra instância reivindica a tarefa; a tentativa órfã vira `INTERROMPIDA` e a etapa é retomada do último
+checkpoint (ADR-002).
 
 ## 4. Execução durável
 
-Entidades (ver `apps/backend/prisma/schema.prisma`):
-
 | Entidade | Papel |
 |---|---|
-| `Job` | trabalho; estado; orçamento (tentativas, tempo, custo); vínculo com projeto/pesquisa |
-| `JobObjectiveVersion` | objetivo **imutável e versionado** (append-only, hash sha256) |
-| `AcceptanceCriterion` | critérios verificáveis: `COMMAND`, `FILE_EXISTS`, `ARTIFACT_PRESENT`, `METRIC_THRESHOLD`, `MANUAL_APPROVAL` |
+| `Job` | trabalho; estado; limites (tentativas, tempo, custo, sessões) |
+| `JobObjectiveVersion` | objetivo **imutável e versionado** (append-only, sha256) |
+| `AcceptanceCriterion` | `COMMAND`, `FILE_EXISTS`, `ARTIFACT_PRESENT`, `METRIC_THRESHOLD`, `MANUAL_APPROVAL` |
 | `Step` | etapas com dependências (`dependsOn`) |
-| `Attempt` | histórico de tentativas por etapa (provedor, saída, hash, custo, erro) |
-| `Checkpoint` | estado serializado + commit git do workspace |
-| `Artifact` | arquivos/evidências com sha256, armazenados fora do workspace |
+| `Attempt` | tentativas/sessões por etapa (provedor, sessão, término, turnos, custo, prompt) |
+| `Checkpoint` | estado serializado + commit git do worktree |
+| `Artifact` | arquivos/evidências com sha256, fora do workspace |
 | `LogEntry` | logs sequenciais (base do tempo real) |
-| `Approval` | aprovações explícitas (conclusão subjetiva, ações destrutivas) |
+| `Approval` | aprovações explícitas (critério subjetivo, ação destrutiva), presas ao hash do conteúdo |
 
 Estados (job e etapa): `PENDENTE`, `EXECUTANDO`, `AGUARDANDO_RECURSO`, `AGUARDANDO_APROVACAO`,
 `BLOQUEADO`, `FALHOU`, `CONCLUIDO`.
 
-Transições principais do job:
-
 ```
-PENDENTE ─start─▶ EXECUTANDO ─todas etapas ok─▶ (EVALUATE_JOB)
-   critérios automáticos ok + manuais aprovados ─▶ CONCLUIDO
+PENDENTE ─start─▶ EXECUTANDO ─todas etapas ok (inclusive conferencia-regras)─▶ EVALUATE_JOB
+   sincroniza com a main ─ critérios automáticos ok + manuais aprovados ─▶ avanço rápido da main ─▶ CONCLUIDO
    critérios automáticos ok + manuais pendentes ─▶ AGUARDANDO_APROVACAO
-   critério automático falhou                   ─▶ BLOQUEADO (com pendências listadas)
-EXECUTANDO ─interromper─▶ BLOQUEADO(reason=INTERROMPIDO) ─retomar─▶ EXECUTANDO
-EXECUTANDO ─provedor indisponível─▶ AGUARDANDO_RECURSO ─(reagendado)─▶ EXECUTANDO
+   critério automático falhou                   ─▶ BLOQUEADO (pendências listadas)
+   conflito ao integrar com a main              ─▶ BLOQUEADO / CONFLITO_INCORPORACAO
+EXECUTANDO ─interromper─▶ BLOQUEADO(INTERROMPIDO) ─retomar─▶ EXECUTANDO
+EXECUTANDO ─IA indisponível/limite─▶ AGUARDANDO_RECURSO ─(reagendado)─▶ EXECUTANDO
 EXECUTANDO ─limite de tentativas/tempo/orçamento/repetição─▶ FALHOU | BLOQUEADO
 ```
 
-**A IA nunca conclui um job.** Uma tentativa bem-sucedida apenas conclui a *etapa* (código de
-saída 0 + verificação opcional da etapa). O job só vira `CONCLUIDO` pelo `CompletionService`
-do backend, que avalia os critérios com evidências gravadas em `CriterionCheck`.
+**A IA nunca conclui um job.** Uma sessão só conclui a *etapa* (verificação da etapa passando). O job só
+vira `CONCLUIDO` pelo `CompletionService`, com evidência por critério em `CriterionCheck`.
 
-### Detecção de repetição improdutiva e limites
-* `maxAttemptsPerStep`, `maxDurationSec` (por job), `maxCostUsd` (orçamento),
-  `stepTimeoutSec` (por tentativa).
-* Cada tentativa grava `outputHash` (saída normalizada). Se as últimas *N* tentativas da etapa
-  produzem o mesmo hash/erro, a etapa é `BLOQUEADO` com motivo `REPETICAO_IMPRODUTIVA`.
+Limites: `maxAttemptsPerStep`, `maxSessionsPerStep`, `maxDurationSec`, `maxCostUsd` (job),
+`Project.maxCostUsd` (projeto, somando trabalhos e conversa), `stepTimeoutSec`. Sessões seguidas sem
+mudança no trabalho → `REPETICAO_IMPRODUTIVA`.
 
-### Retomada
-Nova tentativa recebe no prompt o objetivo vigente, critérios, o checkpoint mais recente,
-decisões aprovadas e o histórico resumido de tentativas (contexto reconstruído do banco —
-não de resumos de conversa).
+## 5. Sessões de IA
 
-## 5. Conectores de IA
-
-Interface comum `AiProvider` (`apps/backend/src/providers/provider.interface.ts`):
-
-```ts
-checkAvailability(): Promise<ProviderStatus>   // disponível? autenticado? versão, limites, erros
-execute(req: ExecutionRequest): Promise<ExecutionResult>
-```
-
-| Conector | Tipo | Autenticação | Observação |
-|---|---|---|---|
-| `claude-code-cli` | CLI | login oficial existente (`claude auth status`) | `claude -p --output-format json` no workspace |
-| `codex-cli` | CLI | login oficial existente (`codex login status`) | `codex exec --json --sandbox workspace-write` |
-| `anthropic-api` | API (opcional) | `ANTHROPIC_API_KEY` via env | Messages API |
-| `openai-api` | API (opcional) | `OPENAI_API_KEY` via env | Responses API |
-| `local-shell` | executor determinístico | — | roda scripts/experimentos; **não é IA** |
-
-Nunca são capturados cookies, extraídas credenciais de sessões ou contornados limites. Os
-CLIs só são usados se estiverem instalados e logados **no host do worker**; caso contrário o
-conector reporta indisponível e as etapas ficam em `AGUARDANDO_RECURSO`.
-
-Não há provedor simulado no código da aplicação. Os únicos mocks são binários
-`apps/backend/test/support/stubs/*.sh` (marcados `TEST-ONLY`) usados para testar o *parsing*
-dos adaptadores CLI. A integração real dos CLIs tem teste opt-in em `test/integration`.
-
-Processos dos agentes rodam em grupo próprio; a tentativa registra `pid` e `hostname`. Um worker
-que recupera uma tarefa com lease expirado encerra o grupo órfão (mesmo host) antes de reexecutar.
-
-## 6. Memória do projeto
-
-`MemoryEntry` com categorias separadas: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`,
-`DECISAO_APROVADA`, `HIPOTESE_INVESTIGACAO`, `EVIDENCIA`, `HIPOTESE_REJEITADA`,
-`RESULTADO_VALIDADO`, `PENDENCIA`. Entradas são versionadas (nova versão substitui, a antiga
-fica com `supersededById`). Regra de backend: `EVIDENCIA` e `RESULTADO_VALIDADO` exigem
-referências reproduzíveis (artefato com sha256 **e** experimento/dataset/parâmetros/commit).
-
-## 7. Ambiente Mercado
-
-* `MarketAsset`: WIN e WDO com configurações independentes (tick, valor do ponto, unidade,
-  horário, regras de validação). Nenhuma estratégia de trading é implementada.
-* `Dataset`: vinculado a projeto e ativo, com sha256, período e papel
-  (`TREINO`, `VALIDACAO`, `RESERVADO`). Conjuntos `RESERVADO` ficam bloqueados para uso em
-  experimentos até liberação por aprovação explícita.
-* `Research` → `Hypothesis` → `Experiment` (dataset, parâmetros, commit, métricas, job).
-  Comparação de experimentos via API/tela.
-
-## 8. Segurança
-
-* Workspaces em `NIVOO_WORKSPACES_ROOT/<projeto>`; `PathGuard` resolve `realpath` e recusa
-  qualquer caminho fora do diretório autorizado.
-* Processos filhos recebem ambiente mínimo (sem segredos da API) e `cwd` no workspace.
-* Segredos somente em `.env` (ignorado pelo git); o banco guarda apenas configuração não secreta.
-* `PolicyService`: ações destrutivas (padrões `rm -rf`, `git push --force`, `reset --hard`,
-  `DROP`, etc.) exigem `Approval`; termos de operação financeira real são **bloqueados**
-  sem possibilidade de aprovação nesta versão.
-* Branch de trabalho por job no git do workspace (`job/<id>`), preservando `main`.
-
-## 9. Decisões (ADR resumido)
-
-Ver `docs/DECISOES.md`.
-
-## 10. Sessões de IA e continuidade (etapa 2)
-
-Cada tentativa de uma etapa de IA é **uma sessão real** do provedor (`Attempt.sessionId`,
-`stopReason`, `numTurns`, `promptArtifactId`). Classificação ao fim de cada sessão:
+Cada tentativa de uma etapa de IA é uma sessão real do provedor. Classificação ao fim:
 
 | Sinal | Classificação | Efeito |
 |---|---|---|
-| processo abortado (interrupção/perda de lease) | `INTERROMPIDA` | etapa volta a PENDENTE; nova sessão na retomada/recuperação |
-| erro de limite/autenticação/rede do provedor | `RECURSO_INDISPONIVEL` | job `AGUARDANDO_RECURSO`, reagendado com espera crescente |
-| sessão terminou (normal ou `max_turns`) **e** verificação da etapa passou | `SUCESSO` | etapa CONCLUIDO; agenda as próximas |
-| sessão terminou (normal ou `max_turns`) **e** verificação falhou | `SESSAO_ENCERRADA` | **continuação automática** em nova sessão; limites: `maxSessionsPerStep`, sem progresso em `repetitionWindow` sessões → `REPETICAO_IMPRODUTIVA` |
-| erro do provedor (ex.: `api_error`) | `FALHA` | nova tentativa até `maxAttemptsPerStep`; depois `FALHOU` |
+| processo abortado (interrupção/perda de lease) | `INTERROMPIDA` | etapa volta a PENDENTE; nova sessão na retomada |
+| limite/autenticação/rede do provedor | `RECURSO_INDISPONIVEL` | `AGUARDANDO_RECURSO`, reagendado com espera crescente |
+| sessão terminou **e** verificação passou | `SUCESSO` | etapa CONCLUIDO |
+| sessão terminou **e** verificação falhou | `SESSAO_ENCERRADA` | continuação automática em nova sessão (limites de sessões e de falta de progresso) |
+| erro do provedor | `FALHA` | nova tentativa até `maxAttemptsPerStep`; depois `FALHOU` |
 
-A conclusão do **job** continua exclusiva do `CompletionService`.
+Contexto de cada sessão (guardado como artefato `prompts/<etapa>/tentativa-N.md`), com orçamento por
+prioridade (`worker/context-builder.ts`, `NIVOO_CONTEXT_MAX_CHARS`): **perfil do projeto** (seção 7),
+objetivo com sha256, critérios, etapas, verificação, último checkpoint, memória vigente do projeto (a
+completa em `.nivoo/memoria.md`), artefatos e histórico das sessões. Canal do agente: `.nivoo/notas.jsonl`
+(DECISAO_PROPOSTA, EVIDENCIA, PENDENCIA, PROGRESSO), importado para a memória; decisões só são aprovadas
+por humanos.
 
-Contexto de cada nova sessão (prompt guardado como artefato `prompts/<etapa>/tentativa-N.md`):
-objetivo vigente com sha256, critérios, etapas, verificação da etapa, experimento (hipótese, regra
-pré-registrada, dataset com sha256), último checkpoint, **toda a memória vigente do projeto/pesquisa**
-(inclusive notas de sessões anteriores), artefatos já produzidos e o histórico das sessões da etapa.
+## 6. Conectores
 
-Canal estruturado do agente: `.nivoo/notas.jsonl` (versionado no git do job). O worker importa
-cada nota nova (deduplicada por hash) para a memória: `HIPOTESE` → `HIPOTESE_INVESTIGACAO`;
-`EVIDENCIA` → `EVIDENCIA` somente se apontar artefatos registrados (senão `PENDENCIA`);
-`DECISAO_PROPOSTA`, `PENDENCIA`, `PROGRESSO` → `PENDENCIA`. Decisões só são aprovadas por humanos.
+Interface comum `AiProvider` (`providers/provider.interface.ts`): `checkAvailability()` e `execute()`.
 
-Dados de experimento: o dataset é copiado para `dados/` do worktree após conferir o sha256
-registrado (alteração → job bloqueado). `dados/` fica fora do git.
+| Conector | Comando | Isolamento |
+|---|---|---|
+| `claude-code-cli` | `claude -p --output-format stream-json --verbose --restricted --strict-mcp-config --permission-mode acceptEdits` + `--append-system-prompt <perfil>` | sem Bash/WebFetch/WebSearch, sem regras genéricas, sem configurações de usuário/projeto |
+| `codex-cli` | `codex exec --json --sandbox workspace-write --skip-git-repo-check -c project_doc_max_bytes=0` | sandbox do Codex; ignora `AGENTS.md` |
+| `gemini-cli` | `gemini -p --output-format stream-json --approval-mode auto_edit` | configuração no `~/.gemini/settings.json` do usuário do serviço (o CLI só aceita configuração "de sistema" em pasta do root): sem shell, sem web; `.gemini/` e `GEMINI.md` do workspace removidos antes de cada sessão |
+| `local-shell` | executor determinístico | **não é IA**; usado em verificações e etapas de comando |
 
-## 11. Ideias incorporadas da análise do ECC (2026-10-31)
+Projetos só aceitam as três IAs que editam arquivos. Os conectores por API HTTP foram removidos
+(ADR-046). Nenhum provedor simulado no código da aplicação; stubs só em `test/support/stubs` (TEST-ONLY).
+Processos das IAs rodam em grupo próprio com ambiente mínimo; um worker que recupera tarefa com lease
+expirado encerra o grupo órfão (mesmo host).
 
-Ver `docs/AVALIACAO-ECC.md`. Resumo técnico:
+## 7. Modelos e fine-tune do projeto
 
-* **Imunidade do harness** — `claude -p --restricted --strict-mcp-config …` ignora configurações de
-  usuário/projeto/local (hooks, plugins, `CLAUDE.md`) e confina ferramentas de arquivo ao diretório de
-  trabalho; `WorkspaceService.sanitizeHarnessFiles` remove arquivos de harness antes/depois de cada sessão.
-* **Orçamento de contexto** — `worker/context-builder.ts` (`NIVOO_CONTEXT_MAX_CHARS`, padrão 60000).
-* **Lições** — `StepExecutorService.recordLesson` → `MemoryEntry` (PENDENCIA, `references.origem = licao-automatica`).
-* **Critérios permanentes** — modelo `ProjectInvariant`; aplicados em `JobsService.create`.
-* **Orçamento do projeto** — `Project.maxCostUsd`; verificado antes de cada tentativa.
-* **Aprovação por hash** — `Approval.subjectHash` (`stepHash`, `criterionHash`, `uri:sha256` do dataset).
+* **Modelo** (`Area`): texto "Como a IA deve funcionar" versionado (`AreaInstruction`, usado exatamente
+  como escrito) + materiais em `areas/<slug>/base`. Prontos em `areas/area-templates.ts`: geral (padrão,
+  criado pelo seed e ao subir a API), software, atendimento, imagem, video.
+* **Projeto**: regras próprias versionadas (`ProjectRule`), conhecimento em `<projeto>/conhecimento`,
+  memória e IA escolhida (`Project.provider`).
+* **Perfil do projeto** (`projects/project-profile.service.ts`): junta regras do modelo, regras do
+  projeto, descrição e a lista dos materiais e do conhecimento. Vai no topo de todo prompt (conversa,
+  trabalho e conferência) e, no Claude, também como `--append-system-prompt`. Registra as versões e
+  sha256 em vigor.
+* **Cópias de leitura**: antes de cada sessão, `contexto/base` e `contexto/conhecimento` são copiados
+  para o diretório de trabalho da IA, excluídos do git (`.git/info/exclude`); links simbólicos não são
+  seguidos. Arquivos de agente (`.claude/`, `CLAUDE.md`, `AGENTS.md`, `.gemini/`, `GEMINI.md`...)
+  aparecem com `_` no início: legíveis como padrões, inertes como configuração.
+* **PDF/Word**: `common/text-extract.ts` (`pdftotext` e python3 para `.docx`); `common/knowledge-upload.ts`
+  acrescenta a cópia `.txt` ao enviar materiais ou conhecimento.
 
+## 8. A trava (conferência das regras)
 
-## 12. Áreas (modelos), pasta principal e conversa (2026-11-14)
+`jobs/rule-review.ts`. Ao criar um job com etapa de IA, `JobsService.create` acrescenta a etapa
+`conferencia-regras` (depende de todas as outras; IA do projeto quando ela está no job) e o critério
+COMMAND de mesmo nome. A etapa roda em **outra sessão**, sem a memória da sessão que fez o trabalho, e
+recebe no contexto o diff do worktree contra o ponto de saída da `main` (`WorkspaceService.diffAgainstMain`).
+Ela pode corrigir violações e grava `out/conferencia-regras.json`; o verificador da etapa e o critério
+exigem `"conforme": true` e `violacoes` vazio. Etapas adicionadas depois fazem a conferência rodar de
+novo. Só a API dispensa (`conferencia: false`); planos aprovados no chat nunca dispensam.
 
-```
-data/workspaces/areas/<area>/base/                 base de conhecimento do modelo (git próprio)
-data/workspaces/areas/<area>/projetos/<projeto>/   projeto (repo git com a "pasta principal" = main)
-```
+## 9. Conversa (chat)
 
-* **Área/modelo**: instruções permanentes versionadas (`AreaInstruction`) + base de conhecimento.
-  Em toda sessão de IA a base é copiada para `area/` (fora do git do projeto) e as regras entram no
-  contexto. Arquivos de agente da base (`.claude/`, `CLAUDE.md`, `AGENTS.md`...) chegam renomeados com
-  `_` — legíveis como padrões, nunca carregados como configuração.
-* **Pasta principal**: cada job trabalha numa branch; ao concluir, sincroniza com a `main`, o verificador
-  roda e o resultado entra na `main` por avanço rápido (trava por projeto). O job seguinte parte dela.
-* **Conversa**: a mensagem do usuário vira a tarefa `PLAN_MESSAGE` na fila. O worker monta uma cópia
-  descartável (`git archive main` + base da área), chama a IA com regras, base, arquivos, memória e as
-  últimas 20 mensagens, e recebe `{"tipo":"resposta"|"plano", "texto", "job", "memoria"}`. Plano só vira
-  job com aprovação humana (`validatePlan` → job → início), com critérios e verificador normais.
-  `memoria` é gravada na memória do projeto (sem duplicar), que entra em todas as próximas conversas e
-  trabalhos.
+A mensagem do usuário vira a tarefa `PLAN_MESSAGE`. O worker (`worker/planner.service.ts`) monta uma
+cópia descartável (`git archive main` + `contexto/`), chama a **IA do projeto** com o perfil, arquivos,
+memória e últimas mensagens, e recebe `{"tipo":"resposta"|"plano", "texto", "job", "memoria"}`. Pedidos
+fora do escopo viram resposta com explicação, não plano. Plano só vira job com o "Fazer" (aprovação
+humana → `validatePlan` → job com a trava → início). `memoria` (DECISAO/PREFERENCIA/FATO/PENDENCIA) vira
+memória do projeto, sem duplicar (hash). IA desconectada → resposta com orientação, sem travar.
+
+## 10. Contas de IA
+
+`accounts/`: `AccountsService` (lista, chave de API, desconectar), `LoginSessionsService` (login pela
+tela) e `secrets.ts` (arquivo de segredos). O login roda o comando oficial de cada CLI dentro de uma ponte
+Python com pseudo-terminal e lê da saída o link e o código:
+
+* Claude: `claude setup-token` → o usuário cola o código → token `sk-ant-oat…` gravado como
+  `CLAUDE_CODE_OAUTH_TOKEN` em `segredos.json`.
+* ChatGPT: `codex login --device-auth` → link + código do usuário; o Codex grava o próprio login.
+* Gemini: `gemini` com `NO_BROWSER` e `selectedType: oauth-personal` → o usuário cola o código → o CLI
+  grava `~/.gemini/oauth_creds.json`.
+
+`segredos.json` fica em `NIVOO_SECRETS_FILE` ou ao lado da pasta de workspaces, permissão 600, gravado de
+forma atômica; variáveis de ambiente de mesmo nome prevalecem. A API e o worker leem o arquivo a cada
+uso, então a conexão vale sem reiniciar. Sessões de login ficam na memória da API (expiram em 15 min).
+
+## 11. Segurança
+
+* `PathGuard` (`resolveInside`) resolve `realpath` e recusa caminhos fora do diretório autorizado.
+* Processos filhos recebem ambiente mínimo (sem `DATABASE_URL`) e só as credenciais da própria IA.
+* Segredos fora do git e do banco (`.env`/`nivoo.env` e `segredos.json`); `PATCH /providers/:id` recusa
+  chaves com nome de segredo.
+* Política (`security/policy.ts`): ações destrutivas (`rm -r`, `git push --force`, `reset --hard`,
+  `DROP`...) exigem `Approval`. (A antiga proibição de operações financeiras era específica do Mercado e
+  saiu com ele.)
+* Arquivos servidos ao navegador (materiais, conhecimento, artefatos) vão com `Content-Security-Policy: sandbox`.
+* Cada job trabalha na branch `job/<id>`; a `main` só avança por avanço rápido depois do verificador.
+
+## 12. Decisões
+
+Ver `docs/DECISOES.md`.

@@ -48,6 +48,18 @@ export class PlannerService {
       await this.queue.complete(task.id, workerId);
     };
 
+    // Limite de gasto do projeto vale também para a conversa (trabalhos + respostas).
+    if (project.maxCostUsd !== null) {
+      const [jobs, conversa] = await Promise.all([
+        this.prisma.job.aggregate({ where: { projectId: project.id }, _sum: { costSpentUsd: true } }),
+        this.prisma.conversationMessage.aggregate({ where: { conversation: { projectId: project.id } }, _sum: { costUsd: true } }),
+      ]);
+      const gasto = Number(jobs._sum.costSpentUsd ?? 0) + Number(conversa._sum.costUsd ?? 0);
+      if (gasto >= Number(project.maxCostUsd)) {
+        return fail(`O projeto atingiu o limite de gasto (US$ ${gasto.toFixed(2)} de US$ ${Number(project.maxCostUsd).toFixed(2)}). Aumente o limite em Ajustes para continuar.`);
+      }
+    }
+
     // A IA escolhida para o projeto conversa e trabalha; o perfil do projeto vale para qualquer uma.
     const providerId = project.provider;
     if (!this.registry.has(providerId)) return fail(`IA desconhecida: ${providerId}`);

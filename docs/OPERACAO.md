@@ -1,37 +1,40 @@
-# Operação — Nivoo AI Manager (Mercado V1)
+# Operação — Nivoo AI Manager
 
-## 1. Fluxo de trabalho típico
+## 1. Como usar (fluxo do usuário)
 
-1. **Projeto** (Projetos e pesquisas → Novo projeto). A descrição vira a memória `ESPECIFICACAO`.
-   É criado um workspace git isolado (`repo/` com `main`, `data/`, `worktrees/`).
-2. **Dados**: copie os arquivos para `<workspace>/data/` e registre o dataset (ativo, papel
-   `TREINO`/`VALIDACAO`/`RESERVADO`). "Validar" aplica as regras do ativo (WIN e WDO têm regras
-   independentes: faixa de preço, múltiplo do tick, horário do pregão, OHLC, amplitude).
-   Conjuntos `RESERVADO` ficam bloqueados para experimentos até uma aprovação de liberação.
-3. **Pesquisa** vinculada a WIN e/ou WDO → **hipóteses** (memória `HIPOTESE_INVESTIGACAO`).
-4. **Job** (aba Jobs): objetivo, etapas com dependências, critérios de aceitação verificáveis,
-   limites (tentativas, tempo, orçamento), conector, e opcionalmente experimento (hipótese,
-   dataset, parâmetros).
-5. **Execução** (worker): cada etapa gera tentativas, logs, artefatos (`out/` do worktree) e
-   checkpoints (commit na branch `job/<id>`).
-6. **Conclusão**: quando todas as etapas terminam, o backend avalia cada critério e grava
-   evidências. Só então o job pode virar `CONCLUIDO`. Critérios `MANUAL_APPROVAL` exigem
-   aprovação explícita (Painel Mercado ou tela do job).
-7. **Resultado**: experimento concluído recebe métricas (`metrics.json`) e commit; a memória
-   recebe uma `EVIDENCIA` com referências. Uma hipótese só pode ser `VALIDADA` com experimentos
-   verificados; vira `RESULTADO_VALIDADO` com dados, código, parâmetros e resultados referenciados.
+1. **Conectar uma IA** — menu **Contas de IA**: escolha Claude, ChatGPT ou Gemini e clique em
+   "Conectar". Abra o link, entre com a sua conta e cole o código (Claude, Gemini) ou digite o código
+   mostrado no site (ChatGPT). Também dá para usar uma chave de API (cobrança à parte, pelo provedor).
+2. **Criar um modelo** (opcional) — menu **Modelos** → novo modelo a partir de um pronto (Geral, Software,
+   Atendimento, Imagem e conteúdo, Vídeo). Escreva em "Como a IA deve funcionar neste modelo" o jeito de
+   trabalhar (o texto é usado exatamente como você escreveu) ou importe de um PDF, Word ou texto. Envie os
+   **materiais de referência** (arquivos ou uma pasta inteira). Ex.: modelo "Sistemas ERP / SaaS".
+3. **Criar o projeto** — "+ Novo projeto": nome, sobre o que é (vira a primeira memória), modelo e a IA
+   que vai trabalhar nele.
+4. **Ajustar o projeto** (aba **Ajustes**) — regras do projeto (também com importação de PDF/Word/texto),
+   conhecimento do projeto (manuais, especificações, cardápios...), IA escolhida, limite de gasto e
+   "Excluir projeto". Isto é o "fine-tune do projeto": vai em toda conversa e todo trabalho.
+5. **Conversar** — peça o que precisa. A IA responde ou propõe um plano no cartão **"Posso fazer isto"**.
+   Pedidos fora do escopo do projeto são recusados com explicação.
+6. **Fazer** — o plano vira um trabalho. O andamento aparece no chat (Trabalhando… / Preciso da sua
+   confirmação / Parei + Tentar de novo).
+7. **Conferência** — no fim, uma IA separada confere as mudanças contra as regras do modelo e do projeto
+   (a trava). Se ela apontar violação, o trabalho não fica pronto.
+8. **Pronto** — o resultado entra na pasta principal do projeto (aba **Arquivos**) e o próximo trabalho
+   parte dele. O que foi combinado na conversa aparece em **O que o projeto lembra** (dá para "esquecer").
 
-## 2. Critérios de aceitação disponíveis
+## 2. Critérios de aceitação (para quem usa a API)
 
 | Tipo | Configuração | Verificação |
 |---|---|---|
-| `COMMAND` | `{"command": "pytest -q", "expectExitCode": 0, "timeoutSec": 300}` | executa no worktree do job |
-| `FILE_EXISTS` | `{"path": "src/estudo.py", "minBytes": 1}` | arquivo no worktree (com sha256) |
-| `ARTIFACT_PRESENT` | `{"name": "relatorio.md"}` ou `{"pattern": "^graficos/.*\\.png$"}` | artefato registrado no job |
-| `METRIC_THRESHOLD` | `{"artifact": "metrics.json", "path": "sharpe", "op": ">=", "value": 1}` | lê o artefato de métricas |
-| `MANUAL_APPROVAL` | `{}` | exige aprovação explícita |
+| `COMMAND` | `{"command": "pytest -q", "expectExitCode": 0, "timeoutSec": 300}` | executa no worktree do trabalho |
+| `FILE_EXISTS` | `{"path": "src/app.py", "minBytes": 1}` | arquivo no worktree (com sha256) |
+| `ARTIFACT_PRESENT` | `{"name": "relatorio.md"}` ou `{"pattern": "^graficos/.*\\.png$"}` | artefato registrado no trabalho |
+| `METRIC_THRESHOLD` | `{"artifact": "metrics.json", "path": "cobertura", "op": ">=", "value": 80}` | lê um artefato JSON |
+| `MANUAL_APPROVAL` | `{}` | exige aprovação explícita ("Preciso da sua confirmação") |
 
-Sem critérios, o job **nunca** é concluído (`BLOQUEADO / SEM_CRITERIOS`).
+Sem critérios, o trabalho **nunca** é concluído (`BLOQUEADO / SEM_CRITERIOS`). Trabalhos com IA sempre
+ganham o critério `conferencia-regras`.
 
 ## 3. Estados
 
@@ -39,76 +42,60 @@ Sem critérios, o job **nunca** é concluído (`BLOQUEADO / SEM_CRITERIOS`).
 |---|---|---|
 | `PENDENTE` | criado, não iniciado | Iniciar |
 | `EXECUTANDO` | worker processando | acompanhar |
-| `AGUARDANDO_RECURSO` | conector indisponível/limite | aguarda reagendamento automático, ou Retomar |
+| `AGUARDANDO_RECURSO` | IA indisponível ou no limite | reagendamento automático, ou Tentar de novo |
 | `AGUARDANDO_APROVACAO` | ação destrutiva ou critério subjetivo | aprovar/rejeitar |
-| `BLOQUEADO` | `INTERROMPIDO`, `CRITERIOS_NAO_ATENDIDOS`, `SEM_CRITERIOS`, `REPETICAO_IMPRODUTIVA`, `LIMITE_TEMPO`, `LIMITE_ORCAMENTO`, `POLITICA`, `APROVACAO_REJEITADA` | corrigir (adicionar etapas/critérios, ajustar limites) e Retomar |
-| `FALHOU` | etapa esgotou tentativas | ajustar limites/etapa e Retomar |
-| `CONCLUIDO` | todos os critérios verificados com evidências | — |
+| `BLOQUEADO` | `INTERROMPIDO`, `CRITERIOS_NAO_ATENDIDOS`, `SEM_CRITERIOS`, `REPETICAO_IMPRODUTIVA`, `LIMITE_TEMPO`, `LIMITE_ORCAMENTO`, `LIMITE_ORCAMENTO_PROJETO`, `LIMITE_SESSOES`, `POLITICA`, `APROVACAO_REJEITADA`, `CONFLITO_INCORPORACAO` | corrigir e Tentar de novo |
+| `FALHOU` | etapa esgotou tentativas | ajustar e Tentar de novo |
+| `CONCLUIDO` | todos os critérios verificados com evidências e incorporado à pasta principal | — |
 
-O relatório `GET /api/projects/:pid/jobs/:jid/report` (e a tela do job) mostra o estado real e as
-pendências.
+`GET /api/projects/:pid/jobs/:jid/report` mostra o estado real e as pendências.
 
-## 4. Variáveis de ambiente (`apps/backend/.env`)
+## 4. Variáveis de ambiente (`apps/backend/.env`; no servidor, `/etc/nivoo/nivoo.env`)
 
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `DATABASE_URL` | — | PostgreSQL |
-| `PORT` | 3000 | porta da API |
-| `NIVOO_WORKSPACES_ROOT` | `./data/workspaces` | raiz autorizada dos workspaces |
+| `HOST` / `PORT` | `0.0.0.0` / 3000 (instalador: `127.0.0.1`) | endereço e porta da API |
+| `NIVOO_WORKSPACES_ROOT` | `./data/workspaces` | raiz autorizada (modelos, projetos, worktrees) |
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
+| `NIVOO_SECRETS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json` | credenciais conectadas pela tela (permissão 600) |
 | `NIVOO_WORKER_ID` | `hostname-pid` | identificador do worker |
 | `NIVOO_LEASE_MS` | 30000 | lease de tarefas (recuperação após queda) |
 | `NIVOO_POLL_MS` | 1000 | intervalo de consulta da fila |
 | `NIVOO_API_TOKEN` | — | se definido, exige `Authorization: Bearer` |
-| `NIVOO_CLAUDE_BIN` / `NIVOO_CODEX_BIN` | `claude` / `codex` | caminho dos CLIs |
-| `NIVOO_CLAUDE_ALLOWED_TOOLS` | vazio | regras extras **restritas a caminho** (ex.: `Edit(./src/**)`); regras genéricas como `Write` são recusadas porque liberariam escrita fora do workspace. Bash/WebFetch/WebSearch sempre negados |
-| `NIVOO_PRECO_ENTRADA_USD_MTOK` / `NIVOO_PRECO_SAIDA_USD_MTOK` | 3 / 15 | preço por milhão de tokens usado só para ESTIMAR o custo de sessões encerradas à força (o CLI não informa o custo nesses casos) |
-| `NIVOO_CONTEXT_MAX_CHARS` | 60000 | orçamento de contexto por sessão de IA (memória excedente fica em `.nivoo/memoria.md`) |
-| `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão (padrão; também por etapa em `providerOptions.maxTurns`) |
-| `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` | — | modelo opcional |
-| `NIVOO_PLANNER_PROVIDER` | `claude-code-cli` | IA que responde na conversa (chat) |
-| `NIVOO_PLANNER_TIMEOUT_SEC` / `NIVOO_PLANNER_MAX_TURNS` | 300 / 25 | limites de cada resposta da conversa |
-| `NIVOO_BODY_LIMIT` | `60mb` | tamanho máximo de uma requisição JSON (envio de pasta de padrões em lotes de até 25 MB) |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | — | conector API opcional |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | — | conector API opcional |
+| `NIVOO_BODY_LIMIT` | `60mb` | tamanho máximo de uma requisição JSON (envio de materiais em lotes) |
+| `NIVOO_CLAUDE_BIN` / `NIVOO_CODEX_BIN` / `NIVOO_GEMINI_BIN` | `claude` / `codex` / `gemini` | caminho dos CLIs |
+| `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` / `NIVOO_GEMINI_MODEL` | — | modelo opcional de cada IA |
+| `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão do Claude (também por etapa em `providerOptions.maxTurns`) |
+| `NIVOO_CLAUDE_ALLOWED_TOOLS` | vazio | regras extras **restritas a caminho** (ex.: `Edit(./src/**)`); regras genéricas são recusadas. Bash/WebFetch/WebSearch sempre negados |
+| `NIVOO_PLANNER_TIMEOUT_SEC` / `NIVOO_PLANNER_MAX_TURNS` | 300 / 25 | limites de cada resposta do chat (a conversa usa a IA escolhida no projeto) |
+| `NIVOO_CONTEXT_MAX_CHARS` | 60000 | orçamento de contexto por sessão (memória excedente fica em `.nivoo/memoria.md`) |
+| `NIVOO_PRECO_ENTRADA_USD_MTOK` / `NIVOO_PRECO_SAIDA_USD_MTOK` | 3 / 15 | preço por milhão de tokens, só para ESTIMAR o custo de sessões encerradas à força |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | — | opcionais; se definidas, têm prioridade sobre o que foi conectado pela tela (a tela mostra "configurado pelo administrador") |
 
-API e worker devem compartilhar o mesmo banco **e** os mesmos diretórios de workspaces/artefatos
-(mesmo host ou volume compartilhado).
+API e worker precisam compartilhar o mesmo banco, os mesmos diretórios **e** o mesmo usuário de SO /
+HOME (o login do Codex fica em `~/.codex` e o do Gemini em `~/.gemini`).
 
-## 5. Serviço (exemplo systemd)
+## 5. Serviço
 
-```ini
-# /etc/systemd/system/nivoo-worker.service
-[Unit]
-Description=Nivoo AI Manager worker
-After=network-online.target postgresql.service
+O instalador (`deploy/install-debian.sh`) cria `nivoo-api` e `nivoo-worker` no systemd, com usuário
+`nivoo`, `HOME=/var/lib/nivoo`, sistema de arquivos somente leitura exceto `/var/lib/nivoo`, `/tmp`
+privado e `NoNewPrivileges`. `Restart=always` + lease garantem retomada após quedas. Ver
+`docs/INSTALACAO-DEBIAN.md`.
 
-[Service]
-User=nivoo
-WorkingDirectory=/opt/nivoo-ai-manager/apps/backend
-ExecStart=/usr/bin/node dist/worker.js
-Restart=always
-# Isolamento adicional em nível de SO
-ProtectSystem=strict
-ReadWritePaths=/opt/nivoo-ai-manager/data /home/nivoo/.claude /home/nivoo/.codex
-PrivateTmp=true
-NoNewPrivileges=true
+## 6. Limitações conhecidas
 
-[Install]
-WantedBy=multi-user.target
-```
-
-Crie um serviço análogo para a API (`dist/main.js`). `Restart=always` + lease garantem retomada
-após quedas.
-
-## 6. Limitações conhecidas da V1
-
-* O isolamento do executor `local-shell` é por diretório de trabalho, ambiente mínimo e política;
-  um comando pode, em tese, ler caminhos absolutos permitidos ao usuário do SO. Para isolamento
-  forte, execute o worker com usuário dedicado/`ProtectSystem` (acima) ou em contêiner.
-* A política de ações destrutivas/financeiras é baseada em padrões textuais: reduz riscos, mas não
-  substitui o isolamento do SO. Agentes de IA também recebem as regras no prompt e o Claude Code
-  roda sem a ferramenta Bash por padrão.
-* O custo só é contabilizado quando o conector informa (Claude Code CLI informa `total_cost_usd`;
-  APIs informam tokens).
+* "Fine-tune do projeto" é contexto, não treino: a IA recebe regras e materiais em toda sessão e a
+  conferência cobra o resultado, mas um modelo de IA ainda pode errar; a trava reduz, não elimina.
+* Gemini e Codex não foram testados com conta real neste desenvolvimento (só com stub).
+* O Codex e o Gemini recebem o perfil do projeto só no prompt (o Claude também como instrução de sistema).
+* Geração de imagem/vídeo de verdade exige um conector próprio; hoje a IA entrega texto, briefing,
+  prompts e peças em SVG/HTML.
+* O login pela tela fica na memória da API: se a API reiniciar no meio, recomece o login.
+* PDF escaneado (só imagem) não vira texto (`pdftotext` não faz OCR).
+* O isolamento do executor `local-shell` é por diretório, ambiente mínimo e política; para isolamento
+  forte, use o serviço instalado (usuário dedicado + systemd) ou contêiner.
+* A política de ações destrutivas é por padrões de texto: reduz riscos, mas não substitui o isolamento do SO.
+* O custo só é contabilizado quando a IA informa (o Claude Code informa `total_cost_usd`; nos demais
+  casos é estimado pelos tokens, quando há).
 * Encerramento de processos órfãos após queda funciona quando o novo worker está no mesmo host.

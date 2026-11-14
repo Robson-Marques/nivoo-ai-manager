@@ -1,20 +1,20 @@
 {
-  "geradoEm": "2026-11-14T03:29:27.057Z",
+  "geradoEm": "2026-11-14T17:34:06.769Z",
   "teste": "real-06-conversa-modelo",
   "job": {
-    "id": "3cc40409-97fd-4f46-a4d4-c4e2231fc35d",
-    "titulo": "Legenda do post da pizza Margherita",
+    "id": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
+    "titulo": "Legenda de Instagram: pizza Margherita",
     "status": "CONCLUIDO",
     "motivo": null,
     "detalhe": "todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto",
-    "custoUsd": 0.1408,
-    "tempoAtivoSeg": 27
+    "custoUsd": 0.2845,
+    "tempoAtivoSeg": 53
   },
   "objetivo": [
     {
       "versao": 1,
-      "sha256": "ce5f7f965af7c42057dd6e027e78aa53a45bf84b669eea7247b7d39172f51d79",
-      "texto": "Criar o arquivo legenda-margherita.txt na pasta principal com a legenda de um post de Instagram anunciando a pizza Margherita. O texto deve falar com as famílias do bairro, ter tom alegre e sem gírias, conforme area/regras-da-casa.md, e terminar exatamente com a linha 'Código da casa: CASA-PZ-9137'."
+      "sha256": "7471daa959c67b6eca4024b67a784a46aad63315afb90691e2fef64570bb19da",
+      "texto": "Criar o arquivo legenda-margherita.txt na pasta principal do projeto com a legenda de um post de Instagram anunciando a pizza Margherita para as famílias do bairro. A legenda deve ter tom alegre e sem gírias, citar apenas os ingredientes do cardápio (molho de tomate, mussarela, manjericão), não inventar preços, horários, endereços, promoções nem outros fatos, e terminar exatamente com a linha 'Código da casa: CASA-PZ-9137'."
     }
   ],
   "etapas": [
@@ -22,7 +22,14 @@
       "key": "etapa1",
       "provider": "claude-code-cli",
       "status": "CONCLUIDO",
-      "detalhe": "tentativa 1; commit 3d400c42de",
+      "detalhe": "tentativa 1; commit eb03c82c64",
+      "opcoes": {}
+    },
+    {
+      "key": "conferencia-regras",
+      "provider": "claude-code-cli",
+      "status": "CONCLUIDO",
+      "detalhe": "tentativa 1; commit eb03c82c64",
       "opcoes": {}
     }
   ],
@@ -31,52 +38,73 @@
       "etapa": "etapa1",
       "numero": 1,
       "conector": "claude-code-cli",
-      "worker": "vm-12042",
+      "worker": "vm-10443",
       "status": "SUCESSO",
-      "sessionId": "56a4621f-3400-4c72-8302-7e78651b3b0c",
+      "sessionId": "996e6af6-1bab-4133-b199-a69958b86be9",
       "termino": "completed",
-      "turnos": 9,
-      "custoUsd": 0.1408,
-      "notasImportadas": 3,
+      "turnos": 7,
+      "custoUsd": 0.1173,
+      "notasImportadas": 2,
       "progresso": true,
       "erro": null,
-      "inicio": "2026-11-14T03:17:49.947Z",
-      "fim": "2026-11-14T03:18:16.977Z"
+      "inicio": "2026-11-14T17:33:01.044Z",
+      "fim": "2026-11-14T17:33:21.566Z"
+    },
+    {
+      "etapa": "conferencia-regras",
+      "numero": 1,
+      "conector": "claude-code-cli",
+      "worker": "vm-10443",
+      "status": "SUCESSO",
+      "sessionId": "79bb1cdb-0f68-4224-990d-92d5a9d1bd86",
+      "termino": "completed",
+      "turnos": 11,
+      "custoUsd": 0.1672,
+      "notasImportadas": 2,
+      "progresso": true,
+      "erro": null,
+      "inicio": "2026-11-14T17:33:21.963Z",
+      "fim": "2026-11-14T17:33:53.937Z"
     }
   ],
   "prompts": [
     {
       "nome": "prompts/etapa1/tentativa-1.md",
-      "sha256": "29f719a277760e802d9888c00565515961ec1cf6d989364a84498849aa1a8999",
-      "bytes": 5249,
+      "sha256": "39daf0adc1670e2628a74198afc8ec6b0372df94b0abfcc264f0b992dae22b04",
+      "bytes": 6847,
       "contemObjetivoV1Integro": true,
       "contemNotasDoAgente": false
+    },
+    {
+      "nome": "prompts/conferencia-regras/tentativa-1.md",
+      "sha256": "27965b42b40c10c9fe61da85a61787f18e2d6d2edb934e9d477bfd713967b806",
+      "bytes": 8192,
+      "contemObjetivoV1Integro": true,
+      "contemNotasDoAgente": true
     }
   ],
   "criterios": [
+    {
+      "key": "aprovacao_tom",
+      "kind": "MANUAL_APPROVAL",
+      "status": "APROVADO",
+      "evidencia": {
+        "em": "2026-11-14T17:33:55.699Z",
+        "motivo": null,
+        "aprovacaoId": "c30143ea-0950-46f5-9465-2a03398990bf",
+        "aprovadoPor": "teste real (conferido)"
+      }
+    },
     {
       "key": "arquivo_existe",
       "kind": "FILE_EXISTS",
       "status": "APROVADO",
       "evidencia": {
-        "bytes": 545,
+        "bytes": 306,
         "existe": true,
-        "sha256": "4dd6795f4e802259a0101c2bdbb4d86ffc02954fb3a691f8715e70f1f0ef4f2c",
+        "sha256": "882928f6bd3a435e5adfd0f912e2db0de9985a2e81ccef5c6a1502efba4a006e",
         "caminho": "legenda-margherita.txt",
         "minBytes": 1
-      }
-    },
-    {
-      "key": "menciona_margherita",
-      "kind": "COMMAND",
-      "status": "APROVADO",
-      "evidencia": {
-        "stderr": "",
-        "stdout": "",
-        "comando": "grep -qi 'margherita' legenda-margherita.txt",
-        "timeout": false,
-        "esperado": 0,
-        "exitCode": 0
       }
     },
     {
@@ -86,21 +114,36 @@
       "evidencia": {
         "stderr": "",
         "stdout": "",
-        "comando": "[ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n 1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ]",
+        "comando": "[ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ]",
         "timeout": false,
         "esperado": 0,
         "exitCode": 0
       }
     },
     {
-      "key": "aprovacao_tom",
-      "kind": "MANUAL_APPROVAL",
+      "key": "conferencia-regras",
+      "kind": "COMMAND",
       "status": "APROVADO",
       "evidencia": {
-        "em": "2026-11-14T03:29:18.880Z",
-        "motivo": null,
-        "aprovacaoId": "aa5211e7-184f-4a0e-97bc-a3076e689534",
-        "aprovadoPor": "teste real (tom conferido)"
+        "stderr": "",
+        "stdout": "",
+        "comando": "python3 -c \"import json,sys; d=json.load(open('out/conferencia-regras.json')); sys.exit(0 if d.get('conforme') is True and not d.get('violacoes') else 1)\"",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
+      }
+    },
+    {
+      "key": "ingredientes_e_sem_preco",
+      "kind": "COMMAND",
+      "status": "APROVADO",
+      "evidencia": {
+        "stderr": "",
+        "stdout": "",
+        "comando": "grep -qi 'margherita' legenda-margherita.txt && grep -qi 'manjeric' legenda-margherita.txt && grep -qi 'mussarela' legenda-margherita.txt && grep -qi 'tomate' legenda-margherita.txt && ! grep -q 'R\\$' legenda-margherita.txt",
+        "timeout": false,
+        "esperado": 0,
+        "exitCode": 0
       }
     }
   ],
@@ -108,153 +151,216 @@
     {
       "nome": "logs/etapa1/tentativa-1.log",
       "tipo": "LOG",
-      "sha256": "921bf9e6be1011fdab89337ee91c14dbe6e140d786d0121659c5232e98f49f50",
-      "bytes": 1637
+      "sha256": "b5f3d835959a84aed1cebbab9c76a6ddc28dc9a1da93fdaa6cb794abeea9b736",
+      "bytes": 1315
     },
     {
-      "nome": "relatorio-legenda.md",
+      "nome": "logs/conferencia-regras/tentativa-1.log",
+      "tipo": "LOG",
+      "sha256": "91bb8c661bcc8be24308796e40b20b5e8d25485b16ce4e63670b92cf0233f2da",
+      "bytes": 1237
+    },
+    {
+      "nome": "conferencia-regras.json",
       "tipo": "FILE",
-      "sha256": "a84a00a9c501ced6301478cb7d73abac51edee044ad916eb2d305039a7df95f7",
-      "bytes": 967
-    },
-    {
-      "nome": "criterios/arquivo_existe.evidencia.json",
-      "tipo": "CRITERION_EVIDENCE",
-      "sha256": "53af7cd0fcf5dffd8e26c238e05495d178e3e70a7562e69889d9d6703128aedc",
-      "bytes": 358
-    },
-    {
-      "nome": "criterios/menciona_margherita.evidencia.json",
-      "tipo": "CRITERION_EVIDENCE",
-      "sha256": "20bd1ce43686aeac09b6f301c9871cb3cad013da3ec6a48edab87b6c82ede667",
-      "bytes": 338
-    },
-    {
-      "nome": "criterios/codigo_da_casa.evidencia.json",
-      "tipo": "CRITERION_EVIDENCE",
-      "sha256": "c1d32d4e5491f7e4d668242ace84d9d4e5b6a373fdeb411c661ed7ad28a7b2fe",
-      "bytes": 433
+      "sha256": "8b228c13ea0d4ca1a34086f18ad234ce81c652aa1b0a9c1b8fb3e4bf48dfc900",
+      "bytes": 1245
     },
     {
       "nome": "criterios/aprovacao_tom.evidencia.json",
       "tipo": "CRITERION_EVIDENCE",
-      "sha256": "79e06116ea3080430a6163eb6ae80b9e2bf3b06fb31b96ba7f0e549c58856a0a",
+      "sha256": "6d29ae7aa7c2c776367e74be6db1269efd073e243f4de8dfc37f1a80ccc758f7",
       "bytes": 266
     },
     {
       "nome": "criterios/arquivo_existe.evidencia.json",
       "tipo": "CRITERION_EVIDENCE",
-      "sha256": "2d2a8edb6acdcd2bab4e0dfb1f1622a284ba5364a9814581f2a88ab2d0b8b715",
+      "sha256": "be199b8e570035326e292ea363321b6464ad2d126c92724f217ba74196e0b0f5",
       "bytes": 358
-    },
-    {
-      "nome": "criterios/menciona_margherita.evidencia.json",
-      "tipo": "CRITERION_EVIDENCE",
-      "sha256": "1915a42060e0c82e7523f5d41caee3254e1be3871fcd5b70324417f335c0b97c",
-      "bytes": 338
     },
     {
       "nome": "criterios/codigo_da_casa.evidencia.json",
       "tipo": "CRITERION_EVIDENCE",
-      "sha256": "3cc4537b0dfa06205adec656c8e4db53c90fd74144df907a78f7ca30ab7039c4",
-      "bytes": 433
+      "sha256": "6f3581cc1e6b1537e6af5fba24a10be61d6bb69070c530f23454b87f8827e956",
+      "bytes": 432
+    },
+    {
+      "nome": "criterios/conferencia-regras.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "54d03312d65747f36be16c70e31e75191ff23410d743ce23f59f13768e308f01",
+      "bytes": 449
+    },
+    {
+      "nome": "criterios/ingredientes_e_sem_preco.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "e036b7f94e9c2b732b23f572bc1e0d61d317133162a6084e7e3f064d73a6802d",
+      "bytes": 523
     },
     {
       "nome": "criterios/aprovacao_tom.evidencia.json",
       "tipo": "CRITERION_EVIDENCE",
-      "sha256": "0b1db3d6f0f2888ffcbdc9574542c265f84cc8779fbd9f695e9beb424e10928b",
-      "bytes": 347
+      "sha256": "30a4b67dbcdd5b34cd61e77ee2cf1e00b3d6deeab7746baa082dd87ab95232ea",
+      "bytes": 343
+    },
+    {
+      "nome": "criterios/arquivo_existe.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "f033531750f1f253798192d4779d3dbc64d17daba9848b017184ad2ce1eed39d",
+      "bytes": 358
+    },
+    {
+      "nome": "criterios/codigo_da_casa.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "d5008ad233b487925266ba1c8684c49875f18f0deed06394f2c52169056407eb",
+      "bytes": 432
+    },
+    {
+      "nome": "criterios/conferencia-regras.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "597bb456f17afc9523a842f0fd02b96444ae9dce3ffd4cc1af9d2a60498f9807",
+      "bytes": 449
+    },
+    {
+      "nome": "criterios/ingredientes_e_sem_preco.evidencia.json",
+      "tipo": "CRITERION_EVIDENCE",
+      "sha256": "34f27a3c10123aaf419581df44368ecf915f3cc2447cffe56ce8e48f59babef7",
+      "bytes": 523
     }
   ],
   "checkpoints": [
     {
       "seq": 1,
       "rotulo": "etapa etapa1 concluída (tentativa 1)",
-      "commit": "3d400c42de91527bed01e2dad5b29eb3dad27fd4"
+      "commit": "eb03c82c64a1630310c5a3d21adc31f29e729526"
+    },
+    {
+      "seq": 2,
+      "rotulo": "etapa conferencia-regras concluída (tentativa 1)",
+      "commit": "eb03c82c64a1630310c5a3d21adc31f29e729526"
     }
   ],
   "memoria": [
     {
       "categoria": "ESPECIFICACAO",
-      "titulo": "Especificação inicial",
-      "autor": "operador",
+      "titulo": "Sobre o projeto",
+      "autor": "usuario",
       "conteudo": "Posts de Instagram da pizzaria do bairro.",
       "referencias": {}
     },
     {
       "categoria": "ESPECIFICACAO",
-      "titulo": "Público-alvo",
+      "titulo": "Público: famílias do bairro",
       "autor": "conversa",
-      "conteudo": "O público da pizzaria são as famílias do bairro.",
+      "conteudo": "O público dos posts de Instagram da pizzaria são as famílias do bairro.",
       "referencias": {
         "origem": "conversa",
-        "messageId": "cc0bf736-6628-45ff-9deb-7cc5e0d52e01",
-        "memoryHash": "7d6dfa75a5d88fc5b7984a94e5ba184c8a785d6d57d3f6ca93c26753d6eebf72",
-        "conversationId": "a07daaef-e31a-4b74-9167-89ead611ffa7"
+        "messageId": "3e59ad64-1aec-453b-bccc-d5eb22109c44",
+        "memoryHash": "3d14e86ce776e8a541e487887b93bd758dfacfb1d1db1c54ac7a9e37317af42a",
+        "conversationId": "21bfd9a3-1db8-425e-8b0b-2500e915369b"
       }
     },
     {
       "categoria": "PENDENCIA",
-      "titulo": "Legenda Margherita escrita",
-      "autor": "agente:claude-code-cli:sessao:56a4621f-3400-4c72-8302-7e78651b3b0c",
-      "conteudo": "[progresso] Lidos area/regras-da-casa.md, _CLAUDE.md, briefing.md e identidade-visual.md. Criado legenda-margherita.txt com abertura, descrição (molho de tomate, mussarela, manjericão, azeite), convite à família, 4 hashtags e última linha 'Código da casa: CASA-PZ-9137'. Sem preço, endereço, telefone, horário ou nome inventados.",
+      "titulo": "Informações extras do post Margherita",
+      "autor": "conversa",
+      "conteudo": "Falta o usuário dizer se o post da Margherita deve trazer preço, horário, endereço ou nome da pizzaria, que não estão nos materiais do projeto.",
       "referencias": {
-        "jobId": "3cc40409-97fd-4f46-a4d4-c4e2231fc35d",
+        "origem": "conversa",
+        "messageId": "3e59ad64-1aec-453b-bccc-d5eb22109c44",
+        "memoryHash": "805f2220d74a637b6e87ba3102550980fa18c196fab88f84ad5e580347e9b5b3",
+        "conversationId": "21bfd9a3-1db8-425e-8b0b-2500e915369b"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Legenda da Margherita criada",
+      "autor": "agente:claude-code-cli:sessao:996e6af6-1bab-4133-b199-a69958b86be9",
+      "conteudo": "[progresso] Criado legenda-margherita.txt na pasta principal, após ler contexto/base/_CLAUDE.md, regras-da-casa.md e cardapio.md. Tom alegre e sem gírias, voltado às famílias do bairro; cita só molho de tomate, mussarela e manjericão; sem preço, horário, endereço, telefone, promoção ou nome da pizzaria; última linha 'Código da casa: CASA-PZ-9137'. Falta: aprovação do tom pelo usuário e conferência",
+      "referencias": {
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
         "origem": "notas-do-agente",
-        "noteHash": "9f3217bb02e9b47ee0a2fd6efe0ee9710a9f13372d48dcad18abf3200fcc276e",
-        "attemptId": "6dee9428-ad3d-4758-adc3-aae7241cab50",
-        "sessionId": "56a4621f-3400-4c72-8302-7e78651b3b0c"
+        "noteHash": "ff054ecda50fcf8ff761b77eab7f984014a81baf1ab432006ec9fc1b5c90f80f",
+        "attemptId": "4a0c1931-e88d-43da-af97-de47b5ceeaa2",
+        "sessionId": "996e6af6-1bab-4133-b199-a69958b86be9"
+      }
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Informações extras do post Margherita",
+      "autor": "agente:claude-code-cli:sessao:996e6af6-1bab-4133-b199-a69958b86be9",
+      "conteudo": "Falta confirmar com o usuário se o post da Margherita deve trazer preço, horário, endereço ou nome da pizzaria, que não estão nos materiais do projeto.",
+      "referencias": {
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
+        "origem": "notas-do-agente",
+        "noteHash": "8148103e3de0a549303ba24831009edbe8d2373acdc6b39c9af4ac09fb7e77ed",
+        "attemptId": "4a0c1931-e88d-43da-af97-de47b5ceeaa2",
+        "sessionId": "996e6af6-1bab-4133-b199-a69958b86be9"
       }
     },
     {
       "categoria": "EVIDENCIA",
-      "titulo": "Arquivos gerados",
-      "autor": "agente:claude-code-cli:sessao:56a4621f-3400-4c72-8302-7e78651b3b0c",
-      "conteudo": "Legenda e relatório gravados.",
+      "titulo": "Conferência das regras da legenda Margherita",
+      "autor": "agente:claude-code-cli:sessao:79bb1cdb-0f68-4224-990d-92d5a9d1bd86",
+      "conteudo": "Revisão independente de legenda-margherita.txt: segue as regras. Tom alegre e sem gírias; só os ingredientes do cardápio; nada inventado (preço, horário, endereço, promoção, nome); última linha exata 'Código da casa: CASA-PZ-9137'. Nenhuma correção necessária.",
       "referencias": {
-        "jobId": "3cc40409-97fd-4f46-a4d4-c4e2231fc35d",
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
         "origem": "notas-do-agente",
-        "noteHash": "a6fa34d648fbec634bbb4153495faf8cde0b125570d4c03220ed3d5237135f1c",
-        "attemptId": "6dee9428-ad3d-4758-adc3-aae7241cab50",
-        "gitCommit": "00a501a399bc2ad8b00d7ae30155b34ec314799a",
-        "sessionId": "56a4621f-3400-4c72-8302-7e78651b3b0c",
+        "noteHash": "ff89a3c2c9e50119c6ac86eb28906ec9c3880577a7f65604bde0f13931cd1010",
+        "attemptId": "27be3fc5-768e-4614-b282-6d24d522b6f7",
+        "gitCommit": "eb03c82c64a1630310c5a3d21adc31f29e729526",
+        "sessionId": "79bb1cdb-0f68-4224-990d-92d5a9d1bd86",
         "parameters": {},
         "artifactIds": [
-          "cd8d3d2a-4372-4527-b419-afd353e26bcd"
+          "7ce046e0-0fd7-4af6-8156-33c979621286"
         ]
       }
     },
     {
       "categoria": "PENDENCIA",
-      "titulo": "Aprovação do tom",
-      "autor": "agente:claude-code-cli:sessao:56a4621f-3400-4c72-8302-7e78651b3b0c",
-      "conteudo": "Aguardando aprovação manual do usuário sobre o tom (alegre, sem gírias, voltado às famílias do bairro).",
+      "titulo": "Etapa conferencia-regras",
+      "autor": "agente:claude-code-cli:sessao:79bb1cdb-0f68-4224-990d-92d5a9d1bd86",
+      "conteudo": "[progresso] Conferência gravada em out/conferencia-regras.json (conforme: true, sem violações). Falta: o usuário aprovar o tom (critério manual) e responder à pendência sobre informações extras (preço, horário, endereço, nome da pizzaria).",
       "referencias": {
-        "jobId": "3cc40409-97fd-4f46-a4d4-c4e2231fc35d",
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
         "origem": "notas-do-agente",
-        "noteHash": "cf50bec0cf5b92ce987f8ff08658f81cd6711be6e24b3e1258a7299037a052db",
-        "attemptId": "6dee9428-ad3d-4758-adc3-aae7241cab50",
-        "sessionId": "56a4621f-3400-4c72-8302-7e78651b3b0c"
+        "noteHash": "e7ab7f230080d00651e848d13be3ac6fa5751adf844a59d55bee596f95f9f7aa",
+        "attemptId": "27be3fc5-768e-4614-b282-6d24d522b6f7",
+        "sessionId": "79bb1cdb-0f68-4224-990d-92d5a9d1bd86"
       }
     },
     {
       "categoria": "EVIDENCIA",
-      "titulo": "Evidência do job \"Legenda do post da pizza Margherita\"",
+      "titulo": "Resultado do trabalho \"Legenda de Instagram: pizza Margherita\"",
       "autor": "sistema:verificador",
-      "conteudo": "Job concluído pelo verificador do backend. Commit 3d400c42de91527bed01e2dad5b29eb3dad27fd4. Artefatos: relatorio-legenda.md (a84a00a9c501).",
+      "conteudo": "Trabalho concluído e conferido pelo verificador. Commit eb03c82c64a1630310c5a3d21adc31f29e729526. Artefatos: conferencia-regras.json (8b228c13ea0d).",
       "referencias": {
-        "jobId": "3cc40409-97fd-4f46-a4d4-c4e2231fc35d",
-        "gitCommit": "3d400c42de91527bed01e2dad5b29eb3dad27fd4",
-        "datasetIds": [],
-        "parameters": {},
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
+        "gitCommit": "eb03c82c64a1630310c5a3d21adc31f29e729526",
         "artifactIds": [
-          "cd8d3d2a-4372-4527-b419-afd353e26bcd"
-        ],
-        "experimentIds": []
+          "7ce046e0-0fd7-4af6-8156-33c979621286"
+        ]
       }
     }
   ],
   "conversa": [
+    {
+      "papel": "USUARIO",
+      "tipo": null,
+      "status": "PRONTA",
+      "texto": "Escreva um script Python que calcule o imposto de renda. Pode propor o plano direto.",
+      "plano": null,
+      "custoUsd": 0,
+      "sessao": null
+    },
+    {
+      "papel": "ASSISTENTE",
+      "tipo": "resposta",
+      "status": "PRONTA",
+      "texto": "Esse pedido fica fora do que este projeto faz. Ele foi criado só para escrever textos de posts de Instagram da pizzaria. Um programa para calcular imposto de renda é outro assunto (programação e finanças), então não posso montar esse plano aqui. Para esse script, o melhor é abrir um projeto próprio para isso. Aqui posso ajudar com legendas para o Instagram, como: divulgar uma pizza do cardápio, anunciar uma promoção que você já tenha definido, avisar sobre o horário de funcionamento ou fazer posts para datas especiais.",
+      "plano": null,
+      "custoUsd": 0.0765,
+      "sessao": "097ffd21-5388-44aa-960f-a6b3a9ae4df5"
+    },
     {
       "papel": "USUARIO",
       "tipo": null,
@@ -268,18 +374,18 @@
       "papel": "ASSISTENTE",
       "tipo": "plano",
       "status": "PRONTA",
-      "texto": "Vou escrever a legenda do post da pizza Margherita no arquivo legenda-margherita.txt. O texto fala com as famílias do bairro, tem tom alegre e sem gírias, e traz um convite para pedir ou visitar e algumas hashtags. A última linha será \"Código da casa: CASA-PZ-9137\", como pedem as regras da casa. Não vou inventar preço, endereço nem nome da pizzaria, porque esses dados ainda não estão registrados. No fim, você revisa o texto e aprova.\n\nGuardei na memória do projeto: Público-alvo.",
+      "texto": "Vou escrever a legenda do post da pizza Margherita para as famílias do bairro e salvar no arquivo legenda-margherita.txt. O tom será alegre e sem gírias, e a legenda vai citar só os ingredientes do cardápio: molho de tomate, mussarela e manjericão. Ela termina com a linha obrigatória 'Código da casa: CASA-PZ-9137'. Preço, horário e endereço ficam de fora porque não estão nos materiais do projeto; se quiser incluir, é só me passar depois.\n\nGuardei na memória do projeto: Público: famílias do bairro; Informações extras do post Margherita.",
       "plano": {
         "steps": [
           {
             "key": "etapa1",
-            "title": "Escrever a legenda",
+            "title": "Escrever a legenda da Margherita",
             "dependsOn": [],
-            "instructions": "Leia area/regras-da-casa.md, area/_CLAUDE.md, area/briefing.md e area/identidade-visual.md. Crie o arquivo legenda-margherita.txt na pasta principal, em português e em texto simples, com a legenda de um post de Instagram anunciando a pizza Margherita para as famílias do bairro. Estrutura: uma frase de abertura chamativa; uma descrição da pizza (molho de tomate, mussarela, manjericão fresco e azeite); um convite para reunir a família e pedir ou visitar a pizzaria; de 3 a 6 hashtags. Emojis são permitidos com moderação. O tom deve ser alegre e acolhedor, sem gírias. Não invente preço, endereço, telefone, horário nem nome da pizzaria. A ÚLTIMA linha do arquivo deve ser exatamente: Código da casa: CASA-PZ-9137. Registre o progresso em .nivoo/notas.jsonl e grave um breve relatório em out/relatorio-legenda.md.",
-            "verifyCommand": "test -s legenda-margherita.txt && grep -qi 'margherita' legenda-margherita.txt && [ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n 1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ]"
+            "instructions": "Antes de escrever, leia contexto/base/_CLAUDE.md, contexto/base/regras-da-casa.md e contexto/conhecimento/cardapio.md. Crie o arquivo legenda-margherita.txt na pasta principal do projeto (não use contexto/ nem out/). Escreva em português uma legenda curta de Instagram anunciando a pizza Margherita, pensada para as famílias do bairro (por exemplo, o momento de reunir a família à mesa). O tom deve ser alegre e sem gírias. Cite somente os ingredientes do cardápio: molho de tomate, mussarela e manjericão. Não invente preço, horário, endereço, telefone, promoção, nome da pizzaria nem nenhum outro fato. Pode ter uma chamada simples para a família experimentar e algumas hashtags genéricas, como #pizza e #margherita. A última linha do arquivo deve ser exatamente: Código da casa: CASA-PZ-9137. Depois, registre em .nivoo/notas.jsonl (uma linha JSON por registro) o progresso e esta pendência: falta confirmar com o usuário se o post deve trazer preço, horário, endereço ou nome da pizzaria.",
+            "verifyCommand": "test -s legenda-margherita.txt && grep -qi 'margherita' legenda-margherita.txt && grep -qi 'manjeric' legenda-margherita.txt && grep -qi 'mussarela' legenda-margherita.txt && grep -qi 'tomate' legenda-margherita.txt && [ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ] && ! grep -q 'R\\$' legenda-margherita.txt"
           }
         ],
-        "title": "Legenda do post da pizza Margherita",
+        "title": "Legenda de Instagram: pizza Margherita",
         "limits": {},
         "criteria": [
           {
@@ -288,42 +394,42 @@
             "config": {
               "path": "legenda-margherita.txt"
             },
-            "description": "O arquivo legenda-margherita.txt existe na pasta principal"
-          },
-          {
-            "key": "menciona_margherita",
-            "kind": "COMMAND",
-            "config": {
-              "command": "grep -qi 'margherita' legenda-margherita.txt"
-            },
-            "description": "A legenda menciona a pizza Margherita"
+            "description": "O arquivo legenda-margherita.txt existe na pasta principal do projeto"
           },
           {
             "key": "codigo_da_casa",
             "kind": "COMMAND",
             "config": {
-              "command": "[ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n 1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ]"
+              "command": "[ \"$(grep -v '^[[:space:]]*$' legenda-margherita.txt | tail -n1 | tr -d '\\r' | sed 's/[[:space:]]*$//')\" = 'Código da casa: CASA-PZ-9137' ]"
             },
-            "description": "A última linha com texto é exatamente 'Código da casa: CASA-PZ-9137'"
+            "description": "A última linha da legenda é exatamente 'Código da casa: CASA-PZ-9137'"
+          },
+          {
+            "key": "ingredientes_e_sem_preco",
+            "kind": "COMMAND",
+            "config": {
+              "command": "grep -qi 'margherita' legenda-margherita.txt && grep -qi 'manjeric' legenda-margherita.txt && grep -qi 'mussarela' legenda-margherita.txt && grep -qi 'tomate' legenda-margherita.txt && ! grep -q 'R\\$' legenda-margherita.txt"
+            },
+            "description": "A legenda cita a Margherita e seus ingredientes do cardápio e não traz preço inventado"
           },
           {
             "key": "aprovacao_tom",
             "kind": "MANUAL_APPROVAL",
             "config": {},
-            "description": "O usuário aprova o tom (alegre, sem gírias, voltado às famílias do bairro)"
+            "description": "O usuário aprova o texto: tom alegre, sem gírias e adequado às famílias do bairro"
           }
         ],
-        "objective": "Criar o arquivo legenda-margherita.txt na pasta principal com a legenda de um post de Instagram anunciando a pizza Margherita. O texto deve falar com as famílias do bairro, ter tom alegre e sem gírias, conforme area/regras-da-casa.md, e terminar exatamente com a linha 'Código da casa: CASA-PZ-9137'.",
+        "objective": "Criar o arquivo legenda-margherita.txt na pasta principal do projeto com a legenda de um post de Instagram anunciando a pizza Margherita para as famílias do bairro. A legenda deve ter tom alegre e sem gírias, citar apenas os ingredientes do cardápio (molho de tomate, mussarela, manjericão), não inventar preços, horários, endereços, promoções nem outros fatos, e terminar exatamente com a linha 'Código da casa: CASA-PZ-9137'.",
         "defaultProvider": "claude-code-cli"
       },
-      "custoUsd": 0.11,
-      "sessao": "6de85efd-a5cd-4828-9148-0f9887d5aa80"
+      "custoUsd": 0.1198,
+      "sessao": "8ac0fb17-fa17-4c1e-9c66-6afd8fcb7966"
     },
     {
       "papel": "ASSISTENTE",
       "tipo": "sistema",
       "status": "PRONTA",
-      "texto": "Plano aprovado por teste real. Job \"Legenda do post da pizza Margherita\" criado e iniciado.",
+      "texto": "Plano aprovado por teste real. Job \"Legenda de Instagram: pizza Margherita\" criado e iniciado.",
       "plano": null,
       "custoUsd": 0,
       "sessao": null
@@ -341,19 +447,58 @@
       "papel": "ASSISTENTE",
       "tipo": "resposta",
       "status": "PRONTA",
-      "texto": "Por enquanto o projeto tem dois arquivos, o README.md e a legenda-margherita.txt com o texto do post da pizza Margherita, e o nosso público são as famílias do bairro.",
+      "texto": "O projeto tem dois arquivos na pasta principal, o README.md e o legenda-margherita.txt, e o nosso público são as famílias do bairro.",
       "plano": null,
-      "custoUsd": 0.0583,
-      "sessao": "7db7a4d3-8f6f-4f86-9604-d6f3f611bb08"
+      "custoUsd": 0.0682,
+      "sessao": "d98d134b-d3fe-440b-9f2a-01920c846fe7"
     }
   ],
   "memoriaDaConversa": [
     {
       "categoria": "ESPECIFICACAO",
-      "titulo": "Público-alvo",
-      "conteudo": "O público da pizzaria são as famílias do bairro."
+      "titulo": "Público: famílias do bairro",
+      "conteudo": "O público dos posts de Instagram da pizzaria são as famílias do bairro."
+    },
+    {
+      "categoria": "PENDENCIA",
+      "titulo": "Informações extras do post Margherita",
+      "conteudo": "Falta o usuário dizer se o post da Margherita deve trazer preço, horário, endereço ou nome da pizzaria, que não estão nos materiais do projeto."
     }
   ],
-  "legenda": "Tem novidade saindo do forno: chegou a nossa pizza Margherita! 🍕\n\nUma receita clássica e cheia de sabor: molho de tomate, mussarela derretida, folhas de manjericão fresco e um fio de azeite para finalizar. Simples, cheirosa e perfeita para todas as idades.\n\nQue tal reunir a família para um momento especial? Faça o seu pedido ou venha nos visitar e aproveite a Margherita com quem você mais gosta. Vai ser uma alegria receber vocês! 😊\n\n#PizzaMargherita #PizzaEmFamilia #PizzariaDoBairro #NoiteDePizza\n\nCódigo da casa: CASA-PZ-9137\n",
+  "legenda": "Hora de reunir a família à mesa! 🍕\n\nA nossa pizza Margherita chega com molho de tomate, mussarela e manjericão: simples, saborosa e feita para dividir com quem você ama.\n\nChame a família e venha experimentar a Margherita!\n\n#pizza #margherita #familia #pizzaemfamilia\n\nCódigo da casa: CASA-PZ-9137\n",
+  "conferenciaDasRegras": {
+    "id": "cd2fedab-7392-4416-b8ae-fd234fdb086d",
+    "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
+    "key": "conferencia-regras",
+    "description": "Conferência independente: o resultado segue as regras da base e do projeto",
+    "kind": "COMMAND",
+    "config": {
+      "command": "python3 -c \"import json,sys; d=json.load(open('out/conferencia-regras.json')); sys.exit(0 if d.get('conforme') is True and not d.get('violacoes') else 1)\""
+    },
+    "status": "APROVADO",
+    "lastCheckedAt": "2026-11-14T17:33:56.003Z",
+    "createdAt": "2026-11-14T17:33:00.495Z",
+    "checks": [
+      {
+        "id": "19abe886-3c2c-4ebf-9849-4864151dfb29",
+        "jobId": "4bb8daa2-10d9-4016-aec3-60cc39a0d730",
+        "criterionId": "cd2fedab-7392-4416-b8ae-fd234fdb086d",
+        "passed": true,
+        "evidence": {
+          "stderr": "",
+          "stdout": "",
+          "comando": "python3 -c \"import json,sys; d=json.load(open('out/conferencia-regras.json')); sys.exit(0 if d.get('conforme') is True and not d.get('violacoes') else 1)\"",
+          "timeout": false,
+          "esperado": 0,
+          "exitCode": 0
+        },
+        "artifactId": "6a1caf9e-8e0a-457b-a8f1-eb3f69543944",
+        "createdAt": "2026-11-14T17:33:56.002Z"
+      }
+    ]
+  },
+  "aprovacoesPedidasPelaIA": [
+    "Critério subjetivo: O usuário aprova o texto: tom alegre, sem gírias e adequado às famílias do bairro"
+  ],
   "mergeStatus": "INCORPORADO"
 }

@@ -62,7 +62,7 @@ case "$cmd" in
     echo "== API"; api /health && echo
     echo "== workers"; api /system/workers | json 'j=>j.forEach(w=>console.log(`  ${w.id}  ${w.online?"online":"offline"}  último sinal ${w.lastSeenAt}`))'
     echo "== conectores (vistos pelo usuário $NIVOO_USER)"
-    for p in claude-code-cli codex-cli local-shell anthropic-api openai-api; do
+    for p in claude-code-cli codex-cli gemini-cli local-shell; do
       api "/providers/$p/check" POST | json 'j=>console.log(`  ${j.id.padEnd(16)} ${j.available?"DISPONÍVEL":"indisponível"}  ${j.version??""}  ${j.errors.join("; ")}`)'
     done
     echo "   (o worker roda como $NIVOO_USER; a API também — os logins acima valem para os dois)"
