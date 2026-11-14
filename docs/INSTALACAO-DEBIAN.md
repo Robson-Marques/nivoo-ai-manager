@@ -100,6 +100,8 @@ nivoo check            # API, workers e conectores
 nivoo verificar        # job de teste de ponta a ponta (sem IA): deve imprimir OK
 nivoo backup           # banco + dados + configuração em /var/backups/nivoo
 nivoo update           # backup + git pull + reinstala + migra (sem perder dados)
+# Versões anteriores a 2026-11-14: se depois de um 'nivoo update' a API não subir ("Cannot find module"),
+# rode 'bash /opt/nivoo/app/deploy/install-debian.sh' com o código novo: ele repara as permissões.
 nivoo restart
 nivoo help
 ```

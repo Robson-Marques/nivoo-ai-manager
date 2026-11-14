@@ -1,8 +1,64 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
-> Atualizado em 2026-11-02. Código na `main` (histórico de desenvolvimento da branch `claude/lucid-lamport-z7zup1` incorporado).
+> Atualizado em 2026-11-14. Código na `main` (histórico de desenvolvimento da branch `claude/lucid-lamport-z7zup1` incorporado).
 > Auditoria que motivou esta etapa: `docs/AUDITORIA.md`. Procedimento dos executores reais:
 > `docs/PROCEDIMENTO-CLI.md`. Evidências brutas: `docs/evidencias/2026-10-27/`.
+
+## Etapa 7 — chat simples, modelos com pasta de padrões e memória automática (2026-11-14)
+
+**Pedido:** o sistema estava complexo demais para o usuário final. Agora a tela inicial é um **chat**:
+projetos na lateral (agrupados por modelo), "+ Novo projeto" (nome, sobre o que é, tipo), conversa,
+proposta "Posso fazer isto" com botão **Fazer**, andamento em linguagem simples (Trabalhando / Pronto /
+Preciso da sua confirmação / Parei + Tentar de novo) e painel lateral **O que o projeto lembra** (com
+"esquecer") e **Arquivos** da pasta principal. As telas antigas continuam em **Modo avançado**.
+
+**Modelos (áreas).** Mercado é o modelo pronto; há Web, Imagem, Vídeo e Geral, e o usuário cria os seus.
+Tela **Modelos**: regras editáveis (versionadas) e **Enviar pasta de padrões** — a pasta inteira (ex.:
+um fluxo de criação de software com padrões e identidade visual) vira a base do modelo, num commit git.
+Todo projeto do modelo recebe essa base em cada conversa e trabalho. Arquivos de agente da pasta
+(`.claude/`, `CLAUDE.md`, `AGENTS.md`) chegam renomeados (`_claude/`, `_CLAUDE.md`): a IA os lê como
+padrões, mas o executor não os carrega como configuração (sem hooks).
+
+**Continuidade.** Cada trabalho concluído entra na pasta principal (`main`) do projeto; o próximo parte
+dela. O que o usuário diz na conversa (decisões, preferências, fatos, pendências) vira memória do projeto
+automaticamente, sem duplicar, e entra em todas as próximas conversas e trabalhos.
+
+**Prova com Claude real** (`test/integration/real-06`, evidência em `docs/evidencias/2026-11-14/`):
+modelo "Pizzaria" com pasta de padrões (regra da casa com o código CASA-PZ-9137 + um `CLAUDE.md`) →
+pedido no chat → a IA leu a base, propôs plano com critérios verificáveis e um critério subjetivo
+("o usuário aprova o tom") e guardou na memória "o público são as famílias do bairro" → aprovado →
+Claude Code escreveu a legenda terminando com o código da casa → verificador aprovou → incorporado à
+pasta principal → na pergunta seguinte a IA citou o arquivo criado e o público lembrado. Custo total
+≈ US$ 0,31 (conversa 0,11 + 0,06; trabalho 0,14).
+
+**Testes:** suíte automatizada 81/81 (nova `acceptance/13`, 9 casos); interface do chat e dos modelos
+pelo navegador (`apps/web/e2e/chat-smoke.cjs`, IA simulada); interface avançada no servidor instalado
+(`ui-smoke.cjs`, todos os passos).
+
+**Debian (real, com systemd):**
+
+| Verificação | Resultado |
+|---|---|
+| Debian 12: instala a `main` anterior, cria dados, `nivoo update` para esta versão | **falhou e foi corrigido** (abaixo); depois: projetos preservados e migrados para o modelo Mercado, job novo em projeto antigo concluído e incorporado, conversa responde "IA indisponível" com orientação, tela inicial ok |
+| Debian 13: instalação do zero | 57 s; job de ponta a ponta e `nivoo verificar` ok; interface avançada 100% |
+
+**Problemas reais encontrados nesta etapa:**
+
+* `nivoo update` quebrava a instalação (antigo, não detectado antes porque os testes rodavam o
+  instalador direto): o comando usa `umask 077` (backups privados) e o instalador herdava; dependências,
+  compilação e CLIs ficavam ilegíveis para o serviço → a API não subia. Corrigido (umask 022 no
+  instalador + reparo de permissões em servidores já afetados).
+* O seed, rodando como root, criava a pasta do modelo Mercado como root → API sem permissão. Corrigido.
+* Painel lateral não atualizava quando um trabalho terminava; memória da conversa não aceitava o campo
+  `texto` (só `conteudo`). Corrigidos.
+
+**Se o seu servidor já rodou `nivoo update` e a API não sobe:** copie a versão nova para `/opt/nivoo/app`
+e rode `bash /opt/nivoo/app/deploy/install-debian.sh` (repara as permissões).
+
+**Continua pendente:** Codex sem login (nenhuma execução real); geração de imagens/vídeo de verdade
+exige um conector de imagem/vídeo (hoje a IA entrega textos, briefings, prompts, SVG/HTML); a pasta do
+seu computador (ex.: `STUDIO-WORKFLOW`) precisa ser enviada pela tela Modelos — esta sessão de
+desenvolvimento não tem acesso ao seu PC.
 
 ## Etapa 6 — revisão independente (2026-11-02)
 

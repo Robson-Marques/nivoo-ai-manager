@@ -116,7 +116,7 @@ const passo = (msg) => console.log(`  ok  ${msg}`);
     await page.getByText('Medição de gaps (UI)').first().waitFor();
 
     // 7. Conectores
-    await page.getByRole('link', { name: 'Conectores e configurações' }).click();
+    await page.getByRole('link', { name: 'Contas de IA e configurações' }).click();
     await page.getByText('Claude Code CLI').waitFor();
     await page.getByText('OpenAI Codex CLI').waitFor();
     await page.getByText('Configuração WIN (independente)').waitFor();
