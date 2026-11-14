@@ -9,6 +9,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES } from '../security/policy';
 import { WorkspaceService } from '../storage/workspace.service';
+import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
 import { sha256 } from '../common/hash';
@@ -92,7 +93,7 @@ export class PlannerService {
         systemPrompt: profile.text,
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 300) * 1000,
         signal,
-        options: { maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25) },
+        options: { maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25), model: projectModel(project, providerId) },
         onLog: () => undefined,
       });
       if (result.interrupted) {

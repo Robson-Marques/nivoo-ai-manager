@@ -8,6 +8,7 @@ import { sha256 } from '../common/hash';
 import { knowledgePath, parseKnowledgeUpload, withTextCopies } from '../common/knowledge-upload';
 import { optNumber, optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
+import { checkModelName } from '../providers/model-catalog.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { BlockedReason } from '../common/status';
@@ -95,7 +96,7 @@ export class ProjectsService {
     };
   }
 
-  /** Ajustes simples: nome, descrição, IA do projeto, limite de gasto (null = sem limite) e arquivar. */
+  /** Ajustes simples: nome, descrição, IA e modelo do projeto, limite de gasto (null = sem limite) e arquivar. */
   async update(id: string, body: any) {
     await this.assertExists(id);
     const data: Record<string, unknown> = {};
@@ -105,6 +106,15 @@ export class ProjectsService {
     if (description !== undefined) data.description = description;
     const provider = optString(body, 'provider', 60);
     if (provider) data.provider = this.checkProvider(provider);
+    // Modelo da IA (por IA: trocar de IA e voltar mantém a escolha). null/"" = padrão da IA.
+    if (body && 'model' in body) {
+      const atual = await this.prisma.project.findUniqueOrThrow({ where: { id }, select: { provider: true, aiModels: true } });
+      const ia = (data.provider as string | undefined) ?? atual.provider;
+      const modelos = { ...((atual.aiModels ?? {}) as Record<string, string>) };
+      if (body.model === null || body.model === '') delete modelos[ia];
+      else modelos[ia] = checkModelName(body.model);
+      data.aiModels = modelos;
+    }
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });

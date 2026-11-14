@@ -3,6 +3,16 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 11 — escolher o modelo de cada IA no projeto (2026-11-14)
+
+No topo do chat (e em Ajustes), ao lado da IA, um seletor de **modelo**. A lista vem do programa oficial da
+IA, então modelos novos aparecem sozinhos: Claude (aliases `fable`, `opus`, `sonnet` = versão mais recente,
+e Haiku), ChatGPT (`codex debug models`: GPT-6.1-Sol, GPT-6-Astra, GPT-5.6-Sol…), Gemini
+(`gemini --list-models`: auto, gemini-2.5-pro, gemini-3.5-flash…); "Outro…" aceita qualquer nome. A escolha
+fica guardada **por IA** no projeto (`Project.aiModels`), vale para o chat e para os trabalhos (a etapa
+pode sobrepor) e chega ao CLI como `--model`. Testes: suíte 85/85 (o `--model` escolhido chega ao CLI no
+chat e no trabalho; a escolha é guardada por IA).
+
 ## Correção — fila parada em servidor fora de UTC (2026-11-14)
 
 **Relato comprovado no servidor** (Debian 13, `America/Sao_Paulo`, versão `28f997d`): worker online, mas

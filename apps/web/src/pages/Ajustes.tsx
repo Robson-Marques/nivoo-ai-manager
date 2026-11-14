@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useProjetos } from '../Layout';
 import { api, nomeUsuario } from '../api';
-import { EditorDeRegras, Materiais } from '../Pecas';
+import { EditorDeRegras, Materiais, SeletorModelo } from '../Pecas';
 
 const ESTADO: Record<string, string> = { PENDENTE: 'na fila', EXECUTANDO: 'trabalhando', AGUARDANDO_RECURSO: 'esperando a IA', AGUARDANDO_APROVACAO: 'esperando sua confirmação' };
 
@@ -66,7 +66,10 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
             </button>
           ))}
         </div>
-        <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. <Link to="/contas">Contas de IA</Link></span>
+        <div className="row">
+          <SeletorModelo projeto={projeto} onMudou={onMudou} />
+        </div>
+        <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. O modelo fica guardado para cada IA. <Link to="/contas">Contas de IA</Link></span>
       </div>
       <div className="campo">
         <b>Limite de gasto do projeto (US$)</b>

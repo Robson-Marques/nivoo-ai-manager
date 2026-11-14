@@ -3,11 +3,12 @@ import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.prov
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider, GeminiCliProvider } from './gemini-cli.provider';
 import { LocalShellProvider } from './local-shell.provider';
+import { ModelCatalogService } from './model-catalog.service';
 import { ProviderRegistry } from './provider-registry.service';
 
 @Global()
 @Module({
-  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiCliProvider, GeminiApiProvider, LocalShellProvider, ProviderRegistry],
-  exports: [ProviderRegistry],
+  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiCliProvider, GeminiApiProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
+  exports: [ProviderRegistry, ModelCatalogService],
 })
 export class ProvidersModule {}

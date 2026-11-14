@@ -52,7 +52,8 @@ export class GeminiCliProvider implements AiProvider {
   }
 
   /** Conta Google: login gravado pelo próprio CLI no HOME do serviço. Nunca a chave de API. */
-  protected env(extra: Record<string, string> = {}) {
+  /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
+  env(extra: Record<string, string> = {}) {
     GeminiCliProvider.ensureUserSettings('oauth-personal');
     return minimalEnv(extra);
   }
@@ -162,7 +163,8 @@ export class GeminiApiProvider extends GeminiCliProvider {
   readonly id: string = 'gemini-api';
   readonly label: string = 'Gemini (API)';
 
-  protected env(extra: Record<string, string> = {}) {
+  /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
+  env(extra: Record<string, string> = {}) {
     const home = isolatedHome('gemini-api');
     GeminiCliProvider.ensureUserSettings('gemini-api-key', home);
     return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), HOME: home, ...extra });

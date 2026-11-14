@@ -21,6 +21,12 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_STEP } from '../jobs/rule-review';
 
+/** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
+export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
+  const m = ((project.aiModels ?? {}) as Record<string, string>)[providerId];
+  return m || undefined;
+}
+
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
 export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
   return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, step.provider ?? null]));
@@ -177,7 +183,8 @@ export class StepExecutorService {
         systemPrompt: isAi ? profile.text : undefined,
         timeoutMs,
         signal,
-        options: (step.providerOptions ?? {}) as { model?: string; maxTurns?: number },
+        // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
+        options: { model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }) },
         onSpawn: (pid) => {
           logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },

@@ -26,6 +26,7 @@ Na interface, "modelo" = `Area` no banco e `/areas` na API.
 | Método | Rota | Função |
 |---|---|---|
 | GET | `/accounts` | As três IAs: `instalado`, `conectado`, `problema`, `configuradoPeloAdministrador` (credencial vinda de variável de ambiente) e o login em andamento. |
+| GET | `/accounts/:id/models` | Modelos da IA, lidos do programa oficial (Claude: aliases fable/opus/sonnet; ChatGPT: `codex debug models`; Gemini: `gemini --list-models`); cache de 1 h. |
 | POST | `/accounts/:id/login` | Inicia o login oficial do CLI. Devolve `{ state, url?, userCode?, message }`. |
 | GET | `/accounts/:id/login` | Estado do login: `iniciando`, `aguardando_codigo` (Claude, Gemini), `aguardando_site` (ChatGPT), `conectado`, `erro`, `cancelado`. 404 se não houver login em andamento. |
 | POST | `/accounts/:id/login/code` | `{ "code" }` — código colado pelo usuário (Claude e Gemini). 409 se o login não estiver esperando código. |
@@ -56,7 +57,7 @@ Credenciais ficam em `segredos.json` (permissão 600) ou nos arquivos do própri
 | GET | `/projects` | Lista projetos ativos (com o modelo); `?arquivados=1` lista os arquivados. |
 | POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (`claude-code-cli` \| `codex-cli` \| `gemini-cli`; padrão Claude), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
 | GET | `/projects/:pid` | Projeto com regras vigentes, arquivos de conhecimento e `custoGastoUsd` (trabalhos + conversa). |
-| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
+| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "model"? (modelo da IA do projeto; `null` = padrão; guardado por IA em `aiModels`), "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
 | DELETE | `/projects/:pid` | Exclui o projeto: para antes os trabalhos e respostas em andamento (espera até 20 s as sessões encerrarem) e apaga registros, pasta e artefatos. |
 | POST | `/projects/:pid/rules` | `{ "text", "reason"?, "author"? }` — nova versão das regras do projeto. |
 | GET | `/projects/:pid/rules/history` | Todas as versões das regras. |

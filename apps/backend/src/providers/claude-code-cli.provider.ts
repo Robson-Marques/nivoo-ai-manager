@@ -101,7 +101,8 @@ export class ClaudeCodeCliProvider implements AiProvider {
     return secretEnv(['CLAUDE_CODE_OAUTH_TOKEN']);
   }
 
-  protected env(extra: Record<string, string> = {}) {
+  /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
+  env(extra: Record<string, string> = {}) {
     return minimalEnv({ ...this.credentials(), ...extra }, this.passKeys);
   }
 
@@ -243,7 +244,8 @@ export class ClaudeApiProvider extends ClaudeCodeCliProvider {
     return { ...secretEnv(['ANTHROPIC_API_KEY']), CLAUDE_CONFIG_DIR: dir };
   }
 
-  protected env(extra: Record<string, string> = {}) {
+  /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
+  env(extra: Record<string, string> = {}) {
     return minimalEnv({ ...this.credentials(), ...extra });
   }
 

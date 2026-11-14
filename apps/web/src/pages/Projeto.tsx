@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, lerArquivo, nomeUsuario } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
+import { SeletorModelo } from '../Pecas';
 
 /**
  * Projeto: conversa com a IA escolhida, presa ao "fine-tune do projeto" (regras do modelo + regras do
@@ -198,7 +199,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
                   IA: {c.nome}{c.conectado ? '' : ' (não conectada)'}
                 </option>
               ))}
-            </select>
+            </select>{' '}
+            <SeletorModelo projeto={projeto} onMudou={onProjetoMudou} className="seletor-ia" />
             {projeto.archivedAt && <span className="tag">projeto arquivado</span>}
             {conv && <div className="muted small titulo-conversa">{conv.title}</div>}
           </div>

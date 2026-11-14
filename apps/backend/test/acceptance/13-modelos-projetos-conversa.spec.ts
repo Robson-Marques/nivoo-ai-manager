@@ -413,6 +413,31 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('mode', null);
   });
 
+  it('modelo da IA por projeto: lista do programa, escolha chega ao CLI (chat e trabalho), guardada por IA', async () => {
+    const modelos = (await h.http().get('/api/accounts/claude-code-cli/models').expect(200)).body.opcoes.map((o: any) => o.id);
+    expect(modelos).toEqual(expect.arrayContaining(['opus', 'sonnet', 'fable']));
+    const p = await projeto('Com modelo', 'geral', { provider: 'claude-code-cli' });
+    await h.http().patch(`/api/projects/${p.id}`).send({ model: 'opus; rm -rf /' }).expect(400);
+    expect((await h.http().patch(`/api/projects/${p.id}`).send({ model: 'opus' }).expect(200)).body.aiModels).toEqual({ 'claude-code-cli': 'opus' });
+    // Chat usa o modelo escolhido.
+    ctl('mode', 'texto');
+    ctl('resposta.txt', '```json\n' + JSON.stringify({ tipo: 'resposta', texto: 'ok', memoria: [] }) + '\n```');
+    const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'oi' }).expect(201);
+    await resposta(p.id, conv.id, 1);
+    expect(lido('args.txt')).toMatch(/--model opus/);
+    // Trabalho também.
+    ctl('mode', null);
+    const j = await job(p.id, { title: 't', defaultProvider: 'claude-code-cli', conferencia: false, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+    expect((await ate(p.id, j.id)).status).toBe('CONCLUIDO');
+    expect(lido('args.txt')).toMatch(/--model opus/);
+    // Por IA: trocar para outra IA e escolher outro modelo não apaga o do Claude.
+    const outro = (await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'claude-api', model: 'sonnet' }).expect(200)).body;
+    expect(outro.aiModels).toEqual({ 'claude-code-cli': 'opus', 'claude-api': 'sonnet' });
+    expect((await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'claude-code-cli', model: null }).expect(200)).body.aiModels).toEqual({ 'claude-api': 'sonnet' });
+    ctl('resposta.txt', null);
+  });
+
   it('limite de gasto do projeto vale também para a conversa', async () => {
     const p = await projeto('Com limite', 'geral');
     await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 0 }).expect(200);
