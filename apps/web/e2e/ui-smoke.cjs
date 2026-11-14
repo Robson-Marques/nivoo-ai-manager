@@ -34,7 +34,7 @@ const passo = (msg) => console.log(`  ok  ${msg}`);
   });
   try {
     // 1. Painel
-    await page.goto(base);
+    await page.goto(`${base}/painel`); // a tela inicial agora é o chat; o painel fica no modo avançado
     await page.getByRole('heading', { name: 'Painel Mercado' }).waitFor();
     await page.getByText('Mini Índice Bovespa').waitFor();
     await page.getByText('Mini Dólar Comercial').waitFor();

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { MemoryService } from './memory.service';
 
 @Controller('projects/:pid/memory')
@@ -13,6 +13,11 @@ export class MemoryController {
   @Post()
   create(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
     return this.memory.create(pid, body);
+  }
+
+  @Delete(':mid')
+  forget(@Param('pid', ParseUUIDPipe) pid: string, @Param('mid', ParseUUIDPipe) mid: string, @Query('by') by?: string) {
+    return this.memory.forget(pid, mid, by);
   }
 
   @Post(':mid/supersede')

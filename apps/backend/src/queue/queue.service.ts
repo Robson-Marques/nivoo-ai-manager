@@ -38,11 +38,19 @@ export class QueueService {
   async claim(workerId: string, leaseMs: number): Promise<ClaimedTask | null> {
     // Loop de quedas: a tarefa derrubou o worker MAX_RECOVERIES vezes. Vira DEAD e o job é BLOQUEADO
     // com motivo explícito (nunca fica parado em EXECUTANDO sem ninguém processar).
-    const dead = await this.prisma.$queryRaw<Array<{ jobId: string; stepId: string | null }>>`
+    const dead = await this.prisma.$queryRaw<Array<{ jobId: string | null; stepId: string | null; messageId: string | null }>>`
       UPDATE "QueueTask" SET status = 'DEAD', "lastError" = 'worker caiu repetidamente processando esta tarefa', "updatedAt" = now()
       WHERE status = 'RUNNING' AND "lockedUntil" < now() AND recoveries >= ${MAX_RECOVERIES}
-      RETURNING "jobId", "stepId"`;
-    for (const d of dead) await this.blockForInfrastructure(d.jobId, d.stepId);
+      RETURNING "jobId", "stepId", "messageId"`;
+    for (const d of dead) {
+      if (d.jobId) await this.blockForInfrastructure(d.jobId, d.stepId);
+      else if (d.messageId) {
+        await this.prisma.conversationMessage.updateMany({
+          where: { id: d.messageId, status: 'PENDENTE' },
+          data: { status: 'ERRO', kind: 'erro', content: 'O worker caiu repetidamente ao processar esta mensagem. Veja os logs do worker e envie de novo.' },
+        });
+      }
+    }
     const rows = await this.prisma.$queryRaw<Array<QueueTask & { prev_locked_by: string | null; prev_status: string }>>`
       WITH c AS (
         SELECT id, "lockedBy" AS prev_locked_by, status::text AS prev_status

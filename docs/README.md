@@ -7,7 +7,7 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 **Quem vai conhecer o projeto (gestor, novo responsável):**
 1. [`../README.md`](../README.md) — o que é, para que serve, componentes.
 2. [`ESTADO.md`](ESTADO.md) — o que está pronto, o que foi provado (com executor real ou simulado) e o que está bloqueado.
-3. [`DECISOES.md`](DECISOES.md) — por que cada escolha foi feita (ADR-001 a 030).
+3. [`DECISOES.md`](DECISOES.md) — por que cada escolha foi feita (ADR-001 a 040).
 
 **Quem vai instalar e operar o servidor:**
 1. [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) — instalação em Debian como root, passo a passo para copiar e colar.

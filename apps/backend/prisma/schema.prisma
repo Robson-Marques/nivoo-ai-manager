@@ -32,6 +32,23 @@ enum AttemptStatus {
 enum QueueTaskType {
   RUN_STEP
   EVALUATE_JOB
+  PLAN_MESSAGE // conversa: a IA lê o projeto e propõe um plano (não executa nada)
+}
+
+enum AreaKind {
+  MERCADO // modelo pronto com ativos, datasets e pesquisas
+  GENERICA // áreas criadas pelo usuário (web, imagem, vídeo, ...)
+}
+
+enum MessageRole {
+  USUARIO
+  ASSISTENTE
+}
+
+enum MessageStatus {
+  PENDENTE
+  PRONTA
+  ERRO
 }
 
 enum QueueTaskStatus {
@@ -105,23 +122,89 @@ enum LogLevel {
   ERROR
 }
 
+// Área de trabalho (ex.: Mercado, Web, Imagem para pizzaria): instruções permanentes, base de
+// conhecimento própria (pasta versionada) e seus projetos. Especialização por contexto, não fine-tuning.
+model Area {
+  id                  String   @id @default(uuid())
+  slug                String   @unique
+  name                String
+  description         String   @default("")
+  kind                AreaKind @default(GENERICA)
+  template            String   @default("generica")
+  instructionsVersion Int      @default(1)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  instructions AreaInstruction[]
+  projects     Project[]
+}
+
+// Instruções permanentes da área: append-only, versionadas, com hash (como o objetivo de um job).
+model AreaInstruction {
+  id        String   @id @default(uuid())
+  areaId    String
+  area      Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  version   Int
+  text      String
+  sha256    String
+  author    String
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@unique([areaId, version])
+}
+
+model Conversation {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ConversationMessage[]
+}
+
+model ConversationMessage {
+  id             String        @id @default(uuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  status         MessageStatus @default(PRONTA)
+  kind           String? // resposta | plano | erro
+  plan           Json? // rascunho de job proposto pela IA (só vira job com aprovação)
+  jobId          String? // job criado ao aprovar o plano
+  approvedBy     String?
+  approvedAt     DateTime?
+  sessionId      String?
+  costUsd        Decimal       @default(0) @db.Decimal(12, 4)
+  createdAt      DateTime      @default(now())
+
+  tasks QueueTask[]
+}
+
 model Project {
   id            String   @id @default(uuid())
   slug          String   @unique
   name          String
   description   String   @default("")
+  areaId        String
+  area          Area     @relation(fields: [areaId], references: [id])
+  dirKey        String // pasta do projeto, relativa a NIVOO_WORKSPACES_ROOT
   workspacePath String
   maxCostUsd    Decimal? @db.Decimal(12, 4) // orçamento total do projeto (soma dos jobs); null = sem limite
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  invariants  ProjectInvariant[]
-  researches  Research[]
-  datasets    Dataset[]
-  jobs        Job[]
-  memory      MemoryEntry[]
-  artifacts   Artifact[]
-  experiments Experiment[]
+  invariants    ProjectInvariant[]
+  conversations Conversation[]
+  researches    Research[]
+  datasets      Dataset[]
+  jobs          Job[]
+  memory        MemoryEntry[]
+  artifacts     Artifact[]
+  experiments   Experiment[]
 }
 
 // Critério permanente do projeto: copiado para todo job novo (regressão — nada pode quebrá-lo).
@@ -141,21 +224,21 @@ model ProjectInvariant {
 }
 
 model MarketAsset {
-  id          String   @id @default(uuid())
-  code        String   @unique // WIN, WDO
-  name        String
-  exchange    String
-  currency    String
-  priceUnit   String // "pontos" (WIN), "R$/US$ 1.000" (WDO)
-  tickSize    Decimal  @db.Decimal(18, 6)
-  pointValue  Decimal  @db.Decimal(18, 6) // valor financeiro por ponto por contrato
-  sessionTz   String
-  sessionOpen String
+  id           String   @id @default(uuid())
+  code         String   @unique // WIN, WDO
+  name         String
+  exchange     String
+  currency     String
+  priceUnit    String // "pontos" (WIN), "R$/US$ 1.000" (WDO)
+  tickSize     Decimal  @db.Decimal(18, 6)
+  pointValue   Decimal  @db.Decimal(18, 6) // valor financeiro por ponto por contrato
+  sessionTz    String
+  sessionOpen  String
   sessionClose String
-  rules       Json // regras específicas do ativo (vencimentos, rolagem, etc.)
-  validation  Json // limites de validação de dados (faixa de preço, tick, horário)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  rules        Json // regras específicas do ativo (vencimentos, rolagem, etc.)
+  validation   Json // limites de validação de dados (faixa de preço, tick, horário)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   datasets   Dataset[]
   researches ResearchAsset[]
@@ -184,14 +267,14 @@ model Dataset {
 }
 
 model Research {
-  id          String         @id @default(uuid())
-  projectId   String
-  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title       String
-  question    String
-  status      ResearchStatus @default(ABERTA)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id        String         @id @default(uuid())
+  projectId String
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+  question  String
+  status    ResearchStatus @default(ABERTA)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
 
   assets      ResearchAsset[]
   hypotheses  Hypothesis[]
@@ -210,69 +293,71 @@ model ResearchAsset {
 }
 
 model Hypothesis {
-  id          String           @id @default(uuid())
-  researchId  String
-  research    Research         @relation(fields: [researchId], references: [id], onDelete: Cascade)
-  statement   String
-  rationale   String           @default("")
-  status      HypothesisStatus @default(EM_INVESTIGACAO)
-  conclusion  String?
+  id                String           @id @default(uuid())
+  researchId        String
+  research          Research         @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  statement         String
+  rationale         String           @default("")
+  status            HypothesisStatus @default(EM_INVESTIGACAO)
+  conclusion        String?
   // Regra de decisão pré-registrada: { metric, op, value, datasetRole? }
   decisionRule      Json?
   decisionRuleSetAt DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   experiments Experiment[]
 }
 
 model Experiment {
-  id           String      @id @default(uuid())
-  projectId    String
-  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId   String
-  research     Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
-  hypothesisId String?
-  hypothesis   Hypothesis? @relation(fields: [hypothesisId], references: [id])
-  datasetId    String?
-  dataset      Dataset?    @relation(fields: [datasetId], references: [id])
-  jobId        String?     @unique
-  job          Job?        @relation(fields: [jobId], references: [id])
-  name         String
-  parameters   Json        @default("{}")
-  codeRef      String? // commit git do workspace que produziu o resultado
-  metrics      Json? // preenchido a partir do artefato de métricas
+  id                String      @id @default(uuid())
+  projectId         String
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId        String
+  research          Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
+  hypothesisId      String?
+  hypothesis        Hypothesis? @relation(fields: [hypothesisId], references: [id])
+  datasetId         String?
+  dataset           Dataset?    @relation(fields: [datasetId], references: [id])
+  jobId             String?     @unique
+  job               Job?        @relation(fields: [jobId], references: [id])
+  name              String
+  parameters        Json        @default("{}")
+  codeRef           String? // commit git do workspace que produziu o resultado
+  metrics           Json? // preenchido a partir do artefato de métricas
   metricsArtifactId String?
-  status       ExecStatus  @default(PENDENTE)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  status            ExecStatus  @default(PENDENTE)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 }
 
 model Job {
-  id                String     @id @default(uuid())
-  projectId         String
-  project           Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId        String?
-  research          Research?  @relation(fields: [researchId], references: [id])
-  title             String
-  status            ExecStatus @default(PENDENTE)
-  blockedReason     String?
-  statusDetail      String?
-  defaultProvider   String     @default("local-shell")
-  objectiveVersion  Int        @default(1)
-  maxAttemptsPerStep Int       @default(3)
-  maxDurationSec    Int        @default(3600)
-  maxCostUsd        Decimal    @default(5) @db.Decimal(12, 4)
-  costSpentUsd      Decimal    @default(0) @db.Decimal(12, 4)
-  stepTimeoutSec    Int        @default(900)
-  repetitionWindow  Int        @default(2)
-  maxSessionsPerStep Int       @default(8)
-  gitBranch         String?
-  startedAt         DateTime?
-  finishedAt        DateTime?
-  activeSeconds     Int        @default(0)
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  id                 String     @id @default(uuid())
+  projectId          String
+  project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId         String?
+  research           Research?  @relation(fields: [researchId], references: [id])
+  title              String
+  status             ExecStatus @default(PENDENTE)
+  blockedReason      String?
+  statusDetail       String?
+  defaultProvider    String     @default("local-shell")
+  objectiveVersion   Int        @default(1)
+  maxAttemptsPerStep Int        @default(3)
+  maxDurationSec     Int        @default(3600)
+  maxCostUsd         Decimal    @default(5) @db.Decimal(12, 4)
+  costSpentUsd       Decimal    @default(0) @db.Decimal(12, 4)
+  stepTimeoutSec     Int        @default(900)
+  repetitionWindow   Int        @default(2)
+  maxSessionsPerStep Int        @default(8)
+  gitBranch          String?
+  mergeStatus        String? // INCORPORADO | CONFLITO: resultado do job na pasta principal do projeto
+  mergedCommit       String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  activeSeconds      Int        @default(0)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   objectives  JobObjectiveVersion[]
   criteria    AcceptanceCriterion[]
@@ -303,16 +388,16 @@ model JobObjectiveVersion {
 }
 
 model AcceptanceCriterion {
-  id          String          @id @default(uuid())
-  jobId       String
-  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  key         String
-  description String
-  kind        CriterionKind
-  config      Json            @default("{}")
-  status      CriterionStatus @default(PENDENTE)
+  id            String          @id @default(uuid())
+  jobId         String
+  job           Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  key           String
+  description   String
+  kind          CriterionKind
+  config        Json            @default("{}")
+  status        CriterionStatus @default(PENDENTE)
   lastCheckedAt DateTime?
-  createdAt   DateTime        @default(now())
+  createdAt     DateTime        @default(now())
 
   checks CriterionCheck[]
 
@@ -333,25 +418,25 @@ model CriterionCheck {
 }
 
 model Step {
-  id            String     @id @default(uuid())
-  jobId         String
-  job           Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  key           String
-  order         Int
-  title         String
-  instructions  String // prompt (IA) ou comando (local-shell)
-  provider      String? // null = job.defaultProvider
-  dependsOn     String[]
-  verifyCommand String? // verificação determinística da etapa (obrigatória para conectores de IA)
-  providerOptions Json  @default("{}") // { model, maxTurns }
-  requiresApproval Boolean @default(false)
-  status        ExecStatus @default(PENDENTE)
-  statusDetail  String?
-  attemptCount  Int        @default(0)
-  resumeFromAttempt Int    @default(0) // limites e repetição contam só tentativas com número maior (zerado a cada retomada)
-  lastOutput    String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id                String     @id @default(uuid())
+  jobId             String
+  job               Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  key               String
+  order             Int
+  title             String
+  instructions      String // prompt (IA) ou comando (local-shell)
+  provider          String? // null = job.defaultProvider
+  dependsOn         String[]
+  verifyCommand     String? // verificação determinística da etapa (obrigatória para conectores de IA)
+  providerOptions   Json       @default("{}") // { model, maxTurns }
+  requiresApproval  Boolean    @default(false)
+  status            ExecStatus @default(PENDENTE)
+  statusDetail      String?
+  attemptCount      Int        @default(0)
+  resumeFromAttempt Int        @default(0) // limites e repetição contam só tentativas com número maior (zerado a cada retomada)
+  lastOutput        String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   attempts    Attempt[]
   checkpoints Checkpoint[]
@@ -360,35 +445,35 @@ model Step {
 }
 
 model Attempt {
-  id          String        @id @default(uuid())
-  jobId       String
-  job         Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  stepId      String
-  step        Step          @relation(fields: [stepId], references: [id], onDelete: Cascade)
-  number      Int
-  provider    String
-  workerId    String
-  hostname    String?
-  pid         Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
-  sessionId   String? // id da sessão no provedor (ex.: session_id do Claude Code)
-  stopReason  String? // motivo de término informado pelo provedor (completed, max_turns, api_error...)
-  numTurns    Int?
+  id               String        @id @default(uuid())
+  jobId            String
+  job              Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId           String
+  step             Step          @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  number           Int
+  provider         String
+  workerId         String
+  hostname         String?
+  pid              Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
+  sessionId        String? // id da sessão no provedor (ex.: session_id do Claude Code)
+  stopReason       String? // motivo de término informado pelo provedor (completed, max_turns, api_error...)
+  numTurns         Int?
   promptArtifactId String? // prompt exato recebido pela sessão (auditoria de continuidade)
-  treeBefore  String? // hash da árvore do workspace antes/depois (detecção de progresso)
-  treeAfter   String?
-  notesIngested Int    @default(0)
-  contextStats Json? // orçamento de contexto: tamanho, seções incluídas e itens omitidos
-  status      AttemptStatus @default(EXECUTANDO)
-  exitCode    Int?
-  output      String?
-  outputHash  String?
-  error       String?
-  costUsd     Decimal       @default(0) @db.Decimal(12, 4)
-  costEstimated Boolean     @default(false) // custo estimado por tokens (o provedor não informou: timeout/interrupção)
-  inputTokens  Int?
-  outputTokens Int?
-  startedAt   DateTime      @default(now())
-  endedAt     DateTime?
+  treeBefore       String? // hash da árvore do workspace antes/depois (detecção de progresso)
+  treeAfter        String?
+  notesIngested    Int           @default(0)
+  contextStats     Json? // orçamento de contexto: tamanho, seções incluídas e itens omitidos
+  status           AttemptStatus @default(EXECUTANDO)
+  exitCode         Int?
+  output           String?
+  outputHash       String?
+  error            String?
+  costUsd          Decimal       @default(0) @db.Decimal(12, 4)
+  costEstimated    Boolean       @default(false) // custo estimado por tokens (o provedor não informou: timeout/interrupção)
+  inputTokens      Int?
+  outputTokens     Int?
+  startedAt        DateTime      @default(now())
+  endedAt          DateTime?
 
   @@unique([stepId, number])
 }
@@ -409,20 +494,20 @@ model Checkpoint {
 }
 
 model Artifact {
-  id        String   @id @default(uuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  jobId     String?
-  job       Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  stepId    String?
-  attemptId String?
-  name      String
-  kind      String // LOG, FILE, METRICS, REPORT, CRITERION_EVIDENCE
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  jobId       String?
+  job         Job?     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  stepId      String?
+  attemptId   String?
+  name        String
+  kind        String // LOG, FILE, METRICS, REPORT, CRITERION_EVIDENCE
   storagePath String // relativo a NIVOO_ARTIFACTS_ROOT
-  sha256    String
-  sizeBytes Int
-  mimeType  String
-  createdAt DateTime @default(now())
+  sha256      String
+  sizeBytes   Int
+  mimeType    String
+  createdAt   DateTime @default(now())
 }
 
 model LogEntry {
@@ -456,37 +541,39 @@ model Approval {
 }
 
 model MemoryEntry {
-  id           String         @id @default(uuid())
-  projectId    String
-  project      Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId   String?
-  research     Research?      @relation(fields: [researchId], references: [id])
-  category     MemoryCategory
-  title        String
-  content      String
-  references   Json           @default("{}") // { artifactIds, experimentIds, datasetIds, gitCommit, parameters }
-  version      Int            @default(1)
+  id             String         @id @default(uuid())
+  projectId      String
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  researchId     String?
+  research       Research?      @relation(fields: [researchId], references: [id])
+  category       MemoryCategory
+  title          String
+  content        String
+  references     Json           @default("{}") // { artifactIds, experimentIds, datasetIds, gitCommit, parameters }
+  version        Int            @default(1)
   supersededById String?
-  author       String
-  createdAt    DateTime       @default(now())
+  author         String
+  createdAt      DateTime       @default(now())
 }
 
 model QueueTask {
-  id          String          @id @default(uuid())
-  type        QueueTaskType
-  jobId       String
-  job         Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  stepId      String?
-  status      QueueTaskStatus @default(QUEUED)
-  runAt       DateTime        @default(now())
-  lockedBy    String?
-  lockedUntil DateTime?
-  claims      Int             @default(0)
-  recoveries  Int             @default(0) // reivindicações de lease EXPIRADO (worker caiu); só isso conta como "loop de quedas"
-  resourceWaits Int           @default(0) // esperas por recurso indisponível (define a espera crescente)
-  lastError   String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String               @id @default(uuid())
+  type          QueueTaskType
+  jobId         String?
+  job           Job?                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  messageId     String?
+  message       ConversationMessage? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  stepId        String?
+  status        QueueTaskStatus      @default(QUEUED)
+  runAt         DateTime             @default(now())
+  lockedBy      String?
+  lockedUntil   DateTime?
+  claims        Int                  @default(0)
+  recoveries    Int                  @default(0) // reivindicações de lease EXPIRADO (worker caiu); só isso conta como "loop de quedas"
+  resourceWaits Int                  @default(0) // esperas por recurso indisponível (define a espera crescente)
+  lastError     String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
 
   @@index([status, runAt])
 }

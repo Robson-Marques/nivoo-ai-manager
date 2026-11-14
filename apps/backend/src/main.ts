@@ -1,13 +1,15 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { configureHttp } from './app-setup';
 import { AppModule } from './app.module';
 import { appConfig } from './config';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['log', 'warn', 'error'] });
-  app.setGlobalPrefix('api');
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['log', 'warn', 'error'], bodyParser: false });
+  configureHttp(app);
   app.enableShutdownHooks();
   // Serve o frontend compilado (apps/web/dist), se existir.
   const webDist = path.resolve(__dirname, '..', '..', 'web', 'dist');

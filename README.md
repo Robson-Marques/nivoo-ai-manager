@@ -32,7 +32,7 @@ papel (conhecer o projeto, operar o servidor, desenvolver). Atalhos:
 |---|---|---|
 | API | `apps/backend/src/main.ts` | NestJS + Prisma; REST + SSE em `/api`; serve a interface compilada |
 | Worker | `apps/backend/src/worker.ts` | Processo independente que consome a fila persistente e executa os conectores |
-| Interface | `apps/web` | React + TypeScript (Vite): Painel Mercado, Projetos e pesquisas, Execução, Conectores |
+| Interface | `apps/web` | React + TypeScript (Vite): **chat** como tela inicial (projetos, conversa, plano para aprovar, memória e arquivos), **Modelos** (regras + pasta de padrões) e, no modo avançado, Painel Mercado, Projetos e pesquisas, Execução, Conectores |
 | Banco | PostgreSQL 16 | Fonte da verdade, inclusive da fila |
 
 ## Instalação
@@ -112,7 +112,8 @@ necessário. Banco de testes padrão: `postgresql://postgres:postgres@localhost:
 ```bash
 createdb nivoo_test
 npm test                                   # build + todos os testes (unitários e de aceitação)
-node apps/web/e2e/ui-smoke.cjs             # fumaça da interface (requer API+worker rodando e Playwright)
+node apps/web/e2e/ui-smoke.cjs             # fumaça da interface avançada (requer API+worker rodando e Playwright)
+node apps/web/e2e/chat-smoke.cjs           # fumaça do chat e dos modelos (IA simulada pelo stub; instruções no arquivo)
 # Provas com executores REAIS (opt-in, no host autorizado do worker) — ver docs/PROCEDIMENTO-CLI.md
 cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1235]  # Claude Code CLI
 cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04     # Codex CLI

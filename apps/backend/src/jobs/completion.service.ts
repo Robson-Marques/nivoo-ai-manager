@@ -75,46 +75,71 @@ export class CompletionService {
       return report;
     }
 
-    const worktree = await this.workspace.ensureJobWorktree(job.project.slug, job.id);
-    for (const c of job.criteria) {
-      const r = await this.check(job, c, worktree);
-      report.criteria.push(r);
-      const ev = await this.artifacts.storeContent(
-        { projectId: job.projectId, jobId, name: `criterios/${c.key}.evidencia.json`, kind: 'CRITERION_EVIDENCE' },
-        JSON.stringify({ criterio: c.key, tipo: c.kind, aprovado: r.passed, aguardandoAprovacao: !!r.pendingApproval, evidencia: r.evidence, verificadoEm: new Date().toISOString() }, null, 2),
-      );
-      await this.prisma.criterionCheck.create({
-        data: { jobId, criterionId: c.id, passed: r.passed, evidence: r.evidence as Prisma.InputJsonValue, artifactId: ev.id },
-      });
-      await this.prisma.acceptanceCriterion.update({
-        where: { id: c.id },
-        data: { status: r.passed ? 'APROVADO' : r.pendingApproval ? 'AGUARDANDO_APROVACAO' : 'REPROVADO', lastCheckedAt: new Date() },
-      });
-    }
-
-    const failed = report.criteria.filter((c) => !c.passed && !c.pendingApproval);
-    const waiting = report.criteria.filter((c) => c.pendingApproval);
-    let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO';
+    const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
-    if (job.criteria.length === 0) {
-      status = 'BLOQUEADO';
-      reason = BlockedReason.SEM_CRITERIOS;
-      report.pendencias.push('job sem critérios de aceitação verificáveis: conclusão não permitida');
-    } else if (failed.length > 0) {
-      status = 'BLOQUEADO';
-      reason = BlockedReason.CRITERIOS_NAO_ATENDIDOS;
-      report.pendencias.push(...failed.map((f) => `critério não atendido: ${f.key} — ${JSON.stringify(f.evidence).slice(0, 300)}`));
-    } else if (waiting.length > 0) {
-      status = 'AGUARDANDO_APROVACAO';
-      report.pendencias.push(...waiting.map((w) => `aguardando aprovação explícita: ${w.key}`));
-    } else {
-      status = 'CONCLUIDO';
+    let completion: Awaited<ReturnType<CompletionService['prepareCompletion']>> | null = null;
+    let mergedCommit: string | null = null;
+    // Os critérios são verificados sobre o resultado JÁ INTEGRADO à pasta principal do projeto; só então
+    // a pasta principal avança. Se outro job mudou a pasta principal no meio, integra e verifica de novo.
+    for (let rodada = 1; ; rodada++) {
+      const sync = await this.workspace.syncWithMain(worktree, `job ${job.id}: integra a pasta principal do projeto`);
+      if (!sync.ok) return this.blockConflict(job, report, sync.files);
+      report.criteria = [];
+      report.pendencias = [];
+      for (const c of job.criteria) {
+        const r = await this.check(job, c, worktree);
+        report.criteria.push(r);
+        const ev = await this.artifacts.storeContent(
+          { projectId: job.projectId, jobId, name: `criterios/${c.key}.evidencia.json`, kind: 'CRITERION_EVIDENCE' },
+          JSON.stringify({ criterio: c.key, tipo: c.kind, aprovado: r.passed, aguardandoAprovacao: !!r.pendingApproval, evidencia: r.evidence, verificadoEm: new Date().toISOString() }, null, 2),
+        );
+        await this.prisma.criterionCheck.create({
+          data: { jobId, criterionId: c.id, passed: r.passed, evidence: r.evidence as Prisma.InputJsonValue, artifactId: ev.id },
+        });
+        await this.prisma.acceptanceCriterion.update({
+          where: { id: c.id },
+          data: { status: r.passed ? 'APROVADO' : r.pendingApproval ? 'AGUARDANDO_APROVACAO' : 'REPROVADO', lastCheckedAt: new Date() },
+        });
+      }
+
+      const failed = report.criteria.filter((c) => !c.passed && !c.pendingApproval);
+      const waiting = report.criteria.filter((c) => c.pendingApproval);
+      reason = null;
+      if (job.criteria.length === 0) {
+        status = 'BLOQUEADO';
+        reason = BlockedReason.SEM_CRITERIOS;
+        report.pendencias.push('job sem critérios de aceitação verificáveis: conclusão não permitida');
+      } else if (failed.length > 0) {
+        status = 'BLOQUEADO';
+        reason = BlockedReason.CRITERIOS_NAO_ATENDIDOS;
+        report.pendencias.push(...failed.map((f) => `critério não atendido: ${f.key} — ${JSON.stringify(f.evidence).slice(0, 300)}`));
+      } else if (waiting.length > 0) {
+        status = 'AGUARDANDO_APROVACAO';
+        report.pendencias.push(...waiting.map((w) => `aguardando aprovação explícita: ${w.key}`));
+      } else {
+        status = 'CONCLUIDO';
+      }
+      if (status !== 'CONCLUIDO') break;
+
+      // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão.
+      completion = await this.prepareCompletion(job, worktree);
+      const ff = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:' + job.projectId}))) AS l`;
+          return this.workspace.fastForwardMain(job.project.dirKey, job.id);
+        },
+        { timeout: 120_000, maxWait: 120_000 },
+      );
+      if (ff.ok) {
+        mergedCommit = ff.commit;
+        break;
+      }
+      if (rodada >= 3) return this.blockConflict(job, report, ['a pasta principal mudou repetidamente durante a verificação; retome o job']);
+      await this.logs.log(jobId, 'A pasta principal do projeto mudou durante a verificação: integrando de novo e reverificando os critérios', { source: 'evaluator', level: 'WARN' });
     }
 
-    const detail = report.pendencias.length ? report.pendencias.join('\n') : 'todos os critérios verificados com evidências';
-    // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão:
-    // nunca existe um job CONCLUIDO com experimento sem métricas/commit ou sem evidência na memória.
-    const completion = status === 'CONCLUIDO' ? await this.prepareCompletion(job, worktree) : null;
+    const detail = report.pendencias.length ? report.pendencias.join('\n') : 'todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto';
     const updated = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       const r = await tx.job.updateMany({
@@ -124,9 +149,10 @@ export class CompletionService {
           blockedReason: reason,
           statusDetail: detail,
           finishedAt: status === 'CONCLUIDO' ? new Date() : null,
+          ...(status === 'CONCLUIDO' ? { mergeStatus: 'INCORPORADO', mergedCommit } : {}),
         },
       });
-      if (r.count && completion) {
+      if (r.count && completion && status === 'CONCLUIDO') {
         if (completion.experiment) await tx.experiment.update(completion.experiment);
         await tx.memoryEntry.create(completion.memory);
       }
@@ -137,6 +163,35 @@ export class CompletionService {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
     });
+    return report;
+  }
+
+  /** Conflito ao integrar com a pasta principal: o job NÃO é dado como concluído; pendência registrada. */
+  private async blockConflict(job: Job & { title: string }, report: EvaluationReport, files: string[]): Promise<EvaluationReport> {
+    const detail = `conflito ao integrar com a pasta principal do projeto: ${files.join(', ')}`;
+    const r = await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, job.id);
+      return tx.job.updateMany({
+        where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'] } },
+        data: { status: 'BLOQUEADO', blockedReason: BlockedReason.CONFLITO_INCORPORACAO, statusDetail: detail, mergeStatus: 'CONFLITO' },
+      });
+    });
+    if (r.count) {
+      await this.prisma.memoryEntry.create({
+        data: {
+          projectId: job.projectId,
+          researchId: job.researchId,
+          category: 'PENDENCIA',
+          title: `Resultado do job "${job.title}" não incorporado (conflito)`,
+          content: `${detail}. O trabalho continua na branch job/${job.id}. Resolva os arquivos em conflito e retome o job.`,
+          references: { jobId: job.id, origem: 'conflito-incorporacao', arquivos: files },
+          author: 'sistema:verificador',
+        },
+      });
+    }
+    await this.logs.log(job.id, `Job BLOQUEADO (CONFLITO_INCORPORACAO): ${detail}`, { source: 'evaluator', level: 'ERROR' });
+    report.finalStatus = 'BLOQUEADO';
+    report.pendencias = [detail];
     return report;
   }
 
@@ -155,7 +210,7 @@ export class CompletionService {
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
               // Verificadores do operador podem ficar no diretório de dados do projeto (fora do alcance do agente).
-              NIVOO_DATA_DIR: this.workspace.projectDirs((job as any).project?.slug ?? '').data,
+              NIVOO_DATA_DIR: this.workspace.projectDirs((job as any).project.dirKey).data,
             }),
             timeoutMs: (cfg.timeoutSec ?? 300) * 1000,
           });

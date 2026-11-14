@@ -118,6 +118,25 @@ export class JobsService {
     });
   }
 
+  /**
+   * Valida um plano proposto pela IA da conversa SEM criar nada: mesmas regras de um job criado à mão
+   * (etapas de IA com verificação, sem ciclos, política, critérios válidos). Devolve o plano normalizado.
+   */
+  validatePlan(plan: any) {
+    if (!plan || typeof plan !== 'object') throw new BadRequestException('Plano vazio');
+    const title = reqString(plan, 'title', 300);
+    const objective = reqString(plan, 'objective', 50000);
+    const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
+    if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
+    if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
+    const steps = this.parseSteps(plan.steps, defaultProvider);
+    this.assertAcyclic(steps);
+    const criteria = this.parseCriteria(plan.criteria ?? []);
+    if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
+    const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
+    return { title, objective, defaultProvider, steps: plan.steps, criteria: plan.criteria, limits };
+  }
+
   async create(projectId: string, body: any) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Projeto não encontrado');

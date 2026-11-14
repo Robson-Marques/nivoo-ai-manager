@@ -1,3 +1,5 @@
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { configureHttp } from '../../src/app-setup';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ChildProcess, spawn } from 'node:child_process';
@@ -21,8 +23,8 @@ export interface Harness {
 /** API real (Nest + PostgreSQL) em processo; o worker em processo só roda se `startWorker()` for chamado. */
 export async function createHarness(): Promise<Harness> {
   const mod = await Test.createTestingModule({ imports: [AppModule, WorkerModule] }).compile();
-  const app = mod.createNestApplication({ logger: ['error'] });
-  app.setGlobalPrefix('api');
+  const app = mod.createNestApplication<NestExpressApplication>({ logger: ['error'], bodyParser: false });
+  configureHttp(app);
   await app.init();
   const prisma = app.get(PrismaService);
   const worker = app.get(WorkerRunnerService);
@@ -42,7 +44,12 @@ export async function truncateAll(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE "QueueTask", "LogEntry", "CriterionCheck", "AcceptanceCriterion", "Attempt", "Checkpoint", "Artifact",
       "Approval", "Step", "JobObjectiveVersion", "Experiment", "Job", "Hypothesis", "ResearchAsset", "Research",
-      "Dataset", "MemoryEntry", "Project", "ProviderConfig", "WorkerHeartbeat" CASCADE`);
+      "Dataset", "MemoryEntry", "ConversationMessage", "Conversation", "ProjectInvariant", "Project",
+      "AreaInstruction", "Area", "ProviderConfig", "WorkerHeartbeat" CASCADE`);
+  // A área Mercado (modelo pronto) é recriada como na inicialização da API.
+  const { AreasService } = await import('../../src/areas/areas.service');
+  const svc = new AreasService(prisma, new (await import('../../src/storage/workspace.service')).WorkspaceService(), null as any);
+  await svc.ensureDefaultAreas();
 }
 
 export async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, timeoutMs = 30000, everyMs = 200): Promise<T> {

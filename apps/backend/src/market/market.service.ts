@@ -61,11 +61,12 @@ export class MarketService {
 
   // ---------- Datasets ----------
   async createDataset(projectId: string, body: any) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { area: true } });
     if (!project) throw new NotFoundException('Projeto não encontrado');
+    if (project.area.kind !== 'MERCADO') throw new BadRequestException('Datasets de mercado (WIN/WDO) só existem em projetos da área Mercado');
     const asset = await this.getAsset(reqString(body, 'assetCode', 10));
     const uri = reqString(body, 'uri', 500);
-    const dataDir = this.workspace.projectDirs(project.slug).data;
+    const dataDir = this.workspace.projectDirs(project.dirKey).data;
     const abs = resolveInside(dataDir, uri);
     const role = oneOf(body, 'role', ['TREINO', 'VALIDACAO', 'RESERVADO'] as const, 'TREINO') as DatasetRole;
     return this.prisma.dataset.create({
@@ -92,7 +93,7 @@ export class MarketService {
   async validateDataset(projectId: string, datasetId: string) {
     const ds = await this.prisma.dataset.findFirst({ where: { id: datasetId, projectId }, include: { asset: true, project: true } });
     if (!ds) throw new NotFoundException('Dataset não encontrado neste projeto');
-    const abs = resolveInside(this.workspace.projectDirs(ds.project.slug).data, ds.uri);
+    const abs = resolveInside(this.workspace.projectDirs(ds.project.dirKey).data, ds.uri);
     if (!fs.existsSync(abs)) throw new BadRequestException(`Arquivo ${ds.uri} não existe no diretório de dados do projeto`);
     const hash = await sha256File(abs);
     // O hash registrado é o que vale para experimentos e aprovações: a validação nunca o substitui em
@@ -132,7 +133,9 @@ export class MarketService {
 
   // ---------- Pesquisas ----------
   async createResearch(projectId: string, body: any) {
-    if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { area: true } });
+    if (!project) throw new NotFoundException('Projeto não encontrado');
+    if (project.area.kind !== 'MERCADO') throw new BadRequestException('Pesquisas com ativos WIN/WDO só existem em projetos da área Mercado');
     const codes: string[] = Array.isArray(body.assetCodes) ? body.assetCodes.map((c: string) => String(c).toUpperCase()) : [];
     if (codes.length === 0) throw new BadRequestException('Informe ao menos um ativo (assetCodes: WIN, WDO)');
     const assets = await this.prisma.marketAsset.findMany({ where: { code: { in: codes } } });

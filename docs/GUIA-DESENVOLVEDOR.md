@@ -42,6 +42,7 @@ apps/backend/
     step-executor.service.ts      executa UMA sessão/tentativa: limites, política, conector,
                                   verificação, classificação, checkpoint, notas, lições
     context-builder.ts            orçamento de contexto do prompt
+    planner.service.ts            responde no chat (tarefa PLAN_MESSAGE): cópia descartável, plano, memória automática
 
   src/queue/queue.service.ts      fila em PostgreSQL (SKIP LOCKED + lease)
   src/providers/                  conectores: interface comum + claude-code-cli, codex-cli,
@@ -51,7 +52,11 @@ apps/backend/
     artifact-store.service.ts     artefatos por sha256, separados por projeto
   src/market/                     ativos WIN/WDO, datasets e validação, pesquisas, hipóteses,
                                   regra de decisão pré-registrada, experimentos, encerramento
-  src/memory/                     memória categorizada do projeto (8 categorias)
+  src/memory/                     memória categorizada do projeto (8 categorias); "esquecer"
+  src/areas/                      áreas/modelos: modelos prontos (area-templates.ts), regras versionadas,
+                                  base de conhecimento em git, importação de pasta
+  src/conversations/              conversa (chat): mensagens, aprovação do plano → job
+  src/app-setup.ts                prefixo /api e limite de corpo (usado pela API e pelos testes)
   src/security/policy.ts          ações destrutivas (exigem aprovação) e financeiras (proibidas)
   src/common/                     exec (processos), hash, path-guard, validação, estados
   src/system/system.controller.ts saúde, workers, conectores, painel
@@ -68,7 +73,10 @@ apps/web/src/
   pages/Projetos.tsx, Projeto.tsx, projeto/{Pesquisas,Jobs,Datasets,Memoria}.tsx
   pages/Execucao.tsx, JobDetalhe.tsx   execução e acompanhamento em tempo real (SSE)
   pages/Conectores.tsx            conectores, workers, configuração de WIN/WDO
-  e2e/ui-smoke.cjs                teste de fumaça da interface (Playwright)
+  e2e/ui-smoke.cjs                teste de fumaça da interface avançada (Playwright)
+  e2e/chat-smoke.cjs              teste de fumaça do chat e dos modelos (Playwright + stub)
+  src/pages/Chat.tsx              tela inicial (chat, painel de memória e arquivos)
+  src/pages/Modelos.tsx           modelos: regras e envio de pasta de padrões
 
 deploy/install-debian.sh          instalador de produção (root, idempotente)
 deploy/nivoo                      comando de administração do servidor

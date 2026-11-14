@@ -55,6 +55,38 @@ projeto: um id de outro projeto responde 404.
 | GET | `/projects/:pid/memory` | `?category=DECISAO_APROVADA` filtra; `?all=1` inclui versões substituídas. |
 | POST | `/projects/:pid/memory` | `{ "category", "title", "content", "references" }` — EVIDENCIA e RESULTADO_VALIDADO exigem referências reproduzíveis. |
 | POST | `/projects/:pid/memory/:mid/supersede` | Nova versão de uma entrada (a anterior fica no histórico). |
+| DELETE | `/projects/:pid/memory/:mid?by=nome` | "Esquecer": a entrada deixa de valer (fica no histórico como substituída). |
+
+## Áreas (modelos) e base de conhecimento
+
+| Método | Rota | Função |
+|---|---|---|
+| GET | `/areas` | Lista as áreas. |
+| GET | `/areas/templates` | Modelos prontos: `mercado`, `generica`, `web`, `imagem`, `video`. |
+| POST | `/areas` | `{ "name", "template", "instructions"?, "description"?, "slug"? }` — cria a área e a base (git). |
+| GET | `/areas/:area` | Detalhe: instruções (versões), projetos, arquivos e histórico da base. |
+| POST | `/areas/:area/instructions` | `{ "text", "reason" }` — nova versão das regras. |
+| GET / PUT / DELETE | `/areas/:area/base/file` | `?path=` lê; `{ "path", "content" | "contentBase64" }` grava; `?path=` remove. |
+| POST | `/areas/:area/base/import` | `{ "files": [{ "path", "contentBase64" }], "prefix"?, "message"? }` — importa uma pasta inteira num commit. Ignora `node_modules`, `.git`, arquivos de sistema e arquivos > 10 MB (listados em `ignorados`). |
+| POST | `/areas/:area/base/from-artifact` | `{ "artifactId", "path"? }` — promove um artefato de um projeto da área para a base. |
+
+## Projetos: pasta principal
+
+| Método | Rota | Função |
+|---|---|---|
+| POST | `/projects` | Também aceita `"tipo": "web|imagem|video|generica|mercado"` (cria a área do tipo na primeira vez) ou `"area": "<slug>"`. |
+| GET | `/projects?area=<slug>` | Filtra por área. |
+| GET | `/projects/:pid/files` | Arquivos da pasta principal (`main`). |
+| GET | `/projects/:pid/files/content?path=` | Conteúdo de um arquivo da pasta principal. |
+
+## Conversa (chat)
+
+| Método | Rota | Função |
+|---|---|---|
+| GET / POST | `/projects/:pid/conversations` | Lista / cria conversa `{ "title"? }`. |
+| GET | `/projects/:pid/conversations/:cid` | Conversa com as mensagens (`status`: PENDENTE, PRONTA, ERRO; `kind`: resposta, plano, sistema, erro). |
+| POST | `/projects/:pid/conversations/:cid/messages` | `{ "content" }` — enfileira a resposta da IA (409 se ainda houver uma pendente). |
+| POST | `/projects/:pid/conversations/:cid/messages/:mid/approve` | `{ "decidedBy", "start"? }` — transforma o plano em job e inicia (400 sem `decidedBy`; 409 se já aprovado). |
 
 ## Jobs
 

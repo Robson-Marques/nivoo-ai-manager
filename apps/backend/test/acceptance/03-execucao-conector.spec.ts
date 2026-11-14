@@ -109,10 +109,17 @@ describe('Execução por conector, logs e artefatos', () => {
     expect(commit).toMatch(/^[0-9a-f]{40}$/);
     const repo = path.join(p.workspacePath, 'repo');
     const branchHead = execFileSync('git', ['rev-parse', `job/${job.id}`], { cwd: repo }).toString().trim();
-    const mainLog = execFileSync('git', ['log', '--oneline', 'main'], { cwd: repo }).toString().trim().split('\n');
-    expect(mainLog).toHaveLength(1);
+    // O resultado verificado foi incorporado à pasta principal (main) do projeto, no mesmo commit.
+    const mainHead = execFileSync('git', ['rev-parse', 'main'], { cwd: repo }).toString().trim();
+    expect(mainHead).toBe(branchHead);
+    expect(done.mergeStatus).toBe('INCORPORADO');
+    expect(done.mergedCommit).toBe(mainHead);
     expect(execFileSync('git', ['show', `${branchHead}:src/params.txt`], { cwd: repo }).toString()).toBe('janela=20\n');
-    expect(fs.existsSync(path.join(repo, 'src'))).toBe(false); // main não foi alterada
+    expect(fs.readFileSync(path.join(repo, 'src', 'params.txt'), 'utf8')).toBe('janela=20\n'); // na pasta principal
+    // Evidências (out/) e notas (.nivoo/) não entram na pasta principal.
+    const tracked = execFileSync('git', ['ls-files'], { cwd: repo }).toString();
+    expect(tracked).not.toMatch(/^out\//m);
+    expect(tracked).not.toMatch(/^\.nivoo\//m);
 
     // Experimento vinculado a dados reproduzíveis e memória de evidência.
     expect(done.experiment.status).toBe('CONCLUIDO');

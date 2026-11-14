@@ -57,7 +57,7 @@ export class StepExecutorService {
    */
   async run(task: ClaimedTask, workerId: string, signal: AbortSignal): Promise<StepOutcome> {
     const step = await this.prisma.step.findUnique({ where: { id: task.stepId! } });
-    const job = step ? await this.prisma.job.findUnique({ where: { id: step.jobId }, include: { project: true } }) : null;
+    const job = step ? await this.prisma.job.findUnique({ where: { id: step.jobId }, include: { project: { include: { area: true } } } }) : null;
     if (!step || !job) {
       await this.queue.complete(task.id, workerId);
       return 'IGNORADO';
@@ -100,7 +100,8 @@ export class StepExecutorService {
     }
     if (job.project.maxCostUsd !== null) {
       const agg = await this.prisma.job.aggregate({ where: { projectId: job.projectId }, _sum: { costSpentUsd: true } });
-      const spent = new Prisma.Decimal(agg._sum.costSpentUsd ?? 0);
+      const conversa = await this.prisma.conversationMessage.aggregate({ where: { conversation: { projectId: job.projectId } }, _sum: { costUsd: true } });
+      const spent = new Prisma.Decimal(agg._sum.costSpentUsd ?? 0).add(conversa._sum.costUsd ?? 0);
       if (spent.gte(job.project.maxCostUsd)) {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO_PROJETO, `custo do projeto US$ ${spent} ≥ orçamento do projeto US$ ${job.project.maxCostUsd}`);
       }
@@ -130,8 +131,8 @@ export class StepExecutorService {
     const provider = this.registry.get(providerId);
 
     // Workspace isolado do job (worktree na branch job/<id>).
-    const worktree = await this.workspace.ensureJobWorktree(job.project.slug, job.id);
-    const dataDir = this.workspace.projectDirs(job.project.slug).data;
+    const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    const dataDir = this.workspace.projectDirs(job.project.dirKey).data;
     const outputDir = path.join(worktree, 'out');
 
     const isAi = provider.kind !== 'executor';
@@ -145,6 +146,9 @@ export class StepExecutorService {
     if (isAi) {
       const planted = this.workspace.sanitizeHarnessFiles(worktree);
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
+      // Base de conhecimento da área, renovada a cada sessão (somente leitura para o trabalho, fora do git).
+      const base = this.workspace.copyAreaBaseInto(job.project.area.slug, worktree);
+      if (base.skipped) await L(`Base da área: ${base.skipped} arquivo(s) não copiados por exceder o limite de tamanho`, 'WARN');
     }
     const treeBefore = await this.workspace.snapshotHash(worktree);
 
@@ -417,7 +421,7 @@ export class StepExecutorService {
     const exp = await this.prisma.experiment.findUnique({ where: { jobId }, include: { dataset: { include: { project: true } } } });
     const ds = exp?.dataset;
     if (!ds) return null;
-    const src = resolveInside(this.workspace.projectDirs(ds.project.slug).data, ds.uri);
+    const src = resolveInside(this.workspace.projectDirs(ds.project.dirKey).data, ds.uri);
     if (!fs.existsSync(src)) return `arquivo do dataset ${ds.uri} não existe`;
     const hash = await sha256File(src);
     if (ds.sha256 && hash !== ds.sha256) return `dataset ${ds.name} alterado (sha256 ${hash.slice(0, 12)} ≠ registrado ${ds.sha256.slice(0, 12)})`;
@@ -598,6 +602,9 @@ export class StepExecutorService {
    * artefatos entram por prioridade; o restante fica íntegro em .nivoo/memoria.md (leitura sob demanda).
    */
   async buildContext(job: Job, step: Step, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, include: { area: true } });
+    const areaInstr = await this.prisma.areaInstruction.findFirst({ where: { areaId: project.areaId }, orderBy: { version: 'desc' } });
+    const areaFiles = this.workspace.listAreaFiles(project.area.slug);
     const [objective, criteria, steps, checkpoint, memory, attempts, artifacts, experiment] = await Promise.all([
       this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),
       this.prisma.acceptanceCriterion.findMany({ where: { jobId: job.id } }),
@@ -615,6 +622,15 @@ export class StepExecutorService {
     const sections: ContextSection[] = [];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras invioláveis', ...AGENT_RULES.map((r) => `- ${r}`)]);
+    // Especialização da área (instruções permanentes versionadas + base de conhecimento): o que mantém a
+    // IA "presa" ao domínio em toda sessão, sem alterar o modelo.
+    add('area', [
+      `## Área: ${project.area.name} — instruções permanentes (v${areaInstr?.version ?? 0}, sha256 ${areaInstr?.sha256 ?? '-'})`,
+      areaInstr?.text ?? '(sem instruções)',
+      '',
+      `Base de conhecimento da área (padrões que TODO projeto da área segue; leia em area/ antes de decidir; não altere): ${areaFiles.length ? areaFiles.slice(0, 300).map((f) => `area/${WorkspaceService.sessionPath(f.path)}`).join(', ') + (areaFiles.length > 300 ? ` … e mais ${areaFiles.length - 300}` : '') : 'vazia'}`,
+      'Arquivos de configuração de agentes da base (ex.: .claude/, CLAUDE.md, AGENTS.md) aparecem renomeados com "_" (ex.: area/_claude/, area/_CLAUDE.md): leia-os como instruções e padrões a seguir.',
+    ]);
     add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
     add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);

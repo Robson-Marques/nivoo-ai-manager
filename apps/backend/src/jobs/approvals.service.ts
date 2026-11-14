@@ -42,7 +42,7 @@ export class ApprovalsService {
       const ds = await this.prisma.dataset.findUnique({ where: { id: a.subjectId }, include: { project: true } });
       let atual = 'sem-hash';
       if (ds) {
-        const abs = resolveInside(this.workspace.projectDirs(ds.project.slug).data, ds.uri);
+        const abs = resolveInside(this.workspace.projectDirs(ds.project.dirKey).data, ds.uri);
         if (fs.existsSync(abs)) atual = await sha256File(abs);
       }
       if (!ds || `${ds.uri}:${atual}` !== a.subjectHash || (ds.sha256 && ds.sha256 !== atual)) {

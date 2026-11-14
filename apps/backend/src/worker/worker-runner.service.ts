@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { StepExecutorService } from './step-executor.service';
+import { PlannerService } from './planner.service';
 
 /**
  * Loop do worker: reivindica tarefas da fila persistente, mantém heartbeat do lease e
@@ -26,6 +27,7 @@ export class WorkerRunnerService {
     private readonly completion: CompletionService,
     private readonly registry: ProviderRegistry,
     private readonly logs: LogService,
+    private readonly planner: PlannerService,
   ) {
     this.workerId = appConfig().workerId;
   }
@@ -89,7 +91,7 @@ export class WorkerRunnerService {
       }
     }, hbEvery);
     try {
-      if (task.recovered) {
+      if (task.recovered && task.jobId) {
         await this.logs.log(task.jobId, `Tarefa ${task.type} recuperada por ${this.workerId} (lease anterior de ${task.previousLockedBy} expirou)`, {
           level: 'WARN',
           source: `worker:${this.workerId}`,
@@ -97,13 +99,19 @@ export class WorkerRunnerService {
       }
       if (task.type === 'RUN_STEP') {
         await this.executor.run(task, this.workerId, ctrl.signal);
-      } else if (task.type === 'EVALUATE_JOB') {
+      } else if (task.type === 'EVALUATE_JOB' && task.jobId) {
         await this.completion.evaluate(task.jobId);
+        await this.queue.complete(task.id, this.workerId);
+      } else if (task.type === 'PLAN_MESSAGE' && task.messageId) {
+        await this.planner.handle(task, this.workerId, ctrl.signal);
+      } else {
         await this.queue.complete(task.id, this.workerId);
       }
     } catch (e: any) {
       this.logger.error(`Falha processando tarefa ${task.id}: ${e?.stack ?? e}`);
-      await this.logs.log(task.jobId, `Erro interno do worker: ${e?.message ?? e}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
+      if (task.jobId) {
+        await this.logs.log(task.jobId, `Erro interno do worker: ${e?.message ?? e}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
+      }
       await this.queue.requeue(task.id, this.workerId, new Date(Date.now() + 10_000), String(e?.message ?? e)).catch(() => undefined);
     } finally {
       clearInterval(hb);

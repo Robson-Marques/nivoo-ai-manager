@@ -32,7 +32,9 @@ de desenvolvimento `claude/lucid-lamport-z7zup1`, incorporada à `main` em 2026-
   aprovações, SSE para acompanhamento em tempo real. Não executa agentes.
 * **Worker** (`apps/backend/src/worker.ts`): processo independente que consome a fila
   persistente. Continua executando com o navegador fechado e com a API parada.
-* **Web** (`apps/web`): quatro telas — Painel Mercado, Projetos e Pesquisas,
+* **Web** (`apps/web`): a tela inicial é o **chat** (projetos na lateral, conversa, plano para aprovar,
+  painel "O que o projeto lembra" e "Arquivos") e a tela **Modelos** (regras + pasta de padrões).
+  As telas detalhadas ficam no **Modo avançado** — Painel Mercado, Projetos e Pesquisas,
   Execução (tempo real) e Conectores/Configurações.
 
 Instância única, sem multi-tenant. Isolamento é por **projeto** (workspace, artefatos e consultas
@@ -198,3 +200,24 @@ Ver `docs/AVALIACAO-ECC.md`. Resumo técnico:
 * **Critérios permanentes** — modelo `ProjectInvariant`; aplicados em `JobsService.create`.
 * **Orçamento do projeto** — `Project.maxCostUsd`; verificado antes de cada tentativa.
 * **Aprovação por hash** — `Approval.subjectHash` (`stepHash`, `criterionHash`, `uri:sha256` do dataset).
+
+
+## 12. Áreas (modelos), pasta principal e conversa (2026-11-14)
+
+```
+data/workspaces/areas/<area>/base/                 base de conhecimento do modelo (git próprio)
+data/workspaces/areas/<area>/projetos/<projeto>/   projeto (repo git com a "pasta principal" = main)
+```
+
+* **Área/modelo**: instruções permanentes versionadas (`AreaInstruction`) + base de conhecimento.
+  Em toda sessão de IA a base é copiada para `area/` (fora do git do projeto) e as regras entram no
+  contexto. Arquivos de agente da base (`.claude/`, `CLAUDE.md`, `AGENTS.md`...) chegam renomeados com
+  `_` — legíveis como padrões, nunca carregados como configuração.
+* **Pasta principal**: cada job trabalha numa branch; ao concluir, sincroniza com a `main`, o verificador
+  roda e o resultado entra na `main` por avanço rápido (trava por projeto). O job seguinte parte dela.
+* **Conversa**: a mensagem do usuário vira a tarefa `PLAN_MESSAGE` na fila. O worker monta uma cópia
+  descartável (`git archive main` + base da área), chama a IA com regras, base, arquivos, memória e as
+  últimas 20 mensagens, e recebe `{"tipo":"resposta"|"plano", "texto", "job", "memoria"}`. Plano só vira
+  job com aprovação humana (`validatePlan` → job → início), com critérios e verificador normais.
+  `memoria` é gravada na memória do projeto (sem duplicar), que entra em todas as próximas conversas e
+  trabalhos.

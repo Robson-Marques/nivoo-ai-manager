@@ -146,3 +146,82 @@ label.check input { width: auto; }
 .log .msg { white-space: pre-wrap; word-break: break-word; }
 .l-WARN .msg { color: #f0c050; }
 .l-ERROR .msg { color: #ff7b6e; }
+
+/* ---------- Chat (tela principal, simples) ---------- */
+.chat-app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; overflow: hidden; background: var(--bg); }
+.chat-side { background: var(--nav); color: #e6e9ef; display: flex; flex-direction: column; padding: 14px 10px; gap: 10px; min-height: 0; }
+.chat-side .brand { font-size: 18px; font-weight: 700; padding: 0 6px; }
+.chat-side .novo { width: 100%; padding: 10px; font-size: 14px; }
+.proj-list { flex: 1; overflow: auto; }
+.proj-list .grupo { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #8d96a8; margin: 12px 6px 4px; }
+.proj-list .proj { display: block; padding: 7px 8px; border-radius: 6px; color: #cfd6e4; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-list .proj:hover { background: rgba(255,255,255,.06); }
+.proj-list .proj.on { background: rgba(255,255,255,.12); color: #fff; }
+.side-foot { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 8px; }
+.side-foot a { color: #8d96a8; font-size: 12px; padding: 3px 6px; text-decoration: none; }
+.side-foot a:hover { color: #fff; }
+.chat-main { min-width: 0; min-height: 0; display: flex; }
+.chat-vazio { margin: auto; text-align: center; max-width: 440px; padding: 16px; }
+.conversa { flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }
+.conversa.com-painel { grid-template-columns: 1fr 340px; }
+.conversa-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.conversa-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.conversa-topo h1 { font-size: 17px; margin: 0; display: inline; margin-right: 8px; }
+.mensagens { flex: 1; overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.mensagens > * { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
+.msg { padding: 10px 14px; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.msg.eu { background: var(--accent); color: #fff; max-width: 600px; margin-right: 0; width: auto; align-self: flex-end; }
+.msg.ia { background: var(--panel); border: 1px solid var(--line); }
+.msg.ia.pensando { color: var(--muted); font-style: italic; }
+.msg.ia.erro { border-color: var(--bad); color: var(--bad); }
+.dots { animation: pisca 1.2s infinite; }
+@keyframes pisca { 50% { opacity: .2; } }
+.plano { margin-top: 10px; padding: 10px 12px; background: var(--accent-soft); border-radius: 8px; white-space: normal; }
+.plano ol { margin: 6px 0 10px 18px; padding: 0; }
+.progresso { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.progresso.p-CONCLUIDO { color: var(--ok); font-weight: 600; }
+.progresso.p-BLOQUEADO, .progresso.p-FALHOU { color: var(--bad); }
+.progresso .detalhes { color: var(--muted); margin-left: auto; font-weight: normal; }
+.progresso button.link, .mem-item button.link { color: var(--muted); padding: 0 4px; text-decoration: underline; font-size: 12px; }
+.dica { color: var(--muted); text-align: center; margin-top: 10vh; }
+.chip { margin: 4px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 18px; }
+.entrada { padding: 10px 18px 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px; max-width: 800px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.entrada .error { grid-column: 1 / -1; }
+.entrada textarea { resize: none; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+.painel { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+.painel .abas { display: flex; border-bottom: 1px solid var(--line); }
+.painel .abas .tab { flex: 1; padding: 10px 6px; font-size: 13px; }
+.painel .lista { overflow: auto; padding: 10px 14px; flex: 1; }
+.mem-grupo h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.mem-item { display: flex; gap: 6px; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.mem-item .small { white-space: pre-wrap; max-height: 90px; overflow: hidden; }
+.arquivo { display: block; width: 100%; text-align: left; background: none; color: var(--accent); padding: 5px 2px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.modal-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.modal { background: var(--panel); color: var(--text); border-radius: 12px; padding: 18px 20px; width: 520px; max-width: 100%; max-height: 90vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.modal.largo { width: 900px; }
+.modal label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.modal input, .modal textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+.tipos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.tipo { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--bg); color: var(--text); border: 2px solid var(--line); text-align: left; }
+.tipo span { font-size: 11px; color: var(--muted); }
+.tipo.on { border-color: var(--accent); background: var(--accent-soft); }
+.row.fim { justify-content: flex-end; }
+@media (max-width: 900px) {
+  .chat-app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .chat-side { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 8px; }
+  .proj-list { display: flex; gap: 4px; overflow-x: auto; flex-basis: 100%; }
+  .proj-list .grupo { display: none; }
+  .side-foot { flex-direction: row; border: 0; padding: 0; }
+  .conversa.com-painel { grid-template-columns: 1fr; grid-template-rows: 1fr 40vh; }
+  .painel { border-left: 0; border-top: 1px solid var(--line); }
+}
+.modelos { flex: 1; overflow: auto; }
+.modelos-lista { padding: 18px; display: grid; gap: 14px; max-width: 900px; margin: 0 auto; }
+.modelo { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.modelo h2 { margin: 0; font-size: 17px; }
+.modelo p { margin: 2px 0; }
+.modelo textarea { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.botao-arquivo { background: var(--accent); color: #fff; border-radius: 6px; padding: 7px 12px; cursor: pointer; display: inline-block; text-align: center; }
+.botao-arquivo input { display: none; }
+.ok-msg { background: var(--ok-soft); color: var(--ok); padding: 8px 10px; border-radius: 6px; }
+.arquivos-modelo { max-height: 260px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin: 0; padding-left: 18px; }

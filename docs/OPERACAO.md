@@ -66,6 +66,9 @@ pendências.
 | `NIVOO_CONTEXT_MAX_CHARS` | 60000 | orçamento de contexto por sessão de IA (memória excedente fica em `.nivoo/memoria.md`) |
 | `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão (padrão; também por etapa em `providerOptions.maxTurns`) |
 | `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` | — | modelo opcional |
+| `NIVOO_PLANNER_PROVIDER` | `claude-code-cli` | IA que responde na conversa (chat) |
+| `NIVOO_PLANNER_TIMEOUT_SEC` / `NIVOO_PLANNER_MAX_TURNS` | 300 / 25 | limites de cada resposta da conversa |
+| `NIVOO_BODY_LIMIT` | `60mb` | tamanho máximo de uma requisição JSON (envio de pasta de padrões em lotes de até 25 MB) |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | — | conector API opcional |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | — | conector API opcional |
 

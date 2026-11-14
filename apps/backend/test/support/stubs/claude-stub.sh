@@ -13,6 +13,11 @@ esac
 prompt=$(cat)
 echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
+if [ "$MODE" = "texto" ]; then
+  # Devolve como resposta final o conteúdo de $CTL/resposta.txt (usado para simular a IA da conversa).
+  python3 -c 'import json,sys; print(json.dumps({"type":"result","subtype":"success","is_error":False,"terminal_reason":"completed","session_id":"stub-conversa","total_cost_usd":0.02,"result":open(sys.argv[1]).read()}))' "$CTL/resposta.txt"
+  exit 0
+fi
 if [ "$MODE" = "violar" ]; then
   # Simula um agente que escreve fora do workspace (no diretório de dados do projeto).
   echo invasao > "$NIVOO_DATA_DIR/invasao.txt"

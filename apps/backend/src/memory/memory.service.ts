@@ -90,6 +90,20 @@ export class MemoryService {
     });
   }
 
+  /** "Esquecer": a entrada sai da memória vigente (não entra mais em conversas e trabalhos), mas fica no histórico. */
+  async forget(projectId: string, id: string, by = 'usuario') {
+    const m = await this.prisma.memoryEntry.findFirst({ where: { id, projectId } });
+    if (!m) throw new NotFoundException('Entrada de memória não encontrada');
+    if (m.supersededById) return m;
+    return this.prisma.$transaction(async (tx) => {
+      const marca = await tx.memoryEntry.create({
+        data: { projectId, researchId: m.researchId, category: m.category, title: `[esquecido] ${m.title}`, content: `Esquecido por ${by}.`, references: { esquecido: m.id }, version: m.version + 1, author: by, supersededById: m.id },
+      });
+      await tx.memoryEntry.update({ where: { id: m.id }, data: { supersededById: marca.id } });
+      return marca;
+    });
+  }
+
   /** Nova versão de uma entrada; a anterior permanece consultável (supersededById). */
   async supersede(projectId: string, id: string, body: any) {
     const old = await this.prisma.memoryEntry.findFirst({ where: { id, projectId } });
