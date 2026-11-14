@@ -45,6 +45,7 @@ apps/backend/
     git.service.ts                clonar, ligar, estado, pull, push + tag, envio automático (GIT_ASKPASS)
     git.controller.ts             rotas /git/accounts e /projects/:pid/git
 
+  modelos-prontos/<pacote>/       modelos prontos em pacote (ex.: studio-workflow: NIVOO-REGRAS.md + materiais)
   src/areas/                      modelos: area-templates.ts (prontos), texto versionado, materiais em git
   src/projects/
     projects.service.ts           criar/editar/excluir projeto, regras do projeto, conhecimento, pasta principal

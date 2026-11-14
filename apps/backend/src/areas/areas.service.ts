@@ -5,7 +5,7 @@ import { optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { knowledgePath, parseKnowledgeUpload, toTextFiles } from '../common/knowledge-upload';
-import { AREA_TEMPLATES, DEFAULT_AREA, findTemplate } from './area-templates';
+import { AREA_TEMPLATES, AREAS_INSTALADAS, DEFAULT_AREA, findTemplate } from './area-templates';
 
 @Injectable()
 export class AreasService {
@@ -19,15 +19,21 @@ export class AreasService {
   }
 
   /** Garante a base padrão ("Geral"), onde ficam os projetos sem base escolhida. Idempotente. */
+  /**
+   * Garante o modelo padrão ("Geral") e os modelos prontos instalados (ex.: Studio Workflow). Um modelo que
+   * já existe não é tocado: o usuário pode ter editado as regras e os materiais.
+   */
   async ensureDefaultAreas(): Promise<void> {
-    const t = findTemplate(DEFAULT_AREA)!;
-    if (await this.prisma.area.findUnique({ where: { slug: DEFAULT_AREA } })) {
-      await this.workspace.ensureKnowledge(this.workspace.areaDirs(DEFAULT_AREA).base, t.baseFiles); // pasta pode faltar (ex.: base migrada)
-      return;
+    for (const key of [DEFAULT_AREA, ...AREAS_INSTALADAS]) {
+      const t = findTemplate(key)!;
+      if (await this.prisma.area.findUnique({ where: { slug: key } })) {
+        await this.workspace.ensureKnowledge(this.workspace.areaDirs(key).base, t.baseFiles); // pasta pode faltar (ex.: base migrada)
+        continue;
+      }
+      await this.create({ name: t.name, template: t.key, slug: t.key, author: 'sistema' }).catch((e) => {
+        if (!(e instanceof ConflictException)) throw e; // criada em paralelo (API e worker)
+      });
     }
-    await this.create({ name: t.name, template: t.key, slug: t.key, author: 'sistema' }).catch((e) => {
-      if (!(e instanceof ConflictException)) throw e; // criada em paralelo (API e worker)
-    });
   }
 
   list() {

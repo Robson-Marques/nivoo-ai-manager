@@ -8,7 +8,7 @@
  * Com IA real, use apps/backend/test/integration/real-06 (não este script).
  *
  *  1. Contas de IA: Claude, ChatGPT e Gemini listados com o estado da conexão
- *  2. Modelos: novo modelo a partir de "Software", regras importadas de um PDF, pasta de materiais
+ *  2. Modelos: o pronto "Software — Studio Workflow" já instalado; novo modelo a partir de "Software", regras importadas de um PDF, pasta de materiais
  *  3. Novo projeto no modelo, com a IA escolhida; Ajustes: regras do projeto e conhecimento
  *  4. Conversa → "Posso fazer isto" → Fazer → conferência das regras → Pronto; memória e arquivos
  *  5. A IA recebeu o perfil do projeto (regras, materiais, conhecimento)
@@ -100,10 +100,12 @@ const plano = {
 
     // 2. Modelos
     await page.getByRole('link', { name: 'Modelos' }).click();
+    await page.getByText('Software — Studio Workflow').first().waitFor(); // modelo pronto instalado
+    await shot(page, '2a-modelos');
     await page.getByRole('button', { name: '+ Novo modelo' }).click();
     const modelo = `Sistemas ERP ${stamp}`;
     await page.getByLabel('Nome do modelo').fill(modelo);
-    await page.getByRole('button', { name: /^Software/ }).click();
+    await page.getByRole('button', { name: /^Software Sistemas/ }).click();
     await page.getByLabel(/Como a IA deve funcionar/).fill(`Você é engenheiro de sistemas ERP. Código MOD-${stamp}.`);
     await shot(page, '2-novo-modelo');
     await page.getByRole('button', { name: 'Criar modelo' }).click();

@@ -9,6 +9,8 @@
    Atendimento, Imagem e conteúdo, Vídeo). Escreva em "Como a IA deve funcionar neste modelo" o jeito de
    trabalhar (o texto é usado exatamente como você escreveu) ou importe de um PDF, Word ou texto. Envie os
    **materiais de referência** (arquivos ou uma pasta inteira). Ex.: modelo "Sistemas ERP / SaaS".
+   O modelo **Software — Studio Workflow** já vem instalado: relatório de alinhamento no plano, doutrina
+   de engenharia e especialidades no repositório do projeto.
 3. **Criar o projeto** — "+ Novo projeto": nome, sobre o que é (vira a primeira memória), modelo e a IA
    que vai trabalhar nele.
 4. **Ajustar o projeto** (aba **Ajustes**) — regras do projeto (também com importação de PDF/Word/texto),

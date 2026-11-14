@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 14 — modelo pronto "Software — Studio Workflow" (2026-11-14)
+
+O pacote STUDIO-WORKFLOW adaptado pelo responsável (`apps/backend/modelos-prontos/studio-workflow/`, 19
+arquivos de texto, conferidos: sem dados pessoais, caminhos locais, credenciais ou instruções de terminal)
+vira um modelo pronto que **já vem criado** em toda instalação (seed/inicialização), sem sobrescrever um
+modelo existente com o mesmo nome. `NIVOO-REGRAS.md` (6.495 caracteres) é o "Como a IA deve funcionar";
+os outros 18 arquivos são os materiais (`contexto/base/…`). O método casa com o Nivoo: o Relatório de
+alinhamento é o texto do plano "Posso fazer isto", o "ok" é o botão Fazer, a IA declara comandos de
+verificação e critérios (o sistema executa) e especialidades novas vão para `docs/prompt-framework/` do
+repositório do projeto. Também aparece como ponto de partida em "+ Novo modelo". Testes: suíte 94/94
+(+7 de IA real puladas), `17-modelo-studio-workflow` (regras exatas, 18 materiais, toda referência
+`contexto/base/…` das regras existe, perfil do projeto); interface pela tela OK. Não testado com IA real.
+
 ## Etapa 13 — tudo que é importado vira texto (2026-11-14)
 
 Material do modelo e conhecimento do projeto ficam guardados **só como texto** (o original não é gravado):
