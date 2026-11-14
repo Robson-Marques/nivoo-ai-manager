@@ -18,7 +18,7 @@ import { setSecret } from './secrets';
  */
 
 const PTY_BRIDGE = `
-import fcntl, os, pty, select, signal, struct, sys, termios
+import fcntl, os, pty, select, signal, struct, sys, termios, time
 pid, fd = pty.fork()
 if pid == 0:
     os.execvp(sys.argv[1], sys.argv[1:])
@@ -38,7 +38,10 @@ while True:
     if sys.stdin in r:
         line = sys.stdin.readline()
         if line:
-            os.write(fd, line.rstrip('\\n').encode() + b'\\r')
+            # Texto e Enter separados: um texto longo de uma vez é tratado como "colar" e o Enter vai junto.
+            os.write(fd, line.rstrip('\\n').encode())
+            time.sleep(0.5)
+            os.write(fd, b'\\r')
 _, st = os.waitpid(pid, 0)
 sys.exit(os.waitstatus_to_exitcode(st))
 `;
@@ -65,7 +68,7 @@ function clean(s: string): string {
 
 @Injectable()
 export class LoginSessionsService implements OnModuleDestroy {
-  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout }>();
+  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number }>();
 
   constructor(private readonly registry: ProviderRegistry) {}
 
@@ -118,7 +121,16 @@ export class LoginSessionsService implements OnModuleDestroy {
     const c = String(code ?? '').trim();
     if (!c || c.length > 2000 || /[\r\n]/.test(c)) throw new BadRequestException('Código inválido');
     s.child.stdin!.write(`${c}\n`);
+    s.marca = s.raw.length;
     s.info = { ...s.info, state: 'iniciando', message: 'Conferindo o código…' };
+    // Sem resposta do CLI em 90 s: não fica "conferindo" para sempre.
+    setTimeout(() => {
+      const atual = this.sessions.get(provider);
+      if (atual === s && s.info.state === 'iniciando') {
+        const ultima = clean(s.raw.slice(s.marca ?? 0)).replace(/\s+/g, ' ').trim().slice(-200);
+        this.finish(provider, 'erro', `O login não respondeu ao código.${ultima ? ` Última mensagem: ${ultima}` : ''} Clique em Conectar e tente de novo.`);
+      }
+    }, 90_000).unref();
     return s.info;
   }
 
@@ -153,17 +165,29 @@ export class LoginSessionsService implements OnModuleDestroy {
       if (url && s.info.state === 'iniciando' && !s.info.url) {
         s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta do Claude e cole aqui o código que aparecer.' };
       }
-      if (/error|invalid|failed/i.test(out.slice(-400)) && s.info.url && s.info.state === 'iniciando') {
-        s.info = { ...s.info, state: 'aguardando_codigo', message: 'O código não foi aceito. Confira e cole de novo (ou recomece o login).' };
+      // Código recusado: o CLI pede para recomeçar; o link antigo não serve mais.
+      if (s.marca !== undefined && /OAuth error|wasn't accepted|invalid|failed/i.test(clean(s.raw.slice(s.marca)))) {
+        return this.finish(provider, 'erro', 'O código não foi aceito (pode ter expirado, vindo incompleto ou ser de outra tentativa). Clique em Conectar de novo, abra o link novo e cole o código que aparecer.');
       }
     } else if (provider === 'codex-cli') {
       const url = /(https:\/\/auth\.openai\.com\/\S+)/.exec(out);
       const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4,5})\b/.exec(out);
       if (url && code && !s.info.userCode) {
-        s.info = { ...s.info, state: 'aguardando_site', url: url[1], userCode: code[1], message: 'Abra o link, entre com a sua conta do ChatGPT e digite o código abaixo. Esta tela atualiza sozinha.' };
+        s.info = {
+          ...s.info,
+          state: 'aguardando_site',
+          url: url[1],
+          userCode: code[1],
+          message:
+            'Abra o link, entre com a sua conta do ChatGPT e digite o código abaixo. Esta tela atualiza sozinha. ' +
+            'Se o site disser para ativar o "login com código de dispositivo": em chatgpt.com abra Configurações → Segurança, ative essa opção e clique em Conectar de novo aqui.',
+        };
       }
     } else if (provider === 'gemini-cli') {
       if (this.connected(provider)) return this.finish(provider, 'conectado', 'Gemini conectado.');
+      if (s.marca !== undefined && /invalid_grant|Failed to (?:authenticate|login)|Authentication failed/i.test(clean(s.raw.slice(s.marca)))) {
+        return this.finish(provider, 'erro', 'O código não foi aceito pelo Google. Clique em Conectar de novo, abra o link novo e cole o código que aparecer.');
+      }
       const url = /(https:\/\/accounts\.google\.com\/o\/oauth2\/\S+)/.exec(out);
       if (url && !s.info.url) {
         s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta Google e cole aqui o código que aparecer.' };

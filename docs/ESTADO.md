@@ -3,6 +3,15 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correção — login do Claude pela tela travava em "Conferindo o código…" (2026-11-14)
+
+Relato do usuário no servidor. Causa: o código de login do Claude é longo; escrito de uma vez no terminal
+simulado, o Claude CLI o trata como "colar" e o Enter ia junto, sem enviar. Agora o texto e o Enter vão
+separados (testado com o Claude CLI real: o código passa a ser enviado e conferido). Se o código for
+recusado, a tela mostra o motivo e pede para conectar de novo (antes ficava parada); sem resposta em 90 s,
+também avisa. ChatGPT: a OpenAI exige ativar "login com código de dispositivo" em chatgpt.com →
+Configurações → Segurança; a tela agora explica isso.
+
 ## Etapa 9 — várias conversas por projeto, arquivar e excluir (2026-11-14)
 
 Pedido: a lista não pode crescer sem fim. Agora cada projeto tem **várias conversas** (como no ChatGPT):
