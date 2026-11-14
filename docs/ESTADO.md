@@ -3,6 +3,26 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correção — fila parada em servidor fora de UTC (2026-11-14)
+
+**Relato comprovado no servidor** (Debian 13, `America/Sao_Paulo`, versão `28f997d`): worker online, mas
+nenhuma tarefa nova reivindicada; `nivoo verificar` em `EXECUTANDO` com 0 tentativas; tarefas `RUN_STEP` e
+`PLAN_MESSAGE` acumuladas e processadas só 3 horas depois. **Causa:** o Prisma grava `DateTime` em UTC em
+colunas `timestamp without time zone`, e o SQL bruto da fila (`QueueService`) comparava e gravava com
+`now()`, que é a hora local da sessão do PostgreSQL (-3 h). **Correção:** seleção (`runAt`), recuperação de
+lease (`lockedUntil`), criação e renovação de lease, `updatedAt` e marcação `DEAD` usam
+`CURRENT_TIMESTAMP AT TIME ZONE 'UTC'`. Fuso do servidor e do banco não foram alterados; nenhum dado foi
+corrigido à mão (as tarefas presas já tinham `runAt` em UTC e ficam elegíveis com a comparação certa).
+Revisado o repositório: não resta `now()` em SQL bruto do código (sobram só duas migrações antigas já
+aplicadas, que preencheram uma vez a data de criação de um registro de modelo — sem efeito na fila).
+
+| Verificação | Resultado |
+|---|---|
+| `acceptance/14-fila-fuso-horario` (banco em `America/Sao_Paulo` e em UTC): tarefa nova reivindicada na hora (`claims` 0 → 1), tarefa futura não, heartbeat e renovação de lease, lease vencido recuperado, `DEAD`, worker consome `RUN_STEP` e `PLAN_MESSAGE` | 8/8; **com o código antigo: 3 falham em São Paulo** (reprodução do bug) |
+| Suíte completa | 84/84 |
+| Debian 13 real com fuso `America/Sao_Paulo`: instala `28f997d` → `nivoo verificar` | **falha** (`EXECUTANDO`, 0 tentativas; `"runAt" <= now()` = f, em UTC = t) — bug reproduzido |
+| Mesmo servidor após `nivoo update` para a correção | o job que estava preso concluiu sozinho (1 tentativa); `nivoo verificar` → `OK: job de verificação CONCLUIDO pelo verificador`; fila sem tarefas pendentes |
+
 ## Etapa 10 — trocar de IA no meio do projeto, conta e API separadas, nada fica preso (2026-11-14)
 
 * **Seis opções de IA**, conectáveis ao mesmo tempo: Claude, ChatGPT e Gemini, cada uma **pela conta**

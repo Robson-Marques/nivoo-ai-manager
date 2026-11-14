@@ -53,7 +53,17 @@ caminho original).
 Tabela `queue_tasks` em PostgreSQL (sem Redis), consumida com `SELECT ... FOR UPDATE SKIP LOCKED`.
 Cada tarefa reivindicada recebe um *lease* renovado por *heartbeat*. Se o worker morrer, o lease expira e
 outra instância reivindica a tarefa; a tentativa órfã vira `INTERROMPIDA` e a etapa é retomada do último
-checkpoint (ADR-002).
+checkpoint (ADR-002). O worker consome em duas faixas: trabalhos (`RUN_STEP`, `EVALUATE_JOB`) e chat
+(`PLAN_MESSAGE`).
+
+**Horário (UTC):** as colunas `DateTime` do Prisma são `timestamp without time zone` e o Prisma grava
+**UTC**. Todo SQL bruto que compara ou escreve essas colunas usa `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'`
+(constante `AGORA_UTC` em `queue.service.ts`), **nunca `now()`**: `now()` devolve a hora local da sessão do
+PostgreSQL. Com o servidor em `America/Sao_Paulo` (-3 h), `"runAt" <= now()` deixava toda tarefa nova
+parada por 3 horas (worker online, nenhuma tarefa reivindicada, `nivoo verificar` em `EXECUTANDO` com
+0 tentativas). Corrigido em 2026-11-14 (ADR-047); regressão em `test/acceptance/14-fila-fuso-horario`,
+que roda a fila com o banco em `America/Sao_Paulo` e em UTC. Os `DEFAULT CURRENT_TIMESTAMP` das colunas
+não são usados na prática (o Prisma preenche esses campos em UTC; não há `INSERT` em SQL bruto).
 
 ## 4. Execução durável
 

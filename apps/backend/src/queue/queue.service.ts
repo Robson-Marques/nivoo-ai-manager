@@ -14,6 +14,13 @@ export interface ClaimedTask extends QueueTask {
 const MAX_RECOVERIES = 5;
 
 /**
+ * "Agora" em UTC, no mesmo formato das colunas `DateTime` do Prisma (`timestamp without time zone`, gravadas
+ * em UTC). NUNCA usar `now()` contra essas colunas: `now()` vira hora LOCAL da sessão do PostgreSQL
+ * (ex.: America/Sao_Paulo, -3 h) e a fila deixava tarefas novas paradas por 3 horas.
+ */
+const AGORA_UTC = Prisma.raw(`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`);
+
+/**
  * Fila persistente em PostgreSQL. Reivindicação com FOR UPDATE SKIP LOCKED e lease renovável.
  * Tarefas cujo lease expirou (worker morto) são reivindicadas novamente.
  */
@@ -43,8 +50,8 @@ export class QueueService {
     // Loop de quedas: a tarefa derrubou o worker MAX_RECOVERIES vezes. Vira DEAD e o job é BLOQUEADO
     // com motivo explícito (nunca fica parado em EXECUTANDO sem ninguém processar).
     const dead = await this.prisma.$queryRaw<Array<{ jobId: string | null; stepId: string | null; messageId: string | null }>>`
-      UPDATE "QueueTask" SET status = 'DEAD', "lastError" = 'worker caiu repetidamente processando esta tarefa', "updatedAt" = now()
-      WHERE status = 'RUNNING' AND "lockedUntil" < now() AND recoveries >= ${MAX_RECOVERIES}
+      UPDATE "QueueTask" SET status = 'DEAD', "lastError" = 'worker caiu repetidamente processando esta tarefa', "updatedAt" = ${AGORA_UTC}
+      WHERE status = 'RUNNING' AND "lockedUntil" < ${AGORA_UTC} AND recoveries >= ${MAX_RECOVERIES}
       RETURNING "jobId", "stepId", "messageId"`;
     for (const d of dead) {
       if (d.jobId) await this.blockForInfrastructure(d.jobId, d.stepId);
@@ -59,8 +66,8 @@ export class QueueService {
       WITH c AS (
         SELECT id, "lockedBy" AS prev_locked_by, status::text AS prev_status
         FROM "QueueTask"
-        WHERE ((status = 'QUEUED' AND "runAt" <= now())
-           OR (status = 'RUNNING' AND "lockedUntil" < now()))
+        WHERE ((status = 'QUEUED' AND "runAt" <= ${AGORA_UTC})
+           OR (status = 'RUNNING' AND "lockedUntil" < ${AGORA_UTC}))
           AND type::text = ANY(${types}::text[])
         ORDER BY "runAt" ASC, "createdAt" ASC
         FOR UPDATE SKIP LOCKED
@@ -68,10 +75,10 @@ export class QueueService {
       )
       UPDATE "QueueTask" t
       SET status = 'RUNNING', "lockedBy" = ${workerId},
-          "lockedUntil" = now() + (${leaseMs}::int * interval '1 millisecond'),
+          "lockedUntil" = ${AGORA_UTC} + (${leaseMs}::int * interval '1 millisecond'),
           claims = t.claims + 1,
           recoveries = t.recoveries + CASE WHEN c.prev_status = 'RUNNING' THEN 1 ELSE 0 END,
-          "updatedAt" = now()
+          "updatedAt" = ${AGORA_UTC}
       FROM c WHERE t.id = c.id
       RETURNING t.*, c.prev_locked_by, c.prev_status`;
     if (rows.length === 0) return null;
@@ -82,7 +89,7 @@ export class QueueService {
   /** Renova o lease. Retorna false se o lease foi perdido (outro worker assumiu ou tarefa cancelada). */
   async heartbeat(taskId: string, workerId: string, leaseMs: number): Promise<boolean> {
     const n = await this.prisma.$executeRaw`
-      UPDATE "QueueTask" SET "lockedUntil" = now() + (${leaseMs}::int * interval '1 millisecond'), "updatedAt" = now()
+      UPDATE "QueueTask" SET "lockedUntil" = ${AGORA_UTC} + (${leaseMs}::int * interval '1 millisecond'), "updatedAt" = ${AGORA_UTC}
       WHERE id = ${taskId} AND "lockedBy" = ${workerId} AND status = 'RUNNING'`;
     return n === 1;
   }

@@ -16,6 +16,9 @@ Para quem vai manter ou estender o Nivoo. Pressupõe que você leu o [`README`](
    harness ativos. Qualquer mudança num adaptador de IA exige rodar `real-01`, `real-05` e `real-06`.
 7. **Nada simulado se passa por real.** Stubs só em `test/support/stubs` (TEST-ONLY).
 8. **Remoção é completa.** Ao tirar algo, saem código, rotas, telas, testes, configuração e documentação.
+9. **Horário é sempre UTC.** Em SQL bruto, nunca `now()` contra colunas `DateTime` do Prisma (são
+   `timestamp without time zone` em UTC): use `CURRENT_TIMESTAMP AT TIME ZONE 'UTC'` (veja `AGORA_UTC`
+   em `queue/queue.service.ts`). No código TypeScript, `new Date()` / `Date.now()` já são corretos.
 
 ## 2. Mapa do código
 
@@ -191,7 +194,7 @@ oficial em `login-sessions.service.ts`; acrescente os arquivos de harness dela e
 | Sintoma | Onde olhar |
 |---|---|
 | Chat não responde | worker online? (`/api/system/workers`); IA do projeto conectada? (`/api/accounts`) |
-| Job parado em EXECUTANDO | worker online? (`nivoo check`); tarefa na `QueueTask` |
+| Job parado em EXECUTANDO | worker online? (`nivoo check`); tarefa na `QueueTask` — `SELECT status, claims, "runAt", "runAt" <= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AS elegivel FROM "QueueTask" ORDER BY "createdAt" DESC LIMIT 5`; `claims = 0` com `elegivel = true` e worker online indica SQL comparando com `now()` (fuso) |
 | AGUARDANDO_RECURSO | `statusDetail` do job; `/api/providers` |
 | BLOQUEADO na conferência | `out/conferencia-regras.json` do worktree (`violacoes`); logs da etapa `conferencia-regras` |
 | BLOQUEADO (outro) | `blockedReason` + `GET /jobs/:id/report` (pendências exatas) |
