@@ -77,8 +77,8 @@ nada aqui, a menos que eu peça a alternativa pelo terminal:
 Depois de qualquer opção: nivoo check  → a IA conectada deve aparecer "DISPONÍVEL".
 
 PASSO 6 — Conferir ferramentas instaladas
-command -v pdftotext claude codex gemini
-    → os quatro caminhos devem aparecer (poppler-utils, Claude Code, Codex e Gemini CLI).
+command -v pdftotext tesseract claude codex gemini
+    → os cinco caminhos devem aparecer (poppler-utils, tesseract-ocr, Claude Code, Codex e Gemini CLI).
 
 PASSO 7 — Backup inicial
 nivoo backup

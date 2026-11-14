@@ -12,6 +12,7 @@ O que fica instalado:
 | Código | `/opt/nivoo/app` |
 | Claude Code, Codex e Gemini CLI | instalados globalmente pelo npm do Node oficial |
 | `poppler-utils` (`pdftotext`) | para transformar PDF em texto |
+| `tesseract-ocr`, `tesseract-ocr-por` | OCR: ler PDF escaneado (só imagem) |
 | Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
 | Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |
 | Dados (modelos, projetos, artefatos, `segredos.json`, logins dos CLIs) | `/var/lib/nivoo` |
@@ -156,7 +157,7 @@ TLS na frente.
 | Sintoma | Verifique |
 |---|---|
 | IA aparece "não conectada" | conecte em **Contas de IA** (ou `nivoo login-claude` / `nivoo login-codex`) |
-| "Importar de PDF" falha | `apt-get install -y poppler-utils` (o instalador já instala) |
+| "Importar de PDF" falha | `apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-por` (o instalador já instala) |
 | Interface não abre | o túnel SSH está aberto? `nivoo status`; `nivoo logs api` |
 | Jobs parados em "Aguardando recurso" | `nivoo check` (login/limite do provedor); `nivoo logs worker` |
 | Erro durante a instalação | rode o instalador de novo; ele continua de onde estava |

@@ -103,7 +103,7 @@ function NovoModelo({ onFechar, onCriado }: { onFechar: () => void; onCriado: (s
           Como a IA deve funcionar neste modelo
           <textarea rows={10} value={texto} onChange={(e) => setTexto(e.target.value)} />
         </label>
-        <span className="muted small">Depois de criar você pode importar um PDF ou texto e enviar materiais de referência.</span>
+        <span className="muted small">Depois de criar você pode importar um PDF, Word ou texto e enviar materiais de referência.</span>
         {erro && <div className="error">{erro}</div>}
         <div className="row fim">
           <button type="button" className="secondary" onClick={onFechar}>Cancelar</button>
@@ -157,7 +157,7 @@ function EditarModelo({ slug, onVoltar }: { slug: string; onVoltar: () => void }
         />
         <Materiais
           titulo="Materiais de referência do modelo"
-          ajuda="Padrões, estruturas, guias, identidade visual… Pode enviar uma pasta inteira. Valem para todos os projetos deste modelo. PDFs e Word também viram texto para qualquer IA ler."
+          ajuda="Padrões, estruturas, guias, identidade visual… Pode enviar uma pasta inteira. Valem para todos os projetos deste modelo. PDF, Word, Excel, PowerPoint e LibreOffice são guardados como texto (o original não fica), para qualquer IA ler."
           listar={listar}
           rotaEnvio={`/areas/${slug}/base/import`}
           rotaArquivo={(p) => `/areas/${slug}/base/file?path=${encodeURIComponent(p)}`}

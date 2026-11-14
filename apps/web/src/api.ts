@@ -80,20 +80,24 @@ export async function enviarArquivos(rota: string, arquivos: FileList, onProgres
     })
     .filter((x) => x.path && !IGNORAR.test(x.path));
   let enviados = 0;
-  let ignorados = 0;
+  let guardados = 0;
+  let convertidos = 0;
+  const ignorados: string[] = [];
   let lote: Array<{ path: string; contentBase64: string }> = [];
   let bytes = 0;
   const flush = async () => {
     if (!lote.length) return;
     const r = await api(rota, 'POST', { files: lote });
     enviados += lote.length;
-    ignorados += r.ignorados.length;
+    guardados += r.importados;
+    convertidos += r.convertidos?.length ?? 0;
+    ignorados.push(...r.ignorados);
     lote = [];
     bytes = 0;
   };
   for (const { f, path } of lista) {
     if (f.size > MAX_ARQUIVO) {
-      ignorados++;
+      ignorados.push(`${path} (maior que 10 MB)`);
       continue;
     }
     if (bytes + f.size > LOTE_BYTES || lote.length >= 500) await flush();
@@ -102,10 +106,13 @@ export async function enviarArquivos(rota: string, arquivos: FileList, onProgres
     onProgresso(`Enviando… ${enviados + lote.length} de ${lista.length}`);
   }
   await flush();
-  return `${enviados} arquivo(s) guardados.${ignorados ? ` ${ignorados} ignorado(s) (pastas de sistema ou maiores que 10 MB).` : ''}`;
+  const partes = [`${guardados} arquivo(s) guardados.`];
+  if (convertidos) partes.push(`${convertidos} documento(s) (PDF, Word, Excel…) guardados como texto para a IA ler.`);
+  if (ignorados.length) partes.push(`Não entraram: ${ignorados.slice(0, 5).join('; ')}${ignorados.length > 5 ? ` e mais ${ignorados.length - 5}` : ''}.`);
+  return partes.join(' ');
 }
 
-/** Converte PDF, Word ou texto em texto puro no servidor. */
+/** Converte PDF, Office/LibreOffice ou texto em texto puro no servidor. */
 export async function textoDoArquivo(f: File): Promise<string> {
   const r = await api<{ texto: string }>('/extract-text', 'POST', { name: f.name, contentBase64: await fileToBase64(f) });
   return r.texto;

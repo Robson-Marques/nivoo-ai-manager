@@ -17,7 +17,7 @@ Na interface, "modelo" = `Area` no banco e `/areas` na API.
 | GET | `/providers` | Conectores (`claude-code-cli`, `codex-cli`, `gemini-cli`, `local-shell`): status visto pela API e por cada worker. |
 | POST | `/providers/:id/check` | Verifica um conector agora. |
 | PATCH | `/providers/:id` | `{ "enabled": false }` desabilita; segredos são recusados. |
-| POST | `/extract-text` | `{ "name", "contentBase64" }` → `{ "texto" }`. PDF (`pdftotext`), Word `.docx` ou texto; até 10 MB; nada é gravado. |
+| POST | `/extract-text` | `{ "name", "contentBase64" }` → `{ "texto" }`. PDF (`pdftotext`; escaneado por OCR com `tesseract`), Word `.docx`, PowerPoint `.pptx`, Excel `.xlsx`, LibreOffice `.odt`/`.odp`/`.ods` ou texto; até 10 MB; nada é gravado. Formatos antigos (`.doc`, `.xls`, `.ppt`, `.rtf`) → 400 pedindo PDF ou formato novo. |
 
 ## Contas de IA
 
@@ -48,7 +48,7 @@ Credenciais ficam em `segredos.json` (permissão 600) ou nos arquivos do própri
 | POST | `/areas/:area/instructions` | `{ "text", "reason"?, "author"? }` — nova versão do texto (a anterior fica no histórico). |
 | GET | `/areas/:area/base/file?path=` | Lê um material (servido em sandbox). |
 | DELETE | `/areas/:area/base/file?path=&author=` | Remove um material (commit). |
-| POST | `/areas/:area/base/import` | `{ "files": [{ "path", "contentBase64" }], "message"?, "author"? }` — envia arquivos ou uma pasta inteira num commit. Ignora `node_modules`, `.git`, `__pycache__`, `.venv`, arquivos de sistema e arquivos > 10 MB (listados em `ignorados`); até 3000 arquivos. PDF/DOCX ganham cópia `.txt`. |
+| POST | `/areas/:area/base/import` | `{ "files": [{ "path", "contentBase64" }], "message"?, "author"? }` — envia arquivos ou uma pasta inteira num commit. Ignora `node_modules`, `.git`, `__pycache__`, `.venv`, arquivos de sistema e arquivos > 10 MB (listados em `ignorados`); até 3000 arquivos. **Documentos (PDF, Office, LibreOffice) são guardados só como texto**: `manual.pdf` → `manual.txt` (ou `manual.pdf.txt` se `manual.txt` vier no mesmo envio); o original não é gravado. Resposta: `{ importados, bytes, convertidos: [{de, para}], ignorados (com o motivo; inclui documento ilegível ou formato antigo), commit }`. |
 
 ## Projetos
 

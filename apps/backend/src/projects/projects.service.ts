@@ -5,7 +5,7 @@ import { resolveInside } from '../common/path-guard';
 import { DEFAULT_AREA, findTemplate } from '../areas/area-templates';
 import { AreasService } from '../areas/areas.service';
 import { sha256 } from '../common/hash';
-import { knowledgePath, parseKnowledgeUpload, withTextCopies } from '../common/knowledge-upload';
+import { knowledgePath, parseKnowledgeUpload, toTextFiles } from '../common/knowledge-upload';
 import { optNumber, optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkModelName } from '../providers/model-catalog.service';
@@ -182,15 +182,15 @@ export class ProjectsService {
   async importKnowledge(id: string, body: any) {
     const p = await this.assertExists(id);
     const parsed = parseKnowledgeUpload(body);
-    const files = await withTextCopies(parsed.files);
-    const ignorados = parsed.ignorados;
-    const commit = await this.workspace.writeKnowledge(
+    const { files, convertidos, recusados } = await toTextFiles(parsed.files);
+    const ignorados = [...parsed.ignorados, ...recusados];
+    const commit = !files.length ? null : await this.workspace.writeKnowledge(
       this.workspace.projectDirs(p.dirKey).knowledge,
       files,
       optString(body, 'author', 100) ?? 'usuario',
       optString(body, 'message', 200) ?? `envia ${files.length} arquivo(s)`,
     );
-    return { importados: files.length, bytes: files.reduce((n, f) => n + f.content.length, 0), ignorados, commit };
+    return { importados: files.length, bytes: files.reduce((n, f) => n + f.content.length, 0), ignorados, convertidos, commit };
   }
 
   async knowledgeFile(id: string, rel: string) {

@@ -144,7 +144,7 @@ todas as etapas concluídas ─► EVALUATE_JOB ─► completion.service:
 ## 5. Rodar em desenvolvimento
 
 ```bash
-# PostgreSQL local; bancos nivoo e nivoo_test criados; python3 e pdftotext (poppler-utils) instalados
+# PostgreSQL local; bancos nivoo e nivoo_test criados; python3, pdftotext (poppler-utils) e tesseract-ocr(-por) instalados
 npm ci
 cp .env.example apps/backend/.env          # ajuste DATABASE_URL
 npm run db:migrate && npm run build && npm run db:seed
@@ -206,5 +206,5 @@ oficial em `login-sessions.service.ts`; acrescente os arquivos de harness dela e
 | BLOQUEADO (outro) | `blockedReason` + `GET /jobs/:id/report` (pendências exatas) |
 | O agente "fez" mas a etapa não conclui | log da verificação; prompt em `prompts/<etapa>/tentativa-N.md` |
 | Login pela tela não termina | `GET /api/accounts/:id/login` (mensagem com o fim da saída do CLI); logs da API |
-| "Importar de PDF" falha | `pdftotext` instalado? (`poppler-utils`) |
+| "Importar de PDF" falha | `pdftotext` instalado? (`poppler-utils`); PDF escaneado: `tesseract-ocr` + `tesseract-ocr-por` |
 | Contexto truncado | `Attempt.contextStats`; memória completa em `.nivoo/memoria.md` do worktree |

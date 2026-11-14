@@ -4,7 +4,7 @@ import { sha256 } from '../common/hash';
 import { optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
-import { knowledgePath, parseKnowledgeUpload, withTextCopies } from '../common/knowledge-upload';
+import { knowledgePath, parseKnowledgeUpload, toTextFiles } from '../common/knowledge-upload';
 import { AREA_TEMPLATES, DEFAULT_AREA, findTemplate } from './area-templates';
 
 @Injectable()
@@ -129,10 +129,10 @@ export class AreasService {
   async importFiles(slugOrId: string, body: any) {
     const area = await this.resolve(slugOrId);
     const parsed = parseKnowledgeUpload(body);
-    const files = await withTextCopies(parsed.files);
-    const ignorados = parsed.ignorados;
+    const { files, convertidos, recusados } = await toTextFiles(parsed.files);
+    const ignorados = [...parsed.ignorados, ...recusados];
     const author = optString(body, 'author', 100) ?? 'operador';
-    const commit = await this.workspace.writeKnowledge(this.base(area.slug), files, author, optString(body, 'message', 200) ?? `importa ${files.length} arquivo(s)`);
-    return { importados: files.length, bytes: files.reduce((n, f) => n + f.content.length, 0), ignorados, commit };
+    const commit = !files.length ? null : await this.workspace.writeKnowledge(this.base(area.slug), files, author, optString(body, 'message', 200) ?? `importa ${files.length} arquivo(s)`);
+    return { importados: files.length, bytes: files.reduce((n, f) => n + f.content.length, 0), ignorados, convertidos, commit };
   }
 }

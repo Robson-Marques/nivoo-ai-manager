@@ -50,8 +50,8 @@ export function EditorDeRegras(props: { titulo: string; ajuda: string; inicial: 
       <textarea rows={12} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={props.placeholder} />
       <div className="row">
         <button onClick={salvar} disabled={ocupado || texto === props.inicial || !texto.trim()}>Salvar</button>
-        <button className="secondary" type="button" onClick={() => arquivo.current?.click()}>Importar de PDF, Word ou texto</button>
-        <input ref={arquivo} type="file" accept=".pdf,.docx,.txt,.md" hidden onChange={importar} />
+        <button className="secondary" type="button" onClick={() => arquivo.current?.click()}>Importar de PDF, Word, Excel, PowerPoint ou texto</button>
+        <input ref={arquivo} type="file" accept=".pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv" hidden onChange={importar} />
       </div>
       {status && <div className="ok-msg">{status}</div>}
       {erro && <div className="error">{erro}</div>}

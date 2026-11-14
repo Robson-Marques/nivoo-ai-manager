@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 13 — tudo que é importado vira texto (2026-11-14)
+
+Material do modelo e conhecimento do projeto ficam guardados **só como texto** (o original não é gravado):
+PDF (inclusive escaneado: OCR com `tesseract`, português + inglês), Word, PowerPoint (slides em ordem),
+Excel (por planilha, colunas separadas por tabulação) e LibreOffice (Writer, Impress, Calc) viram
+`<nome>.txt`. Formato antigo (.doc/.xls/.ppt/.rtf) ou arquivo ilegível é recusado com o motivo, mostrado
+na tela. Na atualização (`nivoo update`), os documentos já guardados são convertidos num commit (o
+original fica no histórico do git). O instalador agora instala `tesseract-ocr` e `tesseract-ocr-por` e
+roda o seed como usuário do serviço. A pasta do projeto (repositório de código) não é convertida.
+Testes: suíte 93/93 (+7 de IA real puladas), incluindo `16-documentos-em-texto` (Office/LibreOffice com
+conteúdo exato, nomes sem colisão, antigos e quebrados recusados, OCR de PDF escaneado, conversão do que
+já estava guardado e idempotência); interface pela tela OK.
+
 ## Etapa 12 — Git: GitHub e GitLab próprio (2026-11-14)
 
 **Contas Git** (menu Contas, seção "Git"): GitHub ou GitLab próprio (endereço do servidor) + token de

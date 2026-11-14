@@ -50,7 +50,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
       />
       <Materiais
         titulo="Conhecimento do projeto"
-        ajuda="Documentos que a IA deve conhecer: manuais, especificações, cardápios, identidade visual… PDFs e Word também viram texto para qualquer IA ler. A IA consulta, mas nunca altera estes arquivos."
+        ajuda="Documentos que a IA deve conhecer: manuais, especificações, cardápios, identidade visual… PDF, Word, Excel, PowerPoint e LibreOffice são guardados como texto (o original não fica), para qualquer IA ler. A IA consulta, mas nunca altera estes arquivos."
         listar={listar}
         rotaEnvio={`/projects/${projeto.id}/knowledge/import`}
         rotaArquivo={(p) => `/projects/${projeto.id}/knowledge/file?path=${encodeURIComponent(p)}`}

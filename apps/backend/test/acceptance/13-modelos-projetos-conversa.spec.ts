@@ -95,7 +95,7 @@ describe('Modelos, fine-tune do projeto, conferência das regras, conversa e con
     expect(renomeado.name).toBe('ERP e SaaS');
   });
 
-  it('materiais do modelo: pasta inteira num commit, PDF/Word viram texto, nada fora da pasta', async () => {
+  it('materiais do modelo: pasta inteira num commit, PDF/Word guardados só como texto, nada fora da pasta', async () => {
     const m = await modelo('Studio');
     const docx = execFileSync('python3', ['-c', `
 import io, sys, zipfile
@@ -116,12 +116,14 @@ sys.stdout.buffer.write(b.getvalue())`]);
         ],
       }).expect(201)
     ).body;
-    expect(r.importados).toBe(8); // 6 arquivos + 2 cópias em texto
+    expect(r.importados).toBe(6); // PDF e Word entram como texto; o original não é guardado
+    expect(r.convertidos).toEqual([{ de: 'manual.pdf', para: 'manual.txt' }, { de: 'identidade.docx', para: 'identidade.txt' }]);
     expect(r.ignorados).toEqual(['node_modules/x/a.js']);
     const det = (await h.http().get(`/api/areas/${m.slug}`)).body;
-    expect(det.baseHistory[0].message).toMatch(/importa 8 arquivo/);
-    expect((await h.http().get(`/api/areas/${m.slug}/base/file`).query({ path: 'manual.pdf.txt' }).expect(200)).text).toContain('Manual PDF-55');
-    expect((await h.http().get(`/api/areas/${m.slug}/base/file`).query({ path: 'identidade.docx.txt' }).expect(200)).text).toContain('DOCX-77');
+    expect(det.baseHistory[0].message).toMatch(/importa 6 arquivo/);
+    expect((await h.http().get(`/api/areas/${m.slug}/base/file`).query({ path: 'manual.txt' }).expect(200)).text).toContain('Manual PDF-55');
+    expect(det.baseFiles.some((f: any) => /\.(pdf|docx)$/.test(f.path))).toBe(false);
+    expect((await h.http().get(`/api/areas/${m.slug}/base/file`).query({ path: 'identidade.txt' }).expect(200)).text).toContain('DOCX-77');
     await h.http().post(`/api/areas/${m.slug}/base/import`).send({ files: [{ path: '../fora.md', contentBase64: b64('x') }] }).expect(400);
     await h.http().delete(`/api/areas/${m.slug}/base/file`).query({ path: 'grande.txt' }).expect(200);
     expect((await h.http().get(`/api/areas/${m.slug}`)).body.baseFiles.some((f: any) => f.path === 'grande.txt')).toBe(false);
@@ -144,11 +146,11 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(v2.rules.version).toBe(2);
     expect((await h.http().get(`/api/projects/${p.id}/rules/history`)).body.map((r: any) => r.version)).toEqual([2, 1]);
     const k = (await h.http().post(`/api/projects/${p.id}/knowledge/import`).send({ files: [{ path: 'cardapio.pdf', contentBase64: b64(pdfCom('Margherita R 45')) }] }).expect(201)).body;
-    expect(k.importados).toBe(2);
+    expect(k.importados).toBe(1);
     const det = (await h.http().get(`/api/projects/${p.id}`)).body;
-    expect(det.knowledgeFiles.map((f: any) => f.path)).toEqual(['cardapio.pdf', 'cardapio.pdf.txt']);
-    expect((await h.http().get(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.pdf.txt' }).expect(200)).text).toContain('Margherita');
-    await h.http().delete(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.pdf' }).expect(200);
+    expect(det.knowledgeFiles.map((f: any) => f.path)).toEqual(['cardapio.txt']);
+    expect((await h.http().get(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.txt' }).expect(200)).text).toContain('Margherita');
+    await h.http().delete(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.txt' }).expect(200);
     const ajustado = (await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'gemini-cli', maxCostUsd: 7 }).expect(200)).body;
     expect(ajustado.provider).toBe('gemini-cli');
     expect(Number(ajustado.maxCostUsd)).toBe(7);

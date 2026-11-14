@@ -62,7 +62,7 @@ step "1/9 Pacotes do sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -q --no-install-recommends \
-  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils >/dev/null 2>&1
+  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils tesseract-ocr tesseract-ocr-por >/dev/null 2>&1
 ok "git $(git --version | awk '{print $3}'), python $(python3 -V | awk '{print $2}'), $(psql -V)"
 
 # -----------------------------------------------------------------------------
@@ -174,8 +174,10 @@ ok "backend e interface compilados"
 # -----------------------------------------------------------------------------
 step "7/9 Migrações do banco e modelo padrão"
 set -a; . "$ENV_FILE"; set +a
-(cd apps/backend && npx prisma migrate deploy >/dev/null && node dist/seed.js)
-# O seed cria a pasta do modelo padrão (git) em data/: tudo em data/ pertence ao serviço, nunca ao root.
+(cd apps/backend && npx prisma migrate deploy >/dev/null)
+# O seed mexe nas pastas (git) de data/: roda como o usuário do serviço, dono de tudo em data/, nunca root.
+chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
+(cd apps/backend && runuser -u "$NIVOO_USER" -- env HOME="$NIVOO_HOME" node dist/seed.js)
 chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
 ok "banco atualizado"
 

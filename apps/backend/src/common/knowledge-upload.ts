@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { extractText } from './text-extract';
+import { extractText, isDocument, isLegacyDocument } from './text-extract';
 
 export const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_FILES_PER_UPLOAD = 3000;
@@ -52,19 +52,83 @@ export function sendKnowledgeFile(res: { setHeader(k: string, v: string): void; 
 }
 
 /**
- * PDF e Word ganham uma cópia em texto ao lado (ex.: manual.pdf → manual.pdf.txt), para que qualquer IA
- * consiga ler o conteúdo. Se a conversão falhar, o arquivo original entra mesmo assim.
+ * Tudo que entra como material ou conhecimento fica guardado como TEXTO, que qualquer IA lê bem:
+ * PDF (inclusive escaneado, por OCR), Word, Excel, PowerPoint e LibreOffice viram `<nome>.txt` e o
+ * original NÃO é guardado. Se a conversão falhar, o arquivo não entra e o motivo volta em `recusados`.
+ * Arquivos de texto, código e imagens entram como estão.
  */
-export async function withTextCopies(files: Array<{ path: string; content: Buffer }>): Promise<Array<{ path: string; content: Buffer }>> {
-  const out = [...files];
+export async function toTextFiles(
+  files: Array<{ path: string; content: Buffer }>,
+): Promise<{ files: Array<{ path: string; content: Buffer }>; convertidos: Array<{ de: string; para: string }>; recusados: string[] }> {
+  const out: Array<{ path: string; content: Buffer }> = [];
+  const convertidos: Array<{ de: string; para: string }> = [];
+  const recusados: string[] = [];
+  const usados = new Set(files.filter((f) => !isDocument(f.path) && !isLegacyDocument(f.path)).map((f) => f.path.toLowerCase()));
   for (const f of files) {
-    if (!/\.(pdf|docx)$/i.test(f.path)) continue;
+    if (!isDocument(f.path) && !isLegacyDocument(f.path)) {
+      out.push(f);
+      continue;
+    }
     try {
-      const text = await extractText(f.path, f.content);
-      if (text) out.push({ path: `${f.path}.txt`, content: Buffer.from(text, 'utf8') });
-    } catch {
-      /* sem cópia em texto; o original continua disponível */
+      const texto = await extractText(f.path, f.content);
+      if (!texto.trim()) {
+        recusados.push(`${f.path} (sem texto legível)`);
+        continue;
+      }
+      const para = textName(f.path, usados);
+      usados.add(para.toLowerCase());
+      out.push({ path: para, content: Buffer.from(`${texto}\n`, 'utf8') });
+      convertidos.push({ de: f.path, para });
+    } catch (e: any) {
+      recusados.push(`${f.path} (${e?.message ?? 'não foi possível ler'})`);
     }
   }
-  return out;
+  return { files: out, convertidos, recusados };
+}
+
+/** manual.pdf → manual.txt; se já existir manual.txt no envio, manual.pdf.txt. */
+export function textName(rel: string, usados: Set<string>): string {
+  const semExt = rel.replace(/\.[^./]+$/, '');
+  const simples = `${semExt}.txt`;
+  return usados.has(simples.toLowerCase()) ? `${rel}.txt` : simples;
+}
+
+/**
+ * Converte em texto os documentos já guardados numa pasta de materiais/conhecimento (de antes desta
+ * regra): grava `<nome>.txt`, remove o original (e a antiga cópia `<nome>.pdf.txt`) num único commit.
+ * O original continua no histórico do git. Documento que não converte fica como está.
+ */
+export async function convertStoredDocuments(
+  dir: string,
+  ws: { listKnowledge(d: string): Array<{ path: string }>; readKnowledge(d: string, rel: string): Buffer | null; writeKnowledge(d: string, f: Array<{ path: string; content: Buffer | null }>, a: string, m: string): Promise<string | null> },
+): Promise<{ convertidos: number; falhas: string[] }> {
+  const todos = ws.listKnowledge(dir).map((f) => f.path);
+  const docs = todos.filter((p) => isDocument(p));
+  if (!docs.length) return { convertidos: 0, falhas: [] };
+  const usados = new Set(todos.filter((p) => !isDocument(p)).map((p) => p.toLowerCase()));
+  const mudancas: Array<{ path: string; content: Buffer | null }> = [];
+  const falhas: string[] = [];
+  for (const rel of docs) {
+    const content = ws.readKnowledge(dir, rel);
+    if (!content) continue;
+    try {
+      const texto = await extractText(rel, content);
+      if (!texto.trim()) throw new Error('sem texto legível');
+      const copiaAntiga = `${rel}.txt`;
+      const simples = `${rel.replace(/\.[^./]+$/, '')}.txt`;
+      // A cópia antiga ao lado (manual.pdf.txt) dá lugar ao nome simples, se ele estiver livre.
+      if (usados.has(copiaAntiga.toLowerCase()) && !usados.has(simples.toLowerCase())) {
+        usados.delete(copiaAntiga.toLowerCase());
+        mudancas.push({ path: copiaAntiga, content: null });
+      }
+      const para = textName(rel, usados);
+      usados.add(para.toLowerCase());
+      mudancas.push({ path: para, content: Buffer.from(`${texto}\n`, 'utf8') }, { path: rel, content: null });
+    } catch (e: any) {
+      falhas.push(`${rel}: ${e?.message ?? e}`);
+    }
+  }
+  const convertidos = mudancas.filter((m) => m.content === null && docs.includes(m.path)).length;
+  if (convertidos) await ws.writeKnowledge(dir, mudancas, 'nivoo', `converte ${convertidos} documento(s) em texto`);
+  return { convertidos, falhas };
 }

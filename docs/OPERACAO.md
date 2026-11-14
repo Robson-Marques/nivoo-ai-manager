@@ -28,7 +28,11 @@
    **Arquivar** (sai da lista; fica em "conversas arquivadas", e para continuar nela é só desarquivar) e
    **Excluir** (apaga as mensagens; o que o projeto aprendeu continua). Projetos também podem ser
    **arquivados** em Ajustes (ficam em "projetos arquivados", na lateral).
-10. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
+10. **Documentos viram texto** — tudo que você envia como material do modelo ou conhecimento do projeto
+    fica guardado como texto: PDF (inclusive escaneado), Word, PowerPoint, Excel e LibreOffice viram
+    `<nome>.txt` e o original não é guardado. Formato antigo (.doc, .xls, .ppt) ou arquivo ilegível
+    não entra, e a tela diz o motivo (salve como PDF ou no formato novo).
+11. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
     No "+ Novo projeto", **Trazer de um repositório Git** baixa um projeto que você já tem. Na aba **Git**
     do projeto: **Atualizar do Git**, **Enviar para o Git** (com versão/tag opcional) e o envio
@@ -104,7 +108,7 @@ privado e `NoNewPrivileges`. `Restart=always` + lease garantem retomada após qu
 * Geração de imagem/vídeo de verdade exige um conector próprio; hoje a IA entrega texto, briefing,
   prompts e peças em SVG/HTML.
 * O login pela tela fica na memória da API: se a API reiniciar no meio, recomece o login.
-* PDF escaneado (só imagem) não vira texto (`pdftotext` não faz OCR).
+* OCR de PDF escaneado depende da qualidade da digitalização; confira o `.txt` gerado (aba de materiais/conhecimento). Imagens soltas (PNG, JPG) entram como imagem, sem OCR.
 * O isolamento do executor `local-shell` é por diretório, ambiente mínimo e política; para isolamento
   forte, use o serviço instalado (usuário dedicado + systemd) ou contêiner.
 * A política de ações destrutivas é por padrões de texto: reduz riscos, mas não substitui o isolamento do SO.
