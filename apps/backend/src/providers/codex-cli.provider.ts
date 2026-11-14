@@ -77,6 +77,7 @@ export class CodexCliProvider implements AiProvider {
     const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-C', req.cwd];
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
+    for (const img of req.options?.images ?? []) args.push('--image', img);
     args.push('-');
     req.onLog(`codex ${args.join(' ')}`);
     const r = await runProcess(this.bin, args, {

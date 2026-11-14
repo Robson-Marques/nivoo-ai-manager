@@ -39,7 +39,8 @@ export interface ExecutionRequest {
   /** Informado quando o processo do agente inicia (pid do grupo). */
   onSpawn?: (pid: number) => void;
   /** Opções por etapa (não secretas): modelo e limite de turnos da sessão. */
-  options?: { model?: string; maxTurns?: number };
+  /** images: arquivos de imagem anexados (para IAs que recebem imagem pela linha de comando). */
+  options?: { model?: string; maxTurns?: number; images?: string[] };
 }
 
 export interface ExecutionResult {

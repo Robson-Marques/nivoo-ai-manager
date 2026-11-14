@@ -78,11 +78,13 @@ export function saveGitAccount(c: Omit<GitAccount, 'id'>): GitAccount {
   return conta;
 }
 
-export function renameGitAccount(id: string, nome: string): GitAccount {
+/** Renomear e/ou trocar o token (ex.: o anterior expirou). Projetos ligados à conta continuam ligados. */
+export function updateGitAccount(id: string, mudancas: { nome?: string; token?: string }): GitAccount {
   const contas = readAll();
   const c = contas.find((x) => x.id === id);
   if (!c) throw new NotFoundException('Conta Git não encontrada');
-  c.nome = nome;
+  if (mudancas.nome) c.nome = mudancas.nome;
+  if (mudancas.token) c.token = mudancas.token;
   writeAll(contas);
   return c;
 }

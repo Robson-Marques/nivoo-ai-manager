@@ -28,6 +28,8 @@ export interface Conexao {
   nome: string;
   padrao: boolean;
   criadaEm: string;
+  /** A IA recusou o login numa sessão real (token expirado/revogado, chave inválida): precisa reconectar. */
+  falhaLogin?: { mensagem: string; em: string } | null;
 }
 
 const ID_EXTRA = /^([a-z]+(?:-[a-z]+)*-(?:cli|api))--([0-9a-f]{8})$/;
@@ -79,4 +81,24 @@ export function novoId(tipo: TipoIa, existentes: Conexao[]): string {
   do id = `${tipo}--${randomBytes(4).toString('hex')}`;
   while (existentes.some((c) => c.id === id));
   return id;
+}
+
+const FALHA_LOGIN = /\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
+
+/** O erro de uma sessão é de login recusado (não de limite de uso ou rede)? */
+export function ehFalhaDeLogin(texto: string | undefined | null): boolean {
+  return !!texto && FALHA_LOGIN.test(texto);
+}
+
+/**
+ * Marca (ou limpa, com null) a falha de login de uma conexão. O status do CLI só vê que existe um token;
+ * esta marca registra que a IA o recusou de verdade, para a tela pedir "Reconecte" em vez de "Conectado".
+ */
+export function marcarFalhaLogin(id: string, mensagem: string | null): void {
+  const lista = listarConexoes();
+  const c = lista.find((x) => x.id === id);
+  if (!c) return;
+  if (!mensagem && !c.falhaLogin) return;
+  c.falhaLogin = mensagem ? { mensagem: mensagem.slice(0, 300), em: new Date().toISOString() } : null;
+  gravarConexoes(lista);
 }

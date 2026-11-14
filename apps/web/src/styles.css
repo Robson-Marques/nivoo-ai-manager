@@ -237,3 +237,19 @@ textarea { resize: vertical; line-height: 1.5; }
   .conexao-acoes { width: 100%; justify-content: flex-end; }
   .conexao-painel { margin-left: 16px; }
 }
+/* Anexos no chat */
+.entrada { grid-template-columns: auto 1fr auto; align-items: end; }
+.entrada .clipe { width: 42px; height: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 10px; }
+.entrada .clipe:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.entrada.arrastando textarea { border: 2px dashed var(--accent); background: var(--accent-soft); }
+.anexos-pendentes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.anexo-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 4px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 12.5px; }
+.anexo-chip.claro { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .35); color: inherit; cursor: pointer; }
+.anexo-chip .link { padding: 0 2px; font-size: 16px; line-height: 1; }
+.anexo-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.anexo-tipo { font-size: 10px; font-weight: 700; padding: 2px 4px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
+.anexo-mini { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; }
+.anexos-msg { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; white-space: normal; }
+.anexo-imagem { padding: 0; border: 0; background: transparent; border-radius: 8px; overflow: hidden; cursor: zoom-in; }
+.anexo-imagem img { display: block; max-width: 220px; max-height: 160px; object-fit: cover; border-radius: 8px; }
+.anexo-imagem .anexo-nome { display: inline-block; padding: 6px 8px; max-width: 200px; color: #fff; }

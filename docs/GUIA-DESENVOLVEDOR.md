@@ -51,7 +51,8 @@ apps/backend/
   src/projects/
     projects.service.ts           criar/editar/excluir projeto, regras do projeto, conhecimento, pasta principal
     project-profile.service.ts    "fine-tune do projeto": perfil que vai em toda sessão de IA
-  src/conversations/              conversa (chat): mensagens, aprovação do plano ("Fazer") → job
+  src/conversations/              conversa (chat): mensagens, aprovação do plano ("Fazer") → job;
+                                  attachments.ts: anexos (imagem/texto), cópia para a sessão e para o projeto
   src/memory/                     memória categorizada (5 categorias); "esquecer"
 
   src/jobs/

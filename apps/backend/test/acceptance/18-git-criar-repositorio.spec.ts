@@ -101,6 +101,10 @@ describe('Git: duas contas, escolher e criar repositório, mudar de servidor', (
     const gl = (await h.http().post('/api/git/accounts').send({ tipo: 'gitlab', host, token: 'glpat-TESTE-123456', nome: 'GitLab da empresa' }).expect(201)).body;
     await h.http().post('/api/git/accounts').send({ tipo: 'gitlab', host, token: 'glpat-ERRADO-0000' }).expect(400);
     expect((await h.http().get('/api/git/accounts')).body.map((c: any) => c.nome)).toEqual(['GitHub', 'GitLab da empresa']);
+    // Trocar o token (ex.: o anterior expirou): conferido antes de salvar; a conta continua a mesma.
+    await h.http().patch(`/api/git/accounts/${gl.id}`).send({ token: 'glpat-NOVO-ERRADO-00' }).expect(400);
+    expect((await h.http().patch(`/api/git/accounts/${gl.id}`).send({ token: 'glpat-TESTE-123456', nome: 'GitLab da empresa' }).expect(200)).body.id).toBe(gl.id);
+    expect((await h.http().post(`/api/git/accounts/${gl.id}/testar`).expect(201)).body).toEqual({ ok: true, usuario: 'robson' });
 
     // Escolher entre os repositórios da conta, sem digitar o endereço.
     const lista = (await h.http().get(`/api/git/accounts/${gh.id}/repos`).expect(200)).body;

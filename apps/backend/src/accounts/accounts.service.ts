@@ -12,6 +12,7 @@ import {
   existeArquivoConexoes,
   gravarConexoes,
   listarConexoes,
+  marcarFalhaLogin,
   novoId,
   TIPO_INFO,
   TipoIa,
@@ -112,6 +113,7 @@ export class AccountsService {
           configuradoPeloAdministrador:
             !ehAdicional(c.id) && ((c.tipo === 'claude-code-cli' && secretSource('CLAUDE_CODE_OAUTH_TOKEN') === 'ambiente') || (!!chave && secretSource(chave) === 'ambiente')),
           problema: st.available ? null : st.errors.join('; ') || null,
+          loginRecusado: !!c.falhaLogin,
           projetos: projetos.find((p) => p.provider === c.id)?._count._all ?? 0,
           login,
         };
@@ -218,6 +220,7 @@ export class AccountsService {
     } else {
       gravarSegredoDaConexao(ehAdicional(id) ? id : null, CHAVE[c.tipo]!, k);
     }
+    marcarFalhaLogin(id, null);
     this.registry.invalidate(id);
     return this.registry.status(id, 0);
   }
@@ -238,6 +241,7 @@ export class AccountsService {
     } else {
       gravarSegredoDaConexao(propria, CHAVE[c.tipo]!, null);
     }
+    marcarFalhaLogin(id, null);
     this.registry.invalidate(id);
     return this.registry.status(id, 0);
   }

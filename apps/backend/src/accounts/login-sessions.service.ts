@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { minimalEnv } from '../common/exec';
 import { GeminiCliProvider } from '../providers/gemini-cli.provider';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { ehAdicional, tipoDe } from './connections';
+import { ehAdicional, marcarFalhaLogin, tipoDe } from './connections';
 import { gravarSegredoDaConexao, isolatedHome } from './secrets';
 
 /**
@@ -210,6 +210,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     if (!s) return;
     clearTimeout(s.timer);
     s.info = { ...s.info, state, message };
+    if (state === 'conectado') marcarFalhaLogin(provider, null);
     if (s.child.exitCode === null) s.child.kill('SIGTERM');
     this.registry.invalidate(provider);
   }

@@ -13,7 +13,7 @@
  *  3. Novo projeto no modelo, com a IA escolhida; Ajustes: regras do projeto e conhecimento
  *  4. Conversa → "Posso fazer isto" → Fazer → conferência das regras → Pronto; memória e arquivos
  *  5. A IA recebeu o perfil do projeto (regras, materiais, conhecimento)
- *  6. Várias conversas: nova, arquivar, excluir; excluir o projeto
+ *  6. Várias conversas: nova, arquivar, excluir; anexos no chat (imagem e Word); excluir o projeto
  *  7. Git: projeto trazido de um repositório (repositório local de teste; a API precisa de
  *     NIVOO_GIT_PERMITIR_LOCAL=1), aba Git com o estado, envio com tag
  *  8. Conta GitLab (servidor simulado aqui: API /api/v4 que cria repositórios locais), projeto "do zero +
@@ -219,6 +219,27 @@ const plano = {
     await page.getByRole('button', { name: 'Excluir', exact: true }).click();
     await arquivada.waitFor({ state: 'detached' });
     passo('nova conversa, conversa arquivada e excluída');
+
+    // Anexos no chat: imagem (miniatura) e documento Word (vira texto para a IA).
+    await page.getByRole('button', { name: '+ Nova conversa' }).click();
+    fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
+    fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n{"tipo":"resposta","texto":"Recebi a foto e o documento.","memoria":[]}\n```');
+    const png = path.join(tmp, 'foto.png');
+    fs.writeFileSync(png, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+    const docx = path.join(tmp, 'pedido.docx');
+    execFileSync('python3', ['-c', `import zipfile,sys
+with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Pedido ANEXO-${stamp}</w:t></w:r></w:p></w:body></w:document>')`, docx]);
+    await page.locator('form.entrada input[type=file]').setInputFiles([png, docx]);
+    await page.locator('.anexos-pendentes .anexo-chip', { hasText: 'pedido.docx' }).waitFor();
+    await page.getByPlaceholder(/Escreva sua mensagem/).fill('Veja a foto e o pedido');
+    await page.getByRole('button', { name: 'Enviar' }).click();
+    await page.locator('.msg.eu .anexo-imagem img').waitFor();
+    await page.locator('.msg.eu .anexo-chip', { hasText: 'pedido.docx' }).waitFor();
+    await page.getByText('Recebi a foto e o documento.').waitFor();
+    if (!fs.readFileSync(path.join(ctl, 'prompt.txt'), 'utf8').includes('pedido.txt (texto extraído de pedido.docx)')) throw new Error('documento não chegou à IA como texto');
+    await shot(page, '9a-anexos-no-chat');
+    for (const f of ['mode', 'resposta.txt']) fs.rmSync(path.join(ctl, f), { force: true });
+    passo('anexos no chat: imagem com miniatura e Word lido como texto pela IA');
 
     // 6. Excluir o projeto
     page.once('dialog', (d) => d.accept(nome));

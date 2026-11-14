@@ -3,6 +3,21 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 17 — anexos no chat, login recusado e trocar token do Git (2026-11-14)
+
+* **Anexos no chat**: clipe, colar (Ctrl+V) e arrastar. Imagens vão como imagem (a IA abre e vê; o
+  ChatGPT também as recebe por `--image`); PDF/Office/LibreOffice viram texto; texto e código como estão.
+  Miniaturas e etiquetas na conversa (clique abre). As etapas do trabalho aprovado recebem os mesmos
+  anexos; "coloque este logo no site" → o plano indica `anexosNoProjeto` e o sistema copia o arquivo.
+* **Login recusado**: erro real do Claude "401 OAuth access token is invalid" com a tela mostrando
+  "Conectado" (o CLI só confere que o token existe). Agora a primeira recusa marca a conexão como
+  "Login recusado pela IA — reconecte", a mensagem explica e oferece outra IA; reconectar limpa.
+* **Git**: trocar o token na linha da conexão (conferido antes de salvar; projetos continuam ligados).
+
+Testes: suíte 100/100 (+7 de IA real puladas), `20-anexos-e-login-recusado` (anexos chegando à IA e às
+etapas, recusas, abrir pela tela, caminho malicioso, logo copiado para o projeto, exclusão; 401 marcando
+e reconexão limpando), `18` com troca de token; interface pela tela com anexos (imagem e Word).
+
 ## Etapa 16 — Conexões: várias contas do mesmo serviço (2026-11-14)
 
 A tela "Contas" virou **Conexões**, no formato de lista de integrações: "Conexões cadastradas (N)", botão

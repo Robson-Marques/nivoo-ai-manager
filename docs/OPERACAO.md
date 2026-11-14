@@ -37,7 +37,14 @@
     fica guardado como texto: PDF (inclusive escaneado), Word, PowerPoint, Excel e LibreOffice viram
     `<nome>.txt` e o original não é guardado. Formato antigo (.doc, .xls, .ppt) ou arquivo ilegível
     não entra, e a tela diz o motivo (salve como PDF ou no formato novo).
-11. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
+11. **Anexos no chat** — no clipe ao lado da mensagem (ou colando com Ctrl+V, ou arrastando para a caixa
+    de texto): imagens e fotos (a IA vê a imagem), PDF, Word, Excel, PowerPoint, LibreOffice (viram texto)
+    e arquivos de texto/código; até 10 por mensagem, 10 MB cada. Se você pedir para usar um anexo no
+    projeto (ex.: "coloque este logo no site"), o plano diz onde ele vai e o sistema copia o arquivo.
+12. **Login recusado** — se a IA recusar o login (token expirado ou revogado), a conexão aparece como
+    "Login recusado pela IA — reconecte" em **Conexões**; clique em conectar de novo. Enquanto isso, dá
+    para continuar a conversa com outra IA. Token do Git vencido: ícone da chave na linha → "Trocar o token".
+13. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
     Pode cadastrar o GitHub e o GitLab ao mesmo tempo (e mais de uma conta de cada). Para **criar**
     repositórios, o token precisa dessa permissão (GitHub: "Administration" de escrita ou token clássico

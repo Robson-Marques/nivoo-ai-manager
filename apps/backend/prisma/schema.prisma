@@ -168,6 +168,8 @@ model ConversationMessage {
   approvedAt     DateTime?
   sessionId      String?
   costUsd        Decimal       @default(0) @db.Decimal(12, 4)
+  /// Anexos da mensagem do usuário: [{ nome, tipo: imagem|texto, bytes, de? }] (arquivos em <projeto>/anexos/)
+  attachments    Json?
   createdAt      DateTime      @default(now())
 
   tasks QueueTask[]

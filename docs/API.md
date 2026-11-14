@@ -28,7 +28,7 @@ O `provider` de um projeto é o id da conexão.
 
 | Método | Rota | Função |
 |---|---|---|
-| GET | `/accounts` | Conexões: `id`, `tipo`, `ia`, `modo` (`conta` \| `api`), `nome`, `padrao`, `instalado`, `conectado`, `problema`, `projetos` (quantos usam), `configuradoPeloAdministrador` e o login em andamento. `?atualizar=1` confere todas agora. Na primeira vez, as contas já conectadas (ou em uso) viram conexões com os nomes de antes. |
+| GET | `/accounts` | Conexões: `id`, `tipo`, `ia`, `modo` (`conta` \| `api`), `nome`, `padrao`, `instalado`, `conectado`, `problema`, `loginRecusado` (a IA recusou o login numa sessão real: token expirado/revogado; some ao reconectar), `projetos` (quantos usam), `configuradoPeloAdministrador` e o login em andamento. `?atualizar=1` confere todas agora. Na primeira vez, as contas já conectadas (ou em uso) viram conexões com os nomes de antes. |
 | GET | `/accounts/tipos` | Tipos para "+ Nova" (`tipo`, `ia`, `modo`, `nomePadrao`, `conta`/`ondeChave`). |
 | POST | `/accounts` | `{ "tipo", "nome"? }` — cria a conexão (nome automático "ChatGPT 2"... se omitido; nome repetido → 409). A primeira criada vira padrão. |
 | PATCH | `/accounts/:id` | `{ "nome"?, "padrao"?: true }` — renomear e/ou usar como padrão (IA dos projetos novos sem IA escolhida). |
@@ -83,7 +83,7 @@ Tokens ficam em `git-contas.json` (600) no servidor; nenhuma rota devolve o toke
 | GET | `/git/accounts` | Contas Git (sem token). |
 | POST | `/git/accounts` | `{ "tipo": "github" \| "gitlab", "host"? (GitLab próprio, ex.: `https://git.empresa.com.br`), "token", "nome"?, "usuario"?, "autorNome"?, "autorEmail"?, "verificar"? (padrão true: confere o token na API do servidor) }`. |
 | DELETE | `/git/accounts/:id` | Remove a conta. |
-| PATCH | `/git/accounts/:id` | `{ "nome" }` — renomear. |
+| PATCH | `/git/accounts/:id` | `{ "nome"?, "token"? }` — renomear e/ou trocar o token (conferido antes de salvar; os projetos ligados continuam ligados). |
 | POST | `/git/accounts/:id/testar` | Confere agora se o token vale (`{ ok, usuario }`). |
 | GET | `/git/accounts/:id/repos?busca=` | Repositórios da conta (mais recentes primeiro): `[{ nome, url, branch, privado }]`. |
 | GET | `/git/accounts/:id/namespaces` | Onde a conta pode criar repositórios: `[{ id, nome, tipo: "usuario" \| "grupo" }]` (GitHub: usuário e organizações; GitLab: usuário e grupos). |
@@ -118,8 +118,9 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 | DELETE | `/projects/:pid/conversations/:cid` | Exclui a conversa (mensagens); para antes a resposta em andamento. Memória, arquivos e trabalhos do projeto continuam. |
 | POST | `/projects/:pid/conversations/:cid/cancel` | Para a resposta em andamento ("Pensando…"). |
 | GET | `/projects/:pid/conversations/:cid` | Conversa com as mensagens (`status`: PENDENTE, PRONTA, ERRO; `kind`: resposta, plano, sistema, erro). |
-| POST | `/projects/:pid/conversations/:cid/messages` | `{ "content" }` — enfileira a resposta da IA do projeto (409 se ainda houver uma pendente). |
-| POST | `/projects/:pid/conversations/:cid/messages/:mid/approve` | `{ "decidedBy", "start"? }` — o "Fazer": transforma o plano em trabalho (sempre com a conferência das regras) e inicia. 400 sem `decidedBy`; 409 se já aprovado. |
+| POST | `/projects/:pid/conversations/:cid/messages` | `{ "content", "anexos"?: [{ "nome", "contentBase64" }] }` — enfileira a resposta da IA do projeto (409 se ainda houver uma pendente). Até 10 anexos de 10 MB: imagens (PNG, JPG, GIF, WEBP) ficam como imagem; PDF/Office/LibreOffice viram texto (`<nome>.txt`, com `de`); texto e código como estão; outro tipo ou formato antigo → 400. Com anexos, `content` pode ser vazio. A mensagem guarda `attachments: [{ nome, tipo, bytes, de? }]`. |
+| GET | `/projects/:pid/conversations/:cid/messages/:mid/anexos/:nome` | Abre um anexo (imagem com o tipo certo; o resto como texto; sandbox). |
+| POST | `/projects/:pid/conversations/:cid/messages/:mid/approve` | `{ "decidedBy", "start"? }` — o "Fazer": transforma o plano em trabalho (sempre com a conferência das regras) e inicia. Se o plano tem `anexosNoProjeto: [{ anexo: "contexto/anexos/<msg>/<arquivo>", para }]`, o sistema copia esses anexos da conversa para a pasta do trabalho antes de começar. 400 sem `decidedBy`; 409 se já aprovado. |
 
 ## Trabalhos (jobs)
 

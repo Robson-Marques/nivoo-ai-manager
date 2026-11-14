@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import * as path from 'node:path';
+import { TIPOS_IMAGEM } from './attachments';
 import { ConversationsService } from './conversations.service';
 
 @Controller('projects/:pid/conversations')
@@ -38,6 +40,17 @@ export class ConversationsController {
   @Post(':cid/messages')
   send(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string, @Body() body: any) {
     return this.conversations.send(pid, cid, body);
+  }
+
+  /** Anexo de uma mensagem: imagens com o tipo certo (para a miniatura); o resto como texto. Nunca executa. */
+  @Get(':cid/messages/:mid/anexos/:nome')
+  async attachment(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string, @Param('mid', ParseUUIDPipe) mid: string, @Param('nome') nome: string, @Res() res: any) {
+    const a = await this.conversations.attachment(pid, cid, mid, nome);
+    res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.type(TIPOS_IMAGEM[path.extname(a.nome).toLowerCase()] ?? 'text/plain; charset=utf-8');
+    res.send(a.conteudo);
   }
 
   @Post(':cid/messages/:mid/approve')

@@ -4,6 +4,11 @@ import { optString, reqString } from '../common/validate';
 import { JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { resolveInside } from '../common/path-guard';
+import { WorkspaceService } from '../storage/workspace.service';
+import { Anexo, gravarAnexos, lerAnexo, prepararAnexos } from './attachments';
 
 const TITULO_PADRAO = 'Nova conversa';
 
@@ -18,7 +23,13 @@ export class ConversationsService {
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
     private readonly jobs: JobsService,
+    private readonly workspace: WorkspaceService,
   ) {}
+
+  private async raizDoProjeto(projectId: string): Promise<string> {
+    const p = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { dirKey: true } });
+    return this.workspace.projectDirs(p.dirKey).root;
+  }
 
   private async conversation(projectId: string, conversationId: string) {
     const c = await this.prisma.conversation.findFirst({ where: { id: conversationId, projectId } });
@@ -66,6 +77,7 @@ export class ConversationsService {
     await this.conversation(projectId, conversationId);
     await ConversationsService.cancelPending(this.prisma, { conversationId }); // para a resposta em andamento
     await this.prisma.conversation.delete({ where: { id: conversationId } });
+    fs.rmSync(path.join(await this.raizDoProjeto(projectId), 'anexos', conversationId), { recursive: true, force: true });
     return { excluida: conversationId };
   }
 
@@ -97,19 +109,61 @@ export class ConversationsService {
   async send(projectId: string, conversationId: string, body: any) {
     const conversa = await this.conversation(projectId, conversationId);
     if (conversa.archivedAt) throw new ConflictException('Conversa arquivada: desarquive para continuar');
-    const content = reqString(body, 'content', 20000);
+    // Anexos (imagens, documentos, texto) podem ir sozinhos, sem texto.
+    const anexos = await prepararAnexos(body?.anexos);
+    const content = anexos.length ? (optString(body, 'content', 20000) ?? '').trim() : reqString(body, 'content', 20000);
     const pendente = await this.prisma.conversationMessage.findFirst({ where: { conversationId, status: 'PENDENTE' } });
     if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
+    const raiz = anexos.length ? await this.raizDoProjeto(projectId) : '';
     await this.prisma.$transaction(async (tx) => {
-      await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content } });
+      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content } });
+      if (anexos.length) {
+        const gravados = gravarAnexos(raiz, conversationId, minha.id, anexos);
+        await tx.conversationMessage.update({ where: { id: minha.id }, data: { attachments: gravados as unknown as Prisma.InputJsonValue } });
+      }
       const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE' } });
       await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
       // Conversa nova ganha como título o começo da primeira mensagem (como no ChatGPT).
       const primeira = (await tx.conversationMessage.count({ where: { conversationId, role: 'USUARIO' } })) === 1;
-      const titulo = primeira && conversa.title === TITULO_PADRAO ? content.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
+      const inicio = content || anexos.map((a) => a.de ?? a.nome).join(', ');
+      const titulo = primeira && conversa.title === TITULO_PADRAO ? inicio.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
       await tx.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date(), ...(titulo ? { title: titulo } : {}) } });
     });
     return this.get(projectId, conversationId);
+  }
+
+  /**
+   * Anexos que o plano pede para colocar no projeto (ex.: o logo enviado no chat em public/logo.png): copiados
+   * para a pasta do trabalho antes de ele começar, num commit; entram na pasta principal junto com o trabalho
+   * (depois da conferência). A IA não consegue gravar imagem sozinha, por isso o sistema copia.
+   */
+  private async copiarAnexosParaOProjeto(projectId: string, conversationId: string, jobId: string, pedidos: unknown) {
+    if (!Array.isArray(pedidos) || !pedidos.length) return;
+    const projeto = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { dirKey: true } });
+    const raiz = this.workspace.projectDirs(projeto.dirKey).root;
+    const worktree = await this.workspace.ensureJobWorktree(projeto.dirKey, jobId);
+    const copiados: string[] = [];
+    for (const p of pedidos as Array<{ anexo: string; para: string }>) {
+      const [mensagem, nome] = String(p.anexo ?? '').replace(/^contexto\/anexos\//, '').split('/');
+      const msg = mensagem ? await this.prisma.conversationMessage.findFirst({ where: { id: mensagem, conversationId } }) : null;
+      const conteudo = msg && nome ? lerAnexo(raiz, conversationId, msg.id, nome) : null;
+      if (!conteudo) continue;
+      const destino = resolveInside(worktree, String(p.para ?? ''));
+      fs.mkdirSync(path.dirname(destino), { recursive: true });
+      fs.writeFileSync(destino, conteudo);
+      copiados.push(path.relative(worktree, destino));
+    }
+    if (copiados.length) await this.workspace.commitCheckpoint(worktree, `anexos da conversa colocados no projeto: ${copiados.join(', ')}`);
+  }
+
+  /** Arquivo anexado a uma mensagem (para mostrar no chat). */
+  async attachment(projectId: string, conversationId: string, messageId: string, nome: string): Promise<{ nome: string; conteudo: Buffer }> {
+    await this.conversation(projectId, conversationId);
+    const msg = await this.prisma.conversationMessage.findFirst({ where: { id: messageId, conversationId } });
+    const anexo = ((msg?.attachments ?? []) as unknown as Anexo[]).find((a) => a.nome === nome);
+    const conteudo = anexo ? lerAnexo(await this.raizDoProjeto(projectId), conversationId, messageId, nome) : null;
+    if (!conteudo) throw new NotFoundException('Anexo não encontrado');
+    return { nome, conteudo };
   }
 
   /** Aprova o plano proposto: cria o job (validado) e, por padrão, inicia. */
@@ -122,6 +176,7 @@ export class ConversationsService {
     if (msg.jobId) throw new ConflictException('Este plano já foi aprovado');
     const plan = this.jobs.validatePlan(msg.plan);
     const job = await this.jobs.create(projectId, { ...plan, author: decidedBy });
+    await this.copiarAnexosParaOProjeto(projectId, conversationId, job.id, (msg.plan as any)?.anexosNoProjeto);
     await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { jobId: job.id, approvedBy: decidedBy, approvedAt: new Date() } });
     if (body?.start !== false) await this.jobs.start(projectId, job.id);
     await this.prisma.conversationMessage.create({

@@ -133,3 +133,11 @@ export async function lerArquivo(url: string): Promise<string> {
   if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   return res.ok ? res.text() : 'Não foi possível abrir este arquivo.';
 }
+
+/** Arquivo binário servido pela API (com o token, se houver), como endereço local do navegador. */
+export async function urlDoArquivo(url: string): Promise<string | null> {
+  const token = getToken();
+  let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
+  return res.ok ? URL.createObjectURL(await res.blob()) : null;
+}

@@ -1,3 +1,4 @@
+import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
@@ -141,6 +142,17 @@ export class StepExecutorService {
       // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
       const ctx = this.workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
       if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
+      // Anexos da conversa que originou este trabalho (imagens e documentos enviados no chat).
+      const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
+      if (origem) {
+        const comAnexos = await this.prisma.conversationMessage.findMany({
+          where: { conversationId: origem.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, conversationId: true, attachments: true },
+        });
+        const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(job.project.dirKey).root, worktree, comAnexos);
+        if (anexos.length) await L(`Anexos da conversa disponíveis para a IA: ${anexos.map((a) => a.caminho).join(', ')}`);
+      }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
       const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !f.startsWith('contexto/'));
@@ -201,6 +213,8 @@ export class StepExecutorService {
       result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
     }
     await logChain;
+    // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
+    if (isAi) this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error ?? result.output.slice(-500));
 
     // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);

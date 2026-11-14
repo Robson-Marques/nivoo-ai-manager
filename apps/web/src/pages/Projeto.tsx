@@ -1,6 +1,6 @@
-import { createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, lerArquivo, nomeUsuario } from '../api';
+import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -148,14 +148,41 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
     setVersaoPainel((v) => v + 1);
   }, [qtd, pensando]);
 
+  // Anexos da próxima mensagem: botão do clipe, colar (Ctrl+V) e arrastar para a conversa.
+  const [anexos, setAnexos] = useState<File[]>([]);
+  const [arrastando, setArrastando] = useState(false);
+  const seletor = useRef<HTMLInputElement>(null);
+  const anexar = (lista: File[]) => {
+    setErro(null);
+    const grandes = lista.filter((f) => f.size > 10 * 1024 * 1024);
+    if (grandes.length) setErro(`Passa de 10 MB: ${grandes.map((f) => f.name).join(', ')}`);
+    setAnexos((atuais) => [...atuais, ...lista.filter((f) => f.size <= 10 * 1024 * 1024)].slice(0, 10));
+  };
+  const colar = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const imagens = Array.from(e.clipboardData.items)
+      .filter((i) => i.kind === 'file')
+      .map((i, n) => {
+        const f = i.getAsFile();
+        if (!f) return null;
+        const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+        return f.name && f.name !== 'image.png' ? f : new File([f], `colado-${Date.now().toString(36)}-${n + 1}.${ext}`, { type: f.type });
+      })
+      .filter((f): f is File => !!f);
+    if (imagens.length) {
+      e.preventDefault();
+      anexar(imagens);
+    }
+  };
   const enviar = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!texto.trim() || !conv) return;
+    if ((!texto.trim() && !anexos.length) || !conv) return;
     setOcupado(true);
     setErro(null);
     try {
-      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto }));
+      const lista = await Promise.all(anexos.map(async (f) => ({ nome: f.name, contentBase64: await fileToBase64(f) })));
+      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto, ...(lista.length ? { anexos: lista } : {}) }));
       setTexto('');
+      setAnexos([]);
       recarregarConversas().catch(() => undefined); // título e ordem da lista
     } catch (err: any) {
       setErro(err.message);
@@ -166,7 +193,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
   // Depois de trocar de IA: manda de novo a última pergunta, agora para a nova IA.
   const reenviar = async () => {
     const ultima = [...(conv?.messages ?? [])].reverse().find((m: any) => m.role === 'USUARIO');
-    if (ultima) setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: ultima.content }));
+    if (ultima) setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: ultima.content || 'Veja os anexos da minha mensagem anterior e responda.' }));
   };
   const tecla = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -238,17 +265,56 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             </button>
           </div>
         ) : (
-        <form className="entrada" onSubmit={enviar}>
+        <form
+          className={arrastando ? 'entrada arrastando' : 'entrada'}
+          onSubmit={enviar}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setArrastando(true);
+          }}
+          onDragLeave={() => setArrastando(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setArrastando(false);
+            anexar(Array.from(e.dataTransfer.files));
+          }}
+        >
           {erro && <div className="error">{erro}</div>}
+          {anexos.length > 0 && (
+            <div className="anexos-pendentes">
+              {anexos.map((f, i) => (
+                <span key={`${f.name}-${i}`} className="anexo-chip">
+                  {f.type.startsWith('image/') ? <MiniaturaLocal arquivo={f} /> : <span className="anexo-tipo">{(f.name.split('.').pop() ?? '').toUpperCase().slice(0, 4)}</span>}
+                  <span className="anexo-nome">{f.name}</span>
+                  <button type="button" className="link" aria-label={`Tirar ${f.name}`} onClick={() => setAnexos(anexos.filter((_, j) => j !== i))}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
+          <button type="button" className="clipe" title="Anexar imagem ou arquivo (também dá para colar ou arrastar)" aria-label="Anexar imagem ou arquivo" disabled={pensando || anexos.length >= 10} onClick={() => seletor.current?.click()}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7" /></svg>
+          </button>
+          <input
+            ref={seletor}
+            type="file"
+            multiple
+            hidden
+            accept="image/png,image/jpeg,image/gif,image/webp,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.sql,.py,.ts,.tsx,.js,.jsx,.css,.sh"
+            onChange={(e) => {
+              anexar(Array.from(e.target.files ?? []));
+              e.target.value = '';
+            }}
+          />
           <textarea
             rows={2}
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={tecla}
-            placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha)'}
+            onPaste={colar}
+            placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha). Imagens: cole ou arraste aqui.'}
             disabled={pensando}
           />
-          <button disabled={ocupado || pensando || !texto.trim()}>Enviar</button>
+          <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length)}>{ocupado && anexos.length ? 'Enviando…' : 'Enviar'}</button>
         </form>
         )}
       </div>
@@ -259,7 +325,20 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
 }
 
 function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => void; onMudou: () => void; onReenviar?: () => Promise<void> }) {
-  if (m.role === 'USUARIO') return <div className="msg eu">{m.content}</div>;
+  if (m.role === 'USUARIO') {
+    return (
+      <div className="msg eu">
+        {m.attachments?.length > 0 && (
+          <div className="anexos-msg">
+            {m.attachments.map((a: any) => (
+              <AnexoDaMensagem key={a.nome} a={a} url={`/projects/${projetoId}/conversations/${m.conversationId}/messages/${m.id}/anexos/${encodeURIComponent(a.nome)}`} />
+            ))}
+          </div>
+        )}
+        {m.content}
+      </div>
+    );
+  }
   if (m.status === 'PENDENTE') return <Pensando desde={m.createdAt} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />;
   if (m.status === 'ERRO') {
     return (
@@ -449,5 +528,49 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
         </div>
       )}
     </aside>
+  );
+}
+
+/** Miniatura de uma imagem ainda não enviada. */
+function MiniaturaLocal({ arquivo }: { arquivo: File }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const u = URL.createObjectURL(arquivo);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [arquivo]);
+  return url ? <img src={url} alt="" className="anexo-mini" /> : null;
+}
+
+/** Anexo já enviado: imagem com miniatura; documento (guardado como texto) em etiqueta. Clique abre. */
+function AnexoDaMensagem({ a, url }: { a: any; url: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (a.tipo !== 'imagem') return;
+    let u: string | null = null;
+    urlDoArquivo(url).then((x) => {
+      u = x;
+      setSrc(x);
+    });
+    return () => {
+      if (u) URL.revokeObjectURL(u);
+    };
+  }, [a.tipo, url]);
+  const abrir = async () => {
+    const u = src ?? (await urlDoArquivo(url));
+    if (u) window.open(u, '_blank', 'noopener');
+  };
+  if (a.tipo === 'imagem') {
+    return (
+      <button type="button" className="anexo-imagem" title={a.nome} onClick={abrir}>
+        {src ? <img src={src} alt={a.nome} /> : <span className="anexo-nome">{a.nome}</span>}
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="anexo-chip claro" title={a.de ? `${a.de} (guardado como texto)` : a.nome} onClick={abrir}>
+      <span className="anexo-tipo">{((a.de ?? a.nome).split('.').pop() ?? '').toUpperCase().slice(0, 4)}</span>
+      <span className="anexo-nome">{a.de ?? a.nome}</span>
+    </button>
   );
 }

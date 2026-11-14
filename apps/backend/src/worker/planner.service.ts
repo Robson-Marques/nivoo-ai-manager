@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
+import { ehFalhaDeLogin } from '../accounts/connections';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -84,9 +86,16 @@ export class PlannerService {
         .filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
       await this.workspace.hideRepoHarness(tmp, harness);
       this.workspace.sanitizeHarnessFiles(tmp);
+      // Anexos da conversa (mais recentes primeiro): imagens para ver, documentos já em texto.
+      const comAnexos = await this.prisma.conversationMessage.findMany({
+        where: { conversationId: msg.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, conversationId: true, attachments: true },
+      });
+      const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
 
       const profile = await this.profiles.build(project.id);
-      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text);
+      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos);
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -98,24 +107,39 @@ export class PlannerService {
         systemPrompt: profile.text,
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 300) * 1000,
         signal,
-        options: { maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25), model: projectModel(project, providerId) },
+        options: {
+          maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25),
+          model: projectModel(project, providerId),
+          // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
+          images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
+        },
         onLog: () => undefined,
       });
       if (result.interrupted) {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;
       }
+      this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error ?? result.output.slice(-500));
       const parsed = extractJson(result.output);
       let kind = 'resposta';
       let content = result.output.trim();
       let plan: Prisma.InputJsonValue | undefined;
       let erro: string | null = null;
-      if (result.resourceUnavailable) erro = `IA indisponível no momento (limite ou login): ${result.error ?? ''}`.trim();
+      if (result.resourceUnavailable && ehFalhaDeLogin(result.error)) {
+        erro = `A ${status.label} recusou o login (o acesso expirou ou foi revogado): ${result.error ?? ''}. Reconecte em "Conexões" ou continue com outra IA.`.trim();
+      } else if (result.resourceUnavailable) erro = `IA indisponível no momento (limite ou login): ${result.error ?? ''}`.trim();
       else if (result.exitCode !== 0 && !result.sessionEnded) erro = `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
       else if (parsed?.tipo === 'plano') {
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
-          plan = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId }) as unknown as Prisma.InputJsonValue;
+          const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId });
+          // Anexos que o plano coloca no projeto (o sistema copia ao aprovar; só anexos desta conversa).
+          const noProjeto = Array.isArray(parsed.job?.anexosNoProjeto)
+            ? parsed.job.anexosNoProjeto
+                .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && typeof x?.para === 'string' && x.para.trim())
+                .map((x: any) => ({ anexo: String(x.anexo), para: String(x.para).trim() }))
+            : [];
+          plan = { ...validado, ...(noProjeto.length ? { anexosNoProjeto: noProjeto } : {}) } as unknown as Prisma.InputJsonValue;
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
         } catch (e: any) {
@@ -183,7 +207,7 @@ export class PlannerService {
     return guardados;
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = []) {
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
       this.prisma.conversationMessage.findMany({ where: { conversationId, id: { not: messageId } }, orderBy: { createdAt: 'desc' }, take: 20 }),
@@ -197,7 +221,11 @@ export class PlannerService {
     }
     const conversa = historico
       .reverse()
-      .map((m) => `${m.role === 'USUARIO' ? 'USUÁRIO' : 'IA'}: ${m.kind === 'plano' ? `[plano proposto${m.jobId ? ', aprovado' : ''}] ` : ''}${m.content.slice(0, 3000)}`)
+      .map((m) => {
+        const deles = anexos.filter((a) => a.mensagem === m.id);
+        const lista = deles.length ? `\n[anexos: ${deles.map((a) => descreverAnexo(a)).join('; ')}]` : '';
+        return `${m.role === 'USUARIO' ? 'USUÁRIO' : 'IA'}: ${m.kind === 'plano' ? `[plano proposto${m.jobId ? ', aprovado' : ''}] ` : ''}${m.content.slice(0, 3000)}${lista}`;
+      })
       .join('\n\n');
     return [
       '# Você é a IA deste projeto no Nivoo',
@@ -240,6 +268,9 @@ export class PlannerService {
       '- Respeite o perfil do projeto (regras da base, regras do projeto, conhecimento) e a memória.',
       '- Não inclua etapa de revisão das regras: o sistema acrescenta sozinho uma conferência independente no fim.',
       '- No "texto" de um plano, explique em palavras simples o que será feito (sem falar de critérios, JSON ou comandos).',
+      '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',
+      '  enviado vira public/logo.png), inclua no job "anexosNoProjeto":[{"anexo":"contexto/anexos/<id>/<arquivo>","para":"public/logo.png"}]:',
+      '  o sistema copia o arquivo antes de o trabalho começar. Nunca tente recriar uma imagem escrevendo o arquivo.',
       '',
       '## Memória do projeto (obrigatório)',
       'Em qualquer dos dois formatos, inclua "memoria": [...] com o que precisa ser lembrado para sempre neste projeto:',
@@ -248,7 +279,16 @@ export class PlannerService {
       'Só registre o que o usuário disse ou confirmou; não invente. Não repita o que já está na memória. Lista vazia se não houver nada.',
       '',
       '## Mensagem atual do usuário',
-      (await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } }))?.content ?? '',
+      ...(await (async () => {
+        const atual = await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } });
+        const deles = atual ? anexos.filter((a) => a.mensagem === atual.id) : [];
+        return [
+          atual?.content || '(sem texto: o usuário só enviou anexos)',
+          ...(deles.length
+            ? ['', 'Anexos desta mensagem (LEIA/VEJA cada um antes de responder; imagens: abra o arquivo com a sua ferramenta de leitura):', ...deles.map((a) => `- ${descreverAnexo(a)}`)]
+            : []),
+        ];
+      })()),
     ].join('\n');
   }
 }

@@ -15,6 +15,8 @@ echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
 # Qual credencial/pasta chegou a esta sessão (conexões múltiplas não podem se misturar).
 echo "${ANTHROPIC_API_KEY:-}|${CLAUDE_CONFIG_DIR:-}|${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$CTL/env.txt"
+# Anexos do chat que chegaram à sessão (com o tamanho de cada um).
+[ -d contexto/anexos ] && (cd contexto/anexos && find . -type f -printf '%p %s\n' | sort) > "$CTL/anexos.txt"
 if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   # Conferência das regras: guarda o prompt do revisor e grava o relatório pedido.
   echo "$prompt" > "$CTL/prompt-revisor.txt"
@@ -55,6 +57,11 @@ if [ "$MODE" = "lento" ]; then
 fi
 if [ "$MODE" = "max_turns" ]; then
   echo '{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":3,"session_id":"stub-sessao","total_cost_usd":0.01}'
+  exit 1
+fi
+if [ "$MODE" = "401" ]; then
+  # Token da conta recusado pelo provedor (expirado/revogado).
+  echo '{"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 OAuth access token is invalid","total_cost_usd":0}'
   exit 1
 fi
 if [ "$MODE" = "limit" ]; then

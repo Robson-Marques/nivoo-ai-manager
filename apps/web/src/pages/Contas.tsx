@@ -189,6 +189,8 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
     <Estado ok="andamento" texto="Conectando…" />
   ) : c.conectado ? (
     <Estado ok texto="Conectado" />
+  ) : c.loginRecusado ? (
+    <Estado ok={false} texto="Login recusado pela IA — reconecte" />
   ) : (
     <Estado ok={false} texto={c.instalado ? 'Não conectado' : 'Programa da IA não instalado no servidor'} />
   );
@@ -250,6 +252,23 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
 function ConexaoGit({ g, onMudou }: { g: any; onMudou: () => void }) {
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [testando, setTestando] = useState(false);
+  const [trocar, setTrocar] = useState(false);
+  const [token, setToken] = useState('');
+  const salvarToken = async (e: FormEvent) => {
+    e.preventDefault();
+    setTestando(true);
+    setMsg(null);
+    try {
+      await api(`/git/accounts/${g.id}`, 'PATCH', { token: token.trim() });
+      setToken('');
+      setTrocar(false);
+      setMsg({ ok: true, texto: 'Token trocado e conferido. Os projetos ligados a esta conta continuam ligados.' });
+    } catch (err: any) {
+      setMsg({ ok: false, texto: err.message });
+    } finally {
+      setTestando(false);
+    }
+  };
   const testar = async () => {
     setTestando(true);
     setMsg(null);
@@ -287,11 +306,18 @@ function ConexaoGit({ g, onMudou }: { g: any; onMudou: () => void }) {
       acoes={
         <>
           <BotaoIcone nome="escudo" titulo="Testar o token agora" onClick={testar} disabled={testando} />
+          <BotaoIcone nome="chave" titulo="Trocar o token" onClick={() => setTrocar(!trocar)} />
           <BotaoIcone nome="lapis" titulo="Renomear" onClick={renomear} />
           <BotaoIcone nome="lixeira" titulo="Excluir conexão" onClick={excluir} perigo />
         </>
       }
     >
+      {trocar && (
+        <form className="conexao-painel row" onSubmit={salvarToken}>
+          <input type="password" autoFocus value={token} onChange={(e) => setToken(e.target.value)} placeholder={g.tipo === 'github' ? 'Novo token do GitHub' : 'Novo token do GitLab (glpat-…)'} />
+          <button disabled={testando || !token.trim()}>{testando ? 'Conferindo…' : 'Salvar token'}</button>
+        </form>
+      )}
       {msg && <div className={msg.ok ? 'conexao-painel ok-msg' : 'conexao-painel error'}>{msg.texto}</div>}
     </Linha>
   );

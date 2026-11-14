@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { acharConexao, ehAdicional, listarConexoes, tipoDe } from '../accounts/connections';
+import { acharConexao, ehAdicional, ehFalhaDeLogin, listarConexoes, marcarFalhaLogin, tipoDe } from '../accounts/connections';
 import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.provider';
@@ -83,6 +83,10 @@ export class ProviderRegistry {
         isAi: p.kind !== 'executor',
       };
     }
+    const falha = acharConexao(id)?.falhaLogin;
+    if (falha && status.available) {
+      status = { ...status, available: false, authenticated: false, errors: [...status.errors, `a IA recusou o login (${falha.mensagem}). Reconecte em Conexões`] };
+    }
     if (cfg && !cfg.enabled) {
       status = { ...status, available: false, errors: [...status.errors, 'desabilitado nas configurações'] };
     }
@@ -92,6 +96,14 @@ export class ProviderRegistry {
 
   async statusAll(maxAgeMs = 60000): Promise<ProviderStatus[]> {
     return Promise.all(this.ids().map((id) => this.status(id, maxAgeMs)));
+  }
+
+  /** Resultado de uma sessão real: login recusado marca a conexão; sucesso limpa a marca. */
+  registrarResultado(id: string, ok: boolean, erro?: string | null): void {
+    if (ok) marcarFalhaLogin(id, null);
+    else if (ehFalhaDeLogin(erro)) marcarFalhaLogin(id, String(erro));
+    else return;
+    this.cache.delete(id);
   }
 
   invalidate(id?: string): void {
