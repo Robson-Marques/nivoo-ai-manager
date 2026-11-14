@@ -186,6 +186,8 @@ model Project {
   workspacePath String
   provider      String    @default("claude-code-cli") // IA escolhida para este projeto (conversa e trabalhos)
   aiModels      Json      @default("{}") // modelo escolhido por IA neste projeto: { "<ia>": "<modelo>" }; ausente = padrão da IA
+  /// IAs reserva, em ordem: se a IA do projeto ficar sem crédito/limite/login, o trabalho continua na próxima disponível
+  aiReserva     Json?
   gitUrl        String? // repositório remoto (GitHub/GitLab) ligado ao projeto; null = projeto só local
   gitBranch     String? // branch remota que a pasta principal acompanha
   gitAccountId  String? // conta Git (credencial guardada fora do banco) usada para pull/push

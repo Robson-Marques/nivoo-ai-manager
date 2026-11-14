@@ -40,7 +40,8 @@ export interface ExecutionRequest {
   onSpawn?: (pid: number) => void;
   /** Opções por etapa (não secretas): modelo e limite de turnos da sessão. */
   /** images: arquivos de imagem anexados (para IAs que recebem imagem pela linha de comando). */
-  options?: { model?: string; maxTurns?: number; images?: string[] };
+  /** Etapa de vídeo: arquivo, duracaoSeg, proporcao, resolucao, negativo, imagem, conexao. */
+  options?: { model?: string; maxTurns?: number; images?: string[]; [k: string]: unknown };
 }
 
 export interface ExecutionResult {

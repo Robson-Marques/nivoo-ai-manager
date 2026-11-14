@@ -135,11 +135,12 @@ export async function lerArquivo(url: string): Promise<string> {
 }
 
 /** Arquivo binário servido pela API (com o token, se houver), como endereço local do navegador. */
-export async function urlDoArquivo(url: string): Promise<string | null> {
+export async function urlDoArquivo(url: string, tipo?: string): Promise<string | null> {
   const token = getToken();
   let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
-  return res.ok ? URL.createObjectURL(await res.blob()) : null;
+  if (!res.ok) return null;
+  return URL.createObjectURL(tipo ? new Blob([await res.arrayBuffer()], { type: tipo }) : await res.blob());
 }
 
 /** Copia texto (também em http sem HTTPS, onde o navegador não libera a área de transferência moderna). */

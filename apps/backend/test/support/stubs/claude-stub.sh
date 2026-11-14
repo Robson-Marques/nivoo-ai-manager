@@ -73,6 +73,11 @@ if [ "$MODE" = "max_turns" ]; then
   echo '{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":3,"session_id":"stub-sessao","total_cost_usd":0.01}'
   exit 1
 fi
+if [ "$MODE" = "limit_conta" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+  # Só a conta (assinatura) está sem limite; a variante por chave de API funciona normalmente.
+  echo '{"type":"result","subtype":"error","is_error":true,"result":"Claude AI usage limit reached","total_cost_usd":0}'
+  exit 1
+fi
 if [ "$MODE" = "401" ]; then
   # Token da conta recusado pelo provedor (expirado/revogado).
   echo '{"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401 OAuth access token is invalid","total_cost_usd":0}'

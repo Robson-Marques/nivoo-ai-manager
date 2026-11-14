@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
 import { ehFalhaDeLogin } from '../accounts/connections';
+import { trocarParaReserva } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -65,9 +66,20 @@ export class PlannerService {
     }
 
     // A IA escolhida para o projeto conversa e trabalha; o perfil do projeto vale para qualquer uma.
-    const providerId = project.provider;
+    let providerId = project.provider;
     if (!this.registry.has(providerId)) return fail(`IA desconhecida: ${providerId}`);
-    const status = await this.registry.status(providerId, 15_000);
+    let status = await this.registry.status(providerId, 15_000);
+    let trocou = '';
+    if (!status.available) {
+      // IA reserva do projeto: responde com a próxima conectada em vez de parar.
+      const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
+      if (reserva) {
+        trocou = `(${reserva.anterior} está indisponível; quem respondeu foi ${reserva.nome}, que agora é a IA do projeto.)\n\n`;
+        providerId = reserva.id;
+        project.provider = reserva.id;
+        status = await this.registry.status(providerId, 0);
+      }
+    }
     if (!status.available) {
       return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Conexões" e envie a mensagem de novo.`);
     }
@@ -119,6 +131,17 @@ export class PlannerService {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;
       }
+      // Sem crédito/limite no meio da resposta: se houver IA reserva, a mesma pergunta vai para ela.
+      if (result.resourceUnavailable) {
+        const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
+        if (reserva) {
+          await this.prisma.conversationMessage.create({
+            data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `${reserva.anterior} ficou indisponível (${(result.error ?? '').slice(0, 200)}). Quem responde agora é ${reserva.nome}, que passou a ser a IA do projeto.` },
+          });
+          await this.queue.requeue(task.id, workerId, new Date(), 'resposta refeita com a IA reserva');
+          return;
+        }
+      }
       this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error ?? result.output.slice(-500));
       const parsed = extractJson(result.output);
       let kind = 'resposta';
@@ -158,7 +181,7 @@ export class PlannerService {
         data: {
           status: erro ? 'ERRO' : 'PRONTA',
           kind: erro ? 'erro' : kind,
-          content: erro ?? (content || '(sem resposta)'),
+          content: erro ?? `${trocou}${content || '(sem resposta)'}`,
           plan,
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,
@@ -208,6 +231,7 @@ export class PlannerService {
   }
 
   private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = []) {
+    const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
       this.prisma.conversationMessage.findMany({ where: { conversationId, id: { not: messageId } }, orderBy: { createdAt: 'desc' }, take: 20 }),
@@ -260,6 +284,8 @@ export class PlannerService {
       ' "criteria":[{"key":"...","description":"...","kind":"FILE_EXISTS","config":{"path":"docs/briefing.md"}}]}',
       'Regras do plano:',
       '- Toda etapa executada por IA precisa de verifyCommand (verificação objetiva).',
+      '- verifyCommand e critérios COMMAND: use só comandos básicos do bash (test, grep, find, wc, ls, cat, head, tail, sed, awk, diff).',
+      '  NUNCA rg, jq, python, node, npm ou outro programa que talvez não esteja instalado.',
       '- Arquivos que fazem parte do projeto (estrutura, documentos, código, peças) vão em caminhos normais: depois de',
       '  aprovados pelo verificador ficam na pasta principal e os próximos trabalhos os enxergam.',
       '- out/ é só para evidências e relatórios (viram artefatos com hash; não ficam na pasta principal).',
@@ -268,6 +294,18 @@ export class PlannerService {
       '- Respeite o perfil do projeto (regras da base, regras do projeto, conhecimento) e a memória.',
       '- Não inclua etapa de revisão das regras: o sistema acrescenta sozinho uma conferência independente no fim.',
       '- No "texto" de um plano, explique em palavras simples o que será feito (sem falar de critérios, JSON ou comandos).',
+      ...(videoDisponivel
+        ? [
+            '- VÍDEO: este projeto pode gerar vídeos com o Veo (Google). Para isso, use uma etapa assim:',
+            '  {"key":"video1","title":"Gerar o vídeo de abertura","provider":"gemini-video","instructions":"descrição COMPLETA do vídeo',
+            '   em uma frase longa: cena, personagens, ação, câmera (ex.: travelling lento), luz, estilo, falas entre aspas e sons",',
+            '   "providerOptions":{"arquivo":"videos/abertura.mp4","duracaoSeg":8,"proporcao":"16:9","negativo":"o que NÃO deve aparecer",',
+            '   "imagem":"caminho opcional de uma imagem do projeto para ser o primeiro quadro"}}',
+            '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',
+            '  diga no "texto" quantos vídeos e quantos segundos serão. Imagem anexada no chat como primeiro quadro: coloque-a no projeto',
+            '  com "anexosNoProjeto" e use o mesmo caminho em "imagem". Não precisa de verifyCommand: o sistema confere o arquivo.',
+          ]
+        : []),
       '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',
       '  enviado vira public/logo.png), inclua no job "anexosNoProjeto":[{"anexo":"contexto/anexos/<id>/<arquivo>","para":"public/logo.png"}]:',
       '  o sistema copia o arquivo antes de o trabalho começar. Nunca tente recriar uma imagem escrevendo o arquivo.',

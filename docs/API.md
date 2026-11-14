@@ -64,7 +64,7 @@ Lista de conexões em `conexoes.json`; credenciais em `segredos.json` (permissã
 | GET | `/projects` | Lista projetos ativos (com o modelo); `?arquivados=1` lista os arquivados. |
 | POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (`claude-code-cli` \| `codex-cli` \| `gemini-cli`; padrão Claude), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
 | GET | `/projects/:pid` | Projeto com regras vigentes, arquivos de conhecimento e `custoGastoUsd` (trabalhos + conversa). |
-| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "model"? (modelo da IA do projeto; `null` = padrão; guardado por IA em `aiModels`), "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
+| PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "model"? (modelo da IA do projeto; `null` = padrão; guardado por IA em `aiModels`), "modeloDe"? (guardar o modelo de outro conector, ex.: `gemini-video`), "reserva"? (lista ordenada de conexões de IA reserva), "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
 | DELETE | `/projects/:pid` | Exclui o projeto: para antes os trabalhos e respostas em andamento (espera até 20 s as sessões encerrarem) e apaga registros, pasta e artefatos. |
 | POST | `/projects/:pid/rules` | `{ "text", "reason"?, "author"? }` — nova versão das regras do projeto. |
 | GET | `/projects/:pid/rules/history` | Todas as versões das regras. |

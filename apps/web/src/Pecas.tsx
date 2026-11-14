@@ -137,19 +137,20 @@ export function VerArquivo({ path, conteudo, onFechar }: { path: string; conteud
  * Modelo da IA do projeto (ex.: Claude → Opus; ChatGPT → GPT-6.1-Sol). A lista vem do programa oficial da
  * IA; "Outro…" permite digitar um nome. A escolha fica guardada por IA no projeto.
  */
-export function SeletorModelo({ projeto, onMudou, className }: { projeto: any; onMudou: () => void; className?: string }) {
+export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo = 'Modelo' }: { projeto: any; onMudou: () => void; className?: string; ia?: string; rotulo?: string }) {
+  const ia = iaFixa ?? projeto.provider;
   const [opcoes, setOpcoes] = useState<Array<{ id: string; nome: string }>>([]);
   const [aviso, setAviso] = useState<string | null>(null);
-  const atual: string = (projeto.aiModels ?? {})[projeto.provider] ?? '';
+  const atual: string = (projeto.aiModels ?? {})[ia] ?? '';
   useEffect(() => {
     setOpcoes([]);
-    api<{ opcoes: Array<{ id: string; nome: string }>; aviso?: string }>(`/accounts/${projeto.provider}/models`)
+    api<{ opcoes: Array<{ id: string; nome: string }>; aviso?: string }>(`/accounts/${ia}/models`)
       .then((r) => {
         setOpcoes(r.opcoes);
         setAviso(r.aviso ?? null);
       })
       .catch(() => undefined);
-  }, [projeto.provider]);
+  }, [ia]);
   const salvar = async (valor: string) => {
     let model: string | null = valor || null;
     if (valor === '__outro__') {
@@ -157,7 +158,7 @@ export function SeletorModelo({ projeto, onMudou, className }: { projeto: any; o
       if (!digitado?.trim()) return;
       model = digitado.trim();
     }
-    await api(`/projects/${projeto.id}`, 'PATCH', { model });
+    await api(`/projects/${projeto.id}`, 'PATCH', { model, ...(iaFixa ? { modeloDe: iaFixa } : {}) });
     onMudou();
   };
   const lista = atual && !opcoes.some((o) => o.id === atual) ? [{ id: atual, nome: atual }, ...opcoes] : opcoes;

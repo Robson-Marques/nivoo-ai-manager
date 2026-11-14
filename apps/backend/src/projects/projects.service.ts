@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
-import { listarConexoes, TIPOS_IA, tipoDe } from '../accounts/connections';
+import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
+import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
 import { resolveInside } from '../common/path-guard';
 import { DEFAULT_AREA, findTemplate } from '../areas/area-templates';
@@ -18,10 +19,7 @@ import { QueueService } from '../queue/queue.service';
 import { checkBranch, GitService, normalizeRepoUrl } from '../git/git.service';
 
 /** IAs que conversam e trabalham num projeto: agentes que leem e editam arquivos (o executor local não é IA). */
-/** Ids de IA que um projeto pode usar: os seis tipos e as conexões adicionais cadastradas. */
-export function aiConnectionIds(): string[] {
-  return [...new Set([...TIPOS_IA, ...listarConexoes().map((c) => c.id)])];
-}
+
 
 /**
  * Projeto = pasta de trabalho + "fine-tune do projeto": base escolhida, regras próprias (versionadas),
@@ -125,43 +123,27 @@ export class ProjectsService {
     // Modelo da IA (por IA: trocar de IA e voltar mantém a escolha). null/"" = padrão da IA.
     if (body && 'model' in body) {
       const atual = await this.prisma.project.findUniqueOrThrow({ where: { id }, select: { provider: true, aiModels: true } });
-      const ia = (data.provider as string | undefined) ?? atual.provider;
+      // "modeloDe": guardar o modelo de outro conector (ex.: gemini-video) sem trocar a IA do projeto.
+      const de = optString(body, 'modeloDe', 60);
+      if (de && !this.registry.has(de)) throw new BadRequestException(`Conector desconhecido: ${de}`);
+      const ia = de ?? (data.provider as string | undefined) ?? atual.provider;
       const modelos = { ...((atual.aiModels ?? {}) as Record<string, string>) };
       if (body.model === null || body.model === '') delete modelos[ia];
       else modelos[ia] = checkModelName(body.model);
       data.aiModels = modelos;
     }
+    // IAs reserva (em ordem): para onde o trabalho vai sozinho se a IA do projeto ficar sem crédito/limite.
+    if (body && 'reserva' in body) {
+      if (!Array.isArray(body.reserva)) throw new BadRequestException('reserva deve ser uma lista de conexões');
+      const lista = [...new Set(body.reserva.map(String))] as string[];
+      for (const id of lista) if (!tipoDe(id) || !this.registry.has(id)) throw new BadRequestException(`Conexão desconhecida: ${id}`);
+      data.aiReserva = lista;
+    }
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
-    if (data.provider) await this.moveUnfinishedWork(id, String(data.provider));
+    if (data.provider) await moverTrabalhoParaIa(this.prisma, id, String(data.provider));
     return this.get(id);
-  }
-
-  /**
-   * Trocou a IA do projeto (ex.: acabou o crédito de uma): o trabalho ainda não terminado passa para a
-   * nova IA e, se estava esperando a IA anterior voltar, continua já. Cada sessão reconstrói o contexto
-   * do projeto (regras, conhecimento, memória, pasta, notas e checkpoints), então nada depende da IA anterior.
-   */
-  private async moveUnfinishedWork(projectId: string, provider: string) {
-    const ai = aiConnectionIds();
-    const jobs = await this.prisma.job.findMany({
-      where: { projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO', 'BLOQUEADO', 'FALHOU'] } },
-      select: { id: true, defaultProvider: true },
-    });
-    for (const j of jobs) {
-      await this.prisma.$transaction([
-        // Etapas da IA (explícitas, ou sem conector próprio num job cuja IA padrão era a do projeto);
-        // etapas do executor local continuam no executor local.
-        this.prisma.step.updateMany({
-          where: { jobId: j.id, status: { not: 'CONCLUIDO' }, OR: [{ provider: { in: ai } }, ...(ai.includes(j.defaultProvider) ? [{ provider: null }] : [])] },
-          data: { provider },
-        }),
-        ...(ai.includes(j.defaultProvider) ? [this.prisma.job.update({ where: { id: j.id }, data: { defaultProvider: provider } })] : []),
-        // Quem esperava a IA anterior (limite/crédito) tenta de novo agora, com a nova.
-        this.prisma.queueTask.updateMany({ where: { jobId: j.id, type: 'RUN_STEP', status: 'QUEUED' }, data: { runAt: new Date(), resourceWaits: 0 } }),
-      ]);
-    }
   }
 
   /** Nova versão das regras do projeto (a anterior fica no histórico). */

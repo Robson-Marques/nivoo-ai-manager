@@ -34,6 +34,7 @@ const MEMORIA_GRUPOS: Array<{ titulo: string; filtro: (m: any) => boolean }> = [
 const MOTIVO: Record<string, string> = {
   CRITERIOS_NAO_ATENDIDOS: 'o resultado não passou na conferência',
   SEM_CRITERIOS: 'faltou definir como conferir o resultado',
+  VERIFICACAO_IMPOSSIVEL: 'a conferência automática usa um programa que não existe no servidor (o trabalho feito está salvo)',
   REPETICAO_IMPRODUTIVA: 'a IA ficou repetindo sem avançar',
   LIMITE_TENTATIVAS: 'esgotou as tentativas',
   LIMITE_SESSOES: 'esgotou as tentativas',
@@ -210,8 +211,9 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
     }
   };
 
-  const mensagens: any[] = (conv?.messages ?? []).filter((m: any) => m.kind !== 'sistema');
-  const ultimaIa = [...mensagens].reverse().find((m) => m.role === 'ASSISTENTE');
+  // Avisos do sistema (ex.: "continuei com outra IA") aparecem; o registro técnico da aprovação, não.
+  const mensagens: any[] = (conv?.messages ?? []).filter((m: any) => m.kind !== 'sistema' || !m.content.startsWith('Plano aprovado'));
+  const ultimaIa = [...mensagens].reverse().find((m) => m.role === 'ASSISTENTE' && m.kind !== 'sistema');
 
   return (
     <IaContexto.Provider value={{ contas, atual: projeto.provider, trocar }}>
@@ -325,6 +327,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
 }
 
 function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => void; onMudou: () => void; onReenviar?: () => Promise<void> }) {
+  if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}</div>;
   if (m.role === 'USUARIO') {
     return (
       <div className="msg eu">
@@ -420,6 +423,10 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   return (
     <div className={`progresso p-${job.status}`}>
       {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
+      {job.status === 'CONCLUIDO' &&
+        job.steps
+          .filter((x: any) => x.provider === 'gemini-video' && x.providerOptions?.arquivo)
+          .map((x: any) => <VideoDoProjeto key={x.id} projetoId={projetoId} caminho={x.providerOptions.arquivo} />)}
       {['EXECUTANDO', 'PENDENTE'].includes(job.status) && (
         <span>Trabalhando… {feitas} de {job.steps.length} feito(s){atual ? ` — agora: ${atual.title || atual.key}` : ''}</span>
       )}
@@ -475,7 +482,9 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
     await api(`/projects/${projetoId}/memory/${m.id}?by=${encodeURIComponent(nomeUsuario())}`, 'DELETE');
     carregar();
   };
-  const abrir = async (path: string) => setAberto({ path, conteudo: await lerArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(path)}`) });
+  // Vídeo abre no player; o resto como texto.
+  const abrir = async (path: string) =>
+    setAberto({ path, conteudo: /\.(mp4|webm|mov)$/i.test(path) ? '' : await lerArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(path)}`) });
   return (
     <aside className="painel">
       <div className="abas">
@@ -519,7 +528,7 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
               <h2>{aberto.path}</h2>
               <button className="secondary" onClick={() => setAberto(null)}>Fechar</button>
             </div>
-            <pre className="texto-arquivo">{aberto.conteudo}</pre>
+            {/\.(mp4|webm|mov)$/i.test(aberto.path) ? <VideoDoProjeto projetoId={projetoId} caminho={aberto.path} /> : <pre className="texto-arquivo">{aberto.conteudo}</pre>}
           </div>
         </div>
       )}
@@ -635,6 +644,33 @@ function ItemDaMemoria({ m, texto, onEsquecer }: { m: any; texto: string; onEsqu
         </button>
         <button className="link" title="Esquecer" onClick={onEsquecer}>esquecer</button>
       </div>
+    </div>
+  );
+}
+
+/** Vídeo da pasta do projeto, com player (o arquivo vem pela API com o token, se houver). */
+export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; caminho: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [falhou, setFalhou] = useState(false);
+  useEffect(() => {
+    let u: string | null = null;
+    urlDoArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`, 'video/mp4').then((x) => {
+      u = x;
+      if (x) setSrc(x);
+      else setFalhou(true);
+    });
+    return () => {
+      if (u) URL.revokeObjectURL(u);
+    };
+  }, [projetoId, caminho]);
+  return (
+    <div className="video-pronto">
+      {src ? <video src={src} controls playsInline preload="metadata" /> : <span className="muted small">{falhou ? `Não foi possível abrir ${caminho}.` : 'Carregando o vídeo…'}</span>}
+      {src && (
+        <a className="small" href={src} download={caminho.split('/').pop()}>
+          baixar {caminho}
+        </a>
+      )}
     </div>
   );
 }

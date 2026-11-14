@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.provider';
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider, GeminiCliProvider } from './gemini-cli.provider';
+import { GeminiVideoProvider } from './gemini-video.provider';
 import { LocalShellProvider } from './local-shell.provider';
 import { AiProvider, ProviderStatus } from './provider.interface';
 
@@ -21,9 +22,10 @@ export class ProviderRegistry {
     claudeApi: ClaudeApiProvider,
     codexApi: CodexApiProvider,
     geminiApi: GeminiApiProvider,
+    video: GeminiVideoProvider,
     shell: LocalShellProvider,
   ) {
-    for (const p of [claude, claudeApi, codex, codexApi, gemini, geminiApi, shell]) this.providers.set(p.id, p);
+    for (const p of [claude, claudeApi, codex, codexApi, gemini, geminiApi, video, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */

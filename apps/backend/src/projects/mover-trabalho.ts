@@ -1,0 +1,56 @@
+import { PrismaService } from '../prisma/prisma.service';
+import { aiConnectionIds } from '../accounts/connections';
+
+/**
+ * Trocou a IA do projeto (ex.: acabou o crédito de uma): o trabalho ainda não terminado passa para a
+ * nova IA e, se estava esperando a IA anterior voltar, continua já. Cada sessão reconstrói o contexto
+ * do projeto (regras, conhecimento, memória, pasta, notas e checkpoints), então nada depende da IA anterior.
+ */
+export async function moverTrabalhoParaIa(prisma: PrismaService, projectId: string, provider: string): Promise<void> {
+  const ai = aiConnectionIds();
+  const jobs = await prisma.job.findMany({
+    where: { projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO', 'BLOQUEADO', 'FALHOU'] } },
+    select: { id: true, defaultProvider: true },
+  });
+  for (const j of jobs) {
+    await prisma.$transaction([
+      // Etapas da IA (explícitas, ou sem conector próprio num job cuja IA padrão era a do projeto);
+      // etapas do executor local continuam no executor local.
+      prisma.step.updateMany({
+        where: { jobId: j.id, status: { not: 'CONCLUIDO' }, OR: [{ provider: { in: ai } }, ...(ai.includes(j.defaultProvider) ? [{ provider: null }] : [])] },
+        data: { provider },
+      }),
+      ...(ai.includes(j.defaultProvider) ? [prisma.job.update({ where: { id: j.id }, data: { defaultProvider: provider } })] : []),
+      // Quem esperava a IA anterior (limite/crédito) tenta de novo agora, com a nova.
+      prisma.queueTask.updateMany({ where: { jobId: j.id, type: 'RUN_STEP', status: 'QUEUED' }, data: { runAt: new Date(), resourceWaits: 0 } }),
+    ]);
+  }
+}
+
+
+/**
+ * IA reserva: se a IA do projeto ficou sem crédito/limite/login, escolhe a próxima da lista de reserva do
+ * projeto que esteja conectada AGORA, passa o projeto e o trabalho em andamento para ela e devolve o id.
+ * Sem reserva disponível: null (o trabalho espera a IA voltar e a tela oferece trocar).
+ */
+export async function trocarParaReserva(
+  prisma: PrismaService,
+  registry: { has(id: string): boolean; status(id: string, maxAgeMs?: number): Promise<{ available: boolean; label: string }> },
+  projectId: string,
+  indisponivel: string,
+): Promise<{ id: string; nome: string; anterior: string } | null> {
+  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { provider: true, aiReserva: true } });
+  if (!p || p.provider !== indisponivel) return null;
+  const reserva = (Array.isArray(p.aiReserva) ? p.aiReserva : []).map(String).filter((id) => id !== indisponivel && registry.has(id));
+  for (const id of reserva) {
+    const st = await registry.status(id, 0);
+    if (!st.available) continue;
+    const anterior = (await registry.status(indisponivel, 60_000)).label;
+    // Só troca se ninguém trocou antes (worker e conversa podem perceber ao mesmo tempo).
+    const r = await prisma.project.updateMany({ where: { id: projectId, provider: indisponivel }, data: { provider: id } });
+    if (!r.count) return null;
+    await moverTrabalhoParaIa(prisma, projectId, id);
+    return { id, nome: st.label, anterior };
+  }
+  return null;
+}

@@ -102,3 +102,8 @@ export function marcarFalhaLogin(id: string, mensagem: string | null): void {
   c.falhaLogin = mensagem ? { mensagem: mensagem.slice(0, 300), em: new Date().toISOString() } : null;
   gravarConexoes(lista);
 }
+
+/** Ids de IA que um projeto pode usar: os seis tipos e as conexões adicionais cadastradas. */
+export function aiConnectionIds(): string[] {
+  return [...new Set([...TIPOS_IA, ...listarConexoes().map((c) => c.id)])];
+}

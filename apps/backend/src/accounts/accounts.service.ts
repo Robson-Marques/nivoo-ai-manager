@@ -222,6 +222,7 @@ export class AccountsService {
     }
     marcarFalhaLogin(id, null);
     this.registry.invalidate(id);
+    if (c.tipo === 'gemini-api') this.registry.invalidate('gemini-video'); // o vídeo usa a chave do Gemini
     return this.registry.status(id, 0);
   }
 
@@ -243,6 +244,7 @@ export class AccountsService {
     }
     marcarFalhaLogin(id, null);
     this.registry.invalidate(id);
+    if (c.tipo === 'gemini-api') this.registry.invalidate('gemini-video'); // o vídeo usa a chave do Gemini
     return this.registry.status(id, 0);
   }
 }

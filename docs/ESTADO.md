@@ -3,6 +3,29 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 18 — vídeo com o Veo, trabalho até o fim e IA reserva (2026-11-14)
+
+* **Vídeo (Veo, Google) pela API do Gemini**: conector `gemini-video` (etapa do sistema, não de IA de texto)
+  que usa a conexão "Gemini — chave de API". Formato REST conferido na biblioteca oficial `@google/genai`
+  (a documentação do Google não estava acessível desta rede): `models/{modelo}:predictLongRunning` →
+  consulta da operação → `generatedSamples[].video.uri` → download com a chave. **Modelos escolhíveis**
+  (Ajustes → Vídeos) com a lista que a própria chave libera (`GET /v1beta/models`, só os Veo). Na conversa
+  a IA propõe a etapa (descrição, duração, 16:9/9:16, imagem inicial opcional — anexo do chat colocado no
+  projeto); o `.mp4` vai para a pasta do projeto e aparece com player no chat e em Arquivos. Custo
+  ESTIMADO por segundo (`NIVOO_VEO_USD_POR_SEGUNDO`=0,40 e `…_RAPIDO`=0,15 — confira a tabela do Google) e
+  conferido ANTES de gerar contra o limite do trabalho e do projeto; recusa por segurança explicada.
+* **Até o fim**: trabalho aprovado na conversa não tem limite de sessões nem de tempo (`0` = sem limite) e
+  ignora limites que a IA ponha no plano; para só por repetição sem avanço ou pelo limite de gasto do
+  projeto. **IA reserva** (Ajustes): sem crédito/limite/login, o trabalho e a conversa continuam sozinhos
+  na próxima IA conectada da lista, do ponto em que estavam, com aviso na conversa.
+* **Conferência impossível**: verificação com programa inexistente (`rg` no servidor real: 8 sessões
+  perdidas) agora para na hora com `VERIFICACAO_IMPOSSIVEL` dizendo qual programa falta; a IA é orientada
+  a usar só comandos básicos; o instalador passa a instalar `ripgrep`.
+
+Testes: suíte 106/106 (+7 de IA real puladas), `21-video-veo` (API do Google simulada: modelos, plano com
+imagem inicial, pedido no formato oficial, arquivo no projeto, custo, limite antes de gerar, recusa),
+`22-ate-o-fim-e-ia-reserva`; interface pela tela OK. Não testado com a API real do Google.
+
 ## Correção — Claude recusando o login e trabalho longo parando "repetindo sem avançar" (2026-11-14)
 
 * **Token do Claude corrompido no login pela tela**: o `claude setup-token` imprime o token e, logo abaixo,

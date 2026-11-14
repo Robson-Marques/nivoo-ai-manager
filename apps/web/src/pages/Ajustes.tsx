@@ -71,6 +71,8 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         </div>
         <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. O modelo fica guardado para cada IA. <Link to="/contas">Conexões</Link></span>
       </div>
+      <IasReserva projeto={projeto} contas={contas} onSalvar={(reserva, ok) => salvar({ reserva }, ok)} />
+      <VideoDoProjeto projeto={projeto} onMudou={onMudou} />
       <div className="campo">
         <b>Limite de gasto do projeto (US$)</b>
         <span className="muted small">Já gasto: US$ {Number(projeto.custoGastoUsd ?? 0).toFixed(2)}. Deixe vazio para não limitar.</span>
@@ -140,6 +142,78 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
       </div>
       {msg && <div className="ok-msg">{msg}</div>}
       {erro && <div className="error">{erro}</div>}
+    </div>
+  );
+}
+
+/**
+ * IAs reserva, em ordem: se a IA do projeto ficar sem crédito, sem limite ou desconectada, o trabalho (e a
+ * conversa) continua sozinho na próxima que estiver conectada, do ponto em que estava.
+ */
+function IasReserva({ projeto, contas, onSalvar }: { projeto: any; contas: any[]; onSalvar: (reserva: string[], ok: string) => void }) {
+  const atual: string[] = Array.isArray(projeto.aiReserva) ? projeto.aiReserva : [];
+  const outras = contas.filter((c) => c.id !== projeto.provider);
+  const alternar = (id: string) => {
+    const nova = atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id];
+    onSalvar(nova, nova.length ? `Reserva salva: ${nova.map((x) => contas.find((c) => c.id === x)?.nome ?? x).join(' → ')}.` : 'Sem IA reserva: se a IA parar, o trabalho espera e pergunta.');
+  };
+  const mover = (id: string, d: -1 | 1) => {
+    const i = atual.indexOf(id);
+    const j = i + d;
+    if (j < 0 || j >= atual.length) return;
+    const nova = [...atual];
+    [nova[i], nova[j]] = [nova[j], nova[i]];
+    onSalvar(nova, 'Ordem da reserva salva.');
+  };
+  return (
+    <div className="campo">
+      <b>Se a IA parar (sem crédito, sem limite ou desconectada), continuar com</b>
+      <span className="muted small">O trabalho segue sozinho na próxima IA marcada que estiver conectada, do ponto em que estava (regras, memória e arquivos são do projeto). Sem nenhuma marcada, ele espera a IA voltar e pergunta.</span>
+      {outras.length === 0 && <span className="muted small">Conecte outra IA em <Link to="/contas">Conexões</Link> para usar como reserva.</span>}
+      <div className="reserva-lista">
+        {[...atual.map((id) => outras.find((c) => c.id === id)).filter(Boolean), ...outras.filter((c) => !atual.includes(c.id))].map((c: any) => {
+          const pos = atual.indexOf(c.id);
+          return (
+            <div key={c.id} className="reserva-item">
+              <label className="row small" style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <input type="checkbox" style={{ width: 'auto' }} checked={pos >= 0} onChange={() => alternar(c.id)} />
+                {pos >= 0 && <span className="reserva-ordem">{pos + 1}º</span>}
+                {c.nome} <span className="muted">{c.conectado ? '(conectada)' : '(não conectada)'}</span>
+              </label>
+              {pos >= 0 && atual.length > 1 && (
+                <span>
+                  <button className="link" disabled={pos === 0} onClick={() => mover(c.id, -1)} aria-label={`Subir ${c.nome}`}>↑</button>
+                  <button className="link" disabled={pos === atual.length - 1} onClick={() => mover(c.id, 1)} aria-label={`Descer ${c.nome}`}>↓</button>
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Vídeo com o Veo (Google): conexão usada, modelo escolhido (lista da própria chave) e aviso de custo. */
+function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
+  const [st, setSt] = useState<any>(null);
+  useEffect(() => {
+    api<any[]>('/providers').then((l) => setSt(l.find((p) => p.id === 'gemini-video') ?? null)).catch(() => undefined);
+  }, []);
+  return (
+    <div className="campo">
+      <b>Vídeos (Veo, do Google)</b>
+      <span className="muted small">
+        Peça na conversa ("crie um vídeo de 8 segundos de…"): a IA escreve a descrição, você aprova em <b>Fazer</b> e o vídeo vai para a pasta do projeto. Usa a conexão
+        "Gemini — chave de API" e é cobrado pelo Google por segundo de vídeo (estimativa no gasto do projeto; o limite de gasto vale).
+      </span>
+      {st && !st.available ? (
+        <span className="small">Não disponível: {st.errors?.join('; ')}. <Link to="/contas">Conexões</Link></span>
+      ) : (
+        <div className="row">
+          <SeletorModelo projeto={projeto} onMudou={onMudou} ia="gemini-video" />
+        </div>
+      )}
     </div>
   );
 }

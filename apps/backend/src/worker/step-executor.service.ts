@@ -1,4 +1,5 @@
 import { copiarAnexosParaSessao } from '../conversations/attachments';
+import { trocarParaReserva } from '../projects/mover-trabalho';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
@@ -100,7 +101,7 @@ export class StepExecutorService {
     }
 
     // Limites de tempo e orçamento do job.
-    if (job.activeSeconds >= job.maxDurationSec) {
+    if (job.maxDurationSec > 0 && job.activeSeconds >= job.maxDurationSec) {
       return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_TEMPO, `tempo ativo ${job.activeSeconds}s ≥ limite ${job.maxDurationSec}s`);
     }
     if (new Prisma.Decimal(job.costSpentUsd).gte(job.maxCostUsd)) {
@@ -132,6 +133,25 @@ export class StepExecutorService {
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
       return this.awaitResource(task, workerId, job, step, `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`);
+    }
+
+    // Etapa paga por uso (vídeo): o custo estimado não pode estourar o limite do trabalho nem o do projeto.
+    const estimador = this.registry.get(providerId) as unknown as { estimarCusto?: (o: Record<string, unknown>) => number };
+    if (estimador.estimarCusto) {
+      const estimado = estimador.estimarCusto({ model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as Record<string, unknown>) });
+      if (new Prisma.Decimal(job.costSpentUsd).add(estimado).gt(job.maxCostUsd)) {
+        return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO,
+          `esta etapa custaria cerca de US$ ${estimado.toFixed(2)} e passaria o limite do trabalho (US$ ${job.maxCostUsd}; já gasto US$ ${job.costSpentUsd})`);
+      }
+      if (job.project.maxCostUsd !== null) {
+        const agg = await this.prisma.job.aggregate({ where: { projectId: job.projectId }, _sum: { costSpentUsd: true } });
+        const conversa = await this.prisma.conversationMessage.aggregate({ where: { conversation: { projectId: job.projectId } }, _sum: { costUsd: true } });
+        const gasto = new Prisma.Decimal(agg._sum.costSpentUsd ?? 0).add(conversa._sum.costUsd ?? 0);
+        if (gasto.add(estimado).gt(job.project.maxCostUsd)) {
+          return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO_PROJETO,
+            `esta etapa custaria cerca de US$ ${estimado.toFixed(2)} e passaria o limite do projeto (US$ ${job.project.maxCostUsd}; já gasto US$ ${gasto})`);
+        }
+      }
     }
     const provider = this.registry.get(providerId);
 
@@ -227,6 +247,7 @@ export class StepExecutorService {
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
     let verified = !step.verifyCommand;
+    let faltaPrograma: string | null = null;
     if (result.exitCode === 0 && !result.interrupted && step.verifyCommand) {
       const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', step.verifyCommand], {
         cwd: worktree,
@@ -237,6 +258,8 @@ export class StepExecutorService {
       const vOut = `${v.stdout}${v.stderr}`.trim().slice(-800);
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
       verified = v.exitCode === 0;
+      // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.
+      if (v.exitCode === 127) faltaPrograma = /(\S+): (?:command not found|comando não encontrado)/.exec(vOut)?.[1] ?? 'um programa';
       if (v.aborted) result = { ...result, interrupted: true };
       else if (v.exitCode !== 0) {
         result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
@@ -341,6 +364,12 @@ export class StepExecutorService {
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível');
     }
 
+    if (faltaPrograma && attemptStatus !== 'SUCESSO') {
+      await this.checkpoint(job.id, step, worktree, `conferência impossível na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
+    }
+
     if (attemptStatus === 'SESSAO_ENCERRADA') {
       return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes);
     }
@@ -400,7 +429,7 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
         `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
     }
-    if (sessions.length >= job.maxSessionsPerStep) {
+    if (job.maxSessionsPerStep > 0 && sessions.length >= job.maxSessionsPerStep) {
       return this.failStep(task, workerId, job, step, `limite de ${job.maxSessionsPerStep} sessões sem concluir a etapa`, BlockedReason.LIMITE_SESSOES);
     }
     await this.prisma.step.update({
@@ -570,6 +599,18 @@ export class StepExecutorService {
   }
 
   private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string): Promise<StepOutcome> {
+    // IA reserva: acabou o crédito/limite da IA do projeto → continua sozinho com a próxima conectada.
+    const providerId = step.provider ?? job.defaultProvider;
+    const reserva = await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId).catch(() => null);
+    if (reserva) {
+      const aviso = `${reserva.anterior} ficou indisponível (${detail.slice(0, 200)}). O trabalho continua com ${reserva.nome}, do ponto em que estava.`;
+      await this.logs.log(job.id, aviso, { stepId: step.id, level: 'WARN', source: 'worker' });
+      const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
+      if (origem) await this.prisma.conversationMessage.create({ data: { conversationId: origem.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: aviso, jobId: job.id } });
+      await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `continua com ${reserva.nome}` } });
+      await this.queue.requeue(task.id, workerId, new Date(), `continua com ${reserva.id}`);
+      return 'CONTINUA';
+    }
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
     const delay = RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
     await this.prisma.$transaction(async (tx) => {

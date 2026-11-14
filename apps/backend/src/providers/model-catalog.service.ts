@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { runProcess } from '../common/exec';
+import { GeminiVideoProvider } from './gemini-video.provider';
 import { ProviderRegistry } from './provider-registry.service';
 
 export interface ModelOption {
@@ -36,6 +37,14 @@ export class ModelCatalogService {
 
   async list(providerId: string): Promise<{ opcoes: ModelOption[]; aviso?: string }> {
     if (!this.registry.has(providerId)) throw new BadRequestException('IA desconhecida');
+    if (providerId === 'gemini-video') {
+      // Modelos Veo que a chave do Gemini pode usar (lista do próprio Google).
+      try {
+        return { opcoes: await (this.registry.get(providerId) as GeminiVideoProvider).modelos() };
+      } catch (e: any) {
+        return { opcoes: [], aviso: String(e?.message ?? e) };
+      }
+    }
     if (providerId.startsWith('claude')) return { opcoes: CLAUDE };
     const hit = this.cache.get(providerId);
     if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };

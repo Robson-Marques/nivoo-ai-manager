@@ -57,14 +57,20 @@ export class JobsService {
         if (!Number.isInteger(n) || n < 1 || n > 500) throw new BadRequestException(`Etapa ${key}: maxTurns deve ser inteiro entre 1 e 500`);
         providerOptions.maxTurns = n;
       }
-      const pol = evaluatePolicy(`${instructions}\n${verifyCommand ?? ''}`);
+      // Etapa de vídeo (Veo): a descrição do vídeo é a instrução; o sistema confere que o arquivo saiu.
+      let verificacao = verifyCommand;
+      if ((provider ?? defaultProvider) === 'gemini-video') {
+        Object.assign(providerOptions, opcoesDeVideo(key, opts));
+        verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
+      }
+      const pol = evaluatePolicy(`${instructions}\n${verificacao ?? ''}`);
       return {
         key,
         title: optString(s, 'title', 300) ?? key,
         instructions,
         provider,
         dependsOn: Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [],
-        verifyCommand,
+        verifyCommand: verificacao,
         requiresApproval: s.requiresApproval === true || pol.requiresApproval,
         providerOptions: providerOptions as Prisma.InputJsonValue,
       };
@@ -156,18 +162,21 @@ export class JobsService {
       steps.push({ ...ruleReviewStep(steps.map((s) => s.key), reviewer), requiresApproval: false, providerOptions: {} });
       if (!criteria.some((c) => c.key === RULE_REVIEW_CRITERION.key)) criteria.push(RULE_REVIEW_CRITERION);
     }
-    const limits = body.limits ?? {};
+    // Trabalho vindo da conversa ("Fazer"): vai até o fim — sem limite de sessões nem de tempo. Para de
+    // verdade só se ficar sem nenhum avanço (repetição) ou estourar o limite de gasto do PROJETO.
+    const limits = body.semLimites === true ? { maxSessionsPerStep: 0, maxDurationSec: 0, maxCostUsd: 10000, maxAttemptsPerStep: 10, ...(body.limits ?? {}) } : (body.limits ?? {});
     const job = await this.prisma.job.create({
       data: {
         projectId,
         title,
         defaultProvider,
         maxAttemptsPerStep: optNumber(limits, 'maxAttemptsPerStep', 1, 100),
-        maxDurationSec: optNumber(limits, 'maxDurationSec', 10, 7 * 24 * 3600),
+        // 0 = sem limite (sessões e tempo).
+        maxDurationSec: limits.maxDurationSec === 0 ? 0 : optNumber(limits, 'maxDurationSec', 10, 7 * 24 * 3600),
         maxCostUsd: optNumber(limits, 'maxCostUsd', 0, 10000),
         stepTimeoutSec: optNumber(limits, 'stepTimeoutSec', 1, 24 * 3600),
         repetitionWindow: optNumber(limits, 'repetitionWindow', 2, 20),
-        maxSessionsPerStep: optNumber(limits, 'maxSessionsPerStep', 1, 100),
+        maxSessionsPerStep: limits.maxSessionsPerStep === 0 ? 0 : optNumber(limits, 'maxSessionsPerStep', 1, 100),
         gitBranch: null,
         objectives: {
           create: { version: 1, text: objective, sha256: sha256(objective), author: optString(body, 'author', 100) ?? 'operador' },
@@ -392,4 +401,35 @@ export class JobsService {
       tentativas: job.attempts.length,
     };
   }
+}
+
+const CAMINHO_SEGURO = /^(?!\/)(?!.*\.\.)[\w\-./ ]{1,200}$/;
+
+/** Opções de uma etapa de vídeo vindas do plano, validadas (nada de caminho fora do projeto). */
+export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const arquivo = String(o.arquivo ?? `videos/${key}.mp4`).trim();
+  if (!CAMINHO_SEGURO.test(arquivo) || !/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
+  out.arquivo = arquivo;
+  if (o.duracaoSeg !== undefined) {
+    const n = Number(o.duracaoSeg);
+    if (!Number.isInteger(n) || n < 1 || n > 60) throw new BadRequestException(`Etapa ${key}: duracaoSeg deve ser inteiro entre 1 e 60`);
+    out.duracaoSeg = n;
+  }
+  if (o.proporcao !== undefined) {
+    if (!/^\d{1,2}:\d{1,2}$/.test(String(o.proporcao))) throw new BadRequestException(`Etapa ${key}: proporcao deve ser como 16:9 ou 9:16`);
+    out.proporcao = String(o.proporcao);
+  }
+  if (o.resolucao !== undefined) {
+    if (!/^\d{3,4}p$|^4k$/i.test(String(o.resolucao))) throw new BadRequestException(`Etapa ${key}: resolucao deve ser como 720p ou 1080p`);
+    out.resolucao = String(o.resolucao);
+  }
+  if (o.negativo !== undefined) out.negativo = String(o.negativo).slice(0, 1000);
+  if (o.imagem !== undefined) {
+    const img = String(o.imagem).trim();
+    if (!CAMINHO_SEGURO.test(img) || !/\.(png|jpe?g|webp)$/i.test(img)) throw new BadRequestException(`Etapa ${key}: "imagem" deve ser um caminho de imagem do projeto (png, jpg, webp)`);
+    out.imagem = img;
+  }
+  if (o.conexao !== undefined) out.conexao = String(o.conexao).slice(0, 60);
+  return out;
 }

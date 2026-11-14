@@ -175,7 +175,8 @@ export class ConversationsService {
     if (msg.kind !== 'plano' || msg.status !== 'PRONTA' || !msg.plan) throw new BadRequestException('Esta mensagem não contém um plano para aprovar');
     if (msg.jobId) throw new ConflictException('Este plano já foi aprovado');
     const plan = this.jobs.validatePlan(msg.plan);
-    const job = await this.jobs.create(projectId, { ...plan, author: decidedBy });
+    // O plano aprovado na conversa trabalha até terminar (limites do plano da IA não se aplicam).
+    const job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy });
     await this.copiarAnexosParaOProjeto(projectId, conversationId, job.id, (msg.plan as any)?.anexosNoProjeto);
     await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { jobId: job.id, approvedBy: decidedBy, approvedAt: new Date() } });
     if (body?.start !== false) await this.jobs.start(projectId, job.id);

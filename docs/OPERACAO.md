@@ -44,7 +44,14 @@
 12. **Login recusado** — se a IA recusar o login (token expirado ou revogado), a conexão aparece como
     "Login recusado pela IA — reconecte" em **Conexões**; clique em conectar de novo. Enquanto isso, dá
     para continuar a conversa com outra IA. Token do Git vencido: ícone da chave na linha → "Trocar o token".
-13. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
+13. **Vídeos (Veo)** — crie em Conexões uma "Gemini — chave de API" (AI Studio, com cobrança ativada).
+    Em Ajustes → Vídeos escolha o modelo Veo (a lista vem da sua chave). Peça na conversa ("vídeo vertical
+    de 8 s do meu logo girando"); a IA propõe, você clica Fazer, e o `.mp4` aparece no chat e em Arquivos.
+    Cobrança do Google por segundo de vídeo; o Nivoo estima e respeita o limite de gasto do projeto.
+14. **Trabalho até o fim e IA reserva** — trabalhos aprovados na conversa não têm limite de sessões nem de
+    tempo. Em Ajustes → "Se a IA parar…", marque as IAs reserva (em ordem): sem crédito/limite, o trabalho
+    continua sozinho na próxima, e a conversa avisa. Defina um limite de gasto se usar chaves de API.
+15. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
     Pode cadastrar o GitHub e o GitLab ao mesmo tempo (e mais de uma conta de cada). Para **criar**
     repositórios, o token precisa dessa permissão (GitHub: "Administration" de escrita ou token clássico
@@ -92,6 +99,8 @@ ganham o critério `conferencia-regras`.
 | `HOST` / `PORT` | `0.0.0.0` / 3000 (instalador: `127.0.0.1`) | endereço e porta da API |
 | `NIVOO_WORKSPACES_ROOT` | `./data/workspaces` | raiz autorizada (modelos, projetos, worktrees) |
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
+| `NIVOO_VEO_USD_POR_SEGUNDO` / `NIVOO_VEO_USD_POR_SEGUNDO_RAPIDO` | 0.40 / 0.15 | estimativa de custo por segundo de vídeo (modelos normais / fast); ajuste conforme a tabela do Google |
+| `NIVOO_GEMINI_API_BASE` | `https://generativelanguage.googleapis.com` | endereço da API do Gemini (vídeo) |
 | `NIVOO_CONEXOES_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/conexoes.json` | lista das conexões de IA (nome, tipo, padrão; permissão 600) |
 | `NIVOO_GIT_ACCOUNTS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json` | contas Git e tokens (permissão 600) |
 | `NIVOO_SECRETS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json` | credenciais conectadas pela tela (permissão 600) |
