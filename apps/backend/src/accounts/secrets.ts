@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 
 /**
- * Credenciais que o próprio usuário entrega pela tela "Contas de IA" (token oficial do Claude, chaves de
+ * Credenciais que o próprio usuário entrega pela tela "Conexões" (token oficial do Claude, chaves de
  * API). Ficam num arquivo do servidor com permissão 600 — nunca no git nem no banco — e valem para a API e
  * o worker. Variáveis de ambiente de mesmo nome têm prioridade (configuração feita pelo administrador).
  */
@@ -51,6 +51,30 @@ export function secretEnv(keys: SecretKey[]): Record<string, string> {
     if (v) env[k] = v;
   }
   return env;
+}
+
+/**
+ * Credencial de uma conexão: a primeira de cada tipo usa as chaves globais (e as variáveis de ambiente do
+ * administrador); as adicionais guardam a sua em `<id>/<CHAVE>`, sem nunca herdar a das outras.
+ */
+export function segredoDaConexao(conexao: string | null, key: SecretKey): string | undefined {
+  if (!conexao) return getSecret(key);
+  return readAll()[`${conexao}/${key}` as SecretKey] || undefined;
+}
+
+export function gravarSegredoDaConexao(conexao: string | null, key: SecretKey, value: string | null): void {
+  if (!conexao) return setSecret(key, value);
+  setSecret(`${conexao}/${key}` as SecretKey, value);
+}
+
+/** Remove todas as credenciais de uma conexão adicional. */
+export function apagarSegredosDaConexao(conexao: string): void {
+  const all = readAll() as Record<string, string>;
+  for (const k of Object.keys(all)) if (k.startsWith(`${conexao}/`)) delete all[k];
+  const target = file();
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, target);
 }
 
 /**

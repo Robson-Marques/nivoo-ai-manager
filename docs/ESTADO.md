@@ -3,6 +3,20 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 16 — Conexões: várias contas do mesmo serviço (2026-11-14)
+
+A tela "Contas" virou **Conexões**, no formato de lista de integrações: "Conexões cadastradas (N)", botão
+**+ Nova** (escolhe o tipo: Claude/ChatGPT/Gemini pela conta ou por chave de API, GitHub, GitLab) e, em
+cada linha, ícone, nome, selos (tipo, ★ padrão), estado e ações (conectar/reconectar, chave, padrão,
+renomear, desconectar, excluir; no Git, testar o token). Pode haver quantas conexões quiser de cada tipo
+("ChatGPT 1", "ChatGPT 2"), cada uma com login/chave e pasta próprios — nunca se misturam; o projeto
+escolhe a conexão. O que já estava conectado vira conexão automaticamente, sem reconectar. A conexão
+padrão é a IA dos projetos novos. Testes: suíte 98/98 (+7 de IA real puladas), `19-conexoes-multiplas`
+(migração, duas chaves do Claude em projetos diferentes chegando cada uma à sua sessão com pasta própria,
+nome repetido, padrão, exclusão recusada em uso e limpeza ao excluir, login pela tela de uma segunda conta
+do Claude sem tocar na primeira); interface pela tela com conexões e Git na mesma lista. Não testado com
+duas contas reais do mesmo serviço.
+
 ## Etapa 15 — Git: criar repositório, escolher da lista, mudar de servidor (2026-11-14)
 
 GitHub e GitLab conectados ao mesmo tempo (várias contas). Novo projeto **"Do zero + repositório novo"**:
@@ -362,6 +376,6 @@ funcionamento com navegador fechado (`acceptance/02–08`).
 
 ## Próximos passos
 
-1. Conectar ChatGPT e Gemini com contas reais pela tela Contas de IA e rodar `real-04` (Codex); criar uma
+1. Conectar ChatGPT e Gemini com contas reais pela tela Conexões e rodar `real-04` (Codex); criar uma
    prova real equivalente para o Gemini.
 2. Rodar `real-01`, `real-02`, `real-05` e `real-06` com o serviço instalado no servidor de produção.

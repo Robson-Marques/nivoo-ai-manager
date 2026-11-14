@@ -25,7 +25,7 @@
 * **Worker** (`apps/backend/src/worker.ts`): consome a fila persistente — respostas do chat
   (`PLAN_MESSAGE`), etapas (`RUN_STEP`) e avaliação final (`EVALUATE_JOB`). Continua com o navegador fechado.
 * **Web** (`apps/web`): lateral com projetos agrupados por modelo, chat do projeto (com painel "O que o
-  projeto lembra", "Arquivos" e "Ajustes"), **Modelos** e **Contas de IA**. Sem JSON nem configuração
+  projeto lembra", "Arquivos" e "Ajustes"), **Modelos** e **Conexões**. Sem JSON nem configuração
   técnica na tela.
 
 Instância única, sem multi-tenant. Isolamento é por **projeto** (pastas, artefatos e consultas filtradas
@@ -43,6 +43,8 @@ por `projectId`).
                                                  .../worktrees/<jobId>   worktree de cada trabalho (branch job/<id>)
 <NIVOO_ARTIFACTS_ROOT>/<projectId>/                               artefatos por sha256
 <pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json              credenciais conectadas pela tela (600)
+<pasta acima de NIVOO_WORKSPACES_ROOT>/conexoes.json              conexões de IA: nome, tipo, padrão (600)
+~/.nivoo-ia/<id>                                                 pasta própria de cada conexão adicional
 <pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json            contas Git (GitHub/GitLab) e tokens (600)
 ```
 
@@ -173,10 +175,14 @@ fora do escopo viram resposta com explicação, não plano. Plano só vira job c
 humana → `validatePlan` → job com a trava → início). `memoria` (DECISAO/PREFERENCIA/FATO/PENDENCIA) vira
 memória do projeto, sem duplicar (hash). IA desconectada → resposta com orientação, sem travar.
 
-## 10. Contas de IA
+## 10. Conexões de IA
 
-`accounts/`: `AccountsService` (lista, chave de API, desconectar), `LoginSessionsService` (login pela
-tela) e `secrets.ts` (arquivo de segredos). O login roda o comando oficial de cada CLI dentro de uma ponte
+`accounts/`: `connections.ts` (lista de conexões em `conexoes.json`), `AccountsService` (criar, renomear,
+padrão, excluir, chave de API, desconectar), `LoginSessionsService` (login pela tela) e `secrets.ts`
+(arquivo de segredos). Várias conexões do mesmo tipo: a primeira usa o id do tipo e a configuração padrão
+do serviço; as adicionais (`<tipo>--<hex>`) são instâncias do mesmo provedor (`paraConexao`) criadas pelo
+`ProviderRegistry`, com credencial `<id>/<CHAVE>` em `segredos.json` e pasta própria `~/.nivoo-ia/<id>`
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME` ou `HOME` do Gemini) — inclusive durante o login. O login roda o comando oficial de cada CLI dentro de uma ponte
 Python com pseudo-terminal e lê da saída o link e o código:
 
 * Claude: `claude setup-token` → o usuário cola o código → token `sk-ant-oat…` gravado como

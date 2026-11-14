@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { acharConexao, ehAdicional, listarConexoes, tipoDe } from '../accounts/connections';
 import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.provider';
@@ -34,17 +35,29 @@ export class ProviderRegistry {
   }
 
   ids(): string[] {
-    return [...this.providers.keys()];
+    return [...this.providers.keys(), ...listarConexoes().filter((c) => ehAdicional(c.id)).map((c) => c.id)];
   }
 
+  /**
+   * Conector pelo id. Conexões adicionais (`<tipo>--<hex>`, ex.: a segunda conta do ChatGPT) são instâncias
+   * do mesmo CLI com credenciais e pasta próprias. Nome visível = nome da conexão.
+   */
   get(id: string): AiProvider {
     const p = this.providers.get(id);
-    if (!p) throw new NotFoundException(`Conector desconhecido: ${id}`);
-    return p;
+    if (p) {
+      const c = tipoDe(id) ? acharConexao(id) : undefined;
+      return c ? Object.assign(Object.create(p), { label: c.nome }) : p;
+    }
+    if (ehAdicional(id)) {
+      const c = acharConexao(id);
+      const base = this.providers.get(tipoDe(id)!) as unknown as { paraConexao?(id: string, nome: string): AiProvider };
+      if (c && base?.paraConexao) return base.paraConexao(id, c.nome);
+    }
+    throw new NotFoundException(`Conector desconhecido: ${id}`);
   }
 
   has(id: string): boolean {
-    return this.providers.has(id);
+    return this.providers.has(id) || (ehAdicional(id) && !!acharConexao(id));
   }
 
   async status(id: string, maxAgeMs = 60000): Promise<ProviderStatus> {

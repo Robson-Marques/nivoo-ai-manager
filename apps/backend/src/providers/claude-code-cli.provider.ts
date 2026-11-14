@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { getSecret, isolatedHome, secretEnv } from '../accounts/secrets';
+import { isolatedHome, segredoDaConexao, secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
   AiProvider,
@@ -13,7 +13,7 @@ import {
 /**
  * Claude Code CLI (`claude -p`) usando o login oficial já existente no host do worker.
  * Não lê nem copia credenciais: apenas invoca o binário oficial com HOME do usuário do worker.
- * Variáveis repassadas além do ambiente mínimo: CLAUDE_CONFIG_DIR e as credenciais da tela "Contas de IA"
+ * Variáveis repassadas além do ambiente mínimo: CLAUDE_CONFIG_DIR e as credenciais da tela "Conexões"
  * (CLAUDE_CODE_OAUTH_TOKEN do login oficial `claude setup-token`, ou ANTHROPIC_API_KEY).
  */
 @Injectable()
@@ -23,6 +23,16 @@ export class ClaudeCodeCliProvider implements AiProvider {
   readonly kind = 'cli' as const;
   protected readonly bin = process.env.NIVOO_CLAUDE_BIN ?? 'claude';
   protected readonly passKeys = ['CLAUDE_CONFIG_DIR'];
+
+  /** Conexão adicional (ex.: "ChatGPT 2"): id próprio, nome dado pelo usuário, credenciais e pasta próprias. */
+  conexao: string | null = null;
+
+  /** Instância desta IA para uma conexão adicional. */
+  paraConexao(id: string, nome: string): this {
+    const p = new (this.constructor as new () => this)();
+    Object.assign(p, { id, label: nome, conexao: id });
+    return p;
+  }
 
   static readonly DENIED = ['Bash', 'WebFetch', 'WebSearch'];
 
@@ -98,12 +108,14 @@ export class ClaudeCodeCliProvider implements AiProvider {
 
   /** Conta (assinatura): token oficial do login pela tela (ou do administrador). Nunca a chave de API. */
   protected credentials(): Record<string, string> {
-    return secretEnv(['CLAUDE_CODE_OAUTH_TOKEN']);
+    if (!this.conexao) return secretEnv(['CLAUDE_CODE_OAUTH_TOKEN']);
+    const t = segredoDaConexao(this.conexao, 'CLAUDE_CODE_OAUTH_TOKEN');
+    return { ...(t ? { CLAUDE_CODE_OAUTH_TOKEN: t } : {}), CLAUDE_CONFIG_DIR: isolatedHome(this.conexao) };
   }
 
   /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
   env(extra: Record<string, string> = {}) {
-    return minimalEnv({ ...this.credentials(), ...extra }, this.passKeys);
+    return minimalEnv({ ...this.credentials(), ...extra }, this.conexao ? [] : this.passKeys);
   }
 
   /** Conta: o próprio CLI diz se há login. */
@@ -142,7 +154,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     base.installed = true;
     base.version = v.stdout.trim();
     base.authenticated = await this.authenticated(base);
-    if (base.authenticated === false) base.errors.push('não conectado (conecte em Contas de IA)');
+    if (base.authenticated === false) base.errors.push('não conectado (conecte em Conexões)');
     base.available = base.authenticated !== false;
     return base;
   }
@@ -240,8 +252,9 @@ export class ClaudeApiProvider extends ClaudeCodeCliProvider {
   readonly label: string = 'Claude (API)';
 
   protected credentials(): Record<string, string> {
-    const dir = isolatedHome('claude-api');
-    return { ...secretEnv(['ANTHROPIC_API_KEY']), CLAUDE_CONFIG_DIR: dir };
+    const dir = isolatedHome(this.conexao ?? 'claude-api');
+    const k = segredoDaConexao(this.conexao, 'ANTHROPIC_API_KEY');
+    return { ...(k ? { ANTHROPIC_API_KEY: k } : {}), CLAUDE_CONFIG_DIR: dir };
   }
 
   /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
@@ -251,6 +264,6 @@ export class ClaudeApiProvider extends ClaudeCodeCliProvider {
 
   protected async authenticated(base: ProviderStatus): Promise<boolean> {
     base.limits.metodoAutenticacao = 'chave de API';
-    return !!getSecret('ANTHROPIC_API_KEY');
+    return !!segredoDaConexao(this.conexao, 'ANTHROPIC_API_KEY');
   }
 }

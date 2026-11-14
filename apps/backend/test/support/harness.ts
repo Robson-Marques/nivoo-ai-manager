@@ -45,6 +45,10 @@ export async function truncateAll(prisma: PrismaService): Promise<void> {
     TRUNCATE "QueueTask", "LogEntry", "CriterionCheck", "AcceptanceCriterion", "Attempt", "Checkpoint", "Artifact",
       "Approval", "Step", "JobObjectiveVersion", "Job", "MemoryEntry", "ConversationMessage", "Conversation",
       "ProjectRule", "Project", "AreaInstruction", "Area", "ProviderConfig", "WorkerHeartbeat" CASCADE`);
+  // Conexões de IA ficam num arquivo ao lado dos workspaces: cada suíte começa sem nenhuma.
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  fs.rmSync(path.join(path.dirname(process.env.NIVOO_WORKSPACES_ROOT!), 'conexoes.json'), { force: true });
   // A base padrão ("Geral") é recriada como na inicialização da API.
   const { AreasService } = await import('../../src/areas/areas.service');
   const svc = new AreasService(prisma, new (await import('../../src/storage/workspace.service')).WorkspaceService());

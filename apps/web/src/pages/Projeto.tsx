@@ -59,7 +59,7 @@ const IaContexto = createContext<IaCtx>({ contas: [], atual: '', trocar: async (
 function TrocarIa({ depois }: { depois?: () => Promise<unknown> }) {
   const { contas, atual, trocar } = useContext(IaContexto);
   const outras = contas.filter((c) => c.conectado && c.id !== atual);
-  if (!outras.length) return <div className="small"><Link to="/contas">Conectar outra IA em Contas de IA</Link></div>;
+  if (!outras.length) return <div className="small"><Link to="/contas">Conectar outra IA em Conexões</Link></div>;
   return (
     <div className="row troca-ia">
       <span className="small">Continuar com:</span>
@@ -265,7 +265,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
     return (
       <div className="msg ia erro">
         {m.content}
-        {/conectada|indisponível|limite|Contas de IA/.test(m.content) && <TrocarIa depois={onReenviar} />}
+        {/conectada|indisponível|limite|Conexões/.test(m.content) && <TrocarIa depois={onReenviar} />}
       </div>
     );
   }

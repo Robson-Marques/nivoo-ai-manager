@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
+import { listarConexoes, TIPOS_IA, tipoDe } from '../accounts/connections';
 import { appConfig } from '../config';
 import { resolveInside } from '../common/path-guard';
 import { DEFAULT_AREA, findTemplate } from '../areas/area-templates';
@@ -17,7 +18,10 @@ import { QueueService } from '../queue/queue.service';
 import { checkBranch, GitService, normalizeRepoUrl } from '../git/git.service';
 
 /** IAs que conversam e trabalham num projeto: agentes que leem e editam arquivos (o executor local não é IA). */
-export const AI_PROVIDERS = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-cli', 'gemini-api'];
+/** Ids de IA que um projeto pode usar: os seis tipos e as conexões adicionais cadastradas. */
+export function aiConnectionIds(): string[] {
+  return [...new Set([...TIPOS_IA, ...listarConexoes().map((c) => c.id)])];
+}
 
 /**
  * Projeto = pasta de trabalho + "fine-tune do projeto": base escolhida, regras próprias (versionadas),
@@ -40,7 +44,7 @@ export class ProjectsService {
     if (!slug) throw new BadRequestException('Nome inválido');
     if (await this.prisma.project.findUnique({ where: { slug } })) throw new ConflictException(`Já existe um projeto com o nome "${name}"`);
     const area = await this.resolveArea(optString(body, 'base', 60) ?? DEFAULT_AREA);
-    const provider = this.checkProvider(optString(body, 'provider', 60) ?? 'claude-code-cli');
+    const provider = this.checkProvider(optString(body, 'provider', 60) ?? listarConexoes().find((c) => c.padrao)?.id ?? 'claude-code-cli');
     const dirKey = `areas/${area.slug}/projetos/${slug}`;
     // Projeto a partir de um repositório Git existente: clona primeiro; a branch escolhida vira a pasta principal.
     let git: { url: string; branch: string; accountId: string | null } | null = null;
@@ -79,7 +83,7 @@ export class ProjectsService {
   }
 
   private checkProvider(id: string): string {
-    if (!AI_PROVIDERS.includes(id) || !this.registry.has(id)) throw new BadRequestException(`IA desconhecida: ${id}. Opções: ${AI_PROVIDERS.join(', ')}`);
+    if (!tipoDe(id) || !this.registry.has(id)) throw new BadRequestException(`IA desconhecida: ${id}. Opções: ${aiConnectionIds().join(', ')}`);
     return id;
   }
 
@@ -140,7 +144,7 @@ export class ProjectsService {
    * do projeto (regras, conhecimento, memória, pasta, notas e checkpoints), então nada depende da IA anterior.
    */
   private async moveUnfinishedWork(projectId: string, provider: string) {
-    const ai = AI_PROVIDERS;
+    const ai = aiConnectionIds();
     const jobs = await this.prisma.job.findMany({
       where: { projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO', 'BLOQUEADO', 'FALHOU'] } },
       select: { id: true, defaultProvider: true },

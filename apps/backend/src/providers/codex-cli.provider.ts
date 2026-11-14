@@ -22,8 +22,19 @@ export class CodexCliProvider implements AiProvider {
   protected readonly bin = process.env.NIVOO_CODEX_BIN ?? 'codex';
   protected readonly passKeys = ['CODEX_HOME'];
 
+  /** Conexão adicional (ex.: "ChatGPT 2"): id próprio, nome dado pelo usuário, credenciais e pasta próprias. */
+  conexao: string | null = null;
+
+  /** Instância desta IA para uma conexão adicional. */
+  paraConexao(id: string, nome: string): this {
+    const p = new (this.constructor as new () => this)();
+    Object.assign(p, { id, label: nome, conexao: id });
+    return p;
+  }
+
   /** Ambiente do CLI. Conta: CODEX_HOME padrão do serviço (login com a conta do ChatGPT). */
   env(extra: Record<string, string> = {}) {
+    if (this.conexao) return minimalEnv({ CODEX_HOME: isolatedHome(this.conexao), ...extra });
     return minimalEnv(extra, this.passKeys);
   }
 
@@ -56,7 +67,7 @@ export class CodexCliProvider implements AiProvider {
     base.version = v.stdout.trim();
     const s = await runProcess(this.bin, ['login', 'status'], { cwd: process.cwd(), env, timeoutMs: 15000 });
     base.authenticated = this.loggedIn(s.exitCode, `${s.stdout}\n${s.stderr}`);
-    if (!base.authenticated) base.errors.push('não conectado (conecte em Contas de IA)');
+    if (!base.authenticated) base.errors.push('não conectado (conecte em Conexões)');
     base.available = base.authenticated === true;
     return base;
   }
@@ -125,7 +136,7 @@ export class CodexApiProvider extends CodexCliProvider {
   readonly label: string = 'ChatGPT (API)';
 
   env(extra: Record<string, string> = {}) {
-    return minimalEnv({ CODEX_HOME: isolatedHome('codex-api'), ...extra });
+    return minimalEnv({ CODEX_HOME: isolatedHome(this.conexao ?? 'codex-api'), ...extra });
   }
 
   protected loggedIn(exitCode: number | null): boolean {

@@ -26,7 +26,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
     api<any[]>('/accounts')
       .then((c) => {
         setContas(c);
-        const conectada = c.find((x) => x.conectado);
+        const conectada = c.find((x) => x.padrao && x.conectado) ?? c.find((x) => x.conectado);
         if (conectada) setIa(conectada.id);
       })
       .catch(() => undefined);
@@ -111,7 +111,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
           </div>
           {contas.length > 0 && !contas.find((c) => c.id === ia)?.conectado && (
             <span className="muted small">
-              Esta IA ainda não está conectada. <Link to="/contas" onClick={onFechar}>Conectar em Contas de IA</Link>.
+              Esta IA ainda não está conectada. <Link to="/contas" onClick={onFechar}>Conectar em Conexões</Link>.
             </span>
           )}
         </div>

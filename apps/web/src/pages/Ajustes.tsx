@@ -69,7 +69,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         <div className="row">
           <SeletorModelo projeto={projeto} onMudou={onMudou} />
         </div>
-        <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. O modelo fica guardado para cada IA. <Link to="/contas">Contas de IA</Link></span>
+        <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. O modelo fica guardado para cada IA. <Link to="/contas">Conexões</Link></span>
       </div>
       <div className="campo">
         <b>Limite de gasto do projeto (US$)</b>

@@ -35,7 +35,8 @@ apps/backend/
   src/app.module.ts | worker.module.ts | core.module.ts   módulos Nest (API, worker, compartilhado)
 
   src/accounts/
-    accounts.controller.ts        rotas /accounts (Contas de IA)
+    connections.ts                conexões (conexoes.json): várias contas do mesmo tipo, ids <tipo>--<hex>
+    accounts.controller.ts        rotas /accounts (Conexões)
     accounts.service.ts           lista as 3 IAs, chave de API, desconectar
     login-sessions.service.ts     login oficial pela tela (ponte Python com pty): Claude, Codex, Gemini
     secrets.ts                    segredos.json (600); variáveis de ambiente prevalecem
@@ -89,15 +90,15 @@ apps/backend/
 
 apps/web/src/
   main.tsx                        rotas: /, /p/:pid, /modelos, /contas
-  Layout.tsx                      lateral: projetos por modelo, "+ Novo projeto", Modelos, Contas de IA
+  Layout.tsx                      lateral: projetos por modelo, "+ Novo projeto", Modelos, Conexões
   Pecas.tsx                       peças comuns: editor de regras (importar PDF/Word/texto) e materiais
   api.ts | styles.css
   pages/Inicio.tsx                boas-vindas
   pages/Projeto.tsx               chat, "Posso fazer isto" + Fazer, andamento, painel (lembra/Arquivos/Git/Ajustes)
   pages/Ajustes.tsx               regras do projeto, conhecimento, IA, limite de gasto, excluir projeto
   pages/Modelos.tsx               lista, novo modelo a partir de um pronto, texto e materiais
-  pages/Contas.tsx                conectar Claude, ChatGPT e Gemini (+ seção Git)
-  pages/Git.tsx                   contas Git, aba Git do projeto, seletor de conta
+  pages/Contas.tsx                Conexões: lista de IAs e contas Git, "+ Nova", login, chave, padrão, renomear, excluir
+  pages/Git.tsx                   aba Git do projeto, criar/escolher repositório, seletor de conta
   pages/NovoProjeto.tsx           nome, sobre, do zero ou de um repositório Git, modelo, IA
 apps/web/e2e/chat-smoke.cjs       fumaça da interface pelo navegador (Playwright + stub)
 

@@ -2,9 +2,12 @@
 
 ## 1. Como usar (fluxo do usuário)
 
-1. **Conectar uma IA** — menu **Contas de IA**: escolha Claude, ChatGPT ou Gemini e clique em
-   "Conectar". Abra o link, entre com a sua conta e cole o código (Claude, Gemini) ou digite o código
-   mostrado no site (ChatGPT). Também dá para usar uma chave de API (cobrança à parte, pelo provedor).
+1. **Conectar uma IA** — menu **Conexões** → **+ Nova** → escolha o tipo (Claude, ChatGPT ou Gemini, pela
+   conta ou por chave de API; também GitHub e GitLab) e dê um nome. Pela conta, o login começa na hora:
+   abra o link, entre com a sua conta e cole o código (Claude, Gemini) ou digite o código mostrado no site
+   (ChatGPT). Pode criar **quantas quiser do mesmo tipo** ("ChatGPT 1", "ChatGPT 2"…): cada uma tem o seu
+   login/chave e nunca se misturam. Em cada linha: conectar/reconectar, chave, ★ padrão (IA dos projetos
+   novos), renomear, desconectar e excluir (só se nenhum projeto a usa).
 2. **Criar um modelo** (opcional) — menu **Modelos** → novo modelo a partir de um pronto (Geral, Software,
    Atendimento, Imagem e conteúdo, Vídeo). Escreva em "Como a IA deve funcionar neste modelo" o jeito de
    trabalhar (o texto é usado exatamente como você escreveu) ou importe de um PDF, Word ou texto. Envie os
@@ -82,6 +85,7 @@ ganham o critério `conferencia-regras`.
 | `HOST` / `PORT` | `0.0.0.0` / 3000 (instalador: `127.0.0.1`) | endereço e porta da API |
 | `NIVOO_WORKSPACES_ROOT` | `./data/workspaces` | raiz autorizada (modelos, projetos, worktrees) |
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
+| `NIVOO_CONEXOES_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/conexoes.json` | lista das conexões de IA (nome, tipo, padrão; permissão 600) |
 | `NIVOO_GIT_ACCOUNTS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json` | contas Git e tokens (permissão 600) |
 | `NIVOO_SECRETS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json` | credenciais conectadas pela tela (permissão 600) |
 | `NIVOO_WORKER_ID` | `hostname-pid` | identificador do worker |

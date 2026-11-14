@@ -132,7 +132,7 @@ textarea { resize: vertical; line-height: 1.5; }
   .painel { border-left: 0; border-top: 1px solid var(--line); }
 }
 
-/* ---------- Páginas simples (Modelos, Contas de IA) ---------- */
+/* ---------- Páginas simples (Modelos, Conexões) ---------- */
 .pagina { flex: 1; overflow: auto; }
 .cartoes { padding: 18px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; max-width: 1000px; margin: 0 auto; }
 .cartoes.uma-coluna { grid-template-columns: 1fr; max-width: 760px; }
@@ -193,3 +193,47 @@ textarea { resize: vertical; line-height: 1.5; }
 .repo-item { text-align: left; background: var(--bg); color: var(--text); border: 1px solid var(--line); padding: 6px 10px; }
 .repo-item:hover { border-color: var(--accent); }
 .tipos.tres { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+/* Conexões: lista compacta, como uma tela de integrações */
+.conexoes { max-width: 980px; margin: 0 auto; padding: 28px 24px 48px; }
+.conexoes h1 { font-size: 26px; margin: 0 0 4px; }
+.conexoes-topo { display: flex; align-items: center; justify-content: space-between; margin: 22px 0 12px; }
+.conexoes-topo h2 { font-size: 16px; margin: 0; }
+.conexoes-grupo { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; }
+.conexoes-vazio { border: 1px dashed var(--line); border-radius: 12px; padding: 24px; text-align: center; }
+.botao-nova { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; font-weight: 600; }
+.conexao { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 10px; }
+.conexao-linha { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; }
+.conexao-icone { flex: none; }
+.marca { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; font-weight: 700; font-size: 17px; background: var(--accent-soft); color: var(--accent); }
+.marca-claude { background: var(--warn-soft); color: var(--warn); }
+.marca-chatgpt { background: var(--ok-soft); color: var(--ok); }
+.marca-gemini { background: var(--accent-soft); color: var(--accent); }
+.marca-git { background: var(--bg); color: var(--text); border: 1px solid var(--line); }
+.conexao-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.conexao-nome { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.conexao-detalhe { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.selo-tipo { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+.selo-padrao { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; padding: 2px 7px; border-radius: 6px; background: var(--warn-soft); color: var(--warn); }
+.selo-padrao .icone { width: 11px; height: 11px; }
+.estado { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--bg); color: var(--muted); margin-top: 3px; }
+.estado.ok { background: var(--ok-soft); color: var(--ok); }
+.estado.andamento { background: var(--warn-soft); color: var(--warn); }
+.estado .icone { width: 13px; height: 13px; }
+.conexao-acoes { display: flex; gap: 2px; flex: none; }
+.icone-botao { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border-radius: 8px; background: transparent; color: var(--muted); border: 1px solid transparent; }
+.icone-botao:hover:not(:disabled) { background: var(--bg); color: var(--text); border-color: var(--line); }
+.icone-botao.perigo:hover:not(:disabled) { color: var(--bad); }
+.conexao-painel { margin: 0 16px 14px 70px; }
+.conexao-painel input { flex: 1; }
+.tipos-conexao { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; margin: 10px 0 14px; }
+.tipo-conexao { display: flex; align-items: center; gap: 10px; text-align: left; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.tipo-conexao:hover { border-color: var(--accent); }
+.tipo-conexao > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.tipo-conexao .marca { width: 34px; height: 34px; font-size: 15px; }
+.icone.girando { animation: girar 1s linear infinite; }
+@keyframes girar { to { transform: rotate(360deg); } }
+@media (max-width: 640px) {
+  .conexao-linha { flex-wrap: wrap; }
+  .conexao-acoes { width: 100%; justify-content: flex-end; }
+  .conexao-painel { margin-left: 16px; }
+}

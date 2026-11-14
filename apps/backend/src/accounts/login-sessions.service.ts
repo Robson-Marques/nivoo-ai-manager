@@ -6,7 +6,8 @@ import * as path from 'node:path';
 import { minimalEnv } from '../common/exec';
 import { GeminiCliProvider } from '../providers/gemini-cli.provider';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { setSecret } from './secrets';
+import { ehAdicional, tipoDe } from './connections';
+import { gravarSegredoDaConexao, isolatedHome } from './secrets';
 
 /**
  * Login pela tela, usando o fluxo OFICIAL de cada CLI (nada de cookies ou credenciais de navegador):
@@ -107,7 +108,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     child.stderr!.on('data', onData);
     child.on('exit', (code) => {
       if (!['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(entry.info.state)) return;
-      if (provider === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
+      if (tipoDe(provider) === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
       if (this.connected(provider)) return this.finish(provider, 'conectado', 'Conectado.');
       this.finish(provider, 'erro', `O login não foi concluído. ${entry.output.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
     });
@@ -142,12 +143,15 @@ export class LoginSessionsService implements OnModuleDestroy {
 
   private command(provider: string): { args: string[]; cwd: string; env: Record<string, string> } {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-login-'));
-    if (provider === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: {} };
-    if (provider === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: {} };
-    if (provider === 'gemini-cli') {
-      // Login com conta Google (sem perguntar o método); o CLI grava a credencial no HOME do serviço.
-      GeminiCliProvider.ensureUserSettings('oauth-personal');
-      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: {} };
+    const tipo = tipoDe(provider);
+    // Conexão adicional: o login fica na pasta própria dela, sem tocar nas outras contas do mesmo serviço.
+    const propria = ehAdicional(provider) ? isolatedHome(provider) : null;
+    if (tipo === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: propria ? { CLAUDE_CONFIG_DIR: propria } : {} };
+    if (tipo === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: propria ? { CODEX_HOME: propria } : {} };
+    if (tipo === 'gemini-cli') {
+      // Login com conta Google (sem perguntar o método); o CLI grava a credencial no HOME da conexão.
+      GeminiCliProvider.ensureUserSettings('oauth-personal', propria ?? undefined);
+      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: propria ? { HOME: propria } : {} };
     }
     throw new BadRequestException('Esta IA não tem login pela tela');
   }
@@ -155,10 +159,11 @@ export class LoginSessionsService implements OnModuleDestroy {
   private react(provider: string): void {
     const s = this.sessions.get(provider)!;
     const out = s.output;
-    if (provider === 'claude-code-cli') {
+    const tipo = tipoDe(provider);
+    if (tipo === 'claude-code-cli') {
       const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})/.exec(out.replace(/\s+/g, ''));
       if (token) {
-        setSecret('CLAUDE_CODE_OAUTH_TOKEN', token[1]);
+        gravarSegredoDaConexao(ehAdicional(provider) ? provider : null, 'CLAUDE_CODE_OAUTH_TOKEN', token[1]);
         return this.finish(provider, 'conectado', 'Claude conectado.');
       }
       const url = /(https:\/\/claude\.(?:com|ai)\/[^\s'"<>\x07]*oauth\/authorize\?[^\s'"<>\x07]+)/.exec(out);
@@ -169,7 +174,7 @@ export class LoginSessionsService implements OnModuleDestroy {
       if (s.marca !== undefined && /OAuth error|wasn't accepted|invalid|failed/i.test(clean(s.raw.slice(s.marca)))) {
         return this.finish(provider, 'erro', 'O código não foi aceito (pode ter expirado, vindo incompleto ou ser de outra tentativa). Clique em Conectar de novo, abra o link novo e cole o código que aparecer.');
       }
-    } else if (provider === 'codex-cli') {
+    } else if (tipo === 'codex-cli') {
       const url = /(https:\/\/auth\.openai\.com\/\S+)/.exec(out);
       const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4,5})\b/.exec(out);
       if (url && code && !s.info.userCode) {
@@ -183,7 +188,7 @@ export class LoginSessionsService implements OnModuleDestroy {
             'Se o site disser para ativar o "login com código de dispositivo": em chatgpt.com abra Configurações → Segurança, ative essa opção e clique em Conectar de novo aqui.',
         };
       }
-    } else if (provider === 'gemini-cli') {
+    } else if (tipo === 'gemini-cli') {
       if (this.connected(provider)) return this.finish(provider, 'conectado', 'Gemini conectado.');
       if (s.marca !== undefined && /invalid_grant|Failed to (?:authenticate|login)|Authentication failed/i.test(clean(s.raw.slice(s.marca)))) {
         return this.finish(provider, 'erro', 'O código não foi aceito pelo Google. Clique em Conectar de novo, abra o link novo e cole o código que aparecer.');
@@ -196,7 +201,8 @@ export class LoginSessionsService implements OnModuleDestroy {
   }
 
   private connected(provider: string): boolean {
-    return provider === 'gemini-cli' && fs.existsSync(GeminiCliProvider.oauthFile());
+    if (tipoDe(provider) !== 'gemini-cli') return false;
+    return fs.existsSync(path.join(ehAdicional(provider) ? isolatedHome(provider) : (process.env.HOME ?? os.homedir()), '.gemini', 'oauth_creds.json'));
   }
 
   private finish(provider: string, state: LoginState, message: string): void {

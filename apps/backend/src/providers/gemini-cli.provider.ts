@@ -2,13 +2,13 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getSecret, isolatedHome, secretEnv } from '../accounts/secrets';
+import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
 /**
  * Gemini CLI (`gemini -p`), oficial do Google, com o login da conta Google do usuário (feito na tela
- * "Contas de IA", que usa o fluxo oficial do próprio CLI) ou com GEMINI_API_KEY.
+ * "Conexões", que usa o fluxo oficial do próprio CLI) ou com GEMINI_API_KEY.
  * Isolamento: configuração do usuário do serviço que exclui shell e acesso à web; edições aprovadas
  * automaticamente apenas dentro do diretório de trabalho (auto_edit); .gemini/ e GEMINI.md do workspace
  * são removidos antes da sessão (limpeza de harness do executor).
@@ -22,9 +22,24 @@ export class GeminiCliProvider implements AiProvider {
 
   static readonly EXCLUDED_TOOLS = ['run_shell_command', 'web_fetch', 'google_web_search'];
 
-  /** Credenciais do login com conta Google gravadas pelo próprio CLI no HOME do serviço. */
-  static oauthFile(): string {
-    return path.join(process.env.HOME ?? os.homedir(), '.gemini', 'oauth_creds.json');
+  /** Conexão adicional (ex.: "ChatGPT 2"): id próprio, nome dado pelo usuário, credenciais e pasta próprias. */
+  conexao: string | null = null;
+
+  /** Instância desta IA para uma conexão adicional. */
+  paraConexao(id: string, nome: string): this {
+    const p = new (this.constructor as new () => this)();
+    Object.assign(p, { id, label: nome, conexao: id });
+    return p;
+  }
+
+  /** HOME do CLI: o do serviço (primeira conexão) ou a pasta própria da conexão adicional. */
+  home(): string {
+    return this.conexao ? isolatedHome(this.conexao) : (process.env.HOME ?? os.homedir());
+  }
+
+  /** Arquivo do login com conta Google gravado pelo próprio CLI no HOME desta conexão. */
+  arquivoLogin(): string {
+    return path.join(this.home(), '.gemini', 'oauth_creds.json');
   }
 
   /**
@@ -54,12 +69,12 @@ export class GeminiCliProvider implements AiProvider {
   /** Conta Google: login gravado pelo próprio CLI no HOME do serviço. Nunca a chave de API. */
   /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
   env(extra: Record<string, string> = {}) {
-    GeminiCliProvider.ensureUserSettings('oauth-personal');
-    return minimalEnv(extra);
+    GeminiCliProvider.ensureUserSettings('oauth-personal', this.home());
+    return minimalEnv(this.conexao ? { HOME: this.home(), ...extra } : extra);
   }
 
   protected isAuthenticated(): boolean {
-    return fs.existsSync(GeminiCliProvider.oauthFile());
+    return fs.existsSync(this.arquivoLogin());
   }
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -84,7 +99,7 @@ export class GeminiCliProvider implements AiProvider {
     base.installed = true;
     base.version = v.stdout.trim();
     base.authenticated = this.isAuthenticated();
-    if (!base.authenticated) base.errors.push('não conectado (conecte em Contas de IA)');
+    if (!base.authenticated) base.errors.push('não conectado (conecte em Conexões)');
     base.available = base.authenticated === true;
     return base;
   }
@@ -165,12 +180,13 @@ export class GeminiApiProvider extends GeminiCliProvider {
 
   /** Ambiente do CLI desta IA (credenciais e pasta de configuração próprias). */
   env(extra: Record<string, string> = {}) {
-    const home = isolatedHome('gemini-api');
+    const home = isolatedHome(this.conexao ?? 'gemini-api');
     GeminiCliProvider.ensureUserSettings('gemini-api-key', home);
-    return minimalEnv({ ...secretEnv(['GEMINI_API_KEY']), HOME: home, ...extra });
+    const k = segredoDaConexao(this.conexao, 'GEMINI_API_KEY');
+    return minimalEnv({ ...(k ? { GEMINI_API_KEY: k } : {}), HOME: home, ...extra });
   }
 
   protected isAuthenticated(): boolean {
-    return !!getSecret('GEMINI_API_KEY');
+    return !!segredoDaConexao(this.conexao, 'GEMINI_API_KEY');
   }
 }

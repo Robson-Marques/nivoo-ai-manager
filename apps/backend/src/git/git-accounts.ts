@@ -78,6 +78,15 @@ export function saveGitAccount(c: Omit<GitAccount, 'id'>): GitAccount {
   return conta;
 }
 
+export function renameGitAccount(id: string, nome: string): GitAccount {
+  const contas = readAll();
+  const c = contas.find((x) => x.id === id);
+  if (!c) throw new NotFoundException('Conta Git não encontrada');
+  c.nome = nome;
+  writeAll(contas);
+  return c;
+}
+
 export function deleteGitAccount(id: string): void {
   const contas = readAll();
   if (!contas.some((c) => c.id === id)) throw new NotFoundException('Conta Git não encontrada');

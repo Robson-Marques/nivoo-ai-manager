@@ -7,7 +7,8 @@
  *   STUB_TMP=$STUB_TMP SHOTS=/caminho node apps/web/e2e/chat-smoke.cjs
  * Com IA real, use apps/backend/test/integration/real-06 (não este script).
  *
- *  1. Contas de IA: Claude, ChatGPT e Gemini listados com o estado da conexão
+ *  1. Conexões: lista com o estado; "+ Nova" cria uma SEGUNDA conta do mesmo tipo com nome próprio
+ *     (Claude API 1 e Claude API 2), cada uma com a sua chave; renomear, padrão, excluir
  *  2. Modelos: o pronto "Software — Studio Workflow" já instalado; novo modelo a partir de "Software", regras importadas de um PDF, pasta de materiais
  *  3. Novo projeto no modelo, com a IA escolhida; Ajustes: regras do projeto e conhecimento
  *  4. Conversa → "Posso fazer isto" → Fazer → conferência das regras → Pronto; memória e arquivos
@@ -93,13 +94,38 @@ const plano = {
   const erros = [];
   page.on('pageerror', (e) => erros.push(e.message));
   try {
-    // 1. Contas de IA
+    // 1. Conexões: duas contas do mesmo tipo, cada uma com nome e chave próprios
     await page.goto(`${base}/contas`);
-    for (const nome of ['Claude', 'ChatGPT', 'Gemini']) await page.getByRole('heading', { name: nome, exact: true }).waitFor();
-    await page.getByText('Chave de API').first().waitFor();
-    await page.waitForTimeout(500);
-    await shot(page, '1-contas');
-    passo('Contas de IA: Claude, ChatGPT e Gemini');
+    await page.getByRole('heading', { name: 'Conexões', exact: true }).waitFor();
+    await page.locator('.conexao', { hasText: 'Claude (conta)' }).getByText('Conectado', { exact: true }).waitFor();
+    for (const [n, chave] of [[`Claude API 1 ${stamp}`, 'sk-ant-api03-SMOKE-UM-0123456789'], [`Claude API 2 ${stamp}`, null]]) {
+      await page.getByRole('button', { name: 'Nova' }).click();
+      await page.locator('.tipo-conexao', { hasText: 'Claude — chave de API' }).click();
+      await page.getByLabel('Nome da conexão').fill(n);
+      if (chave) await page.getByLabel('Chave de API').fill(chave);
+      await page.getByRole('button', { name: 'Criar conexão' }).click();
+      await page.locator('.conexao', { hasText: n }).waitFor();
+    }
+    await page.locator('.conexao', { hasText: `Claude API 1 ${stamp}` }).getByText('Conectado', { exact: true }).waitFor();
+    const segunda = page.locator('.conexao', { hasText: `Claude API 2 ${stamp}` });
+    await segunda.getByText('Não conectado', { exact: true }).waitFor(); // não herda a chave da primeira
+    await segunda.getByPlaceholder(/Cole a chave de API/).fill('sk-ant-api03-SMOKE-DOIS-0123456789');
+    await segunda.getByRole('button', { name: 'Salvar chave' }).click();
+    await segunda.getByText('Conectado', { exact: true }).waitFor();
+    page.once('dialog', (d) => d.accept(`Claude do cliente ${stamp}`));
+    await segunda.getByRole('button', { name: 'Renomear' }).click();
+    const renomeada = page.locator('.conexao', { hasText: `Claude do cliente ${stamp}` });
+    await renomeada.waitFor();
+    await renomeada.getByRole('button', { name: 'Usar como padrão nos projetos novos' }).click();
+    await renomeada.locator('.selo-padrao').waitFor();
+    await shot(page, '1-conexoes');
+    await page.locator('.conexao', { hasText: 'Claude (conta)' }).getByRole('button', { name: 'Usar como padrão nos projetos novos' }).click();
+    for (const n of [`Claude API 1 ${stamp}`, `Claude do cliente ${stamp}`]) {
+      page.once('dialog', (d) => d.accept());
+      await page.locator('.conexao', { hasText: n }).getByRole('button', { name: 'Excluir conexão' }).click();
+      await page.locator('.conexao', { hasText: n }).waitFor({ state: 'detached' });
+    }
+    passo('Conexões: duas contas do mesmo tipo com nomes e chaves próprios, renomear, padrão, excluir');
 
     // 2. Modelos
     await page.getByRole('link', { name: 'Modelos' }).click();
@@ -214,7 +240,7 @@ const plano = {
     g(semente, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'inicio');
     g(semente, 'push', '-q', remoto, 'main');
     await page.goto(`${base}/contas`);
-    await page.getByRole('heading', { name: 'Git (GitHub e GitLab)' }).waitFor();
+    await page.getByRole('heading', { name: 'Conexões', exact: true }).waitFor();
     await page.getByRole('button', { name: '+ Novo projeto' }).click();
     const nomeGit = `Loja ${stamp}`;
     await page.getByLabel('Nome do projeto').fill(nomeGit);
@@ -264,12 +290,17 @@ const plano = {
     await new Promise((ok) => api.listen(0, '127.0.0.1', ok));
     try {
       await page.goto(`${base}/contas`);
-      await page.getByRole('button', { name: 'GitLab (servidor próprio)' }).click();
+      await page.getByRole('button', { name: 'Nova' }).click();
+      await page.locator('.tipo-conexao', { hasText: 'GitLab' }).click();
+      await page.getByLabel('Nome da conexão').fill('GitLab Empresa');
       await page.getByLabel('Endereço do GitLab').fill(`http://127.0.0.1:${api.address().port}`);
       await page.getByLabel('Token de acesso').fill('glpat-SMOKE-123456');
-      await page.getByLabel('Nome para mostrar (opcional)').fill('GitLab Empresa');
-      await page.getByRole('button', { name: 'Salvar conta' }).click();
-      await page.locator('.conta-opcao b', { hasText: 'GitLab Empresa' }).waitFor();
+      await page.getByRole('button', { name: 'Criar conexão' }).click();
+      const contaGl = page.locator('.conexao', { hasText: 'GitLab Empresa' });
+      await contaGl.waitFor();
+      await contaGl.getByRole('button', { name: 'Testar o token agora' }).click();
+      await contaGl.getByText('Token válido (usuário eu).').waitFor();
+      await shot(page, '11a-conexoes-com-git');
       await page.getByRole('button', { name: '+ Novo projeto' }).click();
       const nomeNovo = `Painel ${stamp}`;
       await page.getByLabel('Nome do projeto').fill(nomeNovo);
@@ -304,8 +335,8 @@ const plano = {
       }
       await page.goto(`${base}/contas`);
       page.once('dialog', (d) => d.accept());
-      await page.locator('.conta-opcao', { hasText: 'GitLab Empresa' }).getByRole('button', { name: 'Remover' }).click();
-      await page.locator('.conta-opcao b', { hasText: 'GitLab Empresa' }).waitFor({ state: 'detached' });
+      await page.locator('.conexao', { hasText: 'GitLab Empresa' }).getByRole('button', { name: 'Excluir conexão' }).click();
+      await page.locator('.conexao', { hasText: 'GitLab Empresa' }).waitFor({ state: 'detached' });
     } finally {
       api.close();
     }

@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ModelCatalogService } from '../providers/model-catalog.service';
 import { AccountsService } from './accounts.service';
 
-/** Tela "Contas de IA": conectar Claude, ChatGPT e Gemini pelo navegador. */
+/** Tela "Conexões": quantas contas quiser de Claude, ChatGPT e Gemini, pela conta ou por chave de API. */
 @Controller('accounts')
 export class AccountsController {
   constructor(
@@ -11,8 +11,25 @@ export class AccountsController {
   ) {}
 
   @Get()
-  list() {
-    return this.accounts.list();
+  list(@Query('atualizar') atualizar?: string) {
+    return this.accounts.list(atualizar === '1');
+  }
+
+  /** Tipos que podem ser criados em "+ Nova". */
+  @Get('tipos')
+  tipos() {
+    return this.accounts.tipos();
+  }
+
+  @Post()
+  create(@Body() body: any) {
+    return this.accounts.create(body);
+  }
+
+  /** `{ nome?, padrao? }` */
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: any) {
+    return this.accounts.update(id, body);
   }
 
   /** Modelos disponíveis nesta IA (lidos do programa oficial quando ele informa). */
@@ -46,8 +63,15 @@ export class AccountsController {
     return this.accounts.saveKey(id, body?.key);
   }
 
-  @Delete(':id')
+  /** Sai da conta / apaga a chave, mantendo a conexão na lista. */
+  @Post(':id/disconnect')
   disconnect(@Param('id') id: string) {
     return this.accounts.disconnect(id);
+  }
+
+  /** Exclui a conexão (recusado se algum projeto a usa). */
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.accounts.remove(id);
   }
 }

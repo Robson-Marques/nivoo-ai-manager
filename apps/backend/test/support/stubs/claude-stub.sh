@@ -13,6 +13,8 @@ esac
 prompt=$(cat)
 echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
+# Qual credencial/pasta chegou a esta sessão (conexões múltiplas não podem se misturar).
+echo "${ANTHROPIC_API_KEY:-}|${CLAUDE_CONFIG_DIR:-}|${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$CTL/env.txt"
 if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   # Conferência das regras: guarda o prompt do revisor e grava o relatório pedido.
   echo "$prompt" > "$CTL/prompt-revisor.txt"

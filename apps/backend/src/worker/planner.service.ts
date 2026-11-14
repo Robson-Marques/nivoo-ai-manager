@@ -67,7 +67,7 @@ export class PlannerService {
     if (!this.registry.has(providerId)) return fail(`IA desconhecida: ${providerId}`);
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
-      return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Contas de IA" e envie a mensagem de novo.`);
+      return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Conexões" e envie a mensagem de novo.`);
     }
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).

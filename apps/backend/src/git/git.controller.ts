@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { optString, reqString } from '../common/validate';
-import { deleteGitAccount, getGitAccount, listGitAccounts, normalizeHost, publicAccount, saveGitAccount } from './git-accounts';
+import { deleteGitAccount, getGitAccount, listGitAccounts, normalizeHost, publicAccount, renameGitAccount, saveGitAccount } from './git-accounts';
 import { listarNamespaces, listarRepos } from './git-hosting';
 import { GitService } from './git.service';
 
@@ -65,6 +65,22 @@ export class GitController {
     if (!res.ok) throw new BadRequestException(`O servidor respondeu ${res.status} ao conferir o token. Confira o endereço e o tipo (GitHub/GitLab).`);
     const u: any = await res.json().catch(() => ({}));
     return String(u.login ?? u.username ?? '');
+  }
+
+  /** Renomear (`{ nome }`). */
+  @Patch('git/accounts/:id')
+  renameAccount(@Param('id', ParseUUIDPipe) id: string, @Body() body: any) {
+    const nome = reqString(body, 'nome', 100).trim();
+    if (!nome) throw new BadRequestException('Informe o nome');
+    return publicAccount(renameGitAccount(id, nome));
+  }
+
+  /** Confere agora se o token ainda vale (botão "testar"). */
+  @Post('git/accounts/:id/testar')
+  async testAccount(@Param('id', ParseUUIDPipe) id: string) {
+    const c = getGitAccount(id);
+    const usuario = await GitController.conferirToken(c.tipo, c.host, c.token);
+    return { ok: true, usuario };
   }
 
   @Delete('git/accounts/:id')

@@ -19,22 +19,29 @@ Na interface, "modelo" = `Area` no banco e `/areas` na API.
 | PATCH | `/providers/:id` | `{ "enabled": false }` desabilita; segredos são recusados. |
 | POST | `/extract-text` | `{ "name", "contentBase64" }` → `{ "texto" }`. PDF (`pdftotext`; escaneado por OCR com `tesseract`), Word `.docx`, PowerPoint `.pptx`, Excel `.xlsx`, LibreOffice `.odt`/`.odp`/`.ods` ou texto; até 10 MB; nada é gravado. Formatos antigos (`.doc`, `.xls`, `.ppt`, `.rtf`) → 400 pedindo PDF ou formato novo. |
 
-## Contas de IA
+## Conexões de IA
 
-`:id` = `claude-code-cli` (Claude), `codex-cli` (ChatGPT) ou `gemini-cli` (Gemini).
+Quantas conexões quiser de cada tipo (`claude-code-cli`, `claude-api`, `codex-cli`, `codex-api`, `gemini-cli`,
+`gemini-api`). `:id` = id da conexão: a primeira de cada tipo tem o próprio tipo como id (configuração padrão
+do serviço); as seguintes são `<tipo>--<8 hex>`, com credencial e pasta próprias (`~/.nivoo-ia/<id>`).
+O `provider` de um projeto é o id da conexão.
 
 | Método | Rota | Função |
 |---|---|---|
-| GET | `/accounts` | As três IAs: `instalado`, `conectado`, `problema`, `configuradoPeloAdministrador` (credencial vinda de variável de ambiente) e o login em andamento. |
+| GET | `/accounts` | Conexões: `id`, `tipo`, `ia`, `modo` (`conta` \| `api`), `nome`, `padrao`, `instalado`, `conectado`, `problema`, `projetos` (quantos usam), `configuradoPeloAdministrador` e o login em andamento. `?atualizar=1` confere todas agora. Na primeira vez, as contas já conectadas (ou em uso) viram conexões com os nomes de antes. |
+| GET | `/accounts/tipos` | Tipos para "+ Nova" (`tipo`, `ia`, `modo`, `nomePadrao`, `conta`/`ondeChave`). |
+| POST | `/accounts` | `{ "tipo", "nome"? }` — cria a conexão (nome automático "ChatGPT 2"... se omitido; nome repetido → 409). A primeira criada vira padrão. |
+| PATCH | `/accounts/:id` | `{ "nome"?, "padrao"?: true }` — renomear e/ou usar como padrão (IA dos projetos novos sem IA escolhida). |
+| DELETE | `/accounts/:id` | Exclui a conexão (desconecta, apaga credencial e pasta própria). 409 se algum projeto a usa. |
+| POST | `/accounts/:id/disconnect` | Desconecta (logout / apaga a chave) mantendo a conexão na lista. |
 | GET | `/accounts/:id/models` | Modelos da IA, lidos do programa oficial (Claude: aliases fable/opus/sonnet; ChatGPT: `codex debug models`; Gemini: `gemini --list-models`); cache de 1 h. |
-| POST | `/accounts/:id/login` | Inicia o login oficial do CLI. Devolve `{ state, url?, userCode?, message }`. |
+| POST | `/accounts/:id/login` | Inicia o login oficial do CLI nesta conexão. Devolve `{ state, url?, userCode?, message }`. |
 | GET | `/accounts/:id/login` | Estado do login: `iniciando`, `aguardando_codigo` (Claude, Gemini), `aguardando_site` (ChatGPT), `conectado`, `erro`, `cancelado`. 404 se não houver login em andamento. |
 | POST | `/accounts/:id/login/code` | `{ "code" }` — código colado pelo usuário (Claude e Gemini). 409 se o login não estiver esperando código. |
 | DELETE | `/accounts/:id/login` | Cancela o login em andamento. |
-| POST | `/accounts/:id/key` | `{ "key" }` — chave de API: `ANTHROPIC_API_KEY` (Claude), `GEMINI_API_KEY` (Gemini), chave OpenAI via `codex login --with-api-key` (ChatGPT). |
-| DELETE | `/accounts/:id` | Desconecta: apaga token/chave do arquivo de segredos e faz logout no CLI. |
+| POST | `/accounts/:id/key` | `{ "key" }` — chave de API desta conexão: Anthropic (Claude), Google AI Studio (Gemini), OpenAI via `codex login --with-api-key` (ChatGPT). |
 
-Credenciais ficam em `segredos.json` (permissão 600) ou nos arquivos do próprio CLI; nunca no banco.
+Lista de conexões em `conexoes.json`; credenciais em `segredos.json` (permissão 600) ou nos arquivos do próprio CLI; nunca no banco.
 
 ## Modelos
 
@@ -76,6 +83,8 @@ Tokens ficam em `git-contas.json` (600) no servidor; nenhuma rota devolve o toke
 | GET | `/git/accounts` | Contas Git (sem token). |
 | POST | `/git/accounts` | `{ "tipo": "github" \| "gitlab", "host"? (GitLab próprio, ex.: `https://git.empresa.com.br`), "token", "nome"?, "usuario"?, "autorNome"?, "autorEmail"?, "verificar"? (padrão true: confere o token na API do servidor) }`. |
 | DELETE | `/git/accounts/:id` | Remove a conta. |
+| PATCH | `/git/accounts/:id` | `{ "nome" }` — renomear. |
+| POST | `/git/accounts/:id/testar` | Confere agora se o token vale (`{ ok, usuario }`). |
 | GET | `/git/accounts/:id/repos?busca=` | Repositórios da conta (mais recentes primeiro): `[{ nome, url, branch, privado }]`. |
 | GET | `/git/accounts/:id/namespaces` | Onde a conta pode criar repositórios: `[{ id, nome, tipo: "usuario" \| "grupo" }]` (GitHub: usuário e organizações; GitLab: usuário e grupos). |
 | POST | `/projects/:pid/git/create` | `{ "accountId", "namespace"?, "tipoNamespace"? ("usuario" \| "grupo"), "nome"? (padrão: nome do projeto), "privado"? (padrão true), "autoEnvio"? (padrão true) }` — cria o repositório vazio na conta, liga o projeto, envia tudo e liga o envio automático. Projeto já ligado: passa a usar o novo (mudar de servidor, com todo o histórico; o antigo não é alterado). Nome já usado → 409. |

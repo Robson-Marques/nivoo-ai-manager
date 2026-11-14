@@ -82,7 +82,7 @@ Deixe esse terminal aberto e acesse **http://localhost:3000** no navegador.
 
 ## 4. Conectar as IAs (pela tela)
 
-Na interface, abra **Contas de IA** e conecte pelo menos uma IA, com o login oficial de cada uma:
+Na interface, abra **Conexões** → **+ Nova** e conecte pelo menos uma IA, com o login oficial de cada uma:
 
 | IA | O que acontece |
 |---|---|
@@ -156,7 +156,7 @@ TLS na frente.
 
 | Sintoma | Verifique |
 |---|---|
-| IA aparece "não conectada" | conecte em **Contas de IA** (ou `nivoo login-claude` / `nivoo login-codex`) |
+| IA aparece "não conectada" | conecte em **Conexões** (ou `nivoo login-claude` / `nivoo login-codex`) |
 | "Importar de PDF" falha | `apt-get install -y poppler-utils tesseract-ocr tesseract-ocr-por` (o instalador já instala) |
 | Interface não abre | o túnel SSH está aberto? `nivoo status`; `nivoo logs api` |
 | Jobs parados em "Aguardando recurso" | `nivoo check` (login/limite do provedor); `nivoo logs worker` |
