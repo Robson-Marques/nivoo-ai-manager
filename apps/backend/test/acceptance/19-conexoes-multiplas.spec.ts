@@ -102,7 +102,7 @@ describe('Conexões: várias contas do mesmo serviço', () => {
 if [ "$1" = setup-token ]; then
   echo "dir=$CLAUDE_CONFIG_DIR" > "${CTL}/login-env.txt"
   printf 'https://claude.com/cai/oauth/authorize?code=true&state=z\\n'
-  read -r code; echo "Your token: sk-ant-oat01-TOKENDACONTADOIS1234567890"; exit 0
+  read -r code; printf '\\n\\033[32m✓\\033[39m Long-lived authentication token created successfully!\\n\\nYour OAuth token (valid for 1 year):\\n\\nsk-ant-oat01-TOKENDACONTADOIS1234567890\\n\\nStore this token securely. You will not be able to see it again.\\n\\nUse this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\\n'; exit 0
 fi
 exec ${process.env.NIVOO_CLAUDE_BIN} "$@"
 `, { mode: 0o755 });

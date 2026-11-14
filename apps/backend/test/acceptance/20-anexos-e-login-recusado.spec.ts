@@ -163,13 +163,25 @@ describe('Chat com anexos e login recusado', () => {
     fs.writeFileSync(fake, `#!/usr/bin/env bash
 if [ "$1" = setup-token ]; then
   printf 'https://claude.com/cai/oauth/authorize?code=true&state=r\\n'
-  read -r code; echo "Your token: sk-ant-oat01-TOKENNOVODEPOISDERECUSA123"; exit 0
+  read -r code; printf '\\n\\033[32m✓\\033[39m Long-lived authentication token created successfully!\\n\\nYour OAuth token (valid for 1 year):\\n\\nsk-ant-oat01-TOKENNOVODEPOISDERECUSA123\\n\\nStore this token securely. You will not be able to see it again.\\n\\nUse this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\\n'; exit 0
 fi
 exec ${process.env.NIVOO_CLAUDE_BIN} "$@"
 `, { mode: 0o755 });
     const original = process.env.NIVOO_CLAUDE_BIN;
     process.env.NIVOO_CLAUDE_BIN = fake;
     try {
+      // Token gerado mas recusado na conferência com a Anthropic: não diz "Conectado" nem salva.
+      ctl('mode', '401');
+      await h.http().post('/api/accounts/claude-code-cli/login').expect(201);
+      await waitFor(async () => ((await h.http().get('/api/accounts/claude-code-cli/login')).body.state === 'aguardando_codigo' ? true : null), 15_000);
+      await h.http().post('/api/accounts/claude-code-cli/login/code').send({ code: 'X' }).expect(201);
+      const recusado = await waitFor(async () => {
+        const st = (await h.http().get('/api/accounts/claude-code-cli/login')).body;
+        return st.state === 'erro' ? st : null;
+      }, 15_000);
+      expect(recusado.message).toMatch(/A Anthropic recusou o token/);
+      expect((await h.http().get('/api/accounts?atualizar=1')).body.find((x: any) => x.id === 'claude-code-cli').loginRecusado).toBe(true);
+      ctl('mode', 'texto');
       await h.http().post('/api/accounts/claude-code-cli/login').expect(201);
       await waitFor(async () => ((await h.http().get('/api/accounts/claude-code-cli/login')).body.state === 'aguardando_codigo' ? true : null), 15_000);
       await h.http().post('/api/accounts/claude-code-cli/login/code').send({ code: 'X' }).expect(201);

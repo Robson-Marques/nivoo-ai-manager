@@ -461,7 +461,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
 if [ "$1" = setup-token ]; then
   printf 'Use the url below to sign in\\n\\033]8;id=1;https://claude.com/cai/oauth/authorize?code=true&state=abc\\007https://claude.com/cai/oauth/auth\\033]8;;\\007\\n'
   read -r code; [ "$code" = "CODIGO-OK" ] || { echo "invalid code"; exit 1; }
-  echo "Your token: sk-ant-oat01-TOKENDETESTE1234567890abcdef"; exit 0
+  printf '\\n\\033[32m✓\\033[39m Long-lived authentication token created successfully!\\n\\nYour OAuth token (valid for 1 year):\\n\\nsk-ant-oat01-TOKENDETESTE1234567890abcdef\\n\\nStore this token securely. You will not be able to see it again.\\n\\nUse this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\\n'; exit 0
 fi
 exec ${process.env.NIVOO_CLAUDE_BIN} "$@"
 `, { mode: 0o755 });

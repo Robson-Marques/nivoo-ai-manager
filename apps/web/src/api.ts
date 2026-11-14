@@ -141,3 +141,22 @@ export async function urlDoArquivo(url: string): Promise<string | null> {
   if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   return res.ok ? URL.createObjectURL(await res.blob()) : null;
 }
+
+/** Copia texto (também em http sem HTTPS, onde o navegador não libera a área de transferência moderna). */
+export async function copiarTexto(texto: string): Promise<void> {
+  if (window.isSecureContext && navigator.clipboard) {
+    try {
+      return await navigator.clipboard.writeText(texto);
+    } catch {
+      /* permissão negada: usa o método antigo abaixo */
+    }
+  }
+  const t = document.createElement('textarea');
+  t.value = texto;
+  t.style.position = 'fixed';
+  t.style.opacity = '0';
+  document.body.appendChild(t);
+  t.select();
+  document.execCommand('copy');
+  t.remove();
+}

@@ -1,6 +1,6 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo } from '../api';
+import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -444,6 +444,8 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
         <span>
           Parei: {conferenciaFalhou(job) ? 'a conferência encontrou algo fora das regras do projeto' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
           <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
+          <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
+          <DetalhesDaParada job={job} />
         </span>
       )}
       {['EXECUTANDO', 'PENDENTE', 'AGUARDANDO_RECURSO'].includes(job.status) && (
@@ -495,13 +497,7 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
                 <div key={g.titulo} className="mem-grupo">
                   <h3>{g.titulo}</h3>
                   {itens.map((m) => (
-                    <div key={m.id} className="mem-item">
-                      <div>
-                        <b>{m.title}</b>
-                        <div className="small">{m.category === 'EVIDENCIA' && m.references?.gitCommit ? 'Concluído e conferido pelo sistema.' : m.content}</div>
-                      </div>
-                      <button className="link" title="Esquecer" onClick={() => esquecer(m)}>esquecer</button>
-                    </div>
+                    <ItemDaMemoria key={m.id} m={m} texto={m.category === 'EVIDENCIA' && m.references?.gitCommit ? 'Concluído e conferido pelo sistema.' : m.content} onEsquecer={() => esquecer(m)} />
                   ))}
                 </div>
               );
@@ -572,5 +568,73 @@ function AnexoDaMensagem({ a, url }: { a: any; url: string }) {
       <span className="anexo-tipo">{((a.de ?? a.nome).split('.').pop() ?? '').toUpperCase().slice(0, 4)}</span>
       <span className="anexo-nome">{a.de ?? a.nome}</span>
     </button>
+  );
+}
+
+/** "Ver o que aconteceu": motivo registrado e as últimas tentativas (com o erro de cada uma), copiável. */
+function DetalhesDaParada({ job }: { job: any }) {
+  const [aberto, setAberto] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const tentativas = [...(job.attempts ?? [])].sort((a: any, b: any) => b.number - a.number).slice(0, 4);
+  const etapa = (id: string) => job.steps.find((x: any) => x.id === id);
+  const linhas = [
+    job.statusDetail ? `Motivo: ${job.statusDetail}` : null,
+    ...tentativas.map((a: any) => {
+      const e = etapa(a.stepId);
+      const fim = a.stopReason ? `, término: ${a.stopReason}` : '';
+      const msg = (a.error || a.output || '').trim().slice(-600);
+      return `Tentativa ${a.number} — etapa "${e?.title || e?.key || ''}" com ${a.provider} (${a.status}${fim})${msg ? `:\n${msg}` : ''}`;
+    }),
+  ].filter(Boolean) as string[];
+  if (!linhas.length) return null;
+  return (
+    <div className="detalhes-parada">
+      <button className="link" onClick={() => setAberto(!aberto)}>{aberto ? 'ocultar detalhes' : 'ver o que aconteceu'}</button>
+      {aberto && (
+        <>
+          <pre>{linhas.join('\n\n')}</pre>
+          <button
+            className="link"
+            onClick={async () => {
+              await copiarTexto(linhas.join('\n\n'));
+              setCopiado(true);
+              setTimeout(() => setCopiado(false), 2000);
+            }}
+          >
+            {copiado ? 'copiado' : 'copiar'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Item da memória: abre para ler inteiro (texto selecionável), copia e esquece. */
+function ItemDaMemoria({ m, texto, onEsquecer }: { m: any; texto: string; onEsquecer: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <div className={aberto ? 'mem-item aberto' : 'mem-item'}>
+      <div className="mem-corpo">
+        <button className="mem-titulo" onClick={() => setAberto(!aberto)} title={aberto ? 'Recolher' : 'Ler inteiro'}>
+          <b>{m.title}</b>
+        </button>
+        <div className="small" onClick={() => !aberto && setAberto(true)}>{texto}</div>
+      </div>
+      <div className="mem-acoes">
+        <button className="link" onClick={() => setAberto(!aberto)}>{aberto ? 'recolher' : 'abrir'}</button>
+        <button
+          className="link"
+          onClick={async () => {
+            await copiarTexto(`${m.title}\n${texto}`);
+            setCopiado(true);
+            setTimeout(() => setCopiado(false), 2000);
+          }}
+        >
+          {copiado ? 'copiado' : 'copiar'}
+        </button>
+        <button className="link" title="Esquecer" onClick={onEsquecer}>esquecer</button>
+      </div>
+    </div>
   );
 }

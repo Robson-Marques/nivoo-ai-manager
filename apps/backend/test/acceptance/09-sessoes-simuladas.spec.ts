@@ -74,4 +74,22 @@ describe('Classificação de término (SIMULADO com stub TEST-ONLY)', () => {
     expect(j.attempts.every((a: any) => a.sessionId === 'stub-sessao' && a.stopReason === 'max_turns')).toBe(true);
     ctl('mode', null);
   });
+
+  it('tarefa longa: sessões que só leem mas anotam progresso continuam (não é repetição) até concluir', async () => {
+    ctl('mode', 'leitura_longa');
+    ctl('sessoes', null);
+    const job = (
+      await h.http().post(`/api/projects/${pid}/jobs`).send({ ...body('auditoria longa'), steps: [{ key: 'ler', provider: 'claude-code-cli', instructions: 'leia tudo e escreva relatorio.md', verifyCommand: 'test -s relatorio.md' }], criteria: [{ key: 'r', description: 'relatório', kind: 'FILE_EXISTS', config: { path: 'relatorio.md' } }] }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${pid}/jobs/${job.id}/start`).expect(201);
+    const j = await waitFor(async () => {
+      const x = await h.prisma.job.findUnique({ where: { id: job.id }, include: { attempts: { where: { step: { key: 'ler' } }, orderBy: { number: 'asc' } } } });
+      return x && ['BLOQUEADO', 'FALHOU', 'CONCLUIDO'].includes(x.status) ? x : null;
+    }, 45_000);
+    expect(j.status).toBe('CONCLUIDO');
+    expect(j.attempts.map((a: any) => a.status)).toEqual(['SESSAO_ENCERRADA', 'SESSAO_ENCERRADA', 'SUCESSO']);
+    expect(j.attempts.slice(0, 2).map((a: any) => a.notesIngested)).toEqual([1, 1]);
+    ctl('mode', null);
+    ctl('sessoes', null);
+  });
 });

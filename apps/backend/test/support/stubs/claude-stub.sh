@@ -55,6 +55,20 @@ if [ "$MODE" = "lento" ]; then
   sleep 60
   exit 0
 fi
+if [ "$MODE" = "leitura_longa" ]; then
+  # Tarefa longa: as 2 primeiras sessões só leem e anotam progresso (nenhum arquivo do trabalho muda);
+  # a terceira grava o relatório.
+  n=$(( $(cat "$CTL/sessoes" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$CTL/sessoes"
+  mkdir -p .nivoo
+  if [ "$n" -lt 3 ]; then
+    echo "{\"tipo\": \"PROGRESSO\", \"titulo\": \"leitura parte $n\", \"conteudo\": \"li a parte $n de 3\"}" >> .nivoo/notas.jsonl
+    echo '{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":30,"session_id":"stub-longa","total_cost_usd":0.01}'
+    exit 1
+  fi
+  echo "# Auditoria" > relatorio.md
+  echo '{"type":"result","subtype":"success","is_error":false,"result":"feito","session_id":"stub-longa","total_cost_usd":0.01,"terminal_reason":"completed"}'
+  exit 0
+fi
 if [ "$MODE" = "max_turns" ]; then
   echo '{"type":"result","subtype":"error_max_turns","is_error":true,"terminal_reason":"max_turns","num_turns":3,"session_id":"stub-sessao","total_cost_usd":0.01}'
   exit 1

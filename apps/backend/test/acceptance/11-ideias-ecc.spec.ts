@@ -103,7 +103,7 @@ describe('Ideias do ECC no Nivoo', () => {
     });
     await run(a.id, body('novo job A'));
     const promptA = promptRecebido();
-    expect(promptA).toMatch(/\[LIÇÃO\] Lição: etapa "baixar"/);
+    expect(promptA).toMatch(/\[LIÇÃO\] Lição: "baixar" \(.*\) — a IA ficou repetindo sem avançar/);
     expect(promptA).toContain('ERRO-UNICO-7731');
     await run(b.id, body('job B'));
     expect(promptRecebido()).not.toContain('ERRO-UNICO-7731');

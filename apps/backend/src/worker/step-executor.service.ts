@@ -37,6 +37,13 @@ const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
+const MOTIVO_LICAO: Record<string, string> = {
+  REPETICAO_IMPRODUTIVA: 'a IA ficou repetindo sem avançar',
+  LIMITE_TENTATIVAS: 'esgotou as tentativas',
+  LIMITE_SESSOES: 'esgotou as sessões',
+  POLITICA: 'bloqueado por segurança',
+};
+
 @Injectable()
 export class StepExecutorService {
   private readonly logger = new Logger('StepExecutor');
@@ -359,7 +366,7 @@ export class StepExecutorService {
     if (recent.length >= job.repetitionWindow && recent.every((a) => a.outputHash === outputHash)) {
       await this.checkpoint(job.id, step, worktree, `repetição improdutiva na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `últimas ${recent.length} tentativas produziram a mesma saída/erro (hash ${outputHash.slice(0, 12)})`);
+        `as últimas ${recent.length} tentativas terminaram com o mesmo resultado/erro (${(result.error ?? result.output ?? '').trim().slice(-200) || 'sem mensagem'})`);
     }
     if (failures + 1 >= job.maxAttemptsPerStep) {
       await this.checkpoint(job.id, step, worktree, `falha definitiva na etapa ${step.key}`, { tentativa: number });
@@ -387,9 +394,11 @@ export class StepExecutorService {
       orderBy: { number: 'desc' },
     });
     const recent = sessions.slice(0, job.repetitionWindow);
-    if (recent.length >= job.repetitionWindow && recent.every((a) => a.treeBefore === a.treeAfter)) {
+    // Avanço = arquivo do trabalho alterado OU progresso anotado pela IA (tarefas longas de leitura e análise
+    // passam sessões inteiras lendo antes de escrever). O limite de sessões por etapa segura o resto.
+    if (recent.length >= job.repetitionWindow && recent.every((a) => a.treeBefore === a.treeAfter && a.notesIngested === 0)) {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `últimas ${recent.length} sessões terminaram sem nenhuma alteração no trabalho (notas não contam como progresso)`);
+        `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
     }
     if (sessions.length >= job.maxSessionsPerStep) {
       return this.failStep(task, workerId, job, step, `limite de ${job.maxSessionsPerStep} sessões sem concluir a etapa`, BlockedReason.LIMITE_SESSOES);
@@ -422,8 +431,8 @@ export class StepExecutorService {
       data: {
         projectId: job.projectId,
         category: 'PENDENCIA',
-        title: `Lição: etapa "${step.key}" (${job.title}) — ${reason}`,
-        content: `Abordagem sem sucesso. Instruções da etapa: ${step.instructions.slice(0, 400)}. Motivo: ${detail}. Tentativas: ${tried || 'nenhuma'}. Não repita esta abordagem sem mudar algo essencial.`,
+        title: `Lição: "${step.title || step.key}" (${job.title}) — ${MOTIVO_LICAO[reason] ?? reason}`,
+        content: `O que aconteceu: ${detail}.\nInstruções da etapa: ${step.instructions.slice(0, 400)}\nTentativas: ${tried || 'nenhuma'}\nNão repita esta abordagem sem mudar algo essencial.`,
         references: { origem: 'licao-automatica', jobId: job.id, stepId: step.id, motivo: reason, attemptIds: recent.map((a) => a.id) },
         author: 'sistema:licoes',
       },
@@ -615,6 +624,11 @@ export class StepExecutorService {
     }
     add('historico', history);
     add('protocolo', [
+      '## Tarefas longas (ler muitos arquivos, auditorias, documentos grandes)',
+      `Cada sessão tem tempo limitado (cerca de ${Math.round(job.stepTimeoutSec / 60)} min) e a próxima continua de onde esta parou.`,
+      'Crie o arquivo de resultado LOGO NO COMEÇO e vá completando a cada parte analisada (salve com frequência);',
+      'não deixe para escrever tudo no fim. Anote o progresso (o que já foi visto e o que falta) nas notas abaixo.',
+      '',
       '## Como registrar progresso (obrigatório antes de terminar a sessão)',
       'Acrescente linhas JSON (uma por linha) em `.nivoo/notas.jsonl` no diretório atual, por exemplo:',
       '{"tipo": "PROGRESSO", "titulo": "...", "conteudo": "o que foi feito e o que falta"}',

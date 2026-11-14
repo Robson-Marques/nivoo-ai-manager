@@ -3,6 +3,23 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correção — Claude recusando o login e trabalho longo parando "repetindo sem avançar" (2026-11-14)
+
+* **Token do Claude corrompido no login pela tela**: o `claude setup-token` imprime o token e, logo abaixo,
+  "Store this token securely…". O Nivoo juntava as linhas antes de ler o token e grudava o começo da
+  frase nele (`…Storethistokensecurely`), e a Anthropic respondia 401 — reconectar não resolvia. Agora o
+  token é lido sem juntar linhas e **conferido com uma chamada mínima** antes de "Conectado"; recusado =
+  erro na tela. Teste com a saída real do CLI (e prova de que a regra antiga corrompia).
+* **"A IA ficou repetindo sem avançar" em tarefa longa** (ler o projeto inteiro): duas sessões seguidas
+  só lendo, sem gravar arquivo, bloqueavam o trabalho, e as anotações de progresso não contavam. Agora
+  progresso anotado conta como avanço (o limite de sessões por etapa continua), e a IA é orientada a criar
+  o arquivo de resultado no começo e ir completando.
+* **Tela**: "Parei" com "ver o que aconteceu" (motivo e erro de cada tentativa, copiável) e "continuar com
+  outra IA"; itens da memória abrem para ler inteiro e copiar; lições em português.
+
+Testes: suíte 101/101 (+7 de IA real puladas), `09` com sessões longas que anotam progresso e concluem,
+`20` com token recusado na conferência; interface pela tela com memória abrindo e copiando.
+
 ## Etapa 17 — anexos no chat, login recusado e trocar token do Git (2026-11-14)
 
 * **Anexos no chat**: clipe, colar (Ctrl+V) e arrastar. Imagens vão como imagem (a IA abre e vê; o

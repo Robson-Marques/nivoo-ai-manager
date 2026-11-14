@@ -191,7 +191,13 @@ const plano = {
     if (!fs.existsSync(path.join(ctl, 'prompt-revisor.txt'))) throw new Error('a conferência das regras não rodou');
     await page.getByText('Tom das peças', { exact: true }).waitFor({ timeout: 15000 });
     await shot(page, '7-pronto-memoria');
-    passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível');
+    // Item da memória abre para ler inteiro e copiar.
+    const item = page.locator('.mem-item', { hasText: 'Tom das peças' });
+    await item.getByRole('button', { name: 'abrir' }).click();
+    await page.locator('.mem-item.aberto', { hasText: 'Tom alegre e familiar.' }).waitFor();
+    await item.getByRole('button', { name: 'copiar' }).click();
+    await item.getByRole('button', { name: 'copiado' }).waitFor();
+    passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível, abre e copia');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md' }).click();
     await page.getByText('Margherita').last().waitFor();

@@ -3,10 +3,10 @@ import { ChildProcess, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { minimalEnv } from '../common/exec';
+import { minimalEnv, runProcess } from '../common/exec';
 import { GeminiCliProvider } from '../providers/gemini-cli.provider';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { ehAdicional, marcarFalhaLogin, tipoDe } from './connections';
+import { ehAdicional, ehFalhaDeLogin, marcarFalhaLogin, tipoDe } from './connections';
 import { gravarSegredoDaConexao, isolatedHome } from './secrets';
 
 /**
@@ -69,7 +69,7 @@ function clean(s: string): string {
 
 @Injectable()
 export class LoginSessionsService implements OnModuleDestroy {
-  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number }>();
+  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number; conferindo?: boolean }>();
 
   constructor(private readonly registry: ProviderRegistry) {}
 
@@ -95,7 +95,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     });
     const info: LoginSession = { provider, state: 'iniciando', message: 'Preparando o login…', startedAt: new Date().toISOString() };
     const timer = setTimeout(() => this.finish(provider, 'erro', 'O login expirou (15 minutos). Tente de novo.'), TIMEOUT_MS);
-    const entry = { info, child, raw: '', output: '', timer };
+    const entry: { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number; conferindo?: boolean } = { info, child, raw: '', output: '', timer };
     this.sessions.set(provider, entry);
     const onData = (d: Buffer) => {
       entry.raw = (entry.raw + d.toString('utf8')).slice(-100_000);
@@ -108,6 +108,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     child.stderr!.on('data', onData);
     child.on('exit', (code) => {
       if (!['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(entry.info.state)) return;
+      if (entry.conferindo) return; // o token já foi lido e está sendo conferido
       if (tipoDe(provider) === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
       if (this.connected(provider)) return this.finish(provider, 'conectado', 'Conectado.');
       this.finish(provider, 'erro', `O login não foi concluído. ${entry.output.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
@@ -127,7 +128,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     // Sem resposta do CLI em 90 s: não fica "conferindo" para sempre.
     setTimeout(() => {
       const atual = this.sessions.get(provider);
-      if (atual === s && s.info.state === 'iniciando') {
+      if (atual === s && s.info.state === 'iniciando' && !s.conferindo) {
         const ultima = clean(s.raw.slice(s.marca ?? 0)).replace(/\s+/g, ' ').trim().slice(-200);
         this.finish(provider, 'erro', `O login não respondeu ao código.${ultima ? ` Última mensagem: ${ultima}` : ''} Clique em Conectar e tente de novo.`);
       }
@@ -161,11 +162,16 @@ export class LoginSessionsService implements OnModuleDestroy {
     const out = s.output;
     const tipo = tipoDe(provider);
     if (tipo === 'claude-code-cli') {
-      const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})/.exec(out.replace(/\s+/g, ''));
-      if (token) {
-        gravarSegredoDaConexao(ehAdicional(provider) ? provider : null, 'CLAUDE_CODE_OAUTH_TOKEN', token[1]);
-        return this.finish(provider, 'conectado', 'Claude conectado.');
+      // O token vem sozinho numa linha e logo abaixo vem "Store this token securely...": nunca juntar as
+      // linhas (isso grudava o começo da frase no token e a Anthropic recusava com 401).
+      const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})(?![A-Za-z0-9_-])/.exec(clean(s.raw));
+      if (token && !s.conferindo) {
+        s.conferindo = true;
+        s.info = { ...s.info, state: 'iniciando', message: 'Conferindo o token com a Anthropic…' };
+        void this.conferirTokenClaude(provider, token[1]);
+        return;
       }
+      if (s.conferindo) return;
       const url = /(https:\/\/claude\.(?:com|ai)\/[^\s'"<>\x07]*oauth\/authorize\?[^\s'"<>\x07]+)/.exec(out);
       if (url && s.info.state === 'iniciando' && !s.info.url) {
         s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta do Claude e cole aqui o código que aparecer.' };
@@ -197,6 +203,29 @@ export class LoginSessionsService implements OnModuleDestroy {
       if (url && !s.info.url) {
         s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta Google e cole aqui o código que aparecer.' };
       }
+    }
+  }
+
+  /**
+   * Antes de dizer "Conectado", usa o token numa chamada mínima (sem ferramentas, 1 turno): o status do CLI
+   * só confere que existe um token. Recusado (401) = erro na tela; outro problema (rede, limite) não
+   * impede salvar.
+   */
+  private async conferirTokenClaude(provider: string, token: string): Promise<void> {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-conferir-'));
+    try {
+      const r = await runProcess(
+        process.env.NIVOO_CLAUDE_BIN ?? 'claude',
+        ['-p', '--output-format', 'json', '--max-turns', '1', '--disallowedTools', 'Bash,Edit,Write,Read,WebFetch,WebSearch'],
+        { cwd: dir, env: minimalEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: dir }), input: 'Responda apenas: OK', timeoutMs: 90_000 },
+      );
+      if (ehFalhaDeLogin(`${r.stdout}\n${r.stderr}`)) {
+        return this.finish(provider, 'erro', 'A Anthropic recusou o token gerado (401). Clique em Conectar de novo e use o link novo; se repetir, confira se a assinatura do Claude está ativa nessa conta.');
+      }
+      gravarSegredoDaConexao(ehAdicional(provider) ? provider : null, 'CLAUDE_CODE_OAUTH_TOKEN', token);
+      this.finish(provider, 'conectado', 'Claude conectado e conferido.');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   }
 
