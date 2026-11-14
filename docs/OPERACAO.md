@@ -36,7 +36,14 @@
     não entra, e a tela diz o motivo (salve como PDF ou no formato novo).
 11. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
-    No "+ Novo projeto", **Trazer de um repositório Git** baixa um projeto que você já tem. Na aba **Git**
+    Pode cadastrar o GitHub e o GitLab ao mesmo tempo (e mais de uma conta de cada). Para **criar**
+    repositórios, o token precisa dessa permissão (GitHub: "Administration" de escrita ou token clássico
+    com `repo`; GitLab: escopo `api`).
+    No "+ Novo projeto": **Do zero + repositório novo** cria o repositório na conta e no grupo escolhidos
+    e mantém atualizado; **Trazer de um repositório Git** baixa um projeto que você já tem, escolhendo da
+    lista dos seus repositórios (ou digitando o endereço).
+    Para mudar um projeto de servidor (ex.: do GitHub para o GitLab): aba **Git** → "mudar para outro
+    repositório" — cria o novo, envia todo o histórico e passa a usá-lo; o antigo fica como está. Na aba **Git**
     do projeto: **Atualizar do Git**, **Enviar para o Git** (com versão/tag opcional) e o envio
     automático depois de cada trabalho pronto. Cada trabalho vira um commit com mensagem legível.
 

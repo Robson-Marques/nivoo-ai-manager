@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, nomeUsuario } from '../api';
-import { SeletorContaGit } from './Git';
+import { CamposNovoRepo, EscolherRepo, NovoRepo, nomeRepoPadrao, SeletorContaGit } from './Git';
 
 /** Novo projeto: nome, do que se trata, modelo e qual IA vai trabalhar nele. */
 export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCriado: (id: string) => void }) {
@@ -11,7 +11,9 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
   const [ia, setIa] = useState('claude-code-cli');
   const [modelos, setModelos] = useState<any[]>([]);
   const [contas, setContas] = useState<any[]>([]);
-  const [origem, setOrigem] = useState<'zero' | 'git'>('zero');
+  const [origem, setOrigem] = useState<'zero' | 'git' | 'novo'>('zero');
+  const [novoRepo, setNovoRepo] = useState<NovoRepo>({ accountId: '', namespace: '', tipoNamespace: 'usuario', nome: '', privado: true });
+  const [digitar, setDigitar] = useState(false);
   const [repo, setRepo] = useState('');
   const [branch, setBranch] = useState('main');
   const [contaGit, setContaGit] = useState('');
@@ -36,6 +38,13 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
     try {
       const git = origem === 'git' ? { url: repo, branch, accountId: contaGit || undefined } : undefined;
       const p = await api('/projects', 'POST', { name: nome, description: sobre, base: modelo, provider: ia, author: nomeUsuario(), git });
+      if (origem === 'novo') {
+        try {
+          await api(`/projects/${p.id}/git/create`, 'POST', { ...novoRepo, nome: novoRepo.nome || nomeRepoPadrao(nome) });
+        } catch (err: any) {
+          window.alert(`O projeto foi criado, mas o repositório não: ${err.message}\nTente de novo na aba Git do projeto.`);
+        }
+      }
       onCriado(p.id);
     } catch (err: any) {
       setErro(err.message);
@@ -51,15 +60,28 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
         <label>Sobre o que é este projeto?<textarea rows={3} value={sobre} onChange={(e) => setSobre(e.target.value)} placeholder="Conte o objetivo em poucas palavras. Isso vira a primeira memória do projeto." /></label>
         <div className="campo">
           <span>Começar</span>
-          <div className="tipos">
-            <button type="button" className={origem === 'zero' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('zero')}><b>Do zero</b><span>pasta nova e vazia</span></button>
+          <div className="tipos tres">
+            <button type="button" className={origem === 'zero' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('zero')}><b>Do zero</b><span>pasta nova, só aqui</span></button>
+            <button type="button" className={origem === 'novo' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('novo')}><b>Do zero + repositório novo</b><span>cria o repositório no GitHub/GitLab e mantém atualizado</span></button>
             <button type="button" className={origem === 'git' ? 'tipo on' : 'tipo'} onClick={() => setOrigem('git')}><b>Trazer de um repositório Git</b><span>projeto que você já tem no GitHub/GitLab</span></button>
           </div>
+          {origem === 'novo' && <CamposNovoRepo contas={contasGit} valor={{ ...novoRepo, nome: novoRepo.nome || nomeRepoPadrao(nome) }} onChange={setNovoRepo} />}
           {origem === 'git' && (
             <>
-              <label>Endereço do repositório<input value={repo} onChange={(e) => setRepo(e.target.value)} required placeholder="https://git.suaempresa.com.br/grupo/projeto.git (ou git@...)" /></label>
-              <label>Branch<input value={branch} onChange={(e) => setBranch(e.target.value)} /></label>
-              <SeletorContaGit contas={contasGit} valor={contaGit} onChange={setContaGit} />
+              {contasGit.length > 0 && !digitar && (
+                <>
+                  <EscolherRepo contas={contasGit} onEscolher={(r) => { setRepo(r.url); setBranch(r.branch); setContaGit(r.accountId); if (!nome) setNome(r.nome.split('/').pop() ?? ''); }} />
+                  {repo && <span className="small">Escolhido: <b className="mono">{repo}</b> (branch {branch})</span>}
+                  <button type="button" className="link small" onClick={() => setDigitar(true)}>digitar o endereço</button>
+                </>
+              )}
+              {(contasGit.length === 0 || digitar) && (
+                <>
+                  <label>Endereço do repositório<input value={repo} onChange={(e) => setRepo(e.target.value)} required placeholder="https://git.suaempresa.com.br/grupo/projeto.git (ou git@...)" /></label>
+                  <label>Branch<input value={branch} onChange={(e) => setBranch(e.target.value)} /></label>
+                  <SeletorContaGit contas={contasGit} valor={contaGit} onChange={setContaGit} />
+                </>
+              )}
             </>
           )}
         </div>
@@ -96,7 +118,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
         {erro && <div className="error">{erro}</div>}
         <div className="row fim">
           <button type="button" className="secondary" onClick={onFechar}>Cancelar</button>
-          <button disabled={ocupado || !nome.trim() || (origem === 'git' && !repo.trim())}>{ocupado ? (origem === 'git' ? 'Baixando o repositório…' : 'Criando…') : 'Criar projeto'}</button>
+          <button disabled={ocupado || !nome.trim() || (origem === 'git' && !repo.trim()) || (origem === 'novo' && (!contasGit.length || !novoRepo.namespace))}>{ocupado ? (origem === 'git' ? 'Baixando o repositório…' : origem === 'novo' ? 'Criando o projeto e o repositório…' : 'Criando…') : 'Criar projeto'}</button>
         </div>
       </form>
     </div>

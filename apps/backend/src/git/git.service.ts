@@ -6,6 +6,7 @@ import { minimalEnv, runProcess, RunResult } from '../common/exec';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { getGitAccount, GitAccount, listGitAccounts, normalizeHost } from './git-accounts';
+import { criarRepo } from './git-hosting';
 
 const ASKPASS = `#!/bin/sh
 case "$1" in
@@ -61,10 +62,10 @@ export class GitService {
   ) {}
 
   /** Conta indicada, ou a cadastrada para o mesmo servidor do repositório (null = repositório público). */
-  accountFor(url: string, accountId?: string | null): GitAccount | null {
+  accountFor(url: string, accountId?: string | null, confiar = false): GitAccount | null {
     if (accountId) {
       const c = getGitAccount(accountId);
-      if (!url.startsWith('/') && !url.startsWith('file://') && normalizeHost(new URL(url).origin) !== c.host) {
+      if (!confiar && !url.startsWith('/') && !url.startsWith('file://') && normalizeHost(new URL(url).origin) !== c.host) {
         throw new BadRequestException(`A conta "${c.nome}" é de ${c.host}; o repositório é de ${new URL(url).origin}`);
       }
       return c;
@@ -162,17 +163,42 @@ export class GitService {
   }
 
   /** Liga um projeto (que começou do zero) a um repositório. Não envia nada até o usuário pedir. */
-  async link(projectId: string, body: any) {
+  async link(projectId: string, body: any, criadoPelaConta = false) {
     const p = await this.project(projectId);
     const url = normalizeRepoUrl(body?.url);
     const branch = checkBranch(body?.branch);
-    const conta = this.accountFor(url, body?.accountId ?? null);
+    // Repositório que a própria conta acabou de criar: o servidor pode devolver outro endereço público
+    // (external_url do GitLab), então não exige o mesmo host da conta.
+    const conta = this.accountFor(url, body?.accountId ?? null, criadoPelaConta);
     const repo = this.workspace.projectDirs(p.dirKey).repo;
     const tem = (await this.git(repo, ['remote'], null)).stdout.split('\n').includes('origin');
     await this.ok(repo, ['remote', tem ? 'set-url' : 'add', 'origin', url], null);
     await this.identidade(repo, conta);
     await this.prisma.project.update({ where: { id: projectId }, data: { gitUrl: url, gitBranch: branch, gitAccountId: conta?.id ?? null } });
     return this.status(projectId);
+  }
+
+  /**
+   * Cria um repositório novo na conta escolhida (GitHub ou GitLab), liga o projeto a ele e envia a pasta
+   * principal. Se o projeto já estava ligado a outro repositório, passa a usar o novo (mudança de servidor,
+   * ex.: do GitHub para o GitLab): todo o histórico vai junto; o repositório antigo não é alterado.
+   */
+  async createRemote(projectId: string, body: any) {
+    const p = await this.project(projectId);
+    if (!body?.accountId) throw new BadRequestException('Escolha a conta Git onde criar o repositório');
+    const conta = getGitAccount(String(body.accountId));
+    const tipoNamespace = body?.tipoNamespace === 'grupo' ? 'grupo' : 'usuario';
+    const criado = await criarRepo(conta, {
+      namespace: body?.namespace ? String(body.namespace) : undefined,
+      tipoNamespace,
+      nome: body?.nome ?? p.name,
+      privado: body?.privado !== false,
+      descricao: p.description ?? undefined,
+    });
+    await this.link(projectId, { url: criado.url, branch: 'main', accountId: conta.id }, true);
+    const envio = await this.push(projectId).catch((e) => ({ erroEnvio: e?.message ?? String(e) }));
+    if (body?.autoEnvio !== false) await this.prisma.project.update({ where: { id: projectId }, data: { gitAutoPush: true } });
+    return { criado, ...('erroEnvio' in envio ? envio : {}), ...(await this.status(projectId)) };
   }
 
   async unlink(projectId: string) {

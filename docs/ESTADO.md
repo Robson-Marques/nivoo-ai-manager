@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 15 — Git: criar repositório, escolher da lista, mudar de servidor (2026-11-14)
+
+GitHub e GitLab conectados ao mesmo tempo (várias contas). Novo projeto **"Do zero + repositório novo"**:
+escolhe a conta, o dono (você ou um grupo/organização), o nome e se é privado; o Nivoo cria o
+repositório vazio, envia o projeto e liga o envio automático. **"Trazer de um repositório Git"** mostra a
+lista dos seus repositórios (com busca) em vez de exigir o endereço. Na aba Git: projeto sem repositório
+→ "Criar repositório novo" ou "Ligar a um que já existe" (também com a lista); projeto ligado → "mudar
+para outro repositório (ex.: do GitHub para o GitLab)", com todo o histórico. Testes: suíte 95/95 (+7 de
+IA real puladas), `18-git-criar-repositorio` (servidores GitHub Enterprise e GitLab simulados por API
+local: duas contas, token errado recusado, lista, grupos, criar no grupo, nome repetido → 409, mudar
+do GitHub para o GitLab); interface pela tela com o passo 8 (conta GitLab, repositório novo num grupo,
+escolher da lista). Não testado: API real do github.com e do seu GitLab.
+
 ## Etapa 14 — modelo pronto "Software — Studio Workflow" (2026-11-14)
 
 O pacote STUDIO-WORKFLOW adaptado pelo responsável (`apps/backend/modelos-prontos/studio-workflow/`, 19

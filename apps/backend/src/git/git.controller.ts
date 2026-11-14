@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { optString, reqString } from '../common/validate';
-import { deleteGitAccount, listGitAccounts, normalizeHost, publicAccount, saveGitAccount } from './git-accounts';
+import { deleteGitAccount, getGitAccount, listGitAccounts, normalizeHost, publicAccount, saveGitAccount } from './git-accounts';
+import { listarNamespaces, listarRepos } from './git-hosting';
 import { GitService } from './git.service';
 
 /** Usuário padrão do login por token em cada tipo de servidor. */
@@ -11,6 +12,18 @@ export class GitController {
   constructor(private readonly git: GitService) {}
 
   // ---------- Contas Git ----------
+  /** Repositórios da conta (para escolher em vez de digitar o endereço). */
+  @Get('git/accounts/:id/repos')
+  repos(@Param('id', ParseUUIDPipe) id: string, @Query('busca') busca?: string) {
+    return listarRepos(getGitAccount(id), String(busca ?? '').slice(0, 100));
+  }
+
+  /** Onde a conta pode criar repositórios: o usuário e os grupos/organizações. */
+  @Get('git/accounts/:id/namespaces')
+  namespaces(@Param('id', ParseUUIDPipe) id: string) {
+    return listarNamespaces(getGitAccount(id));
+  }
+
   @Get('git/accounts')
   accounts() {
     return listGitAccounts().map(publicAccount);
@@ -69,6 +82,12 @@ export class GitController {
   @Post('projects/:pid/git/link')
   link(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
     return this.git.link(pid, body);
+  }
+
+  /** Cria um repositório novo na conta escolhida, liga o projeto a ele e envia tudo. */
+  @Post('projects/:pid/git/create')
+  createRemote(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
+    return this.git.createRemote(pid, body);
   }
 
   @Delete('projects/:pid/git')

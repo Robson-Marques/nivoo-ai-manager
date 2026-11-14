@@ -15,9 +15,12 @@
  *  6. Várias conversas: nova, arquivar, excluir; excluir o projeto
  *  7. Git: projeto trazido de um repositório (repositório local de teste; a API precisa de
  *     NIVOO_GIT_PERMITIR_LOCAL=1), aba Git com o estado, envio com tag
+ *  8. Conta GitLab (servidor simulado aqui: API /api/v4 que cria repositórios locais), projeto "do zero +
+ *     repositório novo" num grupo, e escolher um repositório da lista ao trazer um projeto
  */
 const { chromium } = require('playwright');
 const { execFileSync } = require('node:child_process');
+const http = require('node:http');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -233,6 +236,79 @@ const plano = {
     await page.getByRole('button', { name: 'Excluir este projeto' }).click();
     await page.locator('.proj', { hasText: nomeGit }).waitFor({ state: 'detached' });
     passo('projeto trazido do Git, estado na aba Git, enviado com tag');
+
+    // 8. GitLab: conta, repositório novo num grupo, escolher da lista
+    const repos = [];
+    const api = http.createServer((req, res) => {
+      let d = '';
+      req.on('data', (c) => (d += c));
+      req.on('end', () => {
+        const u = new URL(req.url, 'http://x');
+        const json = (st, b) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
+        if (req.headers['private-token'] !== 'glpat-SMOKE-123456') return json(401, {});
+        if (u.pathname === '/api/v4/user') return json(200, { username: 'eu' });
+        if (u.pathname === '/api/v4/namespaces') return json(200, [{ id: 1, full_path: 'eu', kind: 'user' }, { id: 9, full_path: 'empresa', kind: 'group' }]);
+        if (u.pathname === '/api/v4/projects' && req.method === 'POST') {
+          const b = JSON.parse(d);
+          const nome = `${b.namespace_id === 9 ? 'empresa' : 'eu'}/${b.path}`;
+          const caminho = path.join(tmp, 'gitlab', `${nome}.git`);
+          fs.mkdirSync(path.dirname(caminho), { recursive: true });
+          execFileSync('git', ['init', '-q', '--bare', '-b', 'main', caminho]);
+          repos.push({ path_with_namespace: nome, http_url_to_repo: caminho, default_branch: 'main', visibility: b.visibility });
+          return json(201, repos[repos.length - 1]);
+        }
+        if (u.pathname === '/api/v4/projects') return json(200, repos);
+        json(404, {});
+      });
+    });
+    await new Promise((ok) => api.listen(0, '127.0.0.1', ok));
+    try {
+      await page.goto(`${base}/contas`);
+      await page.getByRole('button', { name: 'GitLab (servidor próprio)' }).click();
+      await page.getByLabel('Endereço do GitLab').fill(`http://127.0.0.1:${api.address().port}`);
+      await page.getByLabel('Token de acesso').fill('glpat-SMOKE-123456');
+      await page.getByLabel('Nome para mostrar (opcional)').fill('GitLab Empresa');
+      await page.getByRole('button', { name: 'Salvar conta' }).click();
+      await page.locator('.conta-opcao b', { hasText: 'GitLab Empresa' }).waitFor();
+      await page.getByRole('button', { name: '+ Novo projeto' }).click();
+      const nomeNovo = `Painel ${stamp}`;
+      await page.getByLabel('Nome do projeto').fill(nomeNovo);
+      await page.locator('.modal .tipo', { hasText: 'Do zero + repositório novo' }).click();
+      await page.getByLabel(/^Dono/).selectOption({ label: 'empresa (grupo)' });
+      await shot(page, '12-novo-projeto-repo-novo');
+      await page.getByRole('button', { name: 'Criar projeto' }).click();
+      await page.getByRole('heading', { name: nomeNovo }).waitFor();
+      await page.getByRole('button', { name: 'Git', exact: true }).click();
+      await page.getByText(`/empresa/painel-${stamp}.git`).waitFor();
+      if (!(await page.getByLabel(/Enviar sozinho/).isChecked())) throw new Error('envio automático deveria estar ligado');
+      await shot(page, '13-git-repo-criado');
+      const remotoNovo = repos[0].http_url_to_repo;
+      if (!g(remotoNovo, 'rev-parse', 'main')) throw new Error('nada foi enviado ao repositório novo');
+      // Trazer um projeto escolhendo da lista (o que acabou de ser criado).
+      await page.getByRole('button', { name: '+ Novo projeto' }).click();
+      await page.locator('.modal .tipo', { hasText: 'Trazer de um repositório Git' }).click();
+      await page.locator('.repo-item', { hasText: `empresa/painel-${stamp}` }).click();
+      await page.getByText(`Escolhido:`).waitFor();
+      if ((await page.getByLabel('Nome do projeto').inputValue()) !== `painel-${stamp}`) throw new Error('nome não foi sugerido');
+      await shot(page, '14-escolher-repo');
+      await page.getByLabel('Nome do projeto').fill(`Cópia ${stamp}`);
+      await page.getByRole('button', { name: 'Criar projeto' }).click();
+      await page.getByRole('heading', { name: `Cópia ${stamp}` }).waitFor();
+      passo('conta GitLab, projeto com repositório novo num grupo, escolher repositório da lista');
+      for (const n of [nomeNovo, `Cópia ${stamp}`]) {
+        await page.locator('.proj', { hasText: n }).click();
+        page.once('dialog', (d) => d.accept(n));
+        await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+        await page.getByRole('button', { name: 'Excluir este projeto' }).click();
+        await page.locator('.proj', { hasText: n }).waitFor({ state: 'detached' });
+      }
+      await page.goto(`${base}/contas`);
+      page.once('dialog', (d) => d.accept());
+      await page.locator('.conta-opcao', { hasText: 'GitLab Empresa' }).getByRole('button', { name: 'Remover' }).click();
+      await page.locator('.conta-opcao b', { hasText: 'GitLab Empresa' }).waitFor({ state: 'detached' });
+    } finally {
+      api.close();
+    }
     if (erros.length) throw new Error(`erros no navegador: ${erros.join('; ')}`);
     console.log('CHAT-SMOKE OK');
   } catch (e) {

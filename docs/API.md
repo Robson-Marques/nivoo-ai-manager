@@ -76,6 +76,9 @@ Tokens ficam em `git-contas.json` (600) no servidor; nenhuma rota devolve o toke
 | GET | `/git/accounts` | Contas Git (sem token). |
 | POST | `/git/accounts` | `{ "tipo": "github" \| "gitlab", "host"? (GitLab próprio, ex.: `https://git.empresa.com.br`), "token", "nome"?, "usuario"?, "autorNome"?, "autorEmail"?, "verificar"? (padrão true: confere o token na API do servidor) }`. |
 | DELETE | `/git/accounts/:id` | Remove a conta. |
+| GET | `/git/accounts/:id/repos?busca=` | Repositórios da conta (mais recentes primeiro): `[{ nome, url, branch, privado }]`. |
+| GET | `/git/accounts/:id/namespaces` | Onde a conta pode criar repositórios: `[{ id, nome, tipo: "usuario" \| "grupo" }]` (GitHub: usuário e organizações; GitLab: usuário e grupos). |
+| POST | `/projects/:pid/git/create` | `{ "accountId", "namespace"?, "tipoNamespace"? ("usuario" \| "grupo"), "nome"? (padrão: nome do projeto), "privado"? (padrão true), "autoEnvio"? (padrão true) }` — cria o repositório vazio na conta, liga o projeto, envia tudo e liga o envio automático. Projeto já ligado: passa a usar o novo (mudar de servidor, com todo o histórico; o antigo não é alterado). Nome já usado → 409. |
 | GET | `/projects/:pid/git` | `{ ligado, url, branch, conta, autoEnvio, enviar, receber, remotoVazio, erro, commits[] }` (faz `fetch`). |
 | POST | `/projects/:pid/git/link` | `{ "url", "branch"?, "accountId"? }` — liga um projeto existente a um repositório (vazio ou com o mesmo histórico). |
 | DELETE | `/projects/:pid/git` | Desliga do repositório (nada é apagado). |
