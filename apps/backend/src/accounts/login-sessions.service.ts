@@ -1,0 +1,182 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
+import { ChildProcess, spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { minimalEnv } from '../common/exec';
+import { GeminiCliProvider } from '../providers/gemini-cli.provider';
+import { ProviderRegistry } from '../providers/provider-registry.service';
+import { setSecret } from './secrets';
+
+/**
+ * Login pela tela, usando o fluxo OFICIAL de cada CLI (nada de cookies ou credenciais de navegador):
+ *  - Claude: `claude setup-token` mostra um link; o usuário entra com a conta e cola o código na tela;
+ *    o CLI devolve o token oficial, guardado como CLAUDE_CODE_OAUTH_TOKEN.
+ *  - ChatGPT: `codex login --device-auth` mostra um link e um código para digitar no site da OpenAI.
+ *  - Gemini: o próprio CLI mostra o link do Google; o usuário cola o código; o CLI grava a credencial.
+ * Os CLIs exigem terminal: um pequeno ponte em Python abre um pseudo-terminal (pty) para eles.
+ */
+
+const PTY_BRIDGE = `
+import os, pty, sys, select, signal
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(sys.argv[1], sys.argv[1:])
+signal.signal(signal.SIGTERM, lambda *a: (os.kill(pid, signal.SIGKILL), sys.exit(143)))
+while True:
+    r, _, _ = select.select([fd, sys.stdin], [], [], 0.5)
+    if fd in r:
+        try:
+            d = os.read(fd, 4096)
+        except OSError:
+            break
+        if not d:
+            break
+        sys.stdout.buffer.write(d); sys.stdout.flush()
+    if sys.stdin in r:
+        line = sys.stdin.readline()
+        if line:
+            os.write(fd, line.rstrip('\\n').encode() + b'\\r')
+_, st = os.waitpid(pid, 0)
+sys.exit(os.waitstatus_to_exitcode(st))
+`;
+
+export type LoginState = 'iniciando' | 'aguardando_codigo' | 'aguardando_site' | 'conectado' | 'erro' | 'cancelado';
+
+export interface LoginSession {
+  provider: string;
+  state: LoginState;
+  /** Link para abrir no navegador. */
+  url?: string;
+  /** Código para digitar no site (ChatGPT). */
+  userCode?: string;
+  message: string;
+  startedAt: string;
+}
+
+const TIMEOUT_MS = 15 * 60 * 1000;
+
+function clean(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, ' ').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
+}
+
+@Injectable()
+export class LoginSessionsService implements OnModuleDestroy {
+  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; output: string; timer: NodeJS.Timeout }>();
+
+  constructor(private readonly registry: ProviderRegistry) {}
+
+  onModuleDestroy(): void {
+    for (const id of [...this.sessions.keys()]) this.cancel(id);
+  }
+
+  get(provider: string): LoginSession {
+    const s = this.sessions.get(provider);
+    if (!s) throw new NotFoundException('Nenhum login em andamento');
+    if (s.info.state !== 'conectado' && this.connected(provider)) this.finish(provider, 'conectado', 'Conectado.');
+    return s.info;
+  }
+
+  start(provider: string): LoginSession {
+    const running = this.sessions.get(provider);
+    if (running && ['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(running.info.state)) return running.info;
+    const cmd = this.command(provider);
+    const child = spawn('python3', ['-c', PTY_BRIDGE, ...cmd.args], {
+      cwd: cmd.cwd,
+      env: minimalEnv({ TERM: 'xterm', NO_BROWSER: 'true', BROWSER: '/bin/false', COLUMNS: '400', LINES: '50', ...cmd.env }),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const info: LoginSession = { provider, state: 'iniciando', message: 'Preparando o login…', startedAt: new Date().toISOString() };
+    const timer = setTimeout(() => this.finish(provider, 'erro', 'O login expirou (15 minutos). Tente de novo.'), TIMEOUT_MS);
+    const entry = { info, child, output: '', timer };
+    this.sessions.set(provider, entry);
+    const onData = (d: Buffer) => {
+      entry.output = (entry.output + clean(d.toString('utf8'))).slice(-50_000);
+      this.react(provider);
+    };
+    child.stdout!.on('data', onData);
+    child.stderr!.on('data', onData);
+    child.on('exit', (code) => {
+      if (!['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(entry.info.state)) return;
+      if (provider === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
+      if (this.connected(provider)) return this.finish(provider, 'conectado', 'Conectado.');
+      this.finish(provider, 'erro', `O login não foi concluído. ${entry.output.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
+    });
+    return info;
+  }
+
+  /** Código colado pelo usuário (Claude e Gemini). */
+  submitCode(provider: string, code: unknown): LoginSession {
+    const s = this.sessions.get(provider);
+    if (!s || s.info.state !== 'aguardando_codigo') throw new ConflictException('Este login não está esperando um código');
+    const c = String(code ?? '').trim();
+    if (!c || c.length > 2000 || /[\r\n]/.test(c)) throw new BadRequestException('Código inválido');
+    s.child.stdin!.write(`${c}\n`);
+    s.info = { ...s.info, state: 'iniciando', message: 'Conferindo o código…' };
+    return s.info;
+  }
+
+  cancel(provider: string): void {
+    const s = this.sessions.get(provider);
+    if (!s) return;
+    if (['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(s.info.state)) this.finish(provider, 'cancelado', 'Login cancelado.');
+  }
+
+  private command(provider: string): { args: string[]; cwd: string; env: Record<string, string> } {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-login-'));
+    if (provider === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: {} };
+    if (provider === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: {} };
+    if (provider === 'gemini-cli') {
+      // Força o login com conta Google (sem perguntar o método) e grava a credencial no HOME do serviço.
+      const settings = path.join(scratch, 'settings.json');
+      fs.writeFileSync(settings, JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }), { mode: 0o600 });
+      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: { GEMINI_CLI_SYSTEM_SETTINGS_PATH: settings } };
+    }
+    throw new BadRequestException('Esta IA não tem login pela tela');
+  }
+
+  private react(provider: string): void {
+    const s = this.sessions.get(provider)!;
+    const out = s.output;
+    if (provider === 'claude-code-cli') {
+      const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})/.exec(out.replace(/\s+/g, ''));
+      if (token) {
+        setSecret('CLAUDE_CODE_OAUTH_TOKEN', token[1]);
+        return this.finish(provider, 'conectado', 'Claude conectado.');
+      }
+      const url = /(https:\/\/claude\.(?:com|ai)\/[^\s'"<>\x07]*oauth\/authorize\?[^\s'"<>\x07]+)/.exec(out);
+      if (url && s.info.state === 'iniciando' && !s.info.url) {
+        s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta do Claude e cole aqui o código que aparecer.' };
+      }
+      if (/error|invalid|failed/i.test(out.slice(-400)) && s.info.url && s.info.state === 'iniciando') {
+        s.info = { ...s.info, state: 'aguardando_codigo', message: 'O código não foi aceito. Confira e cole de novo (ou recomece o login).' };
+      }
+    } else if (provider === 'codex-cli') {
+      const url = /(https:\/\/auth\.openai\.com\/\S+)/.exec(out);
+      const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4,5})\b/.exec(out);
+      if (url && code && !s.info.userCode) {
+        s.info = { ...s.info, state: 'aguardando_site', url: url[1], userCode: code[1], message: 'Abra o link, entre com a sua conta do ChatGPT e digite o código abaixo. Esta tela atualiza sozinha.' };
+      }
+    } else if (provider === 'gemini-cli') {
+      if (this.connected(provider)) return this.finish(provider, 'conectado', 'Gemini conectado.');
+      const url = /(https:\/\/accounts\.google\.com\/o\/oauth2\/\S+)/.exec(out);
+      if (url && !s.info.url) {
+        s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta Google e cole aqui o código que aparecer.' };
+      }
+    }
+  }
+
+  private connected(provider: string): boolean {
+    return provider === 'gemini-cli' && fs.existsSync(GeminiCliProvider.oauthFile());
+  }
+
+  private finish(provider: string, state: LoginState, message: string): void {
+    const s = this.sessions.get(provider);
+    if (!s) return;
+    clearTimeout(s.timer);
+    s.info = { ...s.info, state, message };
+    if (s.child.exitCode === null) s.child.kill('SIGTERM');
+    this.registry.invalidate(provider);
+  }
+}

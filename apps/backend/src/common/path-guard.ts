@@ -4,7 +4,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 /**
  * Garante que um caminho resolvido (inclusive via symlinks) permanece dentro do
- * diretório autorizado. Usado para workspaces, datasets e artefatos.
+ * diretório autorizado. Usado para workspaces, conhecimento e artefatos.
  */
 export function resolveInside(root: string, relative: string): string {
   const realRoot = fs.realpathSync(root);

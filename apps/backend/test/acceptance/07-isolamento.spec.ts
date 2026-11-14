@@ -1,5 +1,5 @@
 /**
- * Critério V1: isolamento entre projetos (dados, rotas, workspaces, artefatos, memória, caminhos).
+ * Isolamento entre projetos (rotas, workspaces, conhecimento, artefatos, memória, caminhos).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -14,7 +14,7 @@ describe('Isolamento entre projetos', () => {
   });
   afterAll(() => h.close());
 
-  it('jobs, artefatos, memória, datasets e workspaces de A não são acessíveis por B', async () => {
+  it('jobs, artefatos, memória, conhecimento e workspaces de A não são acessíveis por B', async () => {
     const a = await createProject(h, 'Projeto A');
     const b = await createProject(h, 'Projeto B');
     expect(a.workspacePath).not.toBe(b.workspacePath);
@@ -23,8 +23,8 @@ describe('Isolamento entre projetos', () => {
       await h.http().post(`/api/projects/${a.id}/jobs`).send({
         title: 'segredo A',
         objective: 'o',
-        // Registra o diretório de trabalho e de dados visto pela etapa.
-        steps: [{ key: 's', instructions: 'pwd > out/cwd.txt && echo "$NIVOO_DATA_DIR" > out/data.txt && echo "dado de A" > out/a.txt' }],
+        // Registra o diretório de trabalho visto pela etapa.
+        steps: [{ key: 's', instructions: 'pwd > out/cwd.txt && echo "dado de A" > out/a.txt' }],
         criteria: [{ key: 'c', description: 'c', kind: 'ARTIFACT_PRESENT', config: { name: 'a.txt' } }],
       }).expect(201)
     ).body;
@@ -48,14 +48,16 @@ describe('Isolamento entre projetos', () => {
     // Memória de B não pode referenciar artefato de A.
     await h.http().post(`/api/projects/${b.id}/memory`).send({
       category: 'EVIDENCIA', title: 'roubo', content: 'x',
-      references: { artifactIds: [art.id], gitCommit: 'x', parameters: {}, datasetIds: [] },
+      references: { artifactIds: [art.id], gitCommit: 'x' },
     }).expect(400);
 
-    // A etapa rodou no worktree de A e recebeu o diretório de dados de A.
+    // A etapa rodou no worktree de A.
     const cwd = fs.readFileSync(path.join(a.workspacePath, 'worktrees', jobA.id, 'out', 'cwd.txt'), 'utf8').trim();
     expect(fs.realpathSync(cwd)).toBe(fs.realpathSync(path.join(a.workspacePath, 'worktrees', jobA.id)));
-    const dataDir = fs.readFileSync(path.join(a.workspacePath, 'worktrees', jobA.id, 'out', 'data.txt'), 'utf8').trim();
-    expect(dataDir).toBe(path.join(a.workspacePath, 'data'));
+
+    // Conhecimento de A não é legível pela rota de B.
+    await h.http().post(`/api/projects/${a.id}/knowledge/import`).send({ files: [{ path: 'segredo.md', contentBase64: Buffer.from('só de A').toString('base64') }] }).expect(201);
+    await h.http().get(`/api/projects/${b.id}/knowledge/file?path=segredo.md`).expect(404);
     expect(fs.existsSync(path.join(b.workspacePath, 'worktrees', jobA.id))).toBe(false);
 
     // Artefatos armazenados em diretórios separados por projeto.
@@ -63,20 +65,20 @@ describe('Isolamento entre projetos', () => {
     expect(storedA.every((x) => x.storagePath.startsWith(a.id))).toBe(true);
   });
 
-  it('PathGuard impede datasets e critérios fora do diretório autorizado', async () => {
+  it('PathGuard impede conhecimento e critérios fora do diretório autorizado', async () => {
     const a = await createProject(h, 'Projeto C');
     const b = await createProject(h, 'Projeto D');
-    fs.writeFileSync(path.join(b.workspacePath, 'data', 'privado.csv'), 'timestamp,open,high,low,close,volume\n');
-    await h.http().post(`/api/projects/${a.id}/datasets`).send({ name: 'x', assetCode: 'WIN', uri: '../../projeto-d/data/privado.csv' }).expect(403);
-    await h.http().post(`/api/projects/${a.id}/datasets`).send({ name: 'y', assetCode: 'WIN', uri: '/etc/passwd' }).expect(403);
-    // Symlink dentro de data/ apontando para fora também é bloqueado.
-    fs.symlinkSync(path.join(b.workspacePath, 'data'), path.join(a.workspacePath, 'data', 'link'));
-    await h.http().post(`/api/projects/${a.id}/datasets`).send({ name: 'z', assetCode: 'WIN', uri: 'link/privado.csv' }).expect(403);
+    const b64 = Buffer.from('x').toString('base64');
+    await h.http().post(`/api/projects/${a.id}/knowledge/import`).send({ files: [{ path: '../../escape.md', contentBase64: b64 }] }).expect(400);
+    await h.http().get(`/api/projects/${a.id}/knowledge/file?path=${encodeURIComponent('../../../' + path.basename(b.workspacePath) + '/conhecimento/x')}`).expect(400);
+    // Link dentro do conhecimento apontando para outro projeto não é seguido.
+    fs.symlinkSync(path.join(b.workspacePath, 'conhecimento'), path.join(a.workspacePath, 'conhecimento', 'link'));
+    await h.http().get(`/api/projects/${a.id}/knowledge/file?path=link/README.md`).expect(403);
 
     const job = (await h.http().post(`/api/projects/${a.id}/jobs`).send({
       title: 'escape', objective: 'o',
       steps: [{ key: 's', instructions: 'true' }],
-      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: '../../../projeto-d/data/privado.csv' } }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: '../../../projeto-d/conhecimento/privado.md' } }],
     })).body;
     await h.http().post(`/api/projects/${a.id}/jobs/${job.id}/start`).expect(201);
     const j = await waitFor(async () => {

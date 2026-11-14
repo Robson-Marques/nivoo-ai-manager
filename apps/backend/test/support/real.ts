@@ -87,4 +87,3 @@ export function sha(s: string) {
   return createHash('sha256').update(s).digest('hex');
 }
 
-export const SINTETICO = path.join(__dirname, 'sintetico');

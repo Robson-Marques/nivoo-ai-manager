@@ -152,10 +152,7 @@ export class CompletionService {
           ...(status === 'CONCLUIDO' ? { mergeStatus: 'INCORPORADO', mergedCommit } : {}),
         },
       });
-      if (r.count && completion && status === 'CONCLUIDO') {
-        if (completion.experiment) await tx.experiment.update(completion.experiment);
-        await tx.memoryEntry.create(completion.memory);
-      }
+      if (r.count && completion && status === 'CONCLUIDO') await tx.memoryEntry.create(completion.memory);
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
@@ -180,7 +177,6 @@ export class CompletionService {
       await this.prisma.memoryEntry.create({
         data: {
           projectId: job.projectId,
-          researchId: job.researchId,
           category: 'PENDENCIA',
           title: `Resultado do job "${job.title}" não incorporado (conflito)`,
           content: `${detail}. O trabalho continua na branch job/${job.id}. Resolva os arquivos em conflito e retome o job.`,
@@ -209,8 +205,6 @@ export class CompletionService {
             env: minimalEnv({
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
-              // Verificadores do operador podem ficar no diretório de dados do projeto (fora do alcance do agente).
-              NIVOO_DATA_DIR: this.workspace.projectDirs((job as any).project.dirKey).data,
             }),
             timeoutMs: (cfg.timeoutSec ?? 300) * 1000,
           });
@@ -286,51 +280,18 @@ export class CompletionService {
     return { ...base, passed: false, evidence: { erro: 'tipo de critério desconhecido' } };
   }
 
-  /** Vincula resultados reproduzíveis ao experimento e registra evidência na memória do projeto. */
-  /** Vincula resultados reproduzíveis ao experimento e prepara a evidência para a memória do projeto. */
-  private async prepareCompletion(job: Job, worktree: string): Promise<{
-    experiment: Prisma.ExperimentUpdateArgs | null;
-    memory: Prisma.MemoryEntryCreateArgs;
-  }> {
+  /** Registra na memória do projeto a evidência do trabalho concluído (commit e artefatos). */
+  private async prepareCompletion(job: Job, worktree: string): Promise<{ memory: Prisma.MemoryEntryCreateArgs }> {
     const commit = await this.workspace.commitCheckpoint(worktree, `job ${job.id}: concluído (critérios verificados)`);
     const artifacts = await this.prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } } });
-    const exp = await this.prisma.experiment.findUnique({ where: { jobId: job.id } });
-    let metrics: unknown = null;
-    const metricsArt = artifacts.filter((a) => a.name === 'metrics.json').sort((a, b) => +b.createdAt - +a.createdAt)[0];
-    if (metricsArt) {
-      try {
-        metrics = JSON.parse((await this.artifacts.read(job.projectId, metricsArt.id)).content.toString('utf8'));
-      } catch {
-        metrics = null;
-      }
-    }
     return {
-      experiment: exp
-        ? {
-            where: { id: exp.id },
-            data: {
-              status: 'CONCLUIDO',
-              codeRef: commit,
-              metrics: (metrics ?? undefined) as Prisma.InputJsonValue | undefined,
-              metricsArtifactId: metricsArt?.id ?? null,
-            },
-          }
-        : null,
       memory: {
         data: {
           projectId: job.projectId,
-          researchId: job.researchId,
           category: 'EVIDENCIA',
-          title: `Evidência do job "${job.title}"`,
-          content: `Job concluído pelo verificador do backend. Commit ${commit}. Artefatos: ${artifacts.map((a) => `${a.name} (${a.sha256.slice(0, 12)})`).join(', ') || 'nenhum'}.`,
-          references: {
-            jobId: job.id,
-            gitCommit: commit,
-            artifactIds: artifacts.map((a) => a.id),
-            experimentIds: exp ? [exp.id] : [],
-            datasetIds: exp?.datasetId ? [exp.datasetId] : [],
-            parameters: (exp?.parameters ?? {}) as Prisma.InputJsonValue,
-          },
+          title: `Resultado do trabalho "${job.title}"`,
+          content: `Trabalho concluído e conferido pelo verificador. Commit ${commit}. Artefatos: ${artifacts.map((a) => `${a.name} (${a.sha256.slice(0, 12)})`).join(', ') || 'nenhum'}.`,
+          references: { jobId: job.id, gitCommit: commit, artifactIds: artifacts.map((a) => a.id) },
           author: 'sistema:verificador',
         },
       },

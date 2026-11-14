@@ -1,11 +1,13 @@
 /**
- * Regressões dos 10 problemas encontrados pela revisão independente de 2026-11-02 (docs/REVISAO-2026-11-02.md).
+ * Regressões dos problemas encontrados pela revisão independente de 2026-11-02 (docs/REVISAO-2026-11-02.md).
+ * (#4 e #5 tratavam de datasets e hipóteses do antigo módulo Mercado, removido em 2026-11-14.)
  * Executor: local-shell real; o stub TEST-ONLY do Claude só onde é preciso simular o provedor
  * (violação de isolamento e sessão que estoura o tempo).
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { QueueService } from '../../src/queue/queue.service';
+import { WorkspaceService } from '../../src/storage/workspace.service';
 import { ClaudeCodeCliProvider } from '../../src/providers/claude-code-cli.provider';
 import { createHarness, createProject, Harness, truncateAll, waitFor } from '../support/harness';
 
@@ -33,7 +35,7 @@ describe('Revisão independente — regressões', () => {
   });
 
   const job = async (pid: string, body: any, start = true) => {
-    const j = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'o', criteria: criterio, ...body }).expect(201)).body;
+    const j = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'o', criteria: criterio, conferencia: false, ...body }).expect(201)).body;
     if (start) await h.http().post(`/api/projects/${pid}/jobs/${j.id}/start`).expect(201);
     return j;
   };
@@ -95,53 +97,17 @@ describe('Revisão independente — regressões', () => {
     }
   });
 
-  it('#3 link simbólico em dados/ não é seguido: o arquivo fora do workspace fica intacto', async () => {
+  it('#3 link simbólico plantado em contexto/ não é seguido: o conhecimento original fica intacto', async () => {
     const p = await createProject(h, 'rev symlink');
-    const dataDir = path.join(p.workspacePath, 'data');
-    fs.writeFileSync(path.join(dataDir, 'win.csv'), 'timestamp,open,high,low,close,volume\n');
-    fs.writeFileSync(path.join(dataDir, 'alvo.txt'), 'NAO-ALTERAR');
-    const r = (await h.http().post(`/api/projects/${p.id}/researches`).send({ title: 'r', question: 'q', assetCodes: ['WIN'] }).expect(201)).body;
-    const ds = (await h.http().post(`/api/projects/${p.id}/datasets`).send({ name: 'd', assetCode: 'WIN', uri: 'win.csv' }).expect(201)).body;
-    const j = await job(p.id, {
-      title: 't', researchId: r.id, experiment: { name: 'e', datasetId: ds.id },
-      steps: [
-        { key: 'plantar', instructions: 'rm -f dados/win.csv && ln -s "$NIVOO_DATA_DIR/alvo.txt" dados/win.csv' },
-        { key: 'depois', dependsOn: ['plantar'], instructions: 'test ! -L dados/win.csv && head -1 dados/win.csv' },
-      ],
-    });
-    const d = await ate(p.id, j.id, ['CONCLUIDO', 'FALHOU', 'BLOQUEADO']);
-    expect(d.status).toBe('CONCLUIDO');
-    expect(fs.readFileSync(path.join(dataDir, 'alvo.txt'), 'utf8')).toBe('NAO-ALTERAR');
-    expect(fs.lstatSync(path.join(p.workspacePath, 'worktrees', j.id, 'dados', 'win.csv')).isSymbolicLink()).toBe(false);
-  });
-
-  it('#4 validar não aceita em silêncio um arquivo alterado; o experimento é bloqueado', async () => {
-    const p = await createProject(h, 'rev dataset');
-    const arq = path.join(p.workspacePath, 'data', 'v.csv');
-    fs.writeFileSync(arq, 'timestamp,open,high,low,close,volume\n');
-    const ds = (await h.http().post(`/api/projects/${p.id}/datasets`).send({ name: 'v', assetCode: 'WIN', uri: 'v.csv' }).expect(201)).body;
-    fs.appendFileSync(arq, '2026-01-02T09:00:00,130000,130000,130000,130000,1\n');
-    const v = (await h.http().post(`/api/projects/${p.id}/datasets/${ds.id}/validate`).expect(201)).body;
-    expect(v.integro).toBe(false);
-    expect(v.valid).toBe(false);
-    expect(v.sha256Registrado).toBe(ds.sha256);
-    expect((await h.prisma.dataset.findUniqueOrThrow({ where: { id: ds.id } })).sha256).toBe(ds.sha256);
-    const r = (await h.http().post(`/api/projects/${p.id}/researches`).send({ title: 'r', question: 'q', assetCodes: ['WIN'] }).expect(201)).body;
-    const j = await job(p.id, { title: 't', researchId: r.id, experiment: { name: 'e', datasetId: ds.id }, steps: [{ key: 's', instructions: 'true' }] });
-    const b = await ate(p.id, j.id, ['BLOQUEADO', 'CONCLUIDO']);
-    expect(b.status).toBe('BLOQUEADO');
-    expect(b.statusDetail).toMatch(/alterado/);
-  });
-
-  it('#5 hipótese já decidida não pode ser redecidida (memória sem contradição)', async () => {
-    const p = await createProject(h, 'rev hipotese');
-    const r = (await h.http().post(`/api/projects/${p.id}/researches`).send({ title: 'r', question: 'q', assetCodes: ['WIN'] }).expect(201)).body;
-    const hy = (await h.http().post(`/api/projects/${p.id}/researches/${r.id}/hypotheses`).send({ statement: 'H' }).expect(201)).body;
-    await h.http().patch(`/api/projects/${p.id}/hypotheses/${hy.id}`).send({ status: 'REJEITADA', conclusion: 'não' }).expect(200);
-    await h.http().patch(`/api/projects/${p.id}/hypotheses/${hy.id}`).send({ status: 'EM_INVESTIGACAO' }).expect(400);
-    await h.http().patch(`/api/projects/${p.id}/hypotheses/${hy.id}`).send({ status: 'REJEITADA', conclusion: 'de novo' }).expect(400);
-    const rej = (await h.http().get(`/api/projects/${p.id}/memory?category=HIPOTESE_REJEITADA`)).body;
-    expect(rej).toHaveLength(1);
+    await h.http().post(`/api/projects/${p.id}/knowledge/import`).send({ files: [{ path: 'alvo.txt', contentBase64: Buffer.from('NAO-ALTERAR').toString('base64') }] }).expect(201);
+    const conhecimento = path.join(p.workspacePath, 'conhecimento');
+    const wt = fs.mkdtempSync(path.join(p.workspacePath, 'wt-'));
+    fs.symlinkSync(conhecimento, path.join(wt, 'contexto')); // o agente trocou contexto/ por um link para o original
+    const area = (await h.prisma.project.findUniqueOrThrow({ where: { id: p.id }, include: { area: true } })).area.slug;
+    h.app.get(WorkspaceService).prepareSessionContext(area, p.dirKey, wt);
+    expect(fs.lstatSync(path.join(wt, 'contexto')).isSymbolicLink()).toBe(false);
+    fs.writeFileSync(path.join(wt, 'contexto', 'conhecimento', 'alvo.txt'), 'ALTERADO NA COPIA');
+    expect(fs.readFileSync(path.join(conhecimento, 'alvo.txt'), 'utf8')).toBe('NAO-ALTERAR');
   });
 
   it('#6 sessão que viola o isolamento tem o custo contado no orçamento (SIMULADO: stub)', async () => {

@@ -27,7 +27,8 @@ for _ in $(seq 1 60); do
   case "$S" in CONCLUIDO|BLOQUEADO|FALHOU) break ;; esac
   sleep 1
 done
-[ "$S" = CONCLUIDO ] || { curl -fsS "${H[@]}" "$A/projects/$P/jobs/$J/report"; echo; falha "job terminou em '$S' (o worker está rodando? veja: nivoo logs worker)"; }
+[ "$S" = CONCLUIDO ] || { curl -fsS "${H[@]}" "$A/projects/$P/jobs/$J/report"; echo; echo "   projeto de teste mantido para análise: $P"; falha "job terminou em '$S' (o worker está rodando? veja: nivoo logs worker)"; }
 N_ART=$(curl -fsS "${H[@]}" "$A/projects/$P/jobs/$J" | j 'o.artifacts.length + " artefatos, " + o.checkpoints.length + " checkpoint(s), critérios: " + o.criteria.map(c=>c.key+"="+c.status).join(" ")')
 echo "OK: job de verificação CONCLUIDO pelo verificador ($N_ART)"
-echo "   projeto de teste: $P (pode ser ignorado)"
+# O projeto de teste é excluído: não fica na lista de projetos do usuário.
+curl -fsS "${H[@]}" -XDELETE "$A/projects/$P" >/dev/null && echo "   (projeto de teste excluído)"

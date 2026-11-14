@@ -9,6 +9,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
+import { RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
 
 const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_THRESHOLD', 'MANUAL_APPROVAL'] as const;
@@ -39,6 +40,7 @@ export class JobsService {
     const steps: StepInput[] = raw.map((s: any) => {
       const key = reqString(s, 'key', 60);
       if (!/^[a-z0-9][a-z0-9_-]*$/i.test(key)) throw new BadRequestException(`Chave de etapa inválida: ${key}`);
+      if (key === RULE_REVIEW_STEP) throw new BadRequestException(`A etapa ${RULE_REVIEW_STEP} é criada pelo sistema`);
       const instructions = reqString(s, 'instructions', 100000);
       const verifyCommand = optString(s, 'verifyCommand', 5000);
       const provider = optString(s, 'provider', 60);
@@ -56,7 +58,6 @@ export class JobsService {
         providerOptions.maxTurns = n;
       }
       const pol = evaluatePolicy(`${instructions}\n${verifyCommand ?? ''}`);
-      if (pol.forbidden) throw new BadRequestException(`Etapa ${key} proibida pela política: ${pol.reasons.join('; ')}`);
       return {
         key,
         title: optString(s, 'title', 300) ?? key,
@@ -147,48 +148,18 @@ export class JobsService {
     const steps = this.parseSteps(body.steps ?? [], defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
-    // Critérios permanentes do projeto (regressão): entram em todo job novo, sem opção de remover.
-    const invariants = await this.prisma.projectInvariant.findMany({ where: { projectId, active: true }, orderBy: { createdAt: 'asc' } });
-    for (const inv of invariants) {
-      const key = `invariante:${inv.key}`;
-      if (criteria.some((c) => c.key === key)) continue;
-      criteria.push({ key, description: `[permanente do projeto] ${inv.description}`, kind: inv.kind, config: inv.config as Prisma.InputJsonValue });
-    }
-    const researchId = optString(body, 'researchId', 60);
-    if (researchId) {
-      const r = await this.prisma.research.findFirst({ where: { id: researchId, projectId } });
-      if (!r) throw new BadRequestException('Pesquisa não pertence a este projeto');
+    // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.
+    // (Só pode ser dispensada pela API, explicitamente — a conversa nunca dispensa.)
+    const aiProviders = [...new Set(steps.map((s) => s.provider ?? defaultProvider))].filter((id) => this.registry.get(id).kind !== 'executor');
+    if (aiProviders.length && body.conferencia !== false) {
+      const reviewer = aiProviders.includes(project.provider) ? project.provider : aiProviders[0];
+      steps.push({ ...ruleReviewStep(steps.map((s) => s.key), reviewer), requiresApproval: false, providerOptions: {} });
+      if (!criteria.some((c) => c.key === RULE_REVIEW_CRITERION.key)) criteria.push(RULE_REVIEW_CRITERION);
     }
     const limits = body.limits ?? {};
-    let experiment: Prisma.ExperimentUncheckedCreateWithoutJobInput | undefined;
-    if (body.experiment) {
-      if (!researchId) throw new BadRequestException('Experimento exige researchId');
-      const e = body.experiment;
-      const hypothesisId = optString(e, 'hypothesisId', 60);
-      const datasetId = optString(e, 'datasetId', 60);
-      if (hypothesisId && !(await this.prisma.hypothesis.findFirst({ where: { id: hypothesisId, researchId } }))) {
-        throw new BadRequestException('Hipótese não pertence à pesquisa');
-      }
-      if (datasetId) {
-        const ds = await this.prisma.dataset.findFirst({ where: { id: datasetId, projectId } });
-        if (!ds) throw new BadRequestException('Dataset não pertence a este projeto');
-        if (ds.role === 'RESERVADO' && !ds.released) {
-          throw new BadRequestException('Conjunto de validação RESERVADO: uso bloqueado até liberação aprovada');
-        }
-      }
-      experiment = {
-        projectId,
-        researchId,
-        hypothesisId,
-        datasetId,
-        name: optString(e, 'name', 300) ?? title,
-        parameters: (e.parameters ?? {}) as Prisma.InputJsonValue,
-      };
-    }
     const job = await this.prisma.job.create({
       data: {
         projectId,
-        researchId,
         title,
         defaultProvider,
         maxAttemptsPerStep: optNumber(limits, 'maxAttemptsPerStep', 1, 100),
@@ -203,7 +174,6 @@ export class JobsService {
         },
         steps: { create: steps.map((s, i) => ({ ...s, order: i })) },
         criteria: { create: criteria },
-        experiment: experiment ? { create: experiment } : undefined,
       },
     });
     await this.prisma.job.update({ where: { id: job.id }, data: { gitBranch: `job/${job.id}` } });
@@ -214,45 +184,11 @@ export class JobsService {
     return this.get(projectId, job.id);
   }
 
-  // ---------- Critérios permanentes do projeto ----------
-  listInvariants(projectId: string) {
-    return this.prisma.projectInvariant.findMany({ where: { projectId }, orderBy: { createdAt: 'asc' } });
-  }
-
-  async createInvariant(projectId: string, body: any) {
-    if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
-    const [c] = this.parseCriteria([body]);
-    if (c.kind === 'MANUAL_APPROVAL') throw new BadRequestException('Critério permanente deve ser verificável automaticamente');
-    const exists = await this.prisma.projectInvariant.findUnique({ where: { projectId_key: { projectId, key: c.key } } });
-    if (exists) throw new ConflictException(`Critério permanente ${c.key} já existe`);
-    return this.prisma.projectInvariant.create({
-      data: { projectId, key: c.key, description: c.description, kind: c.kind, config: c.config, author: optString(body, 'author', 100) ?? 'operador' },
-    });
-  }
-
-  /** Desativar não altera jobs já criados (seus critérios ficam congelados); só os próximos. */
-  async setInvariantActive(projectId: string, id: string, body: any) {
-    const inv = await this.prisma.projectInvariant.findFirst({ where: { id, projectId } });
-    if (!inv) throw new NotFoundException('Critério permanente não encontrado neste projeto');
-    if (typeof body?.active !== 'boolean') throw new BadRequestException('active deve ser true ou false');
-    return this.prisma.projectInvariant.update({ where: { id }, data: { active: body.active } });
-  }
-
-  async setProjectBudget(projectId: string, body: any) {
-    if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
-    const v = body?.maxCostUsd;
-    const maxCostUsd = v === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
-    if (maxCostUsd === undefined) throw new BadRequestException('Informe maxCostUsd (número) ou null para remover o limite');
-    const agg = await this.prisma.job.aggregate({ where: { projectId }, _sum: { costSpentUsd: true } });
-    const p = await this.prisma.project.update({ where: { id: projectId }, data: { maxCostUsd } });
-    return { ...p, custoGastoUsd: agg._sum.costSpentUsd ?? 0 };
-  }
-
   async list(projectId: string) {
     return this.prisma.job.findMany({
       where: { projectId },
       orderBy: { createdAt: 'desc' },
-      include: { steps: { select: { key: true, status: true } }, research: { select: { id: true, title: true } } },
+      include: { steps: { select: { key: true, status: true } } },
     });
   }
 
@@ -276,7 +212,6 @@ export class JobsService {
         checkpoints: { orderBy: { seq: 'asc' } },
         artifacts: { orderBy: { createdAt: 'asc' } },
         approvals: { orderBy: { requestedAt: 'asc' } },
-        experiment: true,
         project: { select: { id: true, name: true, slug: true } },
       },
     });
@@ -314,6 +249,14 @@ export class JobsService {
     this.assertAcyclic([...job.steps, ...steps]);
     const base = job.steps.length;
     await this.prisma.step.createMany({ data: steps.map((s, i) => ({ ...s, jobId, order: base + i })) });
+    // A conferência das regras continua sendo a última etapa e passa a cobrir as etapas novas.
+    const review = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
+    if (review) {
+      await this.prisma.step.update({
+        where: { id: review.id },
+        data: { dependsOn: [...review.dependsOn, ...steps.map((s) => s.key)], order: base + steps.length, status: 'PENDENTE', statusDetail: 'novas etapas: conferir de novo' },
+      });
+    }
     await this.logs.log(jobId, `Etapas adicionadas: ${steps.map((s) => s.key).join(', ')}`);
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);

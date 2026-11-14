@@ -12,21 +12,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { buildPrompt, ExecutionResult } from '../providers/provider.interface';
 import * as fs from 'node:fs';
-import { sha256, sha256File } from '../common/hash';
+import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES, evaluatePolicy } from '../security/policy';
-import { resolveInside } from '../common/path-guard';
 import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } from './context-builder';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
-
-function isDanglingLink(p: string): boolean {
-  try {
-    return fs.lstatSync(p).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
+import { ProjectProfileService } from '../projects/project-profile.service';
+import { RULE_REVIEW_STEP } from '../jobs/rule-review';
 
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
 export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
@@ -49,6 +42,7 @@ export class StepExecutorService {
     private readonly artifacts: ArtifactStoreService,
     private readonly orchestrator: OrchestratorService,
     private readonly logs: LogService,
+    private readonly profiles: ProjectProfileService,
   ) {}
 
   /**
@@ -111,11 +105,8 @@ export class StepExecutorService {
       return this.failStep(task, workerId, job, step, `limite de ${job.maxAttemptsPerStep} tentativa(s) com falha atingido`);
     }
 
-    // Política: proibições financeiras e ações destrutivas.
+    // Política: ações destrutivas só com aprovação do usuário.
     const pol = evaluatePolicy(`${step.instructions}\n${step.verifyCommand ?? ''}`);
-    if (pol.forbidden) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, pol.reasons.join('; '));
-    }
     if (step.requiresApproval || pol.requiresApproval) {
       // A aprovação vale só para o conteúdo exato que foi aprovado (hash das instruções + verificação).
       const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
@@ -132,23 +123,19 @@ export class StepExecutorService {
 
     // Workspace isolado do job (worktree na branch job/<id>).
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
-    const dataDir = this.workspace.projectDirs(job.project.dirKey).data;
+    const knowledgeDir = this.workspace.projectDirs(job.project.dirKey).knowledge;
     const outputDir = path.join(worktree, 'out');
 
     const isAi = provider.kind !== 'executor';
-    // Defesa em profundidade: o diretório de dados do projeto não pode ser alterado durante a tentativa.
-    // A impressão digital é tirada ANTES de qualquer escrita do próprio worker no workspace.
-    const protectedBefore = isAi ? this.workspace.dirFingerprint(dataDir, ['verificador.py']) : null;
-    const prep = await this.prepareExperimentData(job.id, worktree);
-    if (prep) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, prep);
-    }
+    // Defesa em profundidade: o conhecimento original do projeto (fora do workspace) não pode ser alterado
+    // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
+    const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
     if (isAi) {
       const planted = this.workspace.sanitizeHarnessFiles(worktree);
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
-      // Base de conhecimento da área, renovada a cada sessão (somente leitura para o trabalho, fora do git).
-      const base = this.workspace.copyAreaBaseInto(job.project.area.slug, worktree);
-      if (base.skipped) await L(`Base da área: ${base.skipped} arquivo(s) não copiados por exceder o limite de tamanho`, 'WARN');
+      // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
+      const ctx = this.workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
+      if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
     }
     const treeBefore = await this.workspace.snapshotHash(worktree);
 
@@ -161,11 +148,12 @@ export class StepExecutorService {
     });
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
-    const { text: context, stats: contextStats } = await this.buildContext(job, step, isAi ? worktree : undefined);
+    const profile = await this.profiles.build(job.projectId);
+    const { text: context, stats: contextStats } = await this.buildContext(job, step, profile.text, isAi ? worktree : undefined);
     // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).
     const promptArt = await this.artifacts.storeContent(
       { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `prompts/${step.key}/tentativa-${number}.md`, kind: 'PROMPT' },
-      isAi ? buildPrompt({ context, instructions: step.instructions } as any) : step.instructions,
+      isAi ? buildPrompt({ context, instructions: step.instructions }) : step.instructions,
     );
     await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats as unknown as Prisma.InputJsonValue } });
     if (contextStats.memoryOmitted || contextStats.overBudget) {
@@ -186,7 +174,7 @@ export class StepExecutorService {
         context,
         cwd: worktree,
         outputDir,
-        dataDir,
+        systemPrompt: isAi ? profile.text : undefined,
         timeoutMs,
         signal,
         options: (step.providerOptions ?? {}) as { model?: string; maxTurns?: number },
@@ -211,7 +199,7 @@ export class StepExecutorService {
     if (result.exitCode === 0 && !result.interrupted && step.verifyCommand) {
       const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', step.verifyCommand], {
         cwd: worktree,
-        env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_DATA_DIR: dataDir }),
+        env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
         timeoutMs: 120_000,
         signal,
       });
@@ -234,21 +222,21 @@ export class StepExecutorService {
     if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
 
     if (protectedBefore !== null) {
-      const protectedAfter = this.workspace.dirFingerprint(dataDir, ['verificador.py']);
+      const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
       if (protectedAfter !== protectedBefore) {
         // O custo e o tempo da sessão contam no orçamento mesmo quando ela é descartada.
         await this.prisma.$transaction([
           this.prisma.attempt.update({
             where: { id: attempt.id },
             data: {
-              status: 'FALHA', error: 'violação de isolamento: diretório de dados alterado', endedAt: new Date(),
+              status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),
               costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
             },
           }),
           this.prisma.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } }),
         ]);
-        await L('VIOLAÇÃO DE ISOLAMENTO: a sessão alterou o diretório de dados do projeto (fora do workspace). Job bloqueado.', 'ERROR', attempt.id);
-        return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (diretório de dados do projeto)');
+        await L('VIOLAÇÃO DE ISOLAMENTO: a sessão alterou o conhecimento original do projeto (fora do workspace). Job bloqueado.', 'ERROR', attempt.id);
+        return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (conhecimento do projeto)');
       }
     }
     if (isAi) {
@@ -406,7 +394,6 @@ export class StepExecutorService {
     await this.prisma.memoryEntry.create({
       data: {
         projectId: job.projectId,
-        researchId: job.researchId,
         category: 'PENDENCIA',
         title: `Lição: etapa "${step.key}" (${job.title}) — ${reason}`,
         content: `Abordagem sem sucesso. Instruções da etapa: ${step.instructions.slice(0, 400)}. Motivo: ${detail}. Tentativas: ${tried || 'nenhuma'}. Não repita esta abordagem sem mudar algo essencial.`,
@@ -416,41 +403,9 @@ export class StepExecutorService {
     }).catch(() => undefined);
   }
 
-  /** Copia o dataset do experimento para dados/ no worktree, verificando o sha256 registrado. */
-  private async prepareExperimentData(jobId: string, worktree: string): Promise<string | null> {
-    const exp = await this.prisma.experiment.findUnique({ where: { jobId }, include: { dataset: { include: { project: true } } } });
-    const ds = exp?.dataset;
-    if (!ds) return null;
-    const src = resolveInside(this.workspace.projectDirs(ds.project.dirKey).data, ds.uri);
-    if (!fs.existsSync(src)) return `arquivo do dataset ${ds.uri} não existe`;
-    const hash = await sha256File(src);
-    if (ds.sha256 && hash !== ds.sha256) return `dataset ${ds.name} alterado (sha256 ${hash.slice(0, 12)} ≠ registrado ${ds.sha256.slice(0, 12)})`;
-    // Nunca segue links: o agente pode ter trocado dados/ ou o arquivo por um link para fora do workspace.
-    const dadosDir = path.join(worktree, 'dados');
-    if (fs.existsSync(dadosDir) || isDanglingLink(dadosDir)) {
-      if (!fs.lstatSync(dadosDir).isDirectory()) fs.rmSync(dadosDir, { force: true });
-    }
-    fs.mkdirSync(dadosDir, { recursive: true });
-    const dest = path.join(dadosDir, path.basename(ds.uri));
-    let intacto = false;
-    try {
-      const st = fs.lstatSync(dest);
-      intacto = st.isFile() && (await sha256File(dest)) === hash;
-      if (!intacto) fs.rmSync(dest, { recursive: true, force: true }); // remove o link em si, não o alvo
-    } catch {
-      /* não existe */
-    }
-    if (!intacto) {
-      const tmp = path.join(dadosDir, `.${path.basename(ds.uri)}.${process.pid}.tmp`);
-      fs.copyFileSync(src, tmp);
-      fs.renameSync(tmp, dest);
-    }
-    return null;
-  }
-
   /**
    * Notas estruturadas deixadas pelo agente em .nivoo/notas.jsonl (uma por linha):
-   * {"tipo": "HIPOTESE|DECISAO_PROPOSTA|EVIDENCIA|PENDENCIA|PROGRESSO", "titulo": "...", "conteudo": "...", "arquivos": ["out/x"]}
+   * {"tipo": "DECISAO_PROPOSTA|EVIDENCIA|PENDENCIA|PROGRESSO", "titulo": "...", "conteudo": "...", "arquivos": ["out/x"]}
    * São versionadas no git do job e importadas para a memória do projeto. Decisões do agente
    * entram como PENDENCIA (proposta) — só o operador aprova decisões.
    */
@@ -476,7 +431,7 @@ export class StepExecutorService {
       } catch {
         await this.logs.log(job.id, `Nota inválida ignorada (não é JSON): ${line.slice(0, 200)}`, { stepId: step.id, level: 'WARN', source: 'worker' });
         await this.prisma.memoryEntry.create({
-          data: { projectId: job.projectId, researchId: job.researchId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
+          data: { projectId: job.projectId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
         });
         continue;
       }
@@ -484,9 +439,8 @@ export class StepExecutorService {
       const titulo = String(n.titulo ?? tipo).slice(0, 200);
       const conteudo = String(n.conteudo ?? '').slice(0, 20000);
       const refsBase = { jobId: job.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash: sha256(line.trim()) };
-      let category: 'HIPOTESE_INVESTIGACAO' | 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
+      let category: 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
       let references: Record<string, unknown> = refsBase;
-      if (tipo === 'HIPOTESE') category = 'HIPOTESE_INVESTIGACAO';
       if (tipo === 'EVIDENCIA') {
         const wanted: string[] = Array.isArray(n.arquivos) ? n.arquivos.map((a: string) => String(a).replace(/^out\//, '')) : [];
         const arts = await this.prisma.artifact.findMany({ where: { jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
@@ -497,7 +451,7 @@ export class StepExecutorService {
       }
       const prefix = tipo === 'DECISAO_PROPOSTA' ? '[decisão proposta pelo agente — requer aprovação] ' : tipo === 'PROGRESSO' ? '[progresso] ' : tipo === 'EVIDENCIA' && category !== 'EVIDENCIA' ? '[evidência sem artefato verificável] ' : '';
       await this.prisma.memoryEntry.create({
-        data: { projectId: job.projectId, researchId: job.researchId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
+        data: { projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
       });
     }
     if (count) await this.logs.log(job.id, `${count} nota(s) do agente importada(s) para a memória do projeto`, { stepId: step.id, source: 'worker' });
@@ -601,46 +555,32 @@ export class StepExecutorService {
    * Montado com orçamento (NIVOO_CONTEXT_MAX_CHARS): seções obrigatórias sempre entram; memória e
    * artefatos entram por prioridade; o restante fica íntegro em .nivoo/memoria.md (leitura sob demanda).
    */
-  async buildContext(job: Job, step: Step, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
-    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, include: { area: true } });
-    const areaInstr = await this.prisma.areaInstruction.findFirst({ where: { areaId: project.areaId }, orderBy: { version: 'desc' } });
-    const areaFiles = this.workspace.listAreaFiles(project.area.slug);
-    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts, experiment] = await Promise.all([
+  async buildContext(job: Job, step: Step, profileText: string, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
+    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts] = await Promise.all([
       this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),
       this.prisma.acceptanceCriterion.findMany({ where: { jobId: job.id } }),
       this.prisma.step.findMany({ where: { jobId: job.id }, orderBy: { order: 'asc' } }),
       this.prisma.checkpoint.findFirst({ where: { jobId: job.id }, orderBy: { seq: 'desc' } }),
       this.prisma.memoryEntry.findMany({
-        where: { projectId: job.projectId, supersededById: null, ...(job.researchId ? { OR: [{ researchId: job.researchId }, { researchId: null }] } : {}) },
+        where: { projectId: job.projectId, supersededById: null },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 5 }),
       this.prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } }, orderBy: { createdAt: 'desc' } }),
-      this.prisma.experiment.findUnique({ where: { jobId: job.id }, include: { dataset: { include: { asset: true } }, hypothesis: true } }),
     ]);
     const sessionNo = attempts.length + 1;
     const sections: ContextSection[] = [];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
-    add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras invioláveis', ...AGENT_RULES.map((r) => `- ${r}`)]);
-    // Especialização da área (instruções permanentes versionadas + base de conhecimento): o que mantém a
-    // IA "presa" ao domínio em toda sessão, sem alterar o modelo.
-    add('area', [
-      `## Área: ${project.area.name} — instruções permanentes (v${areaInstr?.version ?? 0}, sha256 ${areaInstr?.sha256 ?? '-'})`,
-      areaInstr?.text ?? '(sem instruções)',
-      '',
-      `Base de conhecimento da área (padrões que TODO projeto da área segue; leia em area/ antes de decidir; não altere): ${areaFiles.length ? areaFiles.slice(0, 300).map((f) => `area/${WorkspaceService.sessionPath(f.path)}`).join(', ') + (areaFiles.length > 300 ? ` … e mais ${areaFiles.length - 300}` : '') : 'vazia'}`,
-      'Arquivos de configuração de agentes da base (ex.: .claude/, CLAUDE.md, AGENTS.md) aparecem renomeados com "_" (ex.: area/_claude/, area/_CLAUDE.md): leia-os como instruções e padrões a seguir.',
-    ]);
+    add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
+    // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
+    add('perfil', [profileText]);
+    if (step.key === RULE_REVIEW_STEP && worktree) {
+      add('mudancas', ['## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```']);
+    }
     add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
     add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
     if (step.verifyCommand) add('verificacao', ['## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', step.verifyCommand, '```']);
-    if (experiment) {
-      const lines = ['## Experimento', `- nome: ${experiment.name}; parâmetros: ${JSON.stringify(experiment.parameters)}`];
-      if (experiment.hypothesis) lines.push(`- hipótese: ${experiment.hypothesis.statement}`, `- regra de decisão pré-registrada: ${JSON.stringify(experiment.hypothesis.decisionRule)}`);
-      if (experiment.dataset) lines.push(`- dados: dados/${path.basename(experiment.dataset.uri)} (ativo ${experiment.dataset.asset.code}, papel ${experiment.dataset.role}, sha256 ${experiment.dataset.sha256}). ${experiment.dataset.notes}`);
-      add('experimento', lines);
-    }
     const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
     if (attempts.length) {
       history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
@@ -651,7 +591,7 @@ export class StepExecutorService {
       '## Como registrar progresso (obrigatório antes de terminar a sessão)',
       'Acrescente linhas JSON (uma por linha) em `.nivoo/notas.jsonl` no diretório atual, por exemplo:',
       '{"tipo": "PROGRESSO", "titulo": "...", "conteudo": "o que foi feito e o que falta"}',
-      'Tipos: HIPOTESE, DECISAO_PROPOSTA, EVIDENCIA (com "arquivos": ["out/..."]), PENDENCIA, PROGRESSO.',
+      'Tipos: DECISAO_PROPOSTA, EVIDENCIA (com "arquivos": ["out/..."]), PENDENCIA, PROGRESSO.',
       'Nunca apague ou reescreva linhas existentes desse arquivo. A memória completa do projeto está em `.nivoo/memoria.md`.',
       '',
       `Resultados e evidências: grave em out/ (${'$'}NIVOO_OUTPUT_DIR). Você não decide se o trabalho terminou.`,

@@ -9,15 +9,24 @@ import { sha256 } from '../common/hash';
 export interface ProjectDirs {
   root: string;
   repo: string;
-  data: string;
+  knowledge: string;
   worktrees: string;
 }
 
+/** Pasta, dentro do diretório de trabalho da IA, com as cópias de leitura: base/ e conhecimento/. */
+export const SESSION_CONTEXT_DIR = 'contexto';
+
+export interface KnowledgeFile {
+  path: string;
+  size: number;
+}
+
 /**
- * Workspaces isolados por projeto:
- *   <WORKSPACES_ROOT>/<slug>/repo        repositório git (main preservada)
- *   <WORKSPACES_ROOT>/<slug>/data        datasets (fora do git)
- *   <WORKSPACES_ROOT>/<slug>/worktrees/<jobId>  worktree na branch job/<id>
+ * Pastas de um projeto (<dirKey> = areas/<base>/projetos/<projeto>):
+ *   repo/                 repositório git; a branch main é a "pasta principal" que acumula o trabalho
+ *   conhecimento/         conhecimento enviado pelo usuário (git próprio; a IA recebe cópia, nunca altera)
+ *   worktrees/<jobId>     worktree de cada job na branch job/<id>
+ * Base: <WORKSPACES_ROOT>/areas/<base>/base — padrões compartilhados pelos projetos da base (git próprio).
  */
 @Injectable()
 export class WorkspaceService {
@@ -26,14 +35,14 @@ export class WorkspaceService {
     return {
       root,
       repo: path.join(root, 'repo'),
-      data: path.join(root, 'data'),
+      knowledge: path.join(root, 'conhecimento'),
       worktrees: path.join(root, 'worktrees'),
     };
   }
 
   async ensureProject(slug: string): Promise<ProjectDirs> {
     const dirs = this.projectDirs(slug);
-    for (const d of [dirs.root, dirs.data, dirs.worktrees]) fs.mkdirSync(d, { recursive: true });
+    for (const d of [dirs.root, dirs.worktrees]) fs.mkdirSync(d, { recursive: true });
     if (!fs.existsSync(path.join(dirs.repo, '.git'))) {
       fs.mkdirSync(dirs.repo, { recursive: true });
       await this.git(dirs.repo, ['init', '-q', '-b', 'main']);
@@ -50,73 +59,87 @@ export class WorkspaceService {
     return dirs;
   }
 
-  // ---------- Áreas ----------
-  /** Pastas de uma área: <WORKSPACES_ROOT>/areas/<slug>/{base,projetos}. */
+  // ---------- Modelos (tabela Area) ----------
+  /** Pastas de um modelo: <WORKSPACES_ROOT>/areas/<slug>/{base (materiais), projetos}. */
   areaDirs(areaSlug: string): { root: string; base: string; projetos: string } {
     const root = resolveInside(appConfig().workspacesRoot, path.join('areas', areaSlug));
     return { root, base: path.join(root, 'base'), projetos: path.join(root, 'projetos') };
   }
 
-  /** Cria a base de conhecimento da área (repositório git) com os arquivos iniciais do modelo. */
-  async ensureAreaBase(areaSlug: string, initialFiles: Record<string, string> = {}): Promise<string> {
-    const d = this.areaDirs(areaSlug);
-    fs.mkdirSync(d.projetos, { recursive: true });
-    if (!fs.existsSync(path.join(d.base, '.git'))) {
-      fs.mkdirSync(d.base, { recursive: true });
-      await this.gitOk(d.base, ['init', '-q', '-b', 'main']);
-      await this.gitOk(d.base, ['config', 'user.name', 'Nivoo AI Manager']);
-      await this.gitOk(d.base, ['config', 'user.email', 'nivoo@localhost']);
+  // ---------- Pastas de conhecimento (base e projeto): repositórios git próprios ----------
+  /** Cria a pasta de conhecimento (git) com os arquivos iniciais, se ainda não existir. */
+  async ensureKnowledge(dir: string, initialFiles: Record<string, string> = {}): Promise<string> {
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+      fs.mkdirSync(dir, { recursive: true });
+      await this.gitOk(dir, ['init', '-q', '-b', 'main']);
+      await this.gitOk(dir, ['config', 'user.name', 'Nivoo AI Manager']);
+      await this.gitOk(dir, ['config', 'user.email', 'nivoo@localhost']);
       for (const [rel, content] of Object.entries(initialFiles)) {
-        const abs = resolveInside(d.base, rel);
+        const abs = resolveInside(dir, rel);
         fs.mkdirSync(path.dirname(abs), { recursive: true });
         fs.writeFileSync(abs, content);
       }
-      await this.git(d.base, ['add', '-A']);
-      await this.git(d.base, ['commit', '-q', '--allow-empty', '-m', 'base de conhecimento inicial']);
+      await this.git(dir, ['add', '-A']);
+      await this.git(dir, ['commit', '-q', '--allow-empty', '-m', 'conhecimento inicial']);
     }
-    return d.base;
+    return dir;
   }
 
-  /** Grava/remove um arquivo da base e registra no git. Devolve o commit. */
-  async writeAreaFile(areaSlug: string, rel: string, content: Buffer | null, author: string): Promise<string | null> {
-    const base = await this.ensureAreaBase(areaSlug);
-    const abs = resolveInside(base, rel);
-    if (abs === base || rel.split(/[\\/]/).includes('.git')) throw new Error('caminho inválido');
-    if (content === null) {
-      fs.rmSync(abs, { force: true });
-    } else {
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      if (fs.existsSync(abs) && fs.lstatSync(abs).isSymbolicLink()) fs.rmSync(abs);
-      fs.writeFileSync(abs, content);
-    }
-    await this.git(base, ['add', '-A']);
-    const diff = await this.git(base, ['diff', '--cached', '--quiet']);
-    if (diff.exitCode !== 0) {
-      await this.gitOk(base, ['-c', `user.name=${author.replace(/[^\w .@-]/g, '').slice(0, 60) || 'operador'}`, 'commit', '-q', '-m', `${content === null ? 'remove' : 'atualiza'} ${rel}`]);
-    }
-    return this.headCommit(base);
-  }
-
-  /** Grava vários arquivos na base da área num único commit (importação de pasta). */
-  async importAreaFiles(areaSlug: string, files: Array<{ path: string; content: Buffer }>, author: string, message: string): Promise<string | null> {
-    const base = await this.ensureAreaBase(areaSlug);
+  /** Grava (content) ou remove (null) arquivos num único commit. Devolve o commit. */
+  async writeKnowledge(dir: string, files: Array<{ path: string; content: Buffer | null }>, author: string, message: string): Promise<string | null> {
+    await this.ensureKnowledge(dir);
     for (const f of files) {
-      const abs = resolveInside(base, f.path);
-      if (abs === base || f.path.split(/[\\/]/).includes('.git')) throw new Error('caminho inválido');
+      const abs = resolveInside(dir, f.path);
+      if (abs === dir || f.path.split(/[\\/]/).includes('.git')) throw new Error('caminho inválido');
+      if (f.content === null) {
+        fs.rmSync(abs, { force: true });
+        continue;
+      }
       fs.mkdirSync(path.dirname(abs), { recursive: true });
-      if (fs.existsSync(abs) && fs.lstatSync(abs).isSymbolicLink()) fs.rmSync(abs);
+      if (this.isLink(abs)) fs.rmSync(abs);
       fs.writeFileSync(abs, f.content);
     }
-    await this.git(base, ['add', '-A']);
-    const diff = await this.git(base, ['diff', '--cached', '--quiet']);
+    await this.git(dir, ['add', '-A']);
+    const diff = await this.git(dir, ['diff', '--cached', '--quiet']);
     if (diff.exitCode !== 0) {
-      await this.gitOk(base, ['-c', `user.name=${author.replace(/[^\w .@-]/g, '').slice(0, 60) || 'operador'}`, 'commit', '-q', '-m', message.slice(0, 200)]);
+      await this.gitOk(dir, ['-c', `user.name=${author.replace(/[^\w .@-]/g, '').slice(0, 60) || 'operador'}`, 'commit', '-q', '-m', message.slice(0, 200)]);
     }
-    return this.headCommit(base);
+    return this.headCommit(dir);
+  }
+
+  listKnowledge(dir: string): KnowledgeFile[] {
+    const out: KnowledgeFile[] = [];
+    const walk = (d: string) => {
+      if (!fs.existsSync(d)) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name === '.git') continue;
+        const p = path.join(d, e.name);
+        if (e.isSymbolicLink()) continue;
+        if (e.isDirectory()) walk(p);
+        else if (e.isFile()) out.push({ path: path.relative(dir, p).split(path.sep).join('/'), size: fs.statSync(p).size });
+      }
+    };
+    walk(dir);
+    return out.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  readKnowledge(dir: string, rel: string): Buffer | null {
+    const abs = resolveInside(dir, rel);
+    if (!fs.existsSync(abs) || !fs.lstatSync(abs).isFile()) return null;
+    return fs.readFileSync(abs);
+  }
+
+  async knowledgeHistory(dir: string, limit = 30): Promise<Array<{ commit: string; date: string; author: string; message: string }>> {
+    if (!fs.existsSync(path.join(dir, '.git'))) return [];
+    const r = await this.git(dir, ['log', `-${limit}`, '--format=%H%x09%cI%x09%an%x09%s']);
+    return r.stdout.split('\n').filter(Boolean).map((l) => {
+      const [commit, date, author, message] = l.split('\t');
+      return { commit, date, author, message };
+    });
   }
 
   /**
-   * Nome com que um caminho da base aparece na sessão de IA: arquivos de configuração de harness
+   * Nome com que um caminho de conhecimento aparece na sessão de IA: arquivos de configuração de harness
    * (.claude/, CLAUDE.md, AGENTS.md...) viram "_claude/", "_CLAUDE.md"... — continuam legíveis como
    * referência, mas nenhum executor os carrega como configuração (hooks, permissões).
    */
@@ -127,63 +150,51 @@ export class WorkspaceService {
       .join('/');
   }
 
-  listAreaFiles(areaSlug: string): Array<{ path: string; size: number }> {
-    const base = this.areaDirs(areaSlug).base;
-    const out: Array<{ path: string; size: number }> = [];
-    const walk = (d: string) => {
-      if (!fs.existsSync(d)) return;
-      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-        if (e.name === '.git') continue;
-        const p = path.join(d, e.name);
-        if (e.isSymbolicLink()) continue;
-        if (e.isDirectory()) walk(p);
-        else if (e.isFile()) out.push({ path: path.relative(base, p).split(path.sep).join('/'), size: fs.statSync(p).size });
-      }
-    };
-    walk(base);
-    return out.sort((a, b) => a.path.localeCompare(b.path));
-  }
-
-  readAreaFile(areaSlug: string, rel: string): Buffer | null {
-    const base = this.areaDirs(areaSlug).base;
-    const abs = resolveInside(base, rel);
-    if (!fs.existsSync(abs) || !fs.lstatSync(abs).isFile()) return null;
-    return fs.readFileSync(abs);
-  }
-
-  async areaHistory(areaSlug: string, limit = 30): Promise<Array<{ commit: string; date: string; author: string; message: string }>> {
-    const base = this.areaDirs(areaSlug).base;
-    if (!fs.existsSync(path.join(base, '.git'))) return [];
-    const r = await this.git(base, ['log', `-${limit}`, '--format=%H%x09%cI%x09%an%x09%s']);
-    return r.stdout.split('\n').filter(Boolean).map((l) => {
-      const [commit, date, author, message] = l.split('\t');
-      return { commit, date, author, message };
-    });
-  }
-
   /**
-   * Copia a base de conhecimento da área para area/ no worktree (somente leitura para o trabalho:
-   * fora do git, renovada a cada sessão). Nunca segue links. Limite total de tamanho.
+   * Copia uma pasta de conhecimento para <destino> (ex.: area/ ou conhecimento/ no worktree): somente
+   * leitura para o trabalho, fora do git do projeto, renovada a cada sessão. Nunca segue links.
    */
-  copyAreaBaseInto(areaSlug: string, worktree: string, maxBytes = 50 * 1024 * 1024): { files: number; bytes: number; skipped: number } {
-    const dest = path.join(worktree, 'area');
+  copyKnowledgeInto(dir: string, dest: string, maxBytes = 50 * 1024 * 1024): { files: number; bytes: number; skipped: number } {
     if (fs.existsSync(dest) || this.isLink(dest)) fs.rmSync(dest, { recursive: true, force: true });
     fs.mkdirSync(dest, { recursive: true });
     let bytes = 0;
     let files = 0;
     let skipped = 0;
-    for (const f of this.listAreaFiles(areaSlug)) {
+    for (const f of this.listKnowledge(dir)) {
       if (bytes + f.size > maxBytes) {
         skipped++;
         continue;
       }
       const target = path.join(dest, WorkspaceService.sessionPath(f.path));
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(path.join(this.areaDirs(areaSlug).base, f.path), target);
+      fs.copyFileSync(path.join(dir, f.path), target);
       bytes += f.size;
       files++;
     }
     return { files, bytes, skipped };
+  }
+
+  /**
+   * Prepara contexto/ no diretório de trabalho da IA: contexto/base (padrões da base) e
+   * contexto/conhecimento (conhecimento do projeto). Devolve quantos arquivos ficaram de fora pelo limite.
+   */
+  prepareSessionContext(areaSlug: string, projectDirKey: string, workdir: string): { skipped: number } {
+    const root = path.join(workdir, SESSION_CONTEXT_DIR);
+    if (fs.existsSync(root) || this.isLink(root)) fs.rmSync(root, { recursive: true, force: true });
+    const a = this.copyKnowledgeInto(this.areaDirs(areaSlug).base, path.join(root, 'base'));
+    const b = this.copyKnowledgeInto(this.projectDirs(projectDirKey).knowledge, path.join(root, 'conhecimento'));
+    return { skipped: a.skipped + b.skipped };
+  }
+
+  /** Mudanças do worktree em relação ao ponto onde saiu da pasta principal (para a conferência das regras). */
+  async diffAgainstMain(worktree: string, maxChars = 60_000): Promise<string> {
+    const base = (await this.git(worktree, ['merge-base', 'main', 'HEAD'])).stdout.trim();
+    if (!base) return '(sem referência da pasta principal)';
+    await this.git(worktree, ['add', '-A', '--intent-to-add']); // arquivos novos aparecem no diff
+    const stat = (await this.git(worktree, ['diff', '--stat', base])).stdout;
+    const diff = (await this.git(worktree, ['diff', base])).stdout;
+    const full = `${stat}\n${diff}`;
+    return full.length > maxChars ? `${full.slice(0, maxChars)}\n… (cortado; leia os arquivos alterados diretamente)` : full || '(nenhuma mudança)';
   }
 
   private isLink(p: string): boolean {
@@ -208,13 +219,12 @@ export class WorkspaceService {
       else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, 'main']);
     }
     fs.mkdirSync(path.join(wt, 'out'), { recursive: true });
-    // Cópias de datasets ficam fora do git (dados versionados por sha256 no registro do dataset).
     const exclude = path.join(dirs.repo, '.git', 'info', 'exclude');
     fs.mkdirSync(path.dirname(exclude), { recursive: true });
     const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
-    // dados/ e area/: cópias de leitura (datasets, base de conhecimento da área); .nivoo/: notas e memória
+    // contexto/: cópias de leitura (padrões da base e conhecimento do projeto); .nivoo/: notas e memória
     // (já gravadas no banco). Nada disso entra no git, para não conflitar ao integrar jobs na pasta principal.
-    const missing = ['dados/', 'area/', '.nivoo/'].filter((l) => !current.split('\n').includes(l));
+    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/'].filter((l) => !current.split('\n').includes(l));
     if (missing.length) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}${missing.join('\n')}\n`);
     return wt;
   }

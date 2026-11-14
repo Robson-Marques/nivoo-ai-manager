@@ -16,7 +16,7 @@ import {
 @Injectable()
 export class CodexCliProvider implements AiProvider {
   readonly id = 'codex-cli';
-  readonly label = 'OpenAI Codex CLI';
+  readonly label = 'ChatGPT (Codex)';
   readonly kind = 'cli' as const;
   private readonly bin = process.env.NIVOO_CODEX_BIN ?? 'codex';
   private readonly passKeys = ['CODEX_HOME'];
@@ -45,7 +45,7 @@ export class CodexCliProvider implements AiProvider {
     base.version = v.stdout.trim();
     const s = await runProcess(this.bin, ['login', 'status'], { cwd: process.cwd(), env, timeoutMs: 15000 });
     base.authenticated = s.exitCode === 0;
-    if (!base.authenticated) base.errors.push('CLI instalado mas sem login no host do worker (execute `codex login`)');
+    if (!base.authenticated) base.errors.push('não conectado (conecte em Contas de IA)');
     base.available = base.authenticated === true;
     return base;
   }
@@ -59,7 +59,7 @@ export class CodexCliProvider implements AiProvider {
     req.onLog(`codex ${args.join(' ')}`);
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: minimalEnv({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_DATA_DIR: req.dataDir, NIVOO_JOB_ID: req.jobId }, this.passKeys),
+      env: minimalEnv({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }, this.passKeys),
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,

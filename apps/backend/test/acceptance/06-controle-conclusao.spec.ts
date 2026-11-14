@@ -181,16 +181,7 @@ describe('Controle de conclusão', () => {
     expect(done.attempts).toHaveLength(1);
   });
 
-  it('ação destrutiva exige aprovação; operação financeira real é proibida', async () => {
-    await h.http().post(`/api/projects/${pid}/jobs`).send({
-      title: 'fin', objective: 'o',
-      steps: [{ key: 'a', instructions: 'python3 -c "import MetaTrader5 as mt5; mt5.order_send(req)"' }],
-    }).expect(400);
-    await h.http().post(`/api/projects/${pid}/jobs`).send({
-      title: 'fin2', objective: 'o',
-      steps: [{ key: 'a', instructions: 'executar ordem real de compra de WIN' }],
-    }).expect(400);
-
+  it('ação destrutiva exige aprovação do usuário antes de executar', async () => {
     const j = await runJob({
       title: 'destrutivo',
       steps: [{ key: 'limpar', instructions: 'mkdir -p tmp/x && rm -rf tmp/x && echo limpo > out/limpo.txt' }],
@@ -209,15 +200,14 @@ describe('Controle de conclusão', () => {
     expect(done.attempts).toHaveLength(1);
   });
 
-  it('memória: EVIDENCIA/RESULTADO_VALIDADO exigem referências reproduzíveis', async () => {
-    const r = await h.http().post(`/api/projects/${pid}/memory`).send({ category: 'RESULTADO_VALIDADO', title: 't', content: 'funciona' }).expect(400);
-    expect(r.body.message).toMatch(/referências reproduzíveis/);
-    await h.http().post(`/api/projects/${pid}/memory`).send({ category: 'DECISAO_APROVADA', title: 'usar 1min', content: 'timeframe 1min', author: 'Robson' }).expect(201);
+  it('memória: EVIDENCIA exige referências verificáveis', async () => {
+    const r = await h.http().post(`/api/projects/${pid}/memory`).send({ category: 'EVIDENCIA', title: 't', content: 'funciona' }).expect(400);
+    expect(r.body.message).toMatch(/referências verificáveis/);
+    await h.http().post(`/api/projects/${pid}/memory`).send({ category: 'DECISAO_APROVADA', title: 'usar PostgreSQL', content: 'banco de dados PostgreSQL', author: 'Robson' }).expect(201);
     const art = await h.prisma.artifact.findFirstOrThrow({ where: { projectId: pid, kind: 'METRICS' } });
-    const ds = await h.http().post(`/api/projects/${pid}/datasets`).send({ name: 'd', assetCode: 'WIN', uri: 'x.csv' });
     await h.http().post(`/api/projects/${pid}/memory`).send({
       category: 'EVIDENCIA', title: 'ok', content: 'c',
-      references: { artifactIds: [art.id], datasetIds: [ds.body.id], gitCommit: 'abc', parameters: { a: 1 } },
+      references: { artifactIds: [art.id], gitCommit: 'abc' },
     }).expect(201);
     const first = (await h.http().post(`/api/projects/${pid}/memory`).send({ category: 'PENDENCIA', title: 'p', content: 'v1' })).body;
     const v2 = (await h.http().post(`/api/projects/${pid}/memory/${first.id}/supersede`).send({ content: 'v2' }).expect(201)).body;

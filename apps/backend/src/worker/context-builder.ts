@@ -40,11 +40,8 @@ const CATEGORY_PRIORITY: Record<string, number> = {
   ARQUITETURA_RESTRICOES: 2,
   ESPECIFICACAO: 3,
   LICAO: 4, // lições automáticas de falhas (PENDENCIA com origem licao-automatica)
-  HIPOTESE_REJEITADA: 5,
-  RESULTADO_VALIDADO: 6,
-  HIPOTESE_INVESTIGACAO: 7,
-  EVIDENCIA: 8,
-  PENDENCIA: 9,
+  EVIDENCIA: 5,
+  PENDENCIA: 6,
 };
 
 export function isLesson(m: Pick<MemoryItem, 'references'>): boolean {

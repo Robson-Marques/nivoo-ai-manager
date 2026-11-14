@@ -1,16 +1,27 @@
-# Nivoo AI Manager — Mercado V1
+# Nivoo AI Manager
 
-Gerenciador de projetos de pesquisa quantitativa e desenvolvimento de algoritmos de trading
-(ambiente **Mercado**: WIN e WDO), usando Claude Code e OpenAI Codex como executores.
+Sistema simples, com o **chat** como tela principal, para trabalhar com IA em projetos de qualquer
+assunto (software, atendimento, conteúdo, imagem, vídeo...). A IA do projeto (Claude, ChatGPT/Codex ou
+Gemini) conversa, propõe um plano, executa só depois do seu "Fazer", é conferida por uma segunda IA
+independente e o resultado fica guardado na pasta do projeto.
 
-Não é um chatbot: é um gerenciador de **projetos, conhecimento, evidências e execuções duráveis**.
-Resolve perda de continuidade, fragmentação de trabalhos longos, saturação de contexto,
-encerramento prematuro de pesquisas e ausência de validação integral.
+O que o Nivoo resolve: a IA esquecer o combinado, sair do escopo, inventar, dar trabalho por concluído
+sem estar e perder continuidade entre um pedido e outro.
+
+* **Modelos**: o jeito de trabalhar de um tipo de projeto (ex.: "Sistemas ERP / SaaS"). Texto livre
+  "Como a IA deve funcionar" (usado exatamente como você escreveu) + materiais de referência.
+* **Fine-tune do projeto** (não é fine-tuning do modelo de IA): regras do modelo + regras do projeto +
+  conhecimento do projeto + memória automática da conversa + a IA escolhida. Vai em toda sessão de IA.
+* **A trava**: todo trabalho feito por IA termina com uma conferência das regras feita por outra sessão
+  de IA; o trabalho só fica pronto se ela disser "conforme" e o backend conferir.
+* **Contas de IA**: conecte Claude, ChatGPT e Gemini pelo navegador, com o login oficial de cada uma.
+
+> Histórico: até 2026-11-13 o produto era o "Mercado V1" (pesquisa quantitativa para WIN/WDO). Esse
+> módulo foi removido por completo em 2026-11-14 (ver `docs/DECISOES.md`, ADR-041).
 
 ## Comece aqui
 
-**[`docs/README.md`](docs/README.md)** é o índice da documentação, com a ordem de leitura para cada
-papel (conhecer o projeto, operar o servidor, desenvolver). Atalhos:
+**[`docs/README.md`](docs/README.md)** é o índice da documentação. Atalhos:
 
 | Preciso de… | Leia |
 |---|---|
@@ -21,126 +32,101 @@ papel (conhecer o projeto, operar o servidor, desenvolver). Atalhos:
 | mexer no código | [`docs/GUIA-DESENVOLVEDOR.md`](docs/GUIA-DESENVOLVEDOR.md) e [`docs/API.md`](docs/API.md) |
 | saber por que algo foi feito assim | [`docs/DECISOES.md`](docs/DECISOES.md) |
 
-> Todo o código e a documentação estão na `main`, versionados. Histórico de decisões em `docs/DECISOES.md`.
-
-> **Nenhuma operação financeira real é permitida nesta versão.** Não há estratégias de trading
-> implementadas nem conexão com corretoras.
-
 ## Componentes
 
 | Componente | Caminho | Função |
 |---|---|---|
 | API | `apps/backend/src/main.ts` | NestJS + Prisma; REST + SSE em `/api`; serve a interface compilada |
-| Worker | `apps/backend/src/worker.ts` | Processo independente que consome a fila persistente e executa os conectores |
-| Interface | `apps/web` | React + TypeScript (Vite): **chat** como tela inicial (projetos, conversa, plano para aprovar, memória e arquivos), **Modelos** (regras + pasta de padrões) e, no modo avançado, Painel Mercado, Projetos e pesquisas, Execução, Conectores |
+| Worker | `apps/backend/src/worker.ts` | Processo independente que consome a fila persistente: respostas do chat e trabalhos |
+| Interface | `apps/web` | React + TypeScript (Vite): projetos na lateral, chat, Modelos, Contas de IA |
 | Banco | PostgreSQL 16 | Fonte da verdade, inclusive da fila |
 
 ## Instalação
 
 **Servidor Debian (produção, como root): siga [`docs/INSTALACAO-DEBIAN.md`](docs/INSTALACAO-DEBIAN.md)** —
-um comando (`deploy/install-debian.sh`) instala tudo e cria os serviços; depois use o comando `nivoo`.
+um comando (`deploy/install-debian.sh`) instala tudo (inclusive Claude Code, Codex, Gemini CLI e
+`poppler-utils`) e cria os serviços; depois conecte as IAs na tela **Contas de IA**.
 
-Instalação manual (desenvolvimento):
-
-Pré-requisitos: Node.js 22+, PostgreSQL 14+ (testado em 16), git e bash no host do worker.
+Instalação manual (desenvolvimento). Pré-requisitos: Node.js 22+, PostgreSQL 14+ (testado em 16), git,
+python3 e, para ler PDF, `pdftotext` (pacote `poppler-utils`).
 
 ```bash
 git clone <repo> nivoo-ai-manager && cd nivoo-ai-manager
 npm ci
-
-# Banco
-createdb nivoo                     # ou: psql -c 'CREATE DATABASE nivoo'
+createdb nivoo
 cp .env.example apps/backend/.env  # ajuste DATABASE_URL e diretórios
 npm run db:migrate                 # prisma migrate deploy
-
-# Build (backend + interface)
 npm run build
-npm run db:seed                    # cadastra WIN e WDO (também ocorre ao subir a API)
+npm run db:seed                    # cria o modelo padrão "Geral" (também ocorre ao subir a API)
 ```
 
 ## Operação
 
-Em três terminais (ou como serviços systemd/pm2):
-
 ```bash
 npm run dev:api      # API + interface em http://localhost:3000
-npm run dev:worker   # worker (pode haver vários, em hosts diferentes que compartilhem o banco e os diretórios)
-npm run dev:web      # opcional: interface em modo desenvolvimento (http://localhost:5173, proxy para a API)
+npm run dev:worker   # worker (pode haver vários, compartilhando banco e diretórios)
+npm run dev:web      # opcional: interface com recarga em http://localhost:5173
 ```
 
-* **A execução não depende do navegador nem da API**: o worker lê a fila no PostgreSQL. Feche o
-  navegador ou pare a API; o job continua. Ao reabrir, o estado completo está no banco.
-* **Reinício do worker**: tarefas em andamento têm *lease* (padrão 30 s, `NIVOO_LEASE_MS`). Se o
-  worker morrer, outro (ou o mesmo reiniciado) reivindica a tarefa após o lease expirar, encerra
-  o processo órfão do agente (mesmo host), marca a tentativa como `INTERROMPIDA` e reexecuta a
-  etapa a partir do último checkpoint.
-* **Interromper/retomar**: botões na tela de Execução ou `POST /api/projects/:pid/jobs/:jid/interrupt|resume`.
+* **A execução não depende do navegador nem da API**: o worker lê a fila no PostgreSQL.
+* **Reinício do worker**: tarefas têm *lease* (30 s, `NIVOO_LEASE_MS`). Se o worker morrer, outro (ou o
+  mesmo reiniciado) retoma a etapa do último checkpoint.
+* **A IA nunca conclui nada sozinha**: etapa só termina com a verificação passando; trabalho só fica
+  pronto pelo verificador do backend, com evidência de cada critério (inclusive a conferência das regras).
 
-### Conectores
+### IAs que trabalham nos projetos
 
-| Conector | Como habilitar |
+| Conector | Como conectar |
 |---|---|
+| `claude-code-cli` (Claude) | tela **Contas de IA** (login oficial `claude setup-token`) ou chave `ANTHROPIC_API_KEY` |
+| `codex-cli` (ChatGPT) | tela **Contas de IA** (login oficial `codex login --device-auth`) ou chave de API OpenAI |
+| `gemini-cli` (Gemini) | tela **Contas de IA** (login oficial com conta Google) ou chave `GEMINI_API_KEY` |
 | `local-shell` | sempre disponível (executor de comandos, **não é IA**) |
-| `claude-code-cli` | instalar Claude Code no host do worker e fazer login oficial (`claude`), ou `CLAUDE_CODE_OAUTH_TOKEN` gerado por `claude setup-token` |
-| `codex-cli` | instalar Codex CLI no host do worker e `codex login` |
-| `anthropic-api` | `ANTHROPIC_API_KEY` no `.env` do host (opcional) |
-| `openai-api` | `OPENAI_API_KEY` no `.env` do host (opcional) |
 
-O sistema **não** captura cookies, não extrai credenciais de sessões e não contorna limites. Se um
-conector estiver indisponível ou atingir limite de uso, a etapa vai para `AGUARDANDO_RECURSO` e é
-reagendada com espera crescente. A tela **Conectores e configurações** mostra o status visto
-pela API e por cada worker online.
+O sistema **não** captura cookies, não extrai credenciais de navegador e não contorna limites. Se uma
+IA estiver indisponível ou no limite de uso, o trabalho fica "aguardando recurso" e é reagendado.
 
 ### Segurança
 
-* Workspaces isolados por projeto em `NIVOO_WORKSPACES_ROOT/<projeto>` (repositório git com `main`
-  preservada; cada job trabalha em `job/<id>` via *worktree*).
-* Artefatos endereçados por sha256 em `NIVOO_ARTIFACTS_ROOT/<projectId>/`.
-* Processos dos agentes recebem ambiente mínimo (sem `DATABASE_URL` nem chaves de API).
-* Ações destrutivas (`rm -r`, `git push --force`, `reset --hard`, `DROP`…) exigem aprovação explícita;
-  termos de operação financeira real são bloqueados.
+* Cada projeto tem pasta própria (`NIVOO_WORKSPACES_ROOT/areas/<modelo>/projetos/<projeto>`): repositório
+  git com a pasta principal (`main`), conhecimento do projeto e um *worktree* por trabalho.
+* Processos das IAs recebem ambiente mínimo (sem `DATABASE_URL`); arquivos de configuração de agentes
+  (`.claude/`, `CLAUDE.md`, `AGENTS.md`, `.gemini/`...) nunca são carregados como configuração.
+* Credenciais conectadas pela tela ficam num arquivo com permissão 600 no servidor, nunca no git nem no banco.
+* Ações destrutivas (`rm -r`, `git push --force`, `reset --hard`, `DROP`…) exigem aprovação explícita.
 * `NIVOO_API_TOKEN` (opcional) protege a API com token Bearer.
-* Para isolamento em nível de sistema operacional, execute o worker com um usuário dedicado sem
-  acesso a outros diretórios (ou em contêiner) — ver `docs/OPERACAO.md`.
 
 ## Testes
 
-Testes de aceitação rodam contra PostgreSQL real, com processos reais de API e worker quando
-necessário. Banco de testes padrão: `postgresql://postgres:postgres@localhost:5432/nivoo_test`
-(altere com `DATABASE_URL_TEST`; as migrações são aplicadas automaticamente).
+Banco de testes padrão: `postgresql://postgres:postgres@localhost:5432/nivoo_test` (altere com
+`DATABASE_URL_TEST`; as migrações são aplicadas automaticamente).
 
 ```bash
 createdb nivoo_test
-npm test                                   # build + todos os testes (unitários e de aceitação)
-node apps/web/e2e/ui-smoke.cjs             # fumaça da interface avançada (requer API+worker rodando e Playwright)
-node apps/web/e2e/chat-smoke.cjs           # fumaça do chat e dos modelos (IA simulada pelo stub; instruções no arquivo)
-# Provas com executores REAIS (opt-in, no host autorizado do worker) — ver docs/PROCEDIMENTO-CLI.md
-cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1235]  # Claude Code CLI
-cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04     # Codex CLI
+npm test                                   # build + unitários e aceitação (sem IA)
+node apps/web/e2e/chat-smoke.cjs           # fumaça da interface pelo navegador (IA simulada; instruções no arquivo)
+# Provas com IA REAL (opt-in) — ver docs/PROCEDIMENTO-CLI.md
+cd apps/backend && NIVOO_RUN_CLI_INTEGRATION=1 npx jest test/integration/real-0[1256]  # Claude Code
+cd apps/backend && NIVOO_RUN_CODEX_INTEGRATION=1 npx jest test/integration/real-04     # Codex
 ```
 
-| Critério de aceitação V1 | Teste |
+| Assunto | Teste |
 |---|---|
-| Criação de projeto e pesquisa | `test/acceptance/01-projeto-pesquisa.spec.ts` |
-| Persistência do objetivo e das etapas | `test/acceptance/02-objetivo-etapas.spec.ts` |
-| Execução de uma tarefa por conector disponível | `test/acceptance/03-execucao-conector.spec.ts` |
-| Registro de logs e artefatos | `test/acceptance/03-execucao-conector.spec.ts` |
-| Interrupção e retomada sem perda do estado | `test/acceptance/04-interrupcao-retomada.spec.ts` |
+| Objetivo e etapas persistidos | `test/acceptance/02-objetivo-etapas.spec.ts` |
+| Execução por conector, logs e artefatos | `test/acceptance/03-execucao-conector.spec.ts` |
+| Interrupção e retomada | `test/acceptance/04-interrupcao-retomada.spec.ts` |
 | Recuperação após reinício do worker | `test/acceptance/05-reinicio-worker.spec.ts` |
-| Bloqueio de conclusão sem evidências exigidas | `test/acceptance/06-controle-conclusao.spec.ts` |
+| Bloqueio de conclusão sem evidências | `test/acceptance/06-controle-conclusao.spec.ts` |
 | Isolamento entre projetos | `test/acceptance/07-isolamento.spec.ts` |
 | Funcionamento com navegador fechado | `test/acceptance/08-navegador-fechado.spec.ts` |
-| Documentação de instalação e operação | este README + `docs/` (índice em `docs/README.md`) |
+| Limite do provedor e sessões sem progresso (stub) | `test/acceptance/09-sessoes-simuladas.spec.ts` |
+| Harness, orçamento de contexto, lições, orçamento, aprovação por hash | `test/acceptance/11-ideias-ecc.spec.ts` |
+| Regressões da revisão independente | `test/acceptance/12-revisao-independente.spec.ts` |
+| Modelos, fine-tune do projeto, trava, conversa, contas | `test/acceptance/13-modelos-projetos-conversa.spec.ts` |
 
-Testes adicionais: `09-sessoes-simuladas` (limite do provedor e sessões sem progresso, com stub),
-`10-ciclo-cientifico-deterministico` (dados sintéticos, regra pré-registrada, sem IA),
-`11-ideias-ecc` (limpeza de harness, orçamento de contexto, lições, critérios permanentes, orçamento do
-projeto, aprovação por hash), `unit/context-builder`.
+Provas com IA real: `real-01` (classificação de término e isolamento), `real-02` (continuidade entre
+sessões e queda de worker), `real-04` (Codex), `real-05` (hooks e `CLAUDE.md` plantados não têm efeito),
+`real-06` (modelo com materiais + conversa + trabalho + trava com Claude). Evidências em `docs/evidencias/`.
 
-Provas com executores reais (Claude Code CLI): `test/integration/real-01` (classificação de término
-e isolamento), `real-02` (continuidade entre sessões e queda de worker), `real-03` (ciclo científico com
-dados sintéticos), `real-05` (hooks e `CLAUDE.md` plantados não têm efeito). Evidências em `docs/evidencias/`. Estado e bloqueios: `docs/ESTADO.md`.
-
-Mocks: somente os binários `test/support/stubs/*.sh`, marcados **TEST-ONLY**, usados em
-`test/unit/cli-adapters.spec.ts` e `test/acceptance/09-sessoes-simuladas.spec.ts` (caminhos de limite do provedor e sessões sem progresso). Eles não são
-apresentados como integração funcional.
+Mocks: somente os binários `test/support/stubs/*.sh`, marcados **TEST-ONLY**. Eles não são apresentados
+como integração funcional.

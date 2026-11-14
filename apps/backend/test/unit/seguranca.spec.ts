@@ -14,20 +14,15 @@ describe('Política de execução', () => {
     ['git push origin main', true],
     ['git reset --hard HEAD~1', true],
     ['psql -c "DROP TABLE trades"', true],
-    ['python backtest.py --janela 20', false],
+    ['python gerar_relatorio.py --mes 10', false],
     ['git commit -m ok', false],
   ])('%s → requer aprovação=%s', (cmd, expected) => {
     expect(evaluatePolicy(cmd).requiresApproval).toBe(expected);
   });
 
-  it.each(['mt5.order_send(request)', 'enviar ordem de compra', 'operar em conta real', 'broker api login', 'send_order(WIN, 1)'])(
-    '%s → proibido',
-    (cmd) => {
-      const v = evaluatePolicy(cmd);
-      expect(v.forbidden).toBe(true);
-      expect(v.allowed).toBe(false);
-    },
-  );
+  it.each(['implementar pagamento via PIX com valor em R$', 'enviar ordem de serviço ao técnico'])('%s → trabalho normal (sem bloqueio)', (txt) => {
+    expect(evaluatePolicy(txt).allowed).toBe(true);
+  });
 });
 
 describe('PathGuard', () => {

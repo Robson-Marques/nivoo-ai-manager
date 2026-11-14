@@ -7,20 +7,13 @@ export const MEMORY_CATEGORIES = [
   'ESPECIFICACAO',
   'ARQUITETURA_RESTRICOES',
   'DECISAO_APROVADA',
-  'HIPOTESE_INVESTIGACAO',
   'EVIDENCIA',
-  'HIPOTESE_REJEITADA',
-  'RESULTADO_VALIDADO',
   'PENDENCIA',
 ] as const;
 
-/** Categorias que exigem referências reproduzíveis (dados, código, parâmetros, resultados). */
-const NEEDS_REFERENCES: MemoryCategory[] = ['EVIDENCIA', 'RESULTADO_VALIDADO'];
 
 export interface MemoryRefs {
   artifactIds?: string[];
-  experimentIds?: string[];
-  datasetIds?: string[];
   gitCommit?: string;
   parameters?: Record<string, unknown>;
   jobId?: string;
@@ -37,35 +30,18 @@ export class MemoryService {
     });
   }
 
+  /** Evidência precisa apontar para algo verificável: artefatos (sha256) e o commit que os produziu. */
   async validateRefs(projectId: string, category: MemoryCategory, refs: MemoryRefs): Promise<void> {
     const artifactIds = refs.artifactIds ?? [];
-    const experimentIds = refs.experimentIds ?? [];
-    const datasetIds = refs.datasetIds ?? [];
     if (artifactIds.length) {
       const n = await this.prisma.artifact.count({ where: { id: { in: artifactIds }, projectId } });
       if (n !== artifactIds.length) throw new BadRequestException('Artefato referenciado inexistente ou de outro projeto');
     }
-    if (experimentIds.length) {
-      const n = await this.prisma.experiment.count({ where: { id: { in: experimentIds }, projectId } });
-      if (n !== experimentIds.length) throw new BadRequestException('Experimento referenciado inexistente ou de outro projeto');
-    }
-    if (datasetIds.length) {
-      const n = await this.prisma.dataset.count({ where: { id: { in: datasetIds }, projectId } });
-      if (n !== datasetIds.length) throw new BadRequestException('Dataset referenciado inexistente ou de outro projeto');
-    }
-    if (NEEDS_REFERENCES.includes(category)) {
+    if (category === 'EVIDENCIA') {
       const missing: string[] = [];
       if (!artifactIds.length) missing.push('artifactIds (resultados com sha256)');
-      if (!experimentIds.length && !datasetIds.length) missing.push('experimentIds ou datasetIds (dados)');
-      if (!refs.gitCommit && !experimentIds.length) missing.push('gitCommit (código) ou experimento com commit');
-      if (!refs.parameters && !experimentIds.length) missing.push('parameters ou experimento com parâmetros');
-      if (missing.length) {
-        throw new BadRequestException(`${category} exige referências reproduzíveis. Faltando: ${missing.join('; ')}`);
-      }
-      if (category === 'RESULTADO_VALIDADO' && experimentIds.length) {
-        const done = await this.prisma.experiment.count({ where: { id: { in: experimentIds }, status: 'CONCLUIDO', codeRef: { not: null } } });
-        if (done !== experimentIds.length) throw new BadRequestException('RESULTADO_VALIDADO exige experimentos CONCLUIDOS (verificados) com commit registrado');
-      }
+      if (!refs.gitCommit) missing.push('gitCommit');
+      if (missing.length) throw new BadRequestException(`EVIDENCIA exige referências verificáveis. Faltando: ${missing.join('; ')}`);
     }
   }
 
@@ -73,14 +49,9 @@ export class MemoryService {
     const category = oneOf(body, 'category', MEMORY_CATEGORIES) as MemoryCategory;
     const refs = (body.references ?? {}) as MemoryRefs;
     await this.validateRefs(projectId, category, refs);
-    const researchId = optString(body, 'researchId', 60);
-    if (researchId && !(await this.prisma.research.findFirst({ where: { id: researchId, projectId } }))) {
-      throw new BadRequestException('Pesquisa não pertence ao projeto');
-    }
     return this.prisma.memoryEntry.create({
       data: {
         projectId,
-        researchId,
         category,
         title: reqString(body, 'title', 300),
         content: reqString(body, 'content', 50000),
@@ -97,7 +68,7 @@ export class MemoryService {
     if (m.supersededById) return m;
     return this.prisma.$transaction(async (tx) => {
       const marca = await tx.memoryEntry.create({
-        data: { projectId, researchId: m.researchId, category: m.category, title: `[esquecido] ${m.title}`, content: `Esquecido por ${by}.`, references: { esquecido: m.id }, version: m.version + 1, author: by, supersededById: m.id },
+        data: { projectId, category: m.category, title: `[esquecido] ${m.title}`, content: `Esquecido por ${by}.`, references: { esquecido: m.id }, version: m.version + 1, author: by, supersededById: m.id },
       });
       await tx.memoryEntry.update({ where: { id: m.id }, data: { supersededById: marca.id } });
       return marca;
@@ -115,7 +86,6 @@ export class MemoryService {
       const created = await tx.memoryEntry.create({
         data: {
           projectId,
-          researchId: old.researchId,
           category: old.category,
           title: optString(body, 'title', 300) ?? old.title,
           content: reqString(body, 'content', 50000),

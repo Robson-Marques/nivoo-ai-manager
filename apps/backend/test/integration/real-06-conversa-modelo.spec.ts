@@ -1,14 +1,13 @@
 /**
- * INTEGRAÇÃO REAL — conversa (interface simples) com Claude Code de verdade (opt-in: NIVOO_RUN_CLI_INTEGRATION=1).
+ * INTEGRAÇÃO REAL — "fine-tune do projeto" com Claude Code de verdade (opt-in: NIVOO_RUN_CLI_INTEGRATION=1).
  *
  * Cenário (o mesmo fluxo da tela de chat):
- *  1. Modelo "Pizzaria" com uma pasta de padrões importada (regra da casa com código único CASA-PZ-9137
- *     e um CLAUDE.md, que deve chegar à IA renomeado, sem virar configuração).
- *  2. Projeto no modelo → mensagem do usuário → a IA real lê projeto + base e propõe um plano.
- *     O que o usuário disse vira memória do projeto automaticamente.
- *  3. Aprovação → job real (Claude Code) → conclusão SÓ pelo verificador → entra na pasta principal.
- *     O resultado segue a base do modelo (código da casa).
- *  4. Segunda mensagem: a IA enxerga o arquivo criado e a memória da conversa anterior.
+ *  1. Modelo "Pizzaria" com materiais (regra da casa com código único CASA-PZ-9137 e um CLAUDE.md, que deve
+ *     chegar à IA renomeado, sem virar configuração). Projeto com regras próprias de ESCOPO e conhecimento.
+ *  2. Pedido fora do escopo → a IA recusa (sem plano).
+ *  3. Pedido dentro do escopo → plano → aprovação → trabalho real → conferência real das regras por uma
+ *     sessão separada → só então CONCLUIDO e incorporado à pasta principal. O resultado segue o modelo.
+ *  4. O que o usuário disse vira memória; a pergunta seguinte enxerga arquivo e memória.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -54,8 +53,23 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
         ],
       })
       .expect(201);
-    const p = (await h.http().post('/api/projects').send({ name: 'Instagram real', area: area.slug, description: 'Posts de Instagram da pizzaria do bairro.' }).expect(201)).body;
+    const p = (
+      await h.http().post('/api/projects').send({
+        name: 'Instagram real',
+        base: area.slug,
+        provider: 'claude-code-cli',
+        description: 'Posts de Instagram da pizzaria do bairro.',
+        rules: 'Escopo deste projeto: SOMENTE textos de posts de Instagram da pizzaria. Qualquer outro assunto (programação, finanças, outros negócios) está fora do escopo e deve ser recusado com educação.',
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/knowledge/import`).send({ files: [{ path: 'cardapio.md', contentBase64: b64('# Cardápio\n- Margherita: molho de tomate, mussarela, manjericão.\n') }] }).expect(201);
     const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+
+    // Fora do escopo: a IA recusa e não propõe trabalho.
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'Escreva um script Python que calcule o imposto de renda. Pode propor o plano direto.' }).expect(201);
+    const recusa = await resposta(p.id, conv.id, 1);
+    expect(recusa.status).toBe('PRONTA');
+    expect(recusa.kind).toBe('resposta');
 
     await h
       .http()
@@ -66,7 +80,7 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
           'Nosso público são famílias do bairro. Pode propor o plano direto, sem perguntas.',
       })
       .expect(201);
-    const r1 = await resposta(p.id, conv.id, 1);
+    const r1 = await resposta(p.id, conv.id, 2);
     expect(r1.status).toBe('PRONTA');
     expect(r1.kind).toBe('plano');
     const memoria1 = (await h.http().get(`/api/projects/${p.id}/memory`)).body.filter((m: any) => m.references?.origem === 'conversa');
@@ -92,7 +106,7 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
     const legenda = fs.existsSync(arquivo) ? fs.readFileSync(arquivo, 'utf8') : null;
 
     await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'Que arquivos o projeto já tem e qual é o nosso público? Responda em uma frase.' }).expect(201);
-    const r2 = await resposta(p.id, conv.id, 2);
+    const r2 = await resposta(p.id, conv.id, 3);
 
     const evid = await exportEvidence(h, jobId, 'real-06-conversa-modelo', {
       conversa: (await h.http().get(`/api/projects/${p.id}/conversations/${conv.id}`)).body.messages.map((m: any) => ({
@@ -106,12 +120,15 @@ d('Conversa real: modelo com pasta de padrões → plano → trabalho → memór
       })),
       memoriaDaConversa: memoria1.map((m: any) => ({ categoria: m.category, titulo: m.title, conteudo: m.content })),
       legenda,
+      conferenciaDasRegras: job.criteria.find((c: any) => c.key === 'conferencia-regras'),
       aprovacoesPedidasPelaIA: aprovacoes,
       mergeStatus: job.mergeStatus,
     });
 
     expect(job.status).toBe('CONCLUIDO');
     expect(job.mergeStatus).toBe('INCORPORADO');
+    expect(job.steps.map((s: any) => s.key)).toContain('conferencia-regras'); // a trava rodou
+    expect(job.criteria.find((c: any) => c.key === 'conferencia-regras').status).toBe('APROVADO');
     expect(legenda).toContain('CASA-PZ-9137'); // seguiu a pasta de padrões do modelo
     expect(memoria1.length).toBeGreaterThan(0); // o que foi dito virou memória
     expect(JSON.stringify(memoria1).toLowerCase()).toMatch(/fam[ií]lia/);

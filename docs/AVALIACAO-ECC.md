@@ -1,5 +1,9 @@
 # Avaliação do ECC (github.com/affaan-m/ECC, v2.2.3, MIT) — 2026-10-31
 
+> **Registro histórico.** Partes deste documento se referem ao módulo Mercado (WIN/WDO, datasets,
+> hipóteses, experimentos, critérios permanentes, política financeira), removido por completo em
+> 2026-11-14 (ADR-041). O estado atual está em [`ESTADO.md`](ESTADO.md).
+
 **Decisão:** não instalar o ECC no Nivoo. Reimplementar apenas as ideias úteis, do jeito do Nivoo
 (estado no PostgreSQL, verificação pelo backend, tudo auditável e isolado por projeto).
 

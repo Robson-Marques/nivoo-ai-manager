@@ -40,22 +40,22 @@ case "$cmd" in
     cd "$NIVOO_HOME"
     as_nivoo claude
     as_nivoo claude auth status || true
-    systemctl restart nivoo-worker
+    systemctl restart nivoo-api nivoo-worker
     ;;
   set-claude-token)
     # Alternativa sem navegador: gere o token oficial em qualquer máquina com 'claude setup-token'.
     tok="${1:-}"; [ -n "$tok" ] || { read -rsp "Cole o token (CLAUDE_CODE_OAUTH_TOKEN): " tok; echo; }
     sed -i '/^#\? *CLAUDE_CODE_OAUTH_TOKEN=/d' "$ENV_FILE"
     echo "CLAUDE_CODE_OAUTH_TOKEN=$tok" >> "$ENV_FILE"
-    systemctl restart nivoo-worker
-    echo "ok: token gravado em $ENV_FILE (permissão 640) e worker reiniciado"
+    systemctl restart nivoo-api nivoo-worker
+    echo "ok: token gravado em $ENV_FILE (permissão 640); API e worker reiniciados"
     ;;
   login-codex)
     echo "Login OFICIAL do Codex por código de dispositivo para o usuário do worker ($NIVOO_USER)."
     cd "$NIVOO_HOME"
     as_nivoo codex login --device-auth
     as_nivoo codex login status || true
-    systemctl restart nivoo-worker
+    systemctl restart nivoo-api nivoo-worker
     ;;
   check)
     echo "== serviços"; systemctl is-active nivoo-api nivoo-worker postgresql | paste -sd' ' -

@@ -28,7 +28,11 @@ export interface ExecutionRequest {
   context: string;
   cwd: string;
   outputDir: string;
-  dataDir: string;
+  /**
+   * Perfil do projeto (regras da base + regras do projeto + conhecimento). Vai como instrução de sistema
+   * quando o executor permite (Claude) e, em todo caso, no topo do prompt.
+   */
+  systemPrompt?: string;
   timeoutMs: number;
   signal: AbortSignal;
   onLog: (line: string, level?: 'INFO' | 'WARN' | 'ERROR') => void;
@@ -69,11 +73,11 @@ export interface AiProvider {
   execute(req: ExecutionRequest): Promise<ExecutionResult>;
 }
 
-export function buildPrompt(req: ExecutionRequest): string {
+export function buildPrompt(req: Pick<ExecutionRequest, 'context' | 'instructions'>): string {
   return `${req.context}\n\n## Tarefa desta etapa\n${req.instructions}\n`;
 }
 
-const RESOURCE_PATTERNS = /(usage limit|limit reached|rate.?limit|quota|\b429\b|overloaded|\b529\b|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|unauthorized|\b401\b|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET)/i;
+const RESOURCE_PATTERNS = /(usage limit|limit reached|rate.?limit|quota|\b429\b|overloaded|\b529\b|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|api key not valid|api_key_invalid|resource_exhausted|unauthorized|\b401\b|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET)/i;
 
 export function looksLikeResourceProblem(text: string): boolean {
   return RESOURCE_PATTERNS.test(text);

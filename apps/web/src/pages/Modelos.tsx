@@ -1,82 +1,45 @@
-import { ChangeEvent, FormEvent, useCallback, useEffect, useState } from 'react';
-import { api } from '../api';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { api, nomeUsuario } from '../api';
+import { EditorDeRegras, Materiais } from '../Pecas';
 
 /**
- * Modelos (áreas) em linguagem simples. Um modelo = regras + pasta de padrões (guias, estrutura,
- * identidade visual...). Todo projeto criado no modelo segue isso, em toda conversa e todo trabalho.
+ * Modelos: o "jeito de trabalhar" de um tipo de projeto (ex.: Sistemas ERP/SaaS, Website, Atendimento).
+ * Cada modelo tem o texto de funcionamento da IA (regras, escopo, comportamento) e materiais de referência.
+ * Todo projeto criado no modelo herda isso. Tudo em texto, sem configuração técnica.
  */
-
-const LOTE_BYTES = 25 * 1024 * 1024;
-const IGNORAR = /(^|\/)(node_modules|\.git|__pycache__|\.venv)(\/|$)|(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i;
-
-function base64(f: File): Promise<string> {
-  return new Promise((ok, erro) => {
-    const r = new FileReader();
-    r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, ''));
-    r.onerror = () => erro(r.error);
-    r.readAsDataURL(f);
-  });
-}
-
-/** Envia a pasta escolhida (em lotes) para a base do modelo. Retorna um resumo para mostrar. */
-export async function enviarPasta(area: string, arquivos: FileList, onProgresso: (t: string) => void): Promise<string> {
-  const lista = Array.from(arquivos)
-    .map((f) => ({ f, path: ((f as any).webkitRelativePath || f.name).split('/').slice((f as any).webkitRelativePath ? 1 : 0).join('/') }))
-    .filter((x) => x.path && !IGNORAR.test(x.path));
-  let enviados = 0;
-  const ignorados: string[] = [];
-  let lote: Array<{ path: string; contentBase64: string }> = [];
-  let bytes = 0;
-  const flush = async () => {
-    if (!lote.length) return;
-    const r = await api(`/areas/${area}/base/import`, 'POST', { files: lote, message: `pasta enviada pela tela (${lote.length} arquivo(s))` });
-    enviados += r.importados;
-    ignorados.push(...r.ignorados);
-    lote = [];
-    bytes = 0;
-  };
-  for (const { f, path } of lista) {
-    if (f.size > 10 * 1024 * 1024) {
-      ignorados.push(`${path} (maior que 10 MB)`);
-      continue;
-    }
-    if (bytes + f.size > LOTE_BYTES || lote.length >= 500) await flush();
-    lote.push({ path, contentBase64: await base64(f) });
-    bytes += f.size;
-    onProgresso(`Enviando… ${enviados + lote.length} de ${lista.length}`);
-  }
-  await flush();
-  return `${enviados} arquivo(s) guardados no modelo.${ignorados.length ? ` Ignorados: ${ignorados.length} (pastas de sistema ou arquivos grandes).` : ''}`;
-}
-
 export function Modelos() {
-  const [areas, setAreas] = useState<any[] | null>(null);
+  const [modelos, setModelos] = useState<any[] | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
   const [novo, setNovo] = useState(false);
-  const carregar = useCallback(async () => {
-    const lista = await api<any[]>('/areas');
-    setAreas(await Promise.all(lista.map((a) => api(`/areas/${a.slug}`))));
-  }, []);
+  const carregar = useCallback(async () => setModelos(await api<any[]>('/areas')), []);
   useEffect(() => {
-    carregar().catch(() => setAreas([]));
+    carregar().catch(() => setModelos([]));
   }, [carregar]);
+  if (aberto) return <EditarModelo slug={aberto} onVoltar={() => { setAberto(null); carregar(); }} />;
   return (
-    <div className="modelos">
+    <div className="pagina">
       <header className="conversa-topo">
         <div>
           <h1>Modelos</h1>
-          <span className="muted small">Cada modelo guarda as regras e a pasta de padrões que todos os seus projetos seguem.</span>
+          <span className="muted small">O jeito de trabalhar de cada tipo de projeto. Todo projeto criado num modelo segue o que está nele.</span>
         </div>
         <button onClick={() => setNovo(true)}>+ Novo modelo</button>
       </header>
-      <div className="modelos-lista">
-        {areas?.map((a) => <CartaoModelo key={a.id} area={a} onMudou={carregar} />)}
+      <div className="cartoes">
+        {modelos?.map((m) => (
+          <button key={m.id} className="cartao" onClick={() => setAberto(m.slug)}>
+            <b>{m.name}</b>
+            <span>{m.description}</span>
+            <span className="muted small">{m._count?.projects ?? 0} projeto(s)</span>
+          </button>
+        ))}
       </div>
       {novo && (
         <NovoModelo
           onFechar={() => setNovo(false)}
-          onCriado={async () => {
+          onCriado={(slug) => {
             setNovo(false);
-            await carregar();
+            setAberto(slug);
           }}
         />
       )}
@@ -84,87 +47,35 @@ export function Modelos() {
   );
 }
 
-function CartaoModelo({ area, onMudou }: { area: any; onMudou: () => void }) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [verArquivos, setVerArquivos] = useState(false);
-  const [editando, setEditando] = useState(false);
-  const [regras, setRegras] = useState(area.currentInstruction?.text ?? '');
-  const escolher = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
-    setErro(null);
-    try {
-      setMsg(await enviarPasta(area.slug, e.target.files, setMsg));
-      onMudou();
-    } catch (err: any) {
-      setErro(err.message);
-      setMsg(null);
-    }
-    e.target.value = '';
-  };
-  const salvarRegras = async (e: FormEvent) => {
-    e.preventDefault();
-    setErro(null);
-    try {
-      await api(`/areas/${area.slug}/instructions`, 'POST', { text: regras, reason: 'regras editadas na tela de modelos' });
-      setEditando(false);
-      setMsg('Regras salvas. A versão anterior continua no histórico.');
-      onMudou();
-    } catch (err: any) {
-      setErro(err.message);
-    }
-  };
-  return (
-    <section className="modelo">
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h2>{area.name}</h2>
-          <p className="muted small">{area.description}</p>
-          <p className="small">
-            {area.projects.length} projeto(s) · {area.baseFiles.length} arquivo(s) de padrões · regras versão {area.instructionsVersion}
-          </p>
-        </div>
-        <label className="botao-arquivo">
-          Enviar pasta de padrões
-          <input type="file" multiple {...({ webkitdirectory: '', directory: '' } as any)} onChange={escolher} />
-        </label>
-      </div>
-      {msg && <div className="ok-msg">{msg}</div>}
-      {erro && <div className="error">{erro}</div>}
-      <div className="row">
-        <button className="secondary" onClick={() => setVerArquivos(!verArquivos)}>{verArquivos ? 'Esconder arquivos' : 'Ver arquivos'}</button>
-        <button className="secondary" onClick={() => setEditando(!editando)}>{editando ? 'Cancelar' : 'Editar regras'}</button>
-      </div>
-      {verArquivos && (
-        <ul className="arquivos-modelo">
-          {area.baseFiles.map((f: any) => <li key={f.path}>{f.path}</li>)}
-        </ul>
-      )}
-      {editando && (
-        <form onSubmit={salvarRegras}>
-          <textarea rows={10} value={regras} onChange={(e) => setRegras(e.target.value)} />
-          <button disabled={!regras.trim()}>Salvar regras</button>
-        </form>
-      )}
-    </section>
-  );
-}
-
-function NovoModelo({ onFechar, onCriado }: { onFechar: () => void; onCriado: () => void }) {
+function NovoModelo({ onFechar, onCriado }: { onFechar: () => void; onCriado: (slug: string) => void }) {
+  const [prontos, setProntos] = useState<any[]>([]);
+  const [inicio, setInicio] = useState('geral');
   const [nome, setNome] = useState('');
-  const [regras, setRegras] = useState('');
-  const [pasta, setPasta] = useState<FileList | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [descricao, setDescricao] = useState('');
+  const [texto, setTexto] = useState('');
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  useEffect(() => {
+    api<any[]>('/areas/templates')
+      .then((t) => {
+        setProntos(t);
+        setTexto(t.find((x) => x.key === 'geral')?.instructions ?? '');
+      })
+      .catch(() => undefined);
+  }, []);
+  const escolher = (key: string) => {
+    setInicio(key);
+    const t = prontos.find((x) => x.key === key);
+    setTexto(t?.instructions ?? '');
+    if (!descricao) setDescricao(t?.description ?? '');
+  };
   const criar = async (e: FormEvent) => {
     e.preventDefault();
     setOcupado(true);
     setErro(null);
     try {
-      const a = await api('/areas', 'POST', { name: nome, template: 'generica', instructions: regras || undefined, description: regras ? regras.slice(0, 200) : undefined });
-      if (pasta?.length) await enviarPasta(a.slug, pasta, setStatus);
-      onCriado();
+      const a = await api('/areas', 'POST', { name: nome, template: inicio, instructions: texto, description: descricao, author: nomeUsuario() });
+      onCriado(a.slug);
     } catch (err: any) {
       setErro(err.message);
     } finally {
@@ -175,19 +86,84 @@ function NovoModelo({ onFechar, onCriado }: { onFechar: () => void; onCriado: ()
     <div className="modal-fundo" onClick={onFechar}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={criar}>
         <h2>Novo modelo</h2>
-        <label>Nome do modelo<input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Studio (software e web design)" /></label>
-        <label>Regras do modelo (opcional)<textarea rows={4} value={regras} onChange={(e) => setRegras(e.target.value)} placeholder="Como a IA deve trabalhar nos projetos deste modelo. Ex.: siga sempre o fluxo e a identidade visual da pasta de padrões." /></label>
-        <label className="botao-arquivo">
-          {pasta?.length ? `Pasta escolhida: ${pasta.length} arquivo(s)` : 'Escolher pasta de padrões (opcional)'}
-          <input type="file" multiple {...({ webkitdirectory: '', directory: '' } as any)} onChange={(e) => setPasta(e.target.files)} />
+        <label>Nome do modelo<input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} required placeholder="Ex.: Sistemas ERP / SaaS" /></label>
+        <label>Para que serve (uma linha)<input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex.: Sistemas de gestão completos, front-end e back-end" /></label>
+        <div className="campo">
+          <span>Começar de</span>
+          <div className="tipos">
+            {prontos.map((t) => (
+              <button type="button" key={t.key} className={inicio === t.key ? 'tipo on' : 'tipo'} onClick={() => escolher(t.key)}>
+                <b>{t.key === 'geral' ? 'Em branco' : t.name}</b>
+                <span>{t.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <label>
+          Como a IA deve funcionar neste modelo
+          <textarea rows={10} value={texto} onChange={(e) => setTexto(e.target.value)} />
         </label>
-        {status && <div className="muted small">{status}</div>}
+        <span className="muted small">Depois de criar você pode importar um PDF ou texto e enviar materiais de referência.</span>
         {erro && <div className="error">{erro}</div>}
         <div className="row fim">
           <button type="button" className="secondary" onClick={onFechar}>Cancelar</button>
-          <button disabled={ocupado || !nome.trim()}>{ocupado ? 'Criando…' : 'Criar modelo'}</button>
+          <button disabled={ocupado || !nome.trim() || !texto.trim()}>Criar modelo</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function EditarModelo({ slug, onVoltar }: { slug: string; onVoltar: () => void }) {
+  const [m, setM] = useState<any>(null);
+  const [nome, setNome] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const carregar = useCallback(async () => {
+    const a = await api(`/areas/${slug}`);
+    setM(a);
+    setNome(a.name);
+    setDescricao(a.description);
+  }, [slug]);
+  useEffect(() => {
+    carregar().catch(() => undefined);
+  }, [carregar]);
+  const listar = useCallback(async () => (await api(`/areas/${slug}`)).baseFiles, [slug]);
+  if (!m) return null;
+  return (
+    <div className="pagina">
+      <header className="conversa-topo">
+        <div>
+          <button className="link voltar" onClick={onVoltar}>← Modelos</button>
+          <h1>{m.name}</h1>
+        </div>
+      </header>
+      <div className="editor-modelo">
+        <div className="campo">
+          <label>Nome<input value={nome} onChange={(e) => setNome(e.target.value)} /></label>
+          <label>Para que serve<input value={descricao} onChange={(e) => setDescricao(e.target.value)} /></label>
+          <div className="row">
+            <button className="secondary" disabled={nome === m.name && descricao === m.description} onClick={async () => { await api(`/areas/${slug}`, 'PATCH', { name: nome, description: descricao }); setMsg('Nome e descrição salvos.'); carregar(); }}>Salvar nome e descrição</button>
+          </div>
+          {msg && <div className="ok-msg">{msg}</div>}
+        </div>
+        <EditorDeRegras
+          titulo="Como a IA deve funcionar neste modelo"
+          ajuda="Escreva em texto livre todo o funcionamento: papel da IA, escopo, regras, padrões, o que nunca fazer, como entregar. Vale para todos os projetos deste modelo. Pode importar de um PDF, Word ou arquivo de texto."
+          placeholder="Ex.: Você é um engenheiro de software sênior especializado em sistemas ERP..."
+          inicial={m.currentInstruction?.text ?? ''}
+          versao={m.currentInstruction?.version}
+          onSalvar={(texto) => api(`/areas/${slug}/instructions`, 'POST', { text: texto, author: nomeUsuario() }).then(carregar)}
+        />
+        <Materiais
+          titulo="Materiais de referência do modelo"
+          ajuda="Padrões, estruturas, guias, identidade visual… Pode enviar uma pasta inteira. Valem para todos os projetos deste modelo. PDFs e Word também viram texto para qualquer IA ler."
+          listar={listar}
+          rotaEnvio={`/areas/${slug}/base/import`}
+          rotaArquivo={(p) => `/areas/${slug}/base/file?path=${encodeURIComponent(p)}`}
+          rotaRemover={(p) => `/areas/${slug}/base/file?path=${encodeURIComponent(p)}&author=${encodeURIComponent(nomeUsuario())}`}
+        />
+      </div>
     </div>
   );
 }

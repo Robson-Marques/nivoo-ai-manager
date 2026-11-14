@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
   AiProvider,
@@ -12,16 +13,16 @@ import {
 /**
  * Claude Code CLI (`claude -p`) usando o login oficial já existente no host do worker.
  * Não lê nem copia credenciais: apenas invoca o binário oficial com HOME do usuário do worker.
- * Variáveis repassadas além do ambiente mínimo: CLAUDE_CONFIG_DIR e CLAUDE_CODE_OAUTH_TOKEN
- * (token gerado oficialmente via `claude setup-token`), se configuradas pelo operador.
+ * Variáveis repassadas além do ambiente mínimo: CLAUDE_CONFIG_DIR e as credenciais da tela "Contas de IA"
+ * (CLAUDE_CODE_OAUTH_TOKEN do login oficial `claude setup-token`, ou ANTHROPIC_API_KEY).
  */
 @Injectable()
 export class ClaudeCodeCliProvider implements AiProvider {
   readonly id = 'claude-code-cli';
-  readonly label = 'Claude Code CLI';
+  readonly label = 'Claude';
   readonly kind = 'cli' as const;
   private readonly bin = process.env.NIVOO_CLAUDE_BIN ?? 'claude';
-  private readonly passKeys = ['CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN'];
+  private readonly passKeys = ['CLAUDE_CONFIG_DIR'];
 
   static readonly DENIED = ['Bash', 'WebFetch', 'WebSearch'];
 
@@ -96,7 +97,8 @@ export class ClaudeCodeCliProvider implements AiProvider {
   }
 
   private env(extra: Record<string, string> = {}) {
-    return minimalEnv(extra, this.passKeys);
+    // Token oficial / chave de API entregues pela tela "Contas de IA" (ou pelo administrador no ambiente).
+    return minimalEnv({ ...secretEnv(['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY']), ...extra }, this.passKeys);
   }
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -130,7 +132,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     } catch {
       base.authenticated = auth.exitCode === 0 ? 'desconhecido' : false;
     }
-    if (base.authenticated === false) base.errors.push('CLI instalado mas sem login no host do worker (execute `claude` e faça login oficial)');
+    if (base.authenticated === false) base.errors.push('não conectado (conecte em Contas de IA)');
     base.available = base.authenticated !== false;
     return base;
   }
@@ -155,10 +157,12 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const maxTurns = req.options?.maxTurns ?? (process.env.NIVOO_CLAUDE_MAX_TURNS ? Number(process.env.NIVOO_CLAUDE_MAX_TURNS) : undefined);
     if (maxTurns) args.push('--max-turns', String(maxTurns));
     req.onLog(`claude ${args.join(' ')} (cwd=${req.cwd})`);
+    // Perfil do projeto como instrução de sistema: pesa mais que o texto do prompt (vai também no prompt).
+    if (req.systemPrompt) args.push('--append-system-prompt', req.systemPrompt);
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_DATA_DIR: req.dataDir, NIVOO_JOB_ID: req.jobId }),
+      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,

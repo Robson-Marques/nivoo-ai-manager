@@ -31,7 +31,7 @@ d('Claude Code real — hooks e CLAUDE.md plantados não têm efeito', () => {
     const r = await new ClaudeCodeCliProvider().execute({
       jobId: 'j', stepId: 's', attemptId: 'a', context: '# teste de imunidade',
       instructions: 'Crie o arquivo out/r.txt com o texto ok. Responda em uma linha.',
-      cwd: ws, outputDir: path.join(ws, 'out'), dataDir: ws, timeoutMs: 180000,
+      cwd: ws, outputDir: path.join(ws, 'out'), timeoutMs: 180000,
       signal: new AbortController().signal, onLog: (l) => logs.push(l),
     });
     const resultado = {

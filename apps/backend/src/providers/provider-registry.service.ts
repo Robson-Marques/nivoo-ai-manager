@@ -3,7 +3,7 @@ import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeCodeCliProvider } from './claude-code-cli.provider';
 import { CodexCliProvider } from './codex-cli.provider';
-import { AnthropicApiProvider, OpenAiApiProvider } from './http-api.providers';
+import { GeminiCliProvider } from './gemini-cli.provider';
 import { LocalShellProvider } from './local-shell.provider';
 import { AiProvider, ProviderStatus } from './provider.interface';
 
@@ -16,11 +16,10 @@ export class ProviderRegistry {
     private readonly prisma: PrismaService,
     claude: ClaudeCodeCliProvider,
     codex: CodexCliProvider,
-    anthropic: AnthropicApiProvider,
-    openai: OpenAiApiProvider,
+    gemini: GeminiCliProvider,
     shell: LocalShellProvider,
   ) {
-    for (const p of [claude, codex, anthropic, openai, shell]) this.providers.set(p.id, p);
+    for (const p of [claude, codex, gemini, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */

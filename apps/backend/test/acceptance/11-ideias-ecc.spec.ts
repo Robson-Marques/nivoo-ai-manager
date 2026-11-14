@@ -4,7 +4,6 @@
  *  - limpeza de arquivos de harness plantados no workspace (hooks / CLAUDE.md / AGENTS.md)
  *  - orçamento de contexto com memória completa em .nivoo/memoria.md (fora do git)
  *  - lições de falha por projeto entrando no contexto de jobs futuros (e não de outros projetos)
- *  - critérios permanentes do projeto
  *  - orçamento de custo do projeto
  *  - aprovação válida só para o conteúdo aprovado (hash)
  */
@@ -33,7 +32,7 @@ describe('Ideias do ECC no Nivoo', () => {
   });
 
   async function run(pid: string, body: any, until = ['CONCLUIDO', 'BLOQUEADO', 'FALHOU', 'AGUARDANDO_APROVACAO']) {
-    const job = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'objetivo', ...body }).expect(201)).body;
+    const job = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'objetivo', conferencia: false, ...body }).expect(201)).body;
     await h.http().post(`/api/projects/${pid}/jobs/${job.id}/start`).expect(201);
     return waitFor(async () => {
       const j = (await h.http().get(`/api/projects/${pid}/jobs/${job.id}`)).body;
@@ -110,28 +109,9 @@ describe('Ideias do ECC no Nivoo', () => {
     expect(promptRecebido()).not.toContain('ERRO-UNICO-7731');
   });
 
-  it('critérios permanentes do projeto entram em todo job novo; desativados não entram nos próximos', async () => {
-    const p = await createProject(h, 'invariantes');
-    const inv = (await h.http().post(`/api/projects/${p.id}/invariants`).send({ key: 'dados-intactos', description: 'dados de referência intactos', kind: 'COMMAND', config: { command: 'test ! -e out/proibido.txt' } }).expect(201)).body;
-    await h.http().post(`/api/projects/${p.id}/invariants`).send({ key: 'x', description: 'subjetivo', kind: 'MANUAL_APPROVAL' }).expect(400);
-    const quebra = await run(p.id, {
-      title: 'quebra invariante',
-      steps: [{ key: 's', instructions: 'echo ok > out/r.txt && echo x > out/proibido.txt' }],
-      criteria: [{ key: 'r', description: 'r', kind: 'ARTIFACT_PRESENT', config: { name: 'r.txt' } }],
-    });
-    expect(quebra.criteria.map((c: any) => c.key)).toEqual(['invariante:dados-intactos', 'r']); // ordem determinística
-    expect(quebra.status).toBe('BLOQUEADO');
-    expect(quebra.statusDetail).toMatch(/invariante:dados-intactos/);
-    await h.http().patch(`/api/projects/${p.id}/invariants/${inv.id}`).send({ active: false }).expect(200);
-    const depois = (await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 't', objective: 'o', steps: [{ key: 's', instructions: 'true' }] }).expect(201)).body;
-    expect(depois.criteria).toHaveLength(0);
-    // O job antigo continua com o critério congelado.
-    expect((await h.http().get(`/api/projects/${p.id}/jobs/${quebra.id}`)).body.criteria).toHaveLength(2);
-  });
-
   it('orçamento de custo do projeto bloqueia novas execuções quando a soma dos jobs atinge o limite', async () => {
     const p = await createProject(h, 'orcamento projeto');
-    await h.http().patch(`/api/projects/${p.id}/budget`).send({ maxCostUsd: 2 }).expect(200);
+    await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 2 }).expect(200);
     const j1 = (await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 'gasto', objective: 'o', steps: [{ key: 's', instructions: 'true' }] }).expect(201)).body;
     // Custo informado por conectores pagos em jobs anteriores (simulado no banco).
     await h.prisma.job.update({ where: { id: j1.id }, data: { costSpentUsd: 2.5 } });
@@ -143,7 +123,7 @@ describe('Ideias do ECC no Nivoo', () => {
     expect(j2.status).toBe('BLOQUEADO');
     expect(j2.blockedReason).toBe('LIMITE_ORCAMENTO_PROJETO');
     expect(j2.attempts).toHaveLength(0);
-    const r = (await h.http().patch(`/api/projects/${p.id}/budget`).send({ maxCostUsd: null }).expect(200)).body;
+    const r = (await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: null }).expect(200)).body;
     expect(r.maxCostUsd).toBeNull();
   });
 
@@ -168,16 +148,5 @@ describe('Ideias do ECC no Nivoo', () => {
     expect(after.attempts).toHaveLength(0); // nada executou com a aprovação antiga
     expect(after.approvals[1].status).toBe('PENDENTE');
     expect(after.approvals[1].subjectHash).not.toBe(appr.subjectHash);
-  });
-
-  it('liberação de conjunto reservado é recusada se o arquivo mudou desde a solicitação', async () => {
-    const p = await createProject(h, 'reservado hash');
-    fs.writeFileSync(path.join(p.workspacePath, 'data', 'h.csv'), 'timestamp,open,high,low,close,volume\n');
-    const ds = (await h.http().post(`/api/projects/${p.id}/datasets`).send({ name: 'h', assetCode: 'WIN', uri: 'h.csv', role: 'RESERVADO' }).expect(201)).body;
-    const appr = (await h.http().post(`/api/projects/${p.id}/datasets/${ds.id}/request-release`).send({ reason: 'final' }).expect(201)).body;
-    fs.appendFileSync(path.join(p.workspacePath, 'data', 'h.csv'), '2026-01-02T09:00:00,1,1,1,1,1\n');
-    await h.http().post(`/api/projects/${p.id}/datasets/${ds.id}/validate`).expect(201); // atualiza o sha registrado
-    const r = await h.http().post(`/api/approvals/${appr.id}/decide`).send({ decision: 'APROVADO', decidedBy: 'Robson' }).expect(409);
-    expect(r.body.message).toMatch(/mudou desde a solicitação/);
   });
 });

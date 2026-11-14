@@ -1,4 +1,4 @@
-// Nivoo AI Manager — Mercado V1
+// Nivoo AI Manager
 // Fonte da verdade: este banco. Ver docs/ARQUITETURA.md.
 
 generator client {
@@ -33,11 +33,6 @@ enum QueueTaskType {
   RUN_STEP
   EVALUATE_JOB
   PLAN_MESSAGE // conversa: a IA lê o projeto e propõe um plano (não executa nada)
-}
-
-enum AreaKind {
-  MERCADO // modelo pronto com ativos, datasets e pesquisas
-  GENERICA // áreas criadas pelo usuário (web, imagem, vídeo, ...)
 }
 
 enum MessageRole {
@@ -77,7 +72,6 @@ enum CriterionStatus {
 enum ApprovalKind {
   CRITERIO_SUBJETIVO
   ACAO_DESTRUTIVA
-  LIBERAR_DATASET_RESERVADO
 }
 
 enum ApprovalStatus {
@@ -90,29 +84,8 @@ enum MemoryCategory {
   ESPECIFICACAO
   ARQUITETURA_RESTRICOES
   DECISAO_APROVADA
-  HIPOTESE_INVESTIGACAO
   EVIDENCIA
-  HIPOTESE_REJEITADA
-  RESULTADO_VALIDADO
   PENDENCIA
-}
-
-enum DatasetRole {
-  TREINO
-  VALIDACAO
-  RESERVADO
-}
-
-enum HypothesisStatus {
-  EM_INVESTIGACAO
-  REJEITADA
-  VALIDADA
-}
-
-enum ResearchStatus {
-  ABERTA
-  EM_ANDAMENTO
-  ENCERRADA
 }
 
 enum LogLevel {
@@ -122,14 +95,13 @@ enum LogLevel {
   ERROR
 }
 
-// Área de trabalho (ex.: Mercado, Web, Imagem para pizzaria): instruções permanentes, base de
-// conhecimento própria (pasta versionada) e seus projetos. Especialização por contexto, não fine-tuning.
+// Base (na interface): o jeito de trabalhar de um tipo de projeto — regras permanentes + pasta de padrões
+// (versionada) — compartilhado por todos os seus projetos. Especialização por contexto, não fine-tuning.
 model Area {
   id                  String   @id @default(uuid())
   slug                String   @unique
   name                String
   description         String   @default("")
-  kind                AreaKind @default(GENERICA)
   template            String   @default("generica")
   instructionsVersion Int      @default(1)
   createdAt           DateTime @default(now())
@@ -152,6 +124,22 @@ model AreaInstruction {
   createdAt DateTime @default(now())
 
   @@unique([areaId, version])
+}
+
+// Regras do projeto ("fine-tune do projeto"): append-only, versionadas, com hash. Somam-se às regras da
+// base e entram em toda conversa e todo trabalho; a conferência automática cobra o cumprimento.
+model ProjectRule {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version   Int
+  text      String
+  sha256    String
+  author    String
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, version])
 }
 
 model Conversation {
@@ -193,150 +181,23 @@ model Project {
   area          Area     @relation(fields: [areaId], references: [id])
   dirKey        String // pasta do projeto, relativa a NIVOO_WORKSPACES_ROOT
   workspacePath String
+  provider      String   @default("claude-code-cli") // IA escolhida para este projeto (conversa e trabalhos)
+  rulesVersion  Int      @default(0)
   maxCostUsd    Decimal? @db.Decimal(12, 4) // orçamento total do projeto (soma dos jobs); null = sem limite
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  invariants    ProjectInvariant[]
   conversations Conversation[]
-  researches    Research[]
-  datasets      Dataset[]
+  rules         ProjectRule[]
   jobs          Job[]
   memory        MemoryEntry[]
   artifacts     Artifact[]
-  experiments   Experiment[]
-}
-
-// Critério permanente do projeto: copiado para todo job novo (regressão — nada pode quebrá-lo).
-model ProjectInvariant {
-  id          String        @id @default(uuid())
-  projectId   String
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  key         String
-  description String
-  kind        CriterionKind
-  config      Json          @default("{}")
-  active      Boolean       @default(true)
-  author      String
-  createdAt   DateTime      @default(now())
-
-  @@unique([projectId, key])
-}
-
-model MarketAsset {
-  id           String   @id @default(uuid())
-  code         String   @unique // WIN, WDO
-  name         String
-  exchange     String
-  currency     String
-  priceUnit    String // "pontos" (WIN), "R$/US$ 1.000" (WDO)
-  tickSize     Decimal  @db.Decimal(18, 6)
-  pointValue   Decimal  @db.Decimal(18, 6) // valor financeiro por ponto por contrato
-  sessionTz    String
-  sessionOpen  String
-  sessionClose String
-  rules        Json // regras específicas do ativo (vencimentos, rolagem, etc.)
-  validation   Json // limites de validação de dados (faixa de preço, tick, horário)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  datasets   Dataset[]
-  researches ResearchAsset[]
-}
-
-model Dataset {
-  id          String      @id @default(uuid())
-  projectId   String
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assetId     String
-  asset       MarketAsset @relation(fields: [assetId], references: [id])
-  name        String
-  uri         String // caminho relativo ao workspace do projeto
-  sha256      String?
-  timeframe   String
-  periodStart DateTime?
-  periodEnd   DateTime?
-  role        DatasetRole @default(TREINO)
-  released    Boolean     @default(false) // RESERVADO só pode ser usado após liberação aprovada
-  notes       String      @default("")
-  createdAt   DateTime    @default(now())
-
-  experiments Experiment[]
-
-  @@unique([projectId, name])
-}
-
-model Research {
-  id        String         @id @default(uuid())
-  projectId String
-  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title     String
-  question  String
-  status    ResearchStatus @default(ABERTA)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-
-  assets      ResearchAsset[]
-  hypotheses  Hypothesis[]
-  experiments Experiment[]
-  jobs        Job[]
-  memory      MemoryEntry[]
-}
-
-model ResearchAsset {
-  researchId String
-  research   Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
-  assetId    String
-  asset      MarketAsset @relation(fields: [assetId], references: [id])
-
-  @@id([researchId, assetId])
-}
-
-model Hypothesis {
-  id                String           @id @default(uuid())
-  researchId        String
-  research          Research         @relation(fields: [researchId], references: [id], onDelete: Cascade)
-  statement         String
-  rationale         String           @default("")
-  status            HypothesisStatus @default(EM_INVESTIGACAO)
-  conclusion        String?
-  // Regra de decisão pré-registrada: { metric, op, value, datasetRole? }
-  decisionRule      Json?
-  decisionRuleSetAt DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-
-  experiments Experiment[]
-}
-
-model Experiment {
-  id                String      @id @default(uuid())
-  projectId         String
-  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId        String
-  research          Research    @relation(fields: [researchId], references: [id], onDelete: Cascade)
-  hypothesisId      String?
-  hypothesis        Hypothesis? @relation(fields: [hypothesisId], references: [id])
-  datasetId         String?
-  dataset           Dataset?    @relation(fields: [datasetId], references: [id])
-  jobId             String?     @unique
-  job               Job?        @relation(fields: [jobId], references: [id])
-  name              String
-  parameters        Json        @default("{}")
-  codeRef           String? // commit git do workspace que produziu o resultado
-  metrics           Json? // preenchido a partir do artefato de métricas
-  metricsArtifactId String?
-  status            ExecStatus  @default(PENDENTE)
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
 }
 
 model Job {
   id                 String     @id @default(uuid())
   projectId          String
   project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId         String?
-  research           Research?  @relation(fields: [researchId], references: [id])
   title              String
   status             ExecStatus @default(PENDENTE)
   blockedReason      String?
@@ -369,7 +230,6 @@ model Job {
   approvals   Approval[]
   tasks       QueueTask[]
   checks      CriterionCheck[]
-  experiment  Experiment?
 }
 
 // Objetivo imutável: append-only. Alterar o objetivo = criar nova versão.
@@ -530,7 +390,7 @@ model Approval {
   job         Job?           @relation(fields: [jobId], references: [id], onDelete: Cascade)
   projectId   String
   kind        ApprovalKind
-  subjectId   String // criterionId / stepId / datasetId
+  subjectId   String // criterionId / stepId
   subjectHash String? // sha256 do conteúdo aprovado; a aprovação só vale para esse conteúdo
   description String
   status      ApprovalStatus @default(PENDENTE)
@@ -544,12 +404,10 @@ model MemoryEntry {
   id             String         @id @default(uuid())
   projectId      String
   project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  researchId     String?
-  research       Research?      @relation(fields: [researchId], references: [id])
   category       MemoryCategory
   title          String
   content        String
-  references     Json           @default("{}") // { artifactIds, experimentIds, datasetIds, gitCommit, parameters }
+  references     Json           @default("{}") // { artifactIds, gitCommit, jobId, origem, ... }
   version        Int            @default(1)
   supersededById String?
   author         String

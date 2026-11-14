@@ -1,5 +1,9 @@
 # Auditoria — continuidade com executores reais (2026-10-27)
 
+> **Registro histórico.** Partes deste documento se referem ao módulo Mercado (WIN/WDO, datasets,
+> hipóteses, experimentos, critérios permanentes, política financeira), removido por completo em
+> 2026-11-14 (ADR-041). O estado atual está em [`ESTADO.md`](ESTADO.md).
+
 Escopo: verificar se a V1 entregue resolve o problema central — executar trabalho real com
 Claude Code/Codex, preservar contexto entre sessões e concluir pesquisas extensas sem comandos
 manuais de continuação. Testes com stubs ou `local-shell` **não** foram aceitos como prova de

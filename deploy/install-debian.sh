@@ -14,8 +14,8 @@
 #   4. cria banco e usuário no PostgreSQL local
 #   5. gera /etc/nivoo/nivoo.env (configuração e segredos, fora do git)
 #   6. instala dependências e compila backend + interface
-#   7. aplica migrações e cadastra WIN/WDO
-#   8. instala Claude Code CLI e Codex CLI (oficiais, via npm)
+#   7. aplica migrações e garante o modelo padrão (Geral)
+#   8. instala Claude Code, Codex e Gemini CLI (oficiais, via npm)
 #   9. cria e inicia os serviços systemd nivoo-api e nivoo-worker
 #
 # Variáveis opcionais (prefixe o comando, ex.: NIVOO_PORT=8080 bash ...):
@@ -62,7 +62,7 @@ step "1/9 Pacotes do sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -q --no-install-recommends \
-  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux >/dev/null 2>&1
+  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils >/dev/null 2>&1
 ok "git $(git --version | awk '{print $3}'), python $(python3 -V | awk '{print $2}'), $(psql -V)"
 
 # -----------------------------------------------------------------------------
@@ -172,19 +172,19 @@ find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX
 ok "backend e interface compilados"
 
 # -----------------------------------------------------------------------------
-step "7/9 Migrações do banco e ativos WIN/WDO"
+step "7/9 Migrações do banco e modelo padrão"
 set -a; . "$ENV_FILE"; set +a
 (cd apps/backend && npx prisma migrate deploy >/dev/null && node dist/seed.js)
-# O seed cria a base da área Mercado (git) em data/: tudo em data/ pertence ao serviço, nunca ao root.
+# O seed cria a pasta do modelo padrão (git) em data/: tudo em data/ pertence ao serviço, nunca ao root.
 chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
 ok "banco atualizado"
 
 # -----------------------------------------------------------------------------
-step "8/9 Claude Code CLI e Codex CLI (oficiais)"
+step "8/9 Claude Code, Codex e Gemini CLI (oficiais)"
 if [ "$NIVOO_INSTALL_CLIS" = 1 ]; then
-  npm i -g --no-audit --no-fund --loglevel=error @anthropic-ai/claude-code @openai/codex
+  npm i -g --no-audit --no-fund --loglevel=error @anthropic-ai/claude-code @openai/codex @google/gemini-cli
   find "$NODE_DIR" -type l -prune -o -exec chmod go+rX {} +
-  ok "claude $(claude --version 2>/dev/null | awk '{print $1}'), $(codex --version 2>/dev/null)"
+  ok "claude $(claude --version 2>/dev/null | awk '{print $1}'), $(codex --version 2>/dev/null), gemini $(gemini --version 2>/dev/null)"
 else
   warn "pulado (NIVOO_INSTALL_CLIS=0)"
 fi

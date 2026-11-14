@@ -18,7 +18,7 @@ const ctl = (name: string, value: string | null) => {
 function req(cwd: string, logs: string[]) {
   return {
     jobId: 'j', stepId: 's', attemptId: 'a', instructions: 'faça X', context: '# contexto',
-    cwd, outputDir: path.join(cwd, 'out'), dataDir: cwd, timeoutMs: 10000,
+    cwd, outputDir: path.join(cwd, 'out'), timeoutMs: 10000,
     signal: new AbortController().signal, onLog: (l: string) => logs.push(l),
   };
 }
@@ -41,7 +41,7 @@ describe('Adaptador Claude Code CLI (stub TEST-ONLY)', () => {
     ctl('logged_in', 'false');
     const s2 = await new ClaudeCodeCliProvider().checkAvailability();
     expect(s2.available).toBe(false);
-    expect(s2.errors.join()).toMatch(/sem login/);
+    expect(s2.errors.join()).toMatch(/não conectado/);
     ctl('logged_in', null);
   });
 
@@ -98,5 +98,40 @@ describe('Adaptador Codex CLI (stub TEST-ONLY)', () => {
     const r = await p.execute(req(fs.mkdtempSync(path.join(os.tmpdir(), 'cx-')), logs));
     expect(r).toMatchObject({ exitCode: 0, output: 'resposta final', inputTokens: 7, outputTokens: 3 });
     expect(logs.join('\n')).toContain('[command_execution] ls');
+  });
+});
+
+describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
+  // Formato capturado do Gemini CLI 0.68 (eventos init/message/result); o texto do agente vem em pedaços.
+  const { GeminiCliProvider } = require('../../src/providers/gemini-cli.provider');
+  const linhas = (evs: unknown[]) => evs.map((e) => JSON.stringify(e)).join('\n');
+
+  it('junta a resposta do agente, sessão e tokens em caso de sucesso', () => {
+    const logs: string[] = [];
+    const r = GeminiCliProvider.parse(
+      linhas([
+        { type: 'init', session_id: 's-1', model: 'auto' },
+        { type: 'message', role: 'user', content: 'oi' },
+        { type: 'message', role: 'assistant', content: 'Olá, ', delta: true },
+        { type: 'message', role: 'assistant', content: 'tudo certo.', delta: true },
+        { type: 'result', status: 'success', stats: { input_tokens: 10, output_tokens: 4 } },
+      ]),
+      '',
+      0,
+      (l: string) => logs.push(l),
+    );
+    expect(r).toMatchObject({ exitCode: 0, output: 'Olá, tudo certo.', sessionId: 's-1', inputTokens: 10, outputTokens: 4, stopReason: 'completed' });
+  });
+
+  it('chave inválida ou limite vira "recurso indisponível" (reagendar), não falha do trabalho', () => {
+    const r = GeminiCliProvider.parse(
+      linhas([{ type: 'init', session_id: 's-2' }, { type: 'result', status: 'error', error: { type: 'unknown', message: 'API key not valid. Please pass a valid API key.' } }]),
+      '',
+      1,
+      () => undefined,
+    );
+    expect(r.exitCode).not.toBe(0);
+    expect(r.resourceUnavailable).toBe(true);
+    expect(r.error).toMatch(/API key not valid/);
   });
 });

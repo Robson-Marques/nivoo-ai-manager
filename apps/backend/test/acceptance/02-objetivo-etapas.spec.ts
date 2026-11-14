@@ -18,8 +18,8 @@ describe('Objetivo versionado e etapas persistentes', () => {
   afterAll(() => h.close());
 
   const body = {
-    title: 'Levantamento de sazonalidade WDO',
-    objective: 'Medir retorno médio por faixa horária do WDO em 2025 com dados validados.',
+    title: 'Relatório de vendas por horário',
+    objective: 'Medir vendas médias por faixa horária em 2025 com dados validados.',
     steps: [
       { key: 'coletar', title: 'Coletar', instructions: 'echo coletar' },
       { key: 'limpar', title: 'Limpar', instructions: 'echo limpar', dependsOn: ['coletar'] },
@@ -61,7 +61,7 @@ describe('Objetivo versionado e etapas persistentes', () => {
     const v2 = await h
       .http()
       .post(`/api/projects/${pid}/jobs/${job.id}/objective`)
-      .send({ text: 'Medir retorno por faixa horária do WDO em 2024 e 2025.', reason: 'ampliar amostra', author: 'pesquisador' })
+      .send({ text: 'Medir vendas por faixa horária em 2024 e 2025.', reason: 'ampliar amostra', author: 'pesquisador' })
       .expect(201);
     expect(v2.body.objectiveVersion).toBe(2);
     expect(v2.body.objectives.map((o: any) => o.version)).toEqual([1, 2]);

@@ -4,7 +4,7 @@ import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from '.
 
 /**
  * Executor determinístico de comandos (bash) no workspace do job.
- * NÃO é um modelo de IA: serve para rodar scripts de experimento, validações e coleta de dados.
+ * NÃO é um modelo de IA: roda comandos e validações (etapas determinísticas).
  */
 @Injectable()
 export class LocalShellProvider implements AiProvider {
@@ -24,7 +24,7 @@ export class LocalShellProvider implements AiProvider {
       authenticated: true,
       version: ok ? r.stdout.split('\n')[0] : undefined,
       limits: { observacao: 'limitado por stepTimeoutSec e orçamento de tempo do job' },
-      capabilities: ['executar-comandos', 'experimentos', 'validacao'],
+      capabilities: ['executar-comandos', 'validacao'],
       errors: ok ? [] : [r.spawnError ?? r.stderr],
       checkedAt: new Date().toISOString(),
       isAi: false,
@@ -39,7 +39,6 @@ export class LocalShellProvider implements AiProvider {
         NIVOO_STEP_ID: req.stepId,
         NIVOO_ATTEMPT_ID: req.attemptId,
         NIVOO_OUTPUT_DIR: req.outputDir,
-        NIVOO_DATA_DIR: req.dataDir,
       }),
       timeoutMs: req.timeoutMs,
       signal: req.signal,

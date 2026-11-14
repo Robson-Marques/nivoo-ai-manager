@@ -9,6 +9,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES } from '../security/policy';
 import { WorkspaceService } from '../storage/workspace.service';
+import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
 import { sha256 } from '../common/hash';
 
@@ -17,7 +18,8 @@ const MAX_ARQUIVOS = 300;
 
 /**
  * Responde mensagens da conversa do projeto. Roda no worker, numa CÓPIA DESCARTÁVEL da pasta principal
- * do projeto (com a base da área): a IA lê o que precisar, mas nada do que fizer ali é aproveitado.
+ * do projeto (com contexto/: padrões da base e conhecimento): a IA lê o que precisar, mas nada do que
+ * fizer ali é aproveitado. Sempre com o perfil do projeto e a IA escolhida para ele.
  * Resultado: uma resposta em texto ou um plano (rascunho de job) que só vira trabalho com aprovação.
  */
 @Injectable()
@@ -28,6 +30,7 @@ export class PlannerService {
     private readonly registry: ProviderRegistry,
     private readonly workspace: WorkspaceService,
     private readonly jobs: JobsService,
+    private readonly profiles: ProjectProfileService,
   ) {}
 
   async handle(task: ClaimedTask, workerId: string, signal: AbortSignal): Promise<void> {
@@ -45,22 +48,26 @@ export class PlannerService {
       await this.queue.complete(task.id, workerId);
     };
 
-    const providerId = process.env.NIVOO_PLANNER_PROVIDER ?? 'claude-code-cli';
-    if (!this.registry.has(providerId)) return fail(`Conector do planejador desconhecido: ${providerId}`);
+    // A IA escolhida para o projeto conversa e trabalha; o perfil do projeto vale para qualquer uma.
+    const providerId = project.provider;
+    if (!this.registry.has(providerId)) return fail(`IA desconhecida: ${providerId}`);
     const status = await this.registry.status(providerId, 15_000);
-    if (!status.available) return fail(`A IA da conversa (${providerId}) está indisponível: ${status.errors.join('; ')}. Conecte a conta em Conectores e envie a mensagem de novo.`);
+    if (!status.available) {
+      return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Contas de IA" e envie a mensagem de novo.`);
+    }
 
-    // Cópia descartável: pasta principal do projeto + base da área.
+    // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
     const tmp = path.join(project.workspacePath, 'conversas-tmp', msg.id);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
     try {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
-      this.workspace.copyAreaBaseInto(project.area.slug, tmp);
       this.workspace.sanitizeHarnessFiles(tmp);
+      this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp);
 
-      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project);
+      const profile = await this.profiles.build(project.id);
+      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text);
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -69,7 +76,7 @@ export class PlannerService {
         context: '',
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
-        dataDir: tmp,
+        systemPrompt: profile.text,
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 300) * 1000,
         signal,
         options: { maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25) },
@@ -88,7 +95,8 @@ export class PlannerService {
       else if (result.exitCode !== 0 && !result.sessionEnded) erro = `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
       else if (parsed?.tipo === 'plano') {
         try {
-          plan = this.jobs.validatePlan(parsed.job) as unknown as Prisma.InputJsonValue;
+          // Quem trabalha é sempre a IA escolhida para o projeto.
+          plan = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId }) as unknown as Prisma.InputJsonValue;
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
         } catch (e: any) {
@@ -154,14 +162,12 @@ export class PlannerService {
     return guardados;
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; name: string; description: string; dirKey: string; area: { id: string; name: string; slug: string } }) {
-    const [instr, memoria, historico] = await Promise.all([
-      this.prisma.areaInstruction.findFirst({ where: { areaId: project.area.id }, orderBy: { version: 'desc' } }),
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string) {
+    const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
       this.prisma.conversationMessage.findMany({ where: { conversationId, id: { not: messageId } }, orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
     const arquivos = (await this.workspace.listMainFiles(project.dirKey)).filter((f) => !f.path.startsWith('.'));
-    const base = this.workspace.listAreaFiles(project.area.slug);
     let memTxt = '';
     for (const m of sortMemory(memoria)) {
       const l = memoryLine(m) + '\n';
@@ -173,21 +179,16 @@ export class PlannerService {
       .map((m) => `${m.role === 'USUARIO' ? 'USUÁRIO' : 'IA'}: ${m.kind === 'plano' ? `[plano proposto${m.jobId ? ', aprovado' : ''}] ` : ''}${m.content.slice(0, 3000)}`)
       .join('\n\n');
     return [
-      '# Você é o planejador do Nivoo AI Manager',
+      '# Você é a IA deste projeto no Nivoo',
       '',
-      '## Regras invioláveis',
+      '## Regras de segurança do sistema (invioláveis)',
       ...AGENT_RULES.map((r) => `- ${r}`),
       '- Este diretório é uma CÓPIA DESCARTÁVEL da pasta do projeto: leia o que precisar, mas NÃO crie, altere nem apague arquivos.',
-      '- Você não executa o trabalho: você conversa e, quando fizer sentido, propõe um plano. O usuário aprova; então um job executa.',
+      '- Você não executa o trabalho: você conversa e, quando fizer sentido, propõe um plano. O usuário aprova; então o trabalho é executado.',
       '',
-      `## Área: ${project.area.name} — instruções permanentes (v${instr?.version ?? 0})`,
-      instr?.text ?? '(sem instruções)',
-      `Base de conhecimento da área — padrões que todo projeto da área segue (em area/; leia o que for relevante antes de responder): ${base.slice(0, 300).map((f) => `area/${WorkspaceService.sessionPath(f.path)}`).join(', ') || 'vazia'}${base.length > 300 ? ` … e mais ${base.length - 300}` : ''}`,
-      'Arquivos de configuração de agentes da base aparecem renomeados com "_" (ex.: area/_claude/, area/_CLAUDE.md): leia-os como instruções e padrões.',
+      profileText,
       '',
-      `## Projeto: ${project.name}`,
-      project.description || '(sem descrição)',
-      `Arquivos da pasta principal (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
+      `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
       memTxt || '(vazia)',
@@ -198,11 +199,13 @@ export class PlannerService {
       '## Como responder',
       'Fale de forma simples e direta, em português, sem jargão técnico: o usuário não é programador.',
       'Responda perguntas diretamente. Quando houver trabalho a fazer (criar, alterar ou organizar arquivos), proponha um plano.',
+      'ESCOPO: se o pedido estiver fora do escopo do projeto ou contrariar as regras da base ou do projeto, NÃO proponha plano:',
+      'responda (tipo "resposta") explicando, com educação, por que não pode e o que é possível dentro do projeto.',
       'Termine SEMPRE com UM bloco ```json``` em um destes formatos:',
       '1) {"tipo":"resposta","texto":"..."} — para perguntas, esclarecimentos ou quando faltar informação (pergunte o que precisar).',
       '2) {"tipo":"plano","texto":"explicação curta para o usuário","job":{...}} — quando houver trabalho a executar.',
       'Formato do job:',
-      '{"title":"...","objective":"objetivo completo e verificável","defaultProvider":"claude-code-cli",',
+      '{"title":"...","objective":"objetivo completo e verificável",',
       ' "steps":[{"key":"etapa1","title":"...","instructions":"o que a IA deve fazer","dependsOn":[],',
       '           "verifyCommand":"comando bash que retorna 0 quando a etapa está pronta, ex.: test -s docs/briefing.md"}],',
       ' "criteria":[{"key":"...","description":"...","kind":"FILE_EXISTS","config":{"path":"docs/briefing.md"}}]}',
@@ -213,7 +216,8 @@ export class PlannerService {
       '- out/ é só para evidências e relatórios (viram artefatos com hash; não ficam na pasta principal).',
       '- Critérios: FILE_EXISTS {"path"}, COMMAND {"command"}, ARTIFACT_PRESENT {"name": arquivo em out/},',
       '  METRIC_THRESHOLD {"artifact","path","op","value"}, MANUAL_APPROVAL {} (use para qualidade subjetiva, ex.: estética).',
-      '- Respeite as instruções da área, a base de conhecimento e a memória do projeto.',
+      '- Respeite o perfil do projeto (regras da base, regras do projeto, conhecimento) e a memória.',
+      '- Não inclua etapa de revisão das regras: o sistema acrescenta sozinho uma conferência independente no fim.',
       '- No "texto" de um plano, explique em palavras simples o que será feito (sem falar de critérios, JSON ou comandos).',
       '',
       '## Memória do projeto (obrigatório)',

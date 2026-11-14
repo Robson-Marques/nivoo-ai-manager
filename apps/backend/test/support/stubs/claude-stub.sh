@@ -13,14 +13,35 @@ esac
 prompt=$(cat)
 echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
+if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
+  # Conferência das regras: guarda o prompt do revisor e grava o relatório pedido.
+  echo "$prompt" > "$CTL/prompt-revisor.txt"
+  CONFORME=$(cat "$CTL/conforme" 2>/dev/null || echo true)
+  mkdir -p out
+  if [ "$CONFORME" = true ]; then
+    echo '{"conforme": true, "violacoes": [], "corrigido": [], "observacoes": "stub"}' > out/conferencia-regras.json
+  else
+    echo '{"conforme": false, "violacoes": ["regra X descumprida (stub)"], "corrigido": []}' > out/conferencia-regras.json
+  fi
+  echo '{"type":"result","subtype":"success","is_error":false,"result":"conferido","session_id":"stub-revisor","total_cost_usd":0.01,"terminal_reason":"completed"}'
+  exit 0
+fi
 if [ "$MODE" = "texto" ]; then
   # Devolve como resposta final o conteúdo de $CTL/resposta.txt (usado para simular a IA da conversa).
   python3 -c 'import json,sys; print(json.dumps({"type":"result","subtype":"success","is_error":False,"terminal_reason":"completed","session_id":"stub-conversa","total_cost_usd":0.02,"result":open(sys.argv[1]).read()}))' "$CTL/resposta.txt"
   exit 0
 fi
+if [ "$MODE" = "bash" ]; then
+  # Executa como comando bash o texto da "Tarefa desta etapa" (usado pelo teste de tela do chat).
+  tarefa=$(printf '%s' "$prompt" | sed -n '/^## Tarefa desta etapa/,$p' | tail -n +2)
+  bash -c "$tarefa" > /dev/null 2>&1
+  echo '{"type":"result","subtype":"success","is_error":false,"result":"feito","session_id":"stub-bash","total_cost_usd":0.01,"terminal_reason":"completed"}'
+  exit 0
+fi
 if [ "$MODE" = "violar" ]; then
-  # Simula um agente que escreve fora do workspace (no diretório de dados do projeto).
-  echo invasao > "$NIVOO_DATA_DIR/invasao.txt"
+  # Simula um agente que escreve fora do workspace: no conhecimento original do projeto
+  # (o worktree fica em <projeto>/worktrees/<job>; o conhecimento em <projeto>/conhecimento).
+  echo invasao > "$PWD/../../conhecimento/invasao.txt"
   echo '{"type":"result","subtype":"success","is_error":false,"result":"feito","session_id":"stub-violar","total_cost_usd":0.5,"terminal_reason":"completed"}'
   exit 0
 fi

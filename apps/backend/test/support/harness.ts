@@ -43,12 +43,11 @@ export async function createHarness(): Promise<Harness> {
 export async function truncateAll(prisma: PrismaService): Promise<void> {
   await prisma.$executeRawUnsafe(`
     TRUNCATE "QueueTask", "LogEntry", "CriterionCheck", "AcceptanceCriterion", "Attempt", "Checkpoint", "Artifact",
-      "Approval", "Step", "JobObjectiveVersion", "Experiment", "Job", "Hypothesis", "ResearchAsset", "Research",
-      "Dataset", "MemoryEntry", "ConversationMessage", "Conversation", "ProjectInvariant", "Project",
-      "AreaInstruction", "Area", "ProviderConfig", "WorkerHeartbeat" CASCADE`);
-  // A área Mercado (modelo pronto) é recriada como na inicialização da API.
+      "Approval", "Step", "JobObjectiveVersion", "Job", "MemoryEntry", "ConversationMessage", "Conversation",
+      "ProjectRule", "Project", "AreaInstruction", "Area", "ProviderConfig", "WorkerHeartbeat" CASCADE`);
+  // A base padrão ("Geral") é recriada como na inicialização da API.
   const { AreasService } = await import('../../src/areas/areas.service');
-  const svc = new AreasService(prisma, new (await import('../../src/storage/workspace.service')).WorkspaceService(), null as any);
+  const svc = new AreasService(prisma, new (await import('../../src/storage/workspace.service')).WorkspaceService());
   await svc.ensureDefaultAreas();
 }
 
@@ -91,5 +90,5 @@ export function killHard(child: ChildProcess): Promise<void> {
 
 export async function createProject(h: Harness, name: string) {
   const res = await h.http().post('/api/projects').send({ name, description: `Projeto de teste ${name}` }).expect(201);
-  return res.body as { id: string; slug: string; workspacePath: string };
+  return res.body as { id: string; slug: string; dirKey: string; workspacePath: string };
 }

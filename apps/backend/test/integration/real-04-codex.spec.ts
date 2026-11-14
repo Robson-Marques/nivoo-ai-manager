@@ -33,7 +33,7 @@ d('Codex CLI real', () => {
     worker = spawnNode('worker.js', { NIVOO_WORKER_ID: 'worker-codex' });
     const p = await createProject(h, 'codex real');
     const job = (await h.http().post(`/api/projects/${p.id}/jobs`).send({
-      title: 'codex', objective: 'Criar out/ola.txt contendo exatamente nivoo.', defaultProvider: 'codex-cli',
+      title: 'codex', objective: 'Criar out/ola.txt contendo exatamente nivoo.', defaultProvider: 'codex-cli', conferencia: false,
       limits: { maxSessionsPerStep: 3, maxCostUsd: 1 },
       steps: [{ key: 'criar', instructions: 'Crie o arquivo out/ola.txt contendo exatamente a palavra nivoo.', verifyCommand: 'grep -qx nivoo out/ola.txt' }],
       criteria: [{ key: 'c', description: 'arquivo', kind: 'COMMAND', config: { command: 'grep -qx nivoo out/ola.txt' } }],

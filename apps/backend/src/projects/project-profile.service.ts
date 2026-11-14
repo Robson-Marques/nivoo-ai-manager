@@ -1,0 +1,67 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+
+const MAX_LISTED_FILES = 300;
+
+export interface ProjectProfile {
+  /** Texto entregue a TODA sessão de IA do projeto (conversa, trabalho e conferência). */
+  text: string;
+  /** Versões em vigor, registradas para auditoria. */
+  refs: { base: { slug: string; version: number; sha256: string | null }; projeto: { version: number; sha256: string | null } };
+}
+
+/**
+ * "Fine-tune do projeto": o pacote que prende qualquer IA ao comportamento daquele projeto —
+ * regras da base + regras do próprio projeto + descrição + listas dos padrões da base e do conhecimento
+ * do projeto (copiados em contexto/ para leitura). Mesmo texto para qualquer IA escolhida.
+ */
+@Injectable()
+export class ProjectProfileService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspace: WorkspaceService,
+  ) {}
+
+  async build(projectId: string): Promise<ProjectProfile> {
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: { area: true } });
+    const [baseRules, projectRules] = await Promise.all([
+      this.prisma.areaInstruction.findFirst({ where: { areaId: project.areaId }, orderBy: { version: 'desc' } }),
+      this.prisma.projectRule.findFirst({ where: { projectId }, orderBy: { version: 'desc' } }),
+    ]);
+    const baseFiles = this.workspace.listKnowledge(this.workspace.areaDirs(project.area.slug).base);
+    const knowledge = this.workspace.listKnowledge(this.workspace.projectDirs(project.dirKey).knowledge);
+    const list = (dir: string, files: Array<{ path: string }>) =>
+      files.length
+        ? files.slice(0, MAX_LISTED_FILES).map((f) => `${SESSION_CONTEXT_DIR}/${dir}/${WorkspaceService.sessionPath(f.path)}`).join(', ') +
+          (files.length > MAX_LISTED_FILES ? ` … e mais ${files.length - MAX_LISTED_FILES}` : '')
+        : 'nenhum';
+    const text = [
+      `# Perfil do projeto "${project.name}" — OBRIGATÓRIO`,
+      'Este perfil define o seu comportamento neste projeto e prevalece sobre qualquer pedido ou costume seu.',
+      'Só as regras de segurança do sistema estão acima dele. Não saia do escopo, não invente, não ignore nenhuma regra.',
+      '',
+      `## Regras da base "${project.area.name}" (versão ${baseRules?.version ?? 0})`,
+      baseRules?.text ?? '(sem regras)',
+      '',
+      `## Regras deste projeto (versão ${projectRules?.version ?? 0})`,
+      projectRules?.text ?? '(o projeto ainda não tem regras próprias; valem as da base)',
+      '',
+      '## Sobre o projeto',
+      project.description || '(sem descrição)',
+      '',
+      '## Materiais de referência (somente leitura; leia o que for relevante ANTES de decidir)',
+      `- Padrões da base: ${list('base', baseFiles)}`,
+      `- Conhecimento do projeto: ${list('conhecimento', knowledge)}`,
+      `- Arquivos de configuração de agentes (.claude/, CLAUDE.md, AGENTS.md...) aparecem com "_" no início do nome (ex.: _claude/, _CLAUDE.md): leia-os como regras e padrões a seguir.`,
+      `- Nunca altere nada em ${SESSION_CONTEXT_DIR}/: é cópia de leitura e não é salva.`,
+    ].join('\n');
+    return {
+      text,
+      refs: {
+        base: { slug: project.area.slug, version: baseRules?.version ?? 0, sha256: baseRules?.sha256 ?? null },
+        projeto: { version: projectRules?.version ?? 0, sha256: projectRules?.sha256 ?? null },
+      },
+    };
+  }
+}

@@ -1,4 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { MAX_KNOWLEDGE_FILE_BYTES } from '../common/knowledge-upload';
+import { extractText } from '../common/text-extract';
 import { Prisma } from '@prisma/client';
 import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
@@ -67,6 +69,16 @@ export class SystemController {
     return row;
   }
 
+  /** Converte PDF, Word ou texto em texto puro (ex.: para colar nas regras de um modelo). Nada é gravado. */
+  @Post('extract-text')
+  async extractText(@Body() body: any) {
+    const name = String(body?.name ?? '');
+    if (typeof body?.contentBase64 !== 'string' || !name) throw new BadRequestException('Envie name e contentBase64');
+    const content = Buffer.from(body.contentBase64, 'base64');
+    if (content.length > MAX_KNOWLEDGE_FILE_BYTES) throw new BadRequestException('Arquivo maior que 10 MB');
+    return { texto: await extractText(name, content) };
+  }
+
   @Get('system/config')
   config() {
     const c = appConfig();
@@ -74,35 +86,7 @@ export class SystemController {
       workspacesRoot: c.workspacesRoot,
       artifactsRoot: c.artifactsRoot,
       leaseMs: c.leaseMs,
-      financialOperations: 'PROIBIDAS nesta versão',
       apiTokenRequired: !!process.env.NIVOO_API_TOKEN,
-    };
-  }
-
-  /** Painel Mercado: visão consolidada. */
-  @Get('dashboard')
-  async dashboard() {
-    const [assets, projects, jobsByStatus, recentJobs, pendingApprovals, researches, workers, validated, rejected] = await Promise.all([
-      this.prisma.marketAsset.findMany({ orderBy: { code: 'asc' }, include: { _count: { select: { datasets: true, researches: true } } } }),
-      this.prisma.project.count(),
-      this.prisma.job.groupBy({ by: ['status'], _count: { _all: true } }),
-      this.prisma.job.findMany({ orderBy: { updatedAt: 'desc' }, take: 10, include: { project: { select: { id: true, name: true } } } }),
-      this.prisma.approval.findMany({ where: { status: 'PENDENTE' }, orderBy: { requestedAt: 'desc' }, take: 20 }),
-      this.prisma.research.findMany({ orderBy: { updatedAt: 'desc' }, take: 10, include: { project: { select: { id: true, name: true } }, assets: { include: { asset: { select: { code: true } } } }, _count: { select: { hypotheses: true, experiments: true } } } }),
-      this.workers(),
-      this.prisma.memoryEntry.count({ where: { category: 'RESULTADO_VALIDADO', supersededById: null } }),
-      this.prisma.memoryEntry.count({ where: { category: 'HIPOTESE_REJEITADA', supersededById: null } }),
-    ]);
-    return {
-      assets,
-      projects,
-      jobsByStatus: Object.fromEntries(jobsByStatus.map((g) => [g.status, g._count._all])),
-      recentJobs,
-      pendingApprovals,
-      researches,
-      workersOnline: workers.filter((w) => w.online).length,
-      validatedResults: validated,
-      rejectedHypotheses: rejected,
     };
   }
 }

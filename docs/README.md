@@ -6,19 +6,19 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 
 **Quem vai conhecer o projeto (gestor, novo responsável):**
 1. [`../README.md`](../README.md) — o que é, para que serve, componentes.
-2. [`ESTADO.md`](ESTADO.md) — o que está pronto, o que foi provado (com executor real ou simulado) e o que está bloqueado.
-3. [`DECISOES.md`](DECISOES.md) — por que cada escolha foi feita (ADR-001 a 040).
+2. [`ESTADO.md`](ESTADO.md) — o que está pronto, o que foi provado (com IA real ou simulada) e o que falta.
+3. [`DECISOES.md`](DECISOES.md) — por que cada escolha foi feita (ADR-001 a 046).
 
 **Quem vai instalar e operar o servidor:**
 1. [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) — instalação em Debian como root, passo a passo para copiar e colar.
    (ou entregue [`PROMPT-INSTALACAO-AGENTE.md`](PROMPT-INSTALACAO-AGENTE.md) a um agente de IA com acesso ao servidor)
-2. [`OPERACAO.md`](OPERACAO.md) — fluxo de trabalho, critérios, estados, variáveis de ambiente, limitações.
-3. [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) — login oficial do Claude Code e do Codex e as provas reais.
+2. [`OPERACAO.md`](OPERACAO.md) — como usar (modelo → projeto → chat → Fazer → conferência → pronto), variáveis de ambiente, limitações.
+3. [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) — como conectar Claude, ChatGPT e Gemini e rodar as provas reais.
 
 **Quem vai desenvolver:**
-1. [`GUIA-DESENVOLVEDOR.md`](GUIA-DESENVOLVEDOR.md) — mapa do código, ciclo de vida de um job, como rodar, testar e estender.
-2. [`ARQUITETURA.md`](ARQUITETURA.md) — desenho do sistema: fila, execução durável, sessões de IA, memória, segurança.
-3. [`API.md`](API.md) — todas as rotas da API com exemplos.
+1. [`GUIA-DESENVOLVEDOR.md`](GUIA-DESENVOLVEDOR.md) — mapa do código, ciclo de vida de um trabalho, como rodar, testar e estender.
+2. [`ARQUITETURA.md`](ARQUITETURA.md) — desenho do sistema: fila, execução durável, fine-tune do projeto, trava, contas, segurança.
+3. [`API.md`](API.md) — todas as rotas da API.
 4. [`DECISOES.md`](DECISOES.md) — antes de mudar algo estrutural, veja se já existe decisão sobre isso.
 
 ## Todos os documentos
@@ -34,11 +34,14 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 | [`OPERACAO.md`](OPERACAO.md) | Uso do dia a dia, configuração e limitações conhecidas. |
 | [`INSTALACAO-DEBIAN.md`](INSTALACAO-DEBIAN.md) | Instalação de produção em Debian, como root, sem sudo. |
 | [`PROMPT-INSTALACAO-AGENTE.md`](PROMPT-INSTALACAO-AGENTE.md) | Prompt pronto para um agente de IA instalar o Nivoo num servidor Linux. |
-| [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) | Login oficial dos executores de IA e como rodar as provas reais. |
-| [`AUDITORIA.md`](AUDITORIA.md) | Lacunas encontradas na V1 que motivaram a etapa de continuidade real. |
-| [`REVISAO-2026-11-02.md`](REVISAO-2026-11-02.md) | Revisão independente do código: 10 problemas, correções e testes. |
-| [`AVALIACAO-ECC.md`](AVALIACAO-ECC.md) | Avaliação do projeto ECC: o que foi aproveitado, o que foi rejeitado e por quê. |
+| [`PROCEDIMENTO-CLI.md`](PROCEDIMENTO-CLI.md) | Conexão das IAs (tela e terminal) e como rodar as provas reais. |
+| [`AUDITORIA.md`](AUDITORIA.md) | Histórico: lacunas da V1 que motivaram a etapa de continuidade real. |
+| [`REVISAO-2026-11-02.md`](REVISAO-2026-11-02.md) | Histórico: revisão independente do código (10 problemas, correções e testes). |
+| [`AVALIACAO-ECC.md`](AVALIACAO-ECC.md) | Histórico: avaliação do projeto ECC — o que foi aproveitado e por quê. |
 | [`evidencias/`](evidencias/) | Dados brutos das execuções reais (sessões, prompts, critérios, relatórios), por data. |
+
+Os três documentos históricos e parte das evidências se referem ao antigo módulo Mercado (WIN/WDO,
+datasets, hipóteses), removido em 2026-11-14.
 
 ## Onde está o código
 

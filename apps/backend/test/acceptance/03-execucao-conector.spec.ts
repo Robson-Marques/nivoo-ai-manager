@@ -1,8 +1,8 @@
 /**
- * Critérios V1: execução de uma tarefa por conector disponível; registro de logs e artefatos.
+ * Execução de uma tarefa por conector disponível; registro de logs e artefatos.
  * Conector usado: local-shell (executor real, determinístico — não é IA e não é simulado).
- * Os conectores de IA (Claude Code CLI / Codex CLI / APIs) são verificados quanto a
- * disponibilidade real neste host; não são simulados.
+ * Os conectores de IA (Claude, ChatGPT/Codex, Gemini) são verificados quanto à disponibilidade real
+ * neste host; não são simulados.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -15,7 +15,6 @@ describe('Execução por conector, logs e artefatos', () => {
   beforeAll(async () => {
     h = await createHarness();
     await truncateAll(h.prisma);
-    await h.app.get(require('../../src/market/market.service').MarketService).ensureAssets();
     h.worker.start();
   });
   afterAll(() => h.close());
@@ -23,7 +22,7 @@ describe('Execução por conector, logs e artefatos', () => {
   it('lista conectores com disponibilidade, limites e erros reais', async () => {
     const res = await h.http().get('/api/providers').expect(200);
     const ids = res.body.map((p: any) => p.id).sort();
-    expect(ids).toEqual(['anthropic-api', 'claude-code-cli', 'codex-cli', 'local-shell', 'openai-api']);
+    expect(ids).toEqual(['claude-code-cli', 'codex-cli', 'gemini-cli', 'local-shell']);
     for (const p of res.body) {
       expect(typeof p.available).toBe('boolean');
       expect(Array.isArray(p.errors)).toBe(true);
@@ -37,16 +36,13 @@ describe('Execução por conector, logs e artefatos', () => {
 
   it('executa job completo: etapas, logs, artefatos com sha256, checkpoints git e conclusão verificada', async () => {
     const p = await createProject(h, 'Execução');
-    const r = await h.http().post(`/api/projects/${p.id}/researches`).send({ title: 'r', question: 'q', assetCodes: ['WIN'] }).expect(201);
-    const hyp = await h.http().post(`/api/projects/${p.id}/researches/${r.body.id}/hypotheses`).send({ statement: 'h1' }).expect(201);
     const job = (
       await h
         .http()
         .post(`/api/projects/${p.id}/jobs`)
         .send({
-          title: 'Experimento média móvel (somente medição)',
-          objective: 'Calcular métricas de um experimento e registrar evidências.',
-          researchId: r.body.id,
+          title: 'Relatório com métricas',
+          objective: 'Gerar parâmetros, métricas e relatório e registrar evidências.',
           defaultProvider: 'local-shell',
           steps: [
             { key: 'codigo', instructions: 'mkdir -p src && printf "janela=20\\n" > src/params.txt && echo "codigo gravado"' },
@@ -63,7 +59,6 @@ describe('Execução por conector, logs e artefatos', () => {
             { key: 'codigo', description: 'parâmetros versionados', kind: 'FILE_EXISTS', config: { path: 'src/params.txt' } },
             { key: 'teste', description: 'comando de verificação', kind: 'COMMAND', config: { command: 'grep -q janela=20 src/params.txt' } },
           ],
-          experiment: { name: 'MM20', hypothesisId: hyp.body.id, parameters: { janela: 20 } },
         })
         .expect(201)
     ).body;
@@ -121,26 +116,11 @@ describe('Execução por conector, logs e artefatos', () => {
     expect(tracked).not.toMatch(/^out\//m);
     expect(tracked).not.toMatch(/^\.nivoo\//m);
 
-    // Experimento vinculado a dados reproduzíveis e memória de evidência.
-    expect(done.experiment.status).toBe('CONCLUIDO');
-    expect(done.experiment.metrics).toEqual({ sharpe: 1.42, trades: 118 });
-    expect(done.experiment.codeRef).toMatch(/^[0-9a-f]{40}$/);
+    // Evidência na memória do projeto, com artefatos e commit.
     const mem = (await h.http().get(`/api/projects/${p.id}/memory?category=EVIDENCIA`).expect(200)).body;
     expect(mem).toHaveLength(1);
     expect(mem[0].references.artifactIds).toContain(metrics.id);
-    expect(mem[0].references.experimentIds).toEqual([done.experiment.id]);
-
-    // Com experimento verificado, a hipótese pode ser VALIDADA e vira RESULTADO_VALIDADO com referências.
-    await h
-      .http()
-      .patch(`/api/projects/${p.id}/hypotheses/${hyp.body.id}`)
-      .send({ status: 'VALIDADA', conclusion: 'sharpe 1.42 no conjunto de treino', experimentIds: [done.experiment.id] })
-      .expect(200);
-    const validated = (await h.http().get(`/api/projects/${p.id}/memory?category=RESULTADO_VALIDADO`).expect(200)).body;
-    expect(validated[0].references.gitCommit).toBe(done.experiment.codeRef);
-    const cmp = (await h.http().get(`/api/projects/${p.id}/researches/${r.body.id}/experiments/compare`).expect(200)).body;
-    expect(cmp.rows[0]).toMatchObject({ name: 'MM20', verified: true });
-    expect(cmp.metricKeys).toEqual(['sharpe', 'trades']);
+    expect(mem[0].references.gitCommit).toMatch(/^[0-9a-f]{40}$/);
   });
 
   it('SSE entrega estado e logs em tempo real', async () => {

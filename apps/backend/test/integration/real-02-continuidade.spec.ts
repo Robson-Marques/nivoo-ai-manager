@@ -31,15 +31,14 @@ d('Continuidade real entre sessões e workers', () => {
 
   it('trabalho atravessa várias sessões e uma queda de worker sem perder objetivo, decisões, hipóteses, notas e artefatos', async () => {
     const p = await createProject(h, 'continuidade real');
-    const r = (await h.http().post(`/api/projects/${p.id}/researches`).send({ title: 'Indicadores', question: 'Indicadores de reversão à média são úteis no WIN?', assetCodes: ['WIN'] }).expect(201)).body;
-    await h.http().post(`/api/projects/${p.id}/researches/${r.id}/hypotheses`).send({ statement: 'H-CONT-7Q: o z-score de 20 períodos identifica excessos que revertem', rationale: 'código de rastreio H-CONT-7Q' }).expect(201);
+    await h.http().post(`/api/projects/${p.id}/memory`).send({ category: 'ESPECIFICACAO', title: 'H-CONT-7Q: hipótese em investigação', content: 'Hipótese H-CONT-7Q: o z-score de 20 períodos identifica excessos que revertem.', author: 'operador' }).expect(201);
     await h.http().post(`/api/projects/${p.id}/memory`).send({ category: 'DECISAO_APROVADA', title: 'D-JAN-20: janela padrão', content: 'Decisão D-JAN-20: a janela padrão dos indicadores é 20 períodos.', author: 'operador' }).expect(201);
 
     const job = (await h.http().post(`/api/projects/${p.id}/jobs`).send({
       title: 'indicadores em várias sessões',
       objective: OBJETIVO,
-      researchId: r.id,
       defaultProvider: 'claude-code-cli',
+      conferencia: false, // este teste mede continuidade; a conferência das regras tem prova própria (real-06)
       limits: { maxSessionsPerStep: 12, maxCostUsd: 6, stepTimeoutSec: 300, maxDurationSec: 3600, repetitionWindow: 3 },
       steps: [
         {
