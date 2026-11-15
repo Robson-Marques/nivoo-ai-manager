@@ -4,6 +4,7 @@ import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto }
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
+import { Icone } from './Contas';
 import { SeletorModelo } from '../Pecas';
 
 /**
@@ -21,15 +22,35 @@ export const NOME_IA: Record<string, string> = {
   'gemini-api': 'Gemini (API)',
 };
 
-const MEMORIA_GRUPOS: Array<{ titulo: string; filtro: (m: any) => boolean }> = [
-  { titulo: 'Decisões', filtro: (m) => m.category === 'DECISAO_APROVADA' },
-  { titulo: 'Preferências e regras', filtro: (m) => m.category === 'ARQUITETURA_RESTRICOES' },
-  { titulo: 'Informações do projeto', filtro: (m) => m.category === 'ESPECIFICACAO' },
-  { titulo: 'Combinados e próximos passos', filtro: (m) => m.category === 'PENDENCIA' && !['licao-automatica', 'notas-do-agente'].includes(m.references?.origem) },
-  { titulo: 'Lições aprendidas', filtro: (m) => m.references?.origem === 'licao-automatica' },
-  { titulo: 'Resultados', filtro: (m) => m.category === 'EVIDENCIA' },
-  { titulo: 'Anotações da IA', filtro: (m) => m.references?.origem === 'notas-do-agente' },
+/**
+ * Grupos da memória, cada item em UM grupo só (a primeira regra que bater). Na tela, o que o usuário combinou
+ * vem primeiro; as anotações de trabalho da IA ficam por último e recolhidas.
+ */
+type GrupoMemoria = { chave: string; titulo: string; filtro: (m: any) => boolean; recolhido?: boolean };
+const MEMORIA_GRUPOS: GrupoMemoria[] = [
+  { chave: 'decisoes', titulo: 'Decisões', filtro: (m) => m.category === 'DECISAO_APROVADA' },
+  { chave: 'combinados', titulo: 'Combinados e próximos passos', filtro: (m) => m.category === 'PENDENCIA' },
+  { chave: 'preferencias', titulo: 'Preferências e regras', filtro: (m) => m.category === 'ARQUITETURA_RESTRICOES' },
+  { chave: 'sobre', titulo: 'Sobre o projeto', filtro: (m) => m.category === 'ESPECIFICACAO' },
+  { chave: 'concluidos', titulo: 'Trabalhos concluídos', filtro: (m) => m.category === 'EVIDENCIA' },
+  { chave: 'licoes', titulo: 'Lições', filtro: () => false },
+  { chave: 'anotacoes', titulo: 'Anotações de trabalho da IA', filtro: () => false, recolhido: true },
 ];
+
+/** Em qual grupo o item entra (origem vem antes da categoria: nota da IA nunca aparece como "resultado"). */
+function grupoDaMemoria(m: any): string {
+  if (m.references?.origem === 'notas-do-agente') return 'anotacoes';
+  if (m.references?.origem === 'licao-automatica') return 'licoes';
+  return MEMORIA_GRUPOS.find((g) => g.filtro(m))?.chave ?? 'sobre';
+}
+
+/** Texto do item: resultado conferido pelo sistema mostra a data; o resto, o conteúdo. */
+function textoDaMemoria(m: any): string {
+  if (grupoDaMemoria(m) === 'concluidos' && m.references?.gitCommit) {
+    return `Concluído e conferido em ${new Date(m.createdAt).toLocaleDateString('pt-BR')}.`;
+  }
+  return m.content;
+}
 
 const MOTIVO: Record<string, string> = {
   CRITERIOS_NAO_ATENDIDOS: 'o resultado não passou na conferência',
@@ -469,6 +490,7 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
   const projetoId = projeto.id;
   const [aba, setAba] = useState<'memoria' | 'arquivos' | 'git' | 'ajustes'>('memoria');
   const [memoria, setMemoria] = useState<any[] | null>(null);
+  const [abertos, setAbertos] = useState<string[]>([]); // grupos recolhidos que o usuário abriu
   const [arquivos, setArquivos] = useState<any[] | null>(null);
   const [aberto, setAberto] = useState<{ path: string; conteudo: string } | null>(null);
   const carregar = useCallback(async () => {
@@ -490,7 +512,7 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
   return (
     <aside className="painel">
       <div className="abas">
-        <button className={aba === 'memoria' ? 'tab active' : 'tab'} onClick={() => setAba('memoria')}>O que o projeto lembra</button>
+        <button className={aba === 'memoria' ? 'tab active' : 'tab'} onClick={() => setAba('memoria')}>Memória</button>
         <button className={aba === 'arquivos' ? 'tab active' : 'tab'} onClick={() => setAba('arquivos')}>Arquivos</button>
         <button className={aba === 'git' ? 'tab active' : 'tab'} onClick={() => setAba('git')}>Git</button>
         <button className={aba === 'ajustes' ? 'tab active' : 'tab'} onClick={() => setAba('ajustes')}>Ajustes</button>
@@ -502,14 +524,21 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
           {memoria && memoria.length === 0 && <p className="muted small">Ainda nada. Conforme vocês conversam, decisões e informações importantes aparecem aqui.</p>}
           {memoria &&
             MEMORIA_GRUPOS.map((g) => {
-              const itens = memoria.filter(g.filtro);
+              const itens = memoria.filter((m) => grupoDaMemoria(m) === g.chave).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
               if (!itens.length) return null;
+              const fechado = g.recolhido && !abertos.includes(g.chave);
               return (
-                <div key={g.titulo} className="mem-grupo">
-                  <h3>{g.titulo}</h3>
-                  {itens.map((m) => (
-                    <ItemDaMemoria key={m.id} m={m} texto={m.category === 'EVIDENCIA' && m.references?.gitCommit ? 'Concluído e conferido pelo sistema.' : m.content} onEsquecer={() => esquecer(m)} />
-                  ))}
+                <div key={g.chave} className="mem-grupo">
+                  <button className="mem-cabeca" onClick={() => setAbertos(abertos.includes(g.chave) ? abertos.filter((x) => x !== g.chave) : [...abertos, g.chave])} disabled={!g.recolhido}>
+                    <h3>{g.titulo}</h3>
+                    <span className="mem-conta">{itens.length}</span>
+                    {g.recolhido && <Icone nome={fechado ? 'abaixo' : 'acima'} />}
+                  </button>
+                  {fechado ? (
+                    <p className="muted small mem-dica">Progresso que a IA anota enquanto trabalha (para continuar de onde parou). Clique para ver.</p>
+                  ) : (
+                    itens.map((m) => <ItemDaMemoria key={m.id} m={m} texto={textoDaMemoria(m)} onEsquecer={() => esquecer(m)} />)
+                  )}
                 </div>
               );
             })}
@@ -626,25 +655,26 @@ function ItemDaMemoria({ m, texto, onEsquecer }: { m: any; texto: string; onEsqu
   const [copiado, setCopiado] = useState(false);
   return (
     <div className={aberto ? 'mem-item aberto' : 'mem-item'}>
-      <div className="mem-corpo">
-        <button className="mem-titulo" onClick={() => setAberto(!aberto)} title={aberto ? 'Recolher' : 'Ler inteiro'}>
-          <b>{m.title}</b>
-        </button>
-        <div className="small" onClick={() => !aberto && setAberto(true)}>{texto}</div>
-      </div>
+      <button className="mem-corpo" onClick={() => setAberto(!aberto)} title={aberto ? 'Recolher' : 'Ler inteiro'}>
+        <b>{m.title}</b>
+        <span className="small">{texto}</span>
+      </button>
       <div className="mem-acoes">
-        <button className="link" onClick={() => setAberto(!aberto)}>{aberto ? 'recolher' : 'abrir'}</button>
         <button
-          className="link"
+          className="icone-botao"
+          title={copiado ? 'Copiado' : 'Copiar'}
+          aria-label="Copiar"
           onClick={async () => {
             await copiarTexto(`${m.title}\n${texto}`);
             setCopiado(true);
             setTimeout(() => setCopiado(false), 2000);
           }}
         >
-          {copiado ? 'copiado' : 'copiar'}
+          <Icone nome={copiado ? 'ok' : 'copiar'} />
         </button>
-        <button className="link" title="Esquecer" onClick={onEsquecer}>esquecer</button>
+        <button className="icone-botao perigo" title="Esquecer (a IA deixa de considerar)" aria-label="Esquecer" onClick={onEsquecer}>
+          <Icone nome="lixeira" />
+        </button>
       </div>
     </div>
   );

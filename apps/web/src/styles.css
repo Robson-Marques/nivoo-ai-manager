@@ -110,12 +110,20 @@ textarea { resize: vertical; line-height: 1.5; }
 .painel .lista { overflow: auto; padding: 10px 14px; flex: 1; }
 .mem-grupo h3 { font-size: 12px; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
 .mem-item { display: flex; gap: 6px; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
-.mem-item .small { white-space: pre-wrap; max-height: 54px; overflow: hidden; cursor: pointer; user-select: text; }
-.mem-item.aberto .small { max-height: none; cursor: auto; }
-.mem-corpo { min-width: 0; flex: 1; }
-.mem-titulo { all: unset; cursor: pointer; display: block; }
-.mem-titulo:focus-visible { outline: 2px solid var(--accent); }
-.mem-acoes { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.mem-item { align-items: flex-start; }
+.mem-corpo { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.mem-corpo:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.mem-corpo b { font-size: 13px; line-height: 1.3; }
+.mem-corpo .small { white-space: pre-wrap; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; user-select: text; }
+.mem-item.aberto .mem-corpo .small { display: block; -webkit-line-clamp: unset; color: var(--text); }
+.mem-acoes { display: flex; gap: 0; flex: none; opacity: .55; }
+.mem-item:hover .mem-acoes, .mem-item.aberto .mem-acoes { opacity: 1; }
+.mem-acoes .icone-botao { width: 26px; height: 26px; }
+.mem-cabeca { all: unset; display: flex; align-items: center; gap: 6px; width: 100%; margin: 14px 0 4px; cursor: pointer; }
+.mem-cabeca:disabled { cursor: default; }
+.mem-cabeca h3 { margin: 0; }
+.mem-conta { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+.mem-dica { margin: 0 0 6px; }
 .detalhes-parada { margin-top: 6px; }
 .detalhes-parada pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-height: 280px; overflow: auto; user-select: text; }
 .arquivo { display: block; width: 100%; text-align: left; background: none; color: var(--accent); padding: 5px 2px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }

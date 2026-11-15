@@ -174,7 +174,7 @@ const plano = {
     // 4. Conversa → plano → Fazer → conferência → pronto
     fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
     fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify(plano) + '\n```');
-    await page.getByRole('button', { name: 'O que o projeto lembra' }).click();
+    await page.getByRole('button', { name: 'Memória', exact: true }).click();
     await page.getByPlaceholder(/Escreva sua mensagem/).fill('Quero o cardápio com Margherita, tom alegre');
     await page.keyboard.press('Enter');
     await page.getByText('Posso fazer isto:').waitFor({ timeout: 60000 });
@@ -193,10 +193,13 @@ const plano = {
     await shot(page, '7-pronto-memoria');
     // Item da memória abre para ler inteiro e copiar.
     const item = page.locator('.mem-item', { hasText: 'Tom das peças' });
-    await item.getByRole('button', { name: 'abrir' }).click();
+    await item.locator('.mem-corpo').click();
     await page.locator('.mem-item.aberto', { hasText: 'Tom alegre e familiar.' }).waitFor();
-    await item.getByRole('button', { name: 'copiar' }).click();
-    await item.getByRole('button', { name: 'copiado' }).waitFor();
+    await item.getByRole('button', { name: 'Copiar' }).click();
+    await item.locator('[title="Copiado"]').waitFor();
+    // Cada item em um grupo só; anotações de trabalho da IA ficam recolhidas.
+    if ((await page.locator('.mem-item', { hasText: 'Tom das peças' }).count()) !== 1) throw new Error('item repetido em mais de um grupo');
+    await page.getByRole('button', { name: /^Memória$/ }).waitFor();
     passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível, abre e copia');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md' }).click();

@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Memória do projeto reorganizada (2026-11-15)
+
+Aba "Memória" (antes "O que o projeto lembra"). Cada item em UM grupo só — nota de trabalho da IA nunca
+aparece como resultado (antes aparecia duplicada e com o texto "Concluído e conferido"). Ordem: Decisões,
+Combinados e próximos passos, Preferências e regras, Sobre o projeto, Trabalhos concluídos (com a data),
+Lições e, por último e recolhidas, as Anotações de trabalho da IA. Item compacto (2 linhas; clique abre
+inteiro), ações em ícones (copiar, esquecer), contagem por grupo.
+
 ## Correções — entrada, Gemini encerrado, lições, trava de gasto (2026-11-15)
 
 * **Entrada**: com o login da Cloudflare configurado (`nivoo dominio acesso <equipe> <aud>`), quem passou

@@ -446,6 +446,10 @@ export function Icone({ nome, girando }: { nome: string; girando?: boolean }) {
     sinal: <><path d="M5 12a10 10 0 0 1 14 0" /><path d="M8.5 15.5a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></>,
     aviso: <><circle cx="12" cy="12" r="9" /><path d="M12 8v5" /><path d="M12 16h.01" /></>,
     relogio: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    copiar: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></>,
+    abaixo: <path d="m6 9 6 6 6-6" />,
+    acima: <path d="m6 15 6-6 6 6" />,
+    ok: <path d="m5 12 5 5 9-10" />,
   };
   return (
     <svg className={girando ? 'icone girando' : 'icone'} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
