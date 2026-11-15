@@ -87,7 +87,8 @@ export class ProviderRegistry {
     }
     const falha = acharConexao(id)?.falhaLogin;
     if (falha && status.available) {
-      status = { ...status, available: false, authenticated: false, errors: [...status.errors, `a IA recusou o login (${falha.mensagem}). Reconecte em Conexões`] };
+      const encerrada = falha.mensagem.startsWith('o Google encerrou');
+      status = { ...status, available: false, authenticated: false, errors: [...status.errors, encerrada ? falha.mensagem : `a IA recusou o login (${falha.mensagem}). Reconecte em Conexões`] };
     }
     if (cfg && !cfg.enabled) {
       status = { ...status, available: false, errors: [...status.errors, 'desabilitado nas configurações'] };

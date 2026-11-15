@@ -120,6 +120,7 @@ case "$cmd" in
     case "$sub" in
       ""|-h|--help)
         echo "uso: nivoo dominio <endereço>   ex.: nivoo dominio nivoo.suaempresa.com.br"
+        echo "     nivoo dominio acesso <equipe> <aud>   (login da Cloudflare dispensa o token)"
         echo "     nivoo dominio status | nivoo dominio remover"
         exit 1
         ;;
@@ -132,6 +133,29 @@ case "$cmd" in
         else
           echo "nenhum domínio configurado (use: nivoo dominio <endereço>)"
         fi
+        ;;
+      acesso)
+        # nivoo dominio acesso <equipe> <aud>: quem passou pelo login da Cloudflare entra direto (sem token).
+        # <equipe>: Zero Trust → Settings → Team domain (ex.: minhaequipe ou minhaequipe.cloudflareaccess.com)
+        # <aud>: Access → Applications → (a aplicação do Nivoo) → Application Audience (AUD) Tag
+        equipe="${2:-}"; aud="${3:-}"
+        if [ -z "$equipe" ] || [ -z "$aud" ]; then
+          echo "uso: nivoo dominio acesso <equipe> <aud>"
+          echo "  <equipe>: Zero Trust → Settings → Team domain   (ex.: minhaequipe.cloudflareaccess.com)"
+          echo "  <aud>:    Access → Applications → aplicação do Nivoo → Application Audience (AUD) Tag"
+          exit 1
+        fi
+        echo "$equipe" | grep -Eq '^[a-z0-9.-]+$' || { echo "equipe inválida: $equipe" >&2; exit 1; }
+        echo "$aud" | grep -Eq '^[A-Za-z0-9]{16,128}$' || { echo "AUD inválida: $aud (copie a Application Audience Tag inteira)" >&2; exit 1; }
+        host="${equipe%.cloudflareaccess.com}.cloudflareaccess.com"
+        curl -fsS --max-time 15 "https://$host/cdn-cgi/access/certs" >/dev/null \
+          || { echo "não achei a equipe \"$host\" na Cloudflare (confira o Team domain)" >&2; exit 1; }
+        sed -i '/^NIVOO_CF_ACCESS_TEAM=/d; /^NIVOO_CF_ACCESS_AUD=/d' "$ENV_FILE"
+        echo "NIVOO_CF_ACCESS_TEAM=$host" >> "$ENV_FILE"
+        echo "NIVOO_CF_ACCESS_AUD=$aud" >> "$ENV_FILE"
+        systemctl restart nivoo-api nivoo-worker
+        echo "ok: quem passar pelo login da Cloudflare ($host) entra no Nivoo sem token."
+        echo "O token continua valendo para o acesso pelo túnel SSH."
         ;;
       remover)
         systemctl disable --now cloudflared 2>/dev/null || true
@@ -216,6 +240,9 @@ CFG
         echo "  3. Policy: Action = Allow; Include = Emails → os e-mails que podem entrar"
         echo "  4. Salve. Ao abrir o endereço, a Cloudflare pede o e-mail e manda um código."
         echo "Sem isso, só o token do Nivoo protege o endereço."
+        echo
+        echo "Depois de ligar o login da Cloudflare, dispense o token no navegador:"
+        echo "  nivoo dominio acesso <equipe> <aud>   (rode sem argumentos para ver onde achar cada um)"
         ;;
     esac
     ;;
@@ -234,6 +261,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo tunnel              mostra o comando de túnel SSH para abrir a interface
   nivoo dominio <endereço>  publica o Nivoo num domínio seu pela Cloudflare (HTTPS, sem abrir portas)
   nivoo dominio status      mostra o túnel e testa o endereço  (nivoo dominio remover: desliga)
+  nivoo dominio acesso <equipe> <aud>   entra direto pelo login da Cloudflare (sem token)
   nivoo backup              backup do banco, dados e configuração em $BACKUP_DIR
   nivoo restore <carimbo>   restaura um backup
   nivoo update              backup + atualiza o código (git pull) + reinstala/migra

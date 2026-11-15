@@ -164,7 +164,7 @@ export class JobsService {
     }
     // Trabalho vindo da conversa ("Fazer"): vai até o fim — sem limite de sessões nem de tempo. Para de
     // verdade só se ficar sem nenhum avanço (repetição) ou estourar o limite de gasto do PROJETO.
-    const limits = body.semLimites === true ? { maxSessionsPerStep: 0, maxDurationSec: 0, maxCostUsd: 10000, maxAttemptsPerStep: 10, ...(body.limits ?? {}) } : (body.limits ?? {});
+    const limits = body.semLimites === true ? { maxSessionsPerStep: 0, maxDurationSec: 0, maxCostUsd: 0, maxAttemptsPerStep: 10, ...(body.limits ?? {}) } : (body.limits ?? {});
     const job = await this.prisma.job.create({
       data: {
         projectId,

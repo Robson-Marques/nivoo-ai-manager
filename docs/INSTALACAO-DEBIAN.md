@@ -97,6 +97,17 @@ O Nivoo continua ouvindo só em 127.0.0.1: **nenhuma porta é aberta** e o HTTPS
 → Access → Applications → Add an application → Self-hosted → domínio do Nivoo → Policy *Allow* com os
 e-mails que podem entrar. Ao abrir o endereço, a Cloudflare pede o e-mail e envia um código.
 
+**Para entrar sem token (só com o login da Cloudflare)**, depois de criar a aplicação no Access:
+
+```bash
+nivoo dominio acesso <equipe> <aud>
+```
+
+`<equipe>`: Zero Trust → Settings → *Team domain* (ex.: `minhaequipe.cloudflareaccess.com`).
+`<aud>`: Access → Applications → aplicação do Nivoo → *Application Audience (AUD) Tag*.
+O Nivoo passa a aceitar quem passou pelo login da Cloudflare (confere a assinatura de cada acesso); o token
+continua valendo para o acesso pelo túnel SSH.
+
 `nivoo dominio status` testa o endereço; `nivoo dominio remover` desliga o túnel.
 
 ## 4. Conectar as IAs (pela tela)

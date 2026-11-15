@@ -189,6 +189,8 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
     <Estado ok="andamento" texto="Conectando…" />
   ) : c.conectado ? (
     <Estado ok texto="Conectado" />
+  ) : c.loginRecusado && /o Google encerrou/.test(c.problema ?? '') ? (
+    <Estado ok={false} texto="Não funciona mais (mudança do Google)" />
   ) : c.loginRecusado ? (
     <Estado ok={false} texto="Login recusado pela IA — reconecte" />
   ) : (

@@ -155,12 +155,14 @@ export class GeminiCliProvider implements AiProvider {
     }
     if (text) onLog(`[agente] ${text.slice(0, 1500)}`);
     const failed = status !== 'success' || exitCode !== 0;
-    const errText = failed ? (error ?? stderr.slice(-800)).trim() : undefined;
+    // Erro "crítico" do CLI (ex.: o Google encerrou o acesso com conta pessoal) vem no stderr, antes do resto.
+    const critico = /An unexpected critical error occurred:\s*(.+)/.exec(stderr)?.[1];
+    const errText = failed ? (error ?? critico ?? stderr.slice(-800)).trim() : undefined;
     return {
       exitCode: failed ? exitCode || 1 : 0,
       output: text || stdout.slice(-4000),
       error: errText,
-      resourceUnavailable: failed && looksLikeResourceProblem(errText ?? ''),
+      resourceUnavailable: failed && looksLikeResourceProblem(`${errText ?? ''} ${stderr.slice(-4000)}`),
       sessionId,
       stopReason: failed ? 'erro' : 'completed',
       inputTokens,

@@ -7,10 +7,12 @@ import { Contas } from './pages/Contas';
 import { Inicio } from './pages/Inicio';
 import { Modelos } from './pages/Modelos';
 import { Projeto } from './pages/Projeto';
+import { TelaDeEntrada } from './TelaDeEntrada';
 
 function App() {
   return (
     <BrowserRouter>
+      <TelaDeEntrada />
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Inicio />} />

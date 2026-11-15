@@ -104,6 +104,7 @@ ganham o critério `conferencia-regras`.
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
 | `NIVOO_VEO_USD_POR_SEGUNDO` / `NIVOO_VEO_USD_POR_SEGUNDO_RAPIDO` | 0.40 / 0.15 | estimativa de custo por segundo de vídeo (modelos normais / fast); ajuste conforme a tabela do Google |
 | `NIVOO_GEMINI_API_BASE` | `https://generativelanguage.googleapis.com` | endereço da API do Gemini (vídeo) |
+| `NIVOO_CF_ACCESS_TEAM` / `NIVOO_CF_ACCESS_AUD` | — | login da Cloudflare como entrada (gravados por `nivoo dominio acesso`) |
 | `NIVOO_CONEXOES_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/conexoes.json` | lista das conexões de IA (nome, tipo, padrão; permissão 600) |
 | `NIVOO_GIT_ACCOUNTS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/git-contas.json` | contas Git e tokens (permissão 600) |
 | `NIVOO_SECRETS_FILE` | `<pasta acima de NIVOO_WORKSPACES_ROOT>/segredos.json` | credenciais conectadas pela tela (permissão 600) |

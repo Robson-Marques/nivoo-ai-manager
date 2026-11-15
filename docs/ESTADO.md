@@ -3,6 +3,25 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correções — entrada, Gemini encerrado, lições, trava de gasto (2026-11-15)
+
+* **Entrada**: com o login da Cloudflare configurado (`nivoo dominio acesso <equipe> <aud>`), quem passou
+  pelo código por e-mail entra direto — o Nivoo confere o JWT `Cf-Access-Jwt-Assertion` (RS256, chaves da
+  equipe, AUD, validade). Sem isso, uma **tela de entrada** pede o token UMA vez (no lugar da caixinha do
+  navegador, que aparecia em dobro).
+* **Gemini (conta)**: o Google encerrou o Gemini CLI com conta pessoal ("IneligibleTierError… migrate to
+  Antigravity"). Agora isso é reconhecido: a conexão aparece "Não funciona mais (mudança do Google)", o
+  trabalho passa para a IA reserva em vez de repetir até parar. Gemini por chave de API continua.
+* **Lições**: só para falha do jeito de fazer; nunca de infraestrutura (programa faltando, IA sem acesso,
+  limite do sistema); uma por etapa e motivo; o trabalho concluído apaga as dele; a atualização remove as
+  lições-lixo existentes. Corrigido também `ModuleNotFoundError` sendo lido como "sem rede" (`ENOTFOUND`).
+* **Trava de gasto**: opcional. Trabalho sem trava por padrão (0); vale só o limite do projeto, se você
+  definir. Trabalhos parados pela antiga trava padrão de US$ 5 ficam sem trava. A tela não mostra mais
+  "a conferência encontrou algo fora das regras" quando o motivo real é outro.
+
+Testes: suíte 110/110 (+7 de IA real puladas), `23-login-cloudflare`, lições em `22`, unitários do Gemini;
+interface pela tela e `entrada-smoke.cjs`.
+
 ## Etapa 19 — publicar num domínio pela Cloudflare (2026-11-15)
 
 `nivoo dominio <endereço>` (como root): instala o `cloudflared`, autoriza o servidor na conta da Cloudflare (link no

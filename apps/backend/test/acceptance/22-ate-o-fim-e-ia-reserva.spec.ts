@@ -78,6 +78,34 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(r.blockedReason).toBe('VERIFICACAO_IMPOSSIVEL');
     expect(r.statusDetail).toMatch(/usa "programa-que-nao-existe-xyz", que não existe no servidor/);
     expect(r.attempts).toHaveLength(1);
+    // Programa faltando no servidor não é aprendizado: nenhuma "lição" na memória.
+    const mem = (await h.http().get(`/api/projects/${p.id}/memory`)).body;
+    expect(mem.filter((m: any) => m.references?.origem === 'licao-automatica')).toHaveLength(0);
+  });
+
+  it('lição só para falha do jeito de fazer, uma por etapa; o trabalho concluído apaga as lições dele', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Licoes', provider: 'claude-code-cli' }).expect(201)).body;
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'tenta', objective: 'x', defaultProvider: 'local-shell', limits: { maxAttemptsPerStep: 5, repetitionWindow: 2 },
+        steps: [{ key: 'a', instructions: 'test -f pode.txt || { echo "abordagem errada XYZ"; exit 3; }' }],
+        criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    expect((await fim(p.id, j.id)).blockedReason).toBe('REPETICAO_IMPRODUTIVA');
+    // Tentar de novo e repetir a mesma falha não cria uma segunda lição.
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'Robson' }).expect(201);
+    await fim(p.id, j.id);
+    const licoes = async () => (await h.http().get(`/api/projects/${p.id}/memory`)).body.filter((m: any) => m.references?.origem === 'licao-automatica');
+    expect(await licoes()).toHaveLength(1);
+    expect((await licoes())[0].title).toMatch(/a IA ficou repetindo sem avançar/);
+    // Resolvido o problema, o trabalho conclui e a lição dele some.
+    const wt = path.join(p.workspacePath, 'worktrees', j.id);
+    fs.writeFileSync(path.join(wt, 'pode.txt'), 'ok');
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'Robson' }).expect(201);
+    expect((await fim(p.id, j.id)).status).toBe('CONCLUIDO');
+    expect(await licoes()).toHaveLength(0);
   });
 
   it('IA reserva: sem limite na conta do Claude, o trabalho continua sozinho com a reserva (Claude API)', async () => {

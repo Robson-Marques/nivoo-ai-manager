@@ -155,6 +155,12 @@ export class CompletionService {
         },
       });
       if (r.count && completion && status === 'CONCLUIDO') await tx.memoryEntry.create(completion.memory);
+      // Trabalho concluído: as lições das tentativas que falharam nele perderam o sentido (o problema foi resolvido).
+      if (r.count && status === 'CONCLUIDO') {
+        await tx.memoryEntry.deleteMany({
+          where: { projectId: job.projectId, AND: [{ references: { path: ['origem'], equals: 'licao-automatica' } }, { references: { path: ['jobId'], equals: job.id } }] },
+        });
+      }
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;

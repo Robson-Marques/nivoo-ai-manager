@@ -1,10 +1,14 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
+import { acessoCloudflareValido } from './cf-access';
 
-/** Token opcional (NIVOO_API_TOKEN). Instância única, sem multi-tenant. */
+/**
+ * Entrada protegida (instância única, sem multi-tenant). Sem NIVOO_API_TOKEN, aberto (só local). Com ele,
+ * entra quem mandar o token OU quem já passou pelo login da Cloudflare (Access) configurado no servidor.
+ */
 @Injectable()
 export class ApiTokenGuard implements CanActivate {
-  canActivate(ctx: ExecutionContext): boolean {
+  async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const expected = process.env.NIVOO_API_TOKEN;
     if (!expected) return true;
     const req = ctx.switchToHttp().getRequest();
@@ -13,7 +17,8 @@ export class ApiTokenGuard implements CanActivate {
     const given = header.startsWith('Bearer ') ? header.slice(7) : String(req.query?.token ?? '');
     const a = Buffer.from(given);
     const b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new UnauthorizedException('Token de API inválido');
-    return true;
+    if (a.length === b.length && timingSafeEqual(a, b)) return true;
+    if (await acessoCloudflareValido(req.headers['cf-access-jwt-assertion'])) return true;
+    throw new UnauthorizedException('Token de API inválido');
   }
 }

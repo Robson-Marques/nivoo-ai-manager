@@ -1,4 +1,5 @@
 import { copiarAnexosParaSessao } from '../conversations/attachments';
+import { looksLikeResourceProblem } from '../providers/provider.interface';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
@@ -37,6 +38,11 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
+
+/** Erros que não são do trabalho da IA: não geram lição. */
+export function ehProblemaDeInfra(texto: string): boolean {
+  return /command not found|comando não encontrado|exit 127|IneligibleTierError|no longer supported|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
+}
 
 const MOTIVO_LICAO: Record<string, string> = {
   REPETICAO_IMPRODUTIVA: 'a IA ficou repetindo sem avançar',
@@ -104,7 +110,9 @@ export class StepExecutorService {
     if (job.maxDurationSec > 0 && job.activeSeconds >= job.maxDurationSec) {
       return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_TEMPO, `tempo ativo ${job.activeSeconds}s ≥ limite ${job.maxDurationSec}s`);
     }
-    if (new Prisma.Decimal(job.costSpentUsd).gte(job.maxCostUsd)) {
+    // Trava de gasto é opcional: 0 = sem trava neste trabalho (o limite do projeto, se definido, continua valendo).
+    const travaDoTrabalho = new Prisma.Decimal(job.maxCostUsd).gt(0);
+    if (travaDoTrabalho && new Prisma.Decimal(job.costSpentUsd).gte(job.maxCostUsd)) {
       return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO, `custo US$ ${job.costSpentUsd} ≥ orçamento US$ ${job.maxCostUsd}`);
     }
     if (job.project.maxCostUsd !== null) {
@@ -139,7 +147,7 @@ export class StepExecutorService {
     const estimador = this.registry.get(providerId) as unknown as { estimarCusto?: (o: Record<string, unknown>) => number };
     if (estimador.estimarCusto) {
       const estimado = estimador.estimarCusto({ model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as Record<string, unknown>) });
-      if (new Prisma.Decimal(job.costSpentUsd).add(estimado).gt(job.maxCostUsd)) {
+      if (new Prisma.Decimal(job.maxCostUsd).gt(0) && new Prisma.Decimal(job.costSpentUsd).add(estimado).gt(job.maxCostUsd)) {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO,
           `esta etapa custaria cerca de US$ ${estimado.toFixed(2)} e passaria o limite do trabalho (US$ ${job.maxCostUsd}; já gasto US$ ${job.costSpentUsd})`);
       }
@@ -452,6 +460,14 @@ export class StepExecutorService {
     const teaches: string[] = [BlockedReason.REPETICAO_IMPRODUTIVA, BlockedReason.LIMITE_TENTATIVAS, BlockedReason.LIMITE_SESSOES, BlockedReason.POLITICA];
     if (!teaches.includes(reason)) return; // limites de tempo/orçamento e interrupções não dizem nada sobre a abordagem
     const recent = await this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 3 });
+    // Problema de infraestrutura (programa faltando, IA sem crédito/login, limite do próprio sistema) não diz
+    // nada sobre o jeito de fazer: não vira lição.
+    if (ehProblemaDeInfra(`${detail} ${recent.map((a) => `${a.error ?? ''} ${(a.output ?? '').slice(-500)}`).join(' ')}`)) return;
+    // Uma lição por etapa e motivo (não uma por tentativa).
+    const ja = await this.prisma.memoryEntry.findFirst({
+      where: { projectId: job.projectId, supersededById: null, AND: [{ references: { path: ['origem'], equals: 'licao-automatica' } }, { references: { path: ['stepId'], equals: step.id } }, { references: { path: ['motivo'], equals: reason } }] },
+    });
+    if (ja) return;
     const tried = recent
       .reverse()
       .map((a) => `#${a.number} ${a.status}${a.stopReason ? ` (${a.stopReason})` : ''}: ${(a.error ?? '').slice(0, 300)}${a.output ? ` — saída: ${a.output.trim().slice(-200)}` : ''}`)

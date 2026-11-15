@@ -218,7 +218,7 @@ model Job {
   objectiveVersion   Int        @default(1)
   maxAttemptsPerStep Int        @default(3)
   maxDurationSec     Int        @default(3600)
-  maxCostUsd         Decimal    @default(5) @db.Decimal(12, 4)
+  maxCostUsd         Decimal    @default(0) @db.Decimal(12, 4) // 0 = sem trava neste trabalho (o limite do projeto, se houver, vale)
   costSpentUsd       Decimal    @default(0) @db.Decimal(12, 4)
   stepTimeoutSec     Int        @default(900)
   repetitionWindow   Int        @default(2)

@@ -75,7 +75,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
       <VideoDoProjeto projeto={projeto} onMudou={onMudou} />
       <div className="campo">
         <b>Limite de gasto do projeto (US$)</b>
-        <span className="muted small">Já gasto: US$ {Number(projeto.custoGastoUsd ?? 0).toFixed(2)}. Deixe vazio para não limitar.</span>
+        <span className="muted small">Opcional: só trava se você definir. Vazio = sem trava (o trabalho vai até o fim). Já gasto: US$ {Number(projeto.custoGastoUsd ?? 0).toFixed(2)} — nas IAs pela conta (assinatura) é só uma referência do que custaria pela API, não cobrança.</span>
         <div className="row">
           <input type="number" min="0" step="1" value={limite} onChange={(e) => setLimite(e.target.value)} style={{ maxWidth: 140 }} />
           <button className="secondary" onClick={() => salvar({ maxCostUsd: limite === '' ? null : Number(limite) }, 'Limite salvo.')}>Salvar limite</button>

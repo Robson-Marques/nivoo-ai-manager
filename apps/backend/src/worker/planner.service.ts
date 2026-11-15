@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
-import { ehFalhaDeLogin } from '../accounts/connections';
+import { EXPLICACAO_GEMINI_ENCERRADA, ehFalhaDeLogin, GEMINI_CONTA_ENCERRADA } from '../accounts/connections';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -148,7 +148,9 @@ export class PlannerService {
       let content = result.output.trim();
       let plan: Prisma.InputJsonValue | undefined;
       let erro: string | null = null;
-      if (result.resourceUnavailable && ehFalhaDeLogin(result.error)) {
+      if (result.resourceUnavailable && GEMINI_CONTA_ENCERRADA.test(`${result.error ?? ''} ${result.output}`)) {
+        erro = `${status.label}: ${EXPLICACAO_GEMINI_ENCERRADA}. Troque a IA do projeto (ou marque uma IA reserva em Ajustes).`;
+      } else if (result.resourceUnavailable && ehFalhaDeLogin(result.error)) {
         erro = `A ${status.label} recusou o login (o acesso expirou ou foi revogado): ${result.error ?? ''}. Reconecte em "Conexões" ou continue com outra IA.`.trim();
       } else if (result.resourceUnavailable) erro = `IA indisponível no momento (limite ou login): ${result.error ?? ''}`.trim();
       else if (result.exitCode !== 0 && !result.sessionEnded) erro = `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;

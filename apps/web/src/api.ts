@@ -17,17 +17,42 @@ export function setToken(t: string): void {
 }
 
 /**
- * Servidor com acesso protegido (NIVOO_API_TOKEN): pede o token uma vez e guarda neste navegador.
- * O token está em /etc/nivoo/nivoo.env no servidor (linha NIVOO_API_TOKEN).
+ * Servidor com acesso protegido (NIVOO_API_TOKEN) e sem o login da Cloudflare configurado: a tela de
+ * entrada (TelaDeEntrada) pede o token UMA vez e ele fica guardado neste navegador. Vários pedidos ao mesmo
+ * tempo esperam a mesma entrada (nunca uma pergunta atrás da outra).
  */
-let ultimoPedido = 0;
-function pedirToken(): boolean {
-  // Sem insistir: as telas atualizam sozinhas e não podem abrir uma pergunta atrás da outra.
-  if (Date.now() - ultimoPedido < 30_000) return false;
-  ultimoPedido = Date.now();
-  const t = window.prompt('Este servidor pede o token de acesso (está no arquivo /etc/nivoo/nivoo.env, linha NIVOO_API_TOKEN):');
-  if (!t?.trim()) return false;
+type Ouvinte = (pedindo: boolean, erro?: string) => void;
+const ouvintes = new Set<Ouvinte>();
+let entrada: { promessa: Promise<boolean>; resolver: (ok: boolean) => void } | null = null;
+
+export function ouvirEntrada(f: Ouvinte): () => void {
+  ouvintes.add(f);
+  if (entrada) f(true);
+  return () => ouvintes.delete(f);
+}
+
+function pedirToken(): Promise<boolean> {
+  if (!entrada) {
+    let resolver!: (ok: boolean) => void;
+    const promessa = new Promise<boolean>((r) => (resolver = r));
+    entrada = { promessa, resolver };
+    ouvintes.forEach((f) => f(true));
+  }
+  return entrada.promessa;
+}
+
+/** Chamado pela tela de entrada: confere o token no servidor antes de guardar. */
+export async function entrarComToken(t: string): Promise<boolean> {
+  const res = await fetch('/api/system/workers', { headers: { authorization: `Bearer ${t.trim()}` } });
+  if (!res.ok) {
+    ouvintes.forEach((f) => f(true, 'Token não confere. Copie de novo a linha NIVOO_API_TOKEN do servidor.'));
+    return false;
+  }
   setToken(t.trim());
+  const e = entrada;
+  entrada = null;
+  ouvintes.forEach((f) => f(false));
+  e?.resolver(true);
   return true;
 }
 
@@ -42,7 +67,7 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
   const token = getToken();
   if (token) headers.authorization = `Bearer ${token}`;
   let res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (res.status === 401 && pedirToken()) {
+  if (res.status === 401 && (await pedirToken())) {
     headers.authorization = `Bearer ${getToken()}`;
     res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   }
@@ -130,7 +155,7 @@ export function nomeUsuario(): string {
 export async function lerArquivo(url: string): Promise<string> {
   const token = getToken();
   let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
+  if (res.status === 401 && (await pedirToken())) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   return res.ok ? res.text() : 'Não foi possível abrir este arquivo.';
 }
 
@@ -138,7 +163,7 @@ export async function lerArquivo(url: string): Promise<string> {
 export async function urlDoArquivo(url: string, tipo?: string): Promise<string | null> {
   const token = getToken();
   let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (res.status === 401 && pedirToken()) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
+  if (res.status === 401 && (await pedirToken())) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   if (!res.ok) return null;
   return URL.createObjectURL(tipo ? new Blob([await res.arrayBuffer()], { type: tipo }) : await res.blob());
 }

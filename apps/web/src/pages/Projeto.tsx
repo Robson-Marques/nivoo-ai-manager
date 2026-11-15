@@ -39,7 +39,7 @@ const MOTIVO: Record<string, string> = {
   LIMITE_TENTATIVAS: 'esgotou as tentativas',
   LIMITE_SESSOES: 'esgotou as tentativas',
   LIMITE_TEMPO: 'atingiu o limite de tempo',
-  LIMITE_ORCAMENTO: 'atingiu o limite de custo',
+  LIMITE_ORCAMENTO: 'atingiu a trava de gasto deste trabalho',
   LIMITE_ORCAMENTO_PROJETO: 'o projeto atingiu o limite de gasto',
   CONFLITO_INCORPORACAO: 'outro trabalho mexeu nos mesmos arquivos',
   INTERROMPIDO: 'foi interrompido',
@@ -71,7 +71,9 @@ function TrocarIa({ depois }: { depois?: () => Promise<unknown> }) {
   );
 }
 
+/** A conferência das regras REPROVOU o trabalho (e não: parou por limite, IA indisponível etc.). */
 function conferenciaFalhou(job: any): boolean {
+  if (job.blockedReason && job.blockedReason !== 'CRITERIOS_NAO_ATENDIDOS') return false;
   const etapa = job.steps.find((s: any) => s.key === 'conferencia-regras');
   return !!etapa && etapa.status !== 'CONCLUIDO' && job.steps.filter((s: any) => s.key !== 'conferencia-regras').every((s: any) => s.status === 'CONCLUIDO');
 }

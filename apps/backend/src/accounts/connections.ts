@@ -83,7 +83,12 @@ export function novoId(tipo: TipoIa, existentes: Conexao[]): string {
   return id;
 }
 
-const FALHA_LOGIN = /\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
+const FALHA_LOGIN = /IneligibleTierError|no longer supported for Gemini Code Assist|\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
+
+/** O Google encerrou o Gemini CLI com conta pessoal (Code Assist for individuals). Reconectar não resolve. */
+export const GEMINI_CONTA_ENCERRADA = /IneligibleTierError|no longer supported for Gemini Code Assist/i;
+export const EXPLICACAO_GEMINI_ENCERRADA =
+  'o Google encerrou o uso do Gemini CLI com conta pessoal (Code Assist for individuals); reconectar não resolve. Use uma conexão "Gemini — chave de API" ou outra IA';
 
 /** O erro de uma sessão é de login recusado (não de limite de uso ou rede)? */
 export function ehFalhaDeLogin(texto: string | undefined | null): boolean {
@@ -99,7 +104,8 @@ export function marcarFalhaLogin(id: string, mensagem: string | null): void {
   const c = lista.find((x) => x.id === id);
   if (!c) return;
   if (!mensagem && !c.falhaLogin) return;
-  c.falhaLogin = mensagem ? { mensagem: mensagem.slice(0, 300), em: new Date().toISOString() } : null;
+  const texto = mensagem && GEMINI_CONTA_ENCERRADA.test(mensagem) ? EXPLICACAO_GEMINI_ENCERRADA : mensagem;
+  c.falhaLogin = texto ? { mensagem: texto.slice(0, 300), em: new Date().toISOString() } : null;
   gravarConexoes(lista);
 }
 
