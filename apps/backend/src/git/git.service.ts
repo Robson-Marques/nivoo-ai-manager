@@ -314,7 +314,29 @@ export class GitService {
     return { resultado: 'enviado', tag: tag || null, ...(await this.status(projectId)) };
   }
 
-  /** Próxima versão: segue as tags X.Y.Z do repositório (remoto incluído) e sobe o último número; sem nenhuma, v0.1.0. */
+  /** Versão X.Y.Z declarada na pasta principal: package.json, pyproject.toml ou VERSION (nessa ordem). */
+  private async versaoDeclarada(repo: string): Promise<number[] | null> {
+    const ler = async (arq: string) => {
+      const r = await this.git(repo, ['show', `main:${arq}`], null);
+      return r.exitCode === 0 ? r.stdout : null;
+    };
+    const candidatos: Array<[string, RegExp]> = [
+      ['package.json', /"version"\s*:\s*"v?(\d+)\.(\d+)\.(\d+)"/],
+      ['pyproject.toml', /^\s*version\s*=\s*"v?(\d+)\.(\d+)\.(\d+)"/m],
+      ['VERSION', /^\s*v?(\d+)\.(\d+)\.(\d+)\s*$/m],
+    ];
+    for (const [arq, re] of candidatos) {
+      const txt = await ler(arq);
+      const m = txt ? re.exec(txt) : null;
+      if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+    }
+    return null;
+  }
+
+  /**
+   * Próxima versão: a declarada no projeto (package.json…) quando ainda não tem etiqueta; senão segue as tags X.Y.Z
+   * do repositório (remoto incluído) e sobe o último número; sem nenhuma, v0.1.0.
+   */
   async proximaVersao(projectId: string): Promise<string> {
     const { repo, conta } = await this.linked(projectId);
     await this.git(repo, ['fetch', '--quiet', '--tags', 'origin'], conta); // repositório vazio: sem tags, segue
@@ -330,6 +352,14 @@ export class GitService {
         maior = v;
         prefixo = m[1];
       }
+    }
+    // A versão que o PROJETO declara (package.json, pyproject.toml, VERSION) manda: se o trabalho subiu para 0.4.0, a
+    // etiqueta é v0.4.0 — antes saía "v0.1.0" (ou a anterior + 1), diferente do número dentro do projeto.
+    const declarada = await this.versaoDeclarada(repo);
+    const acimaDe = (x: number[], y: number[] | null) => !y || (x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2]);
+    if (declarada && acimaDe(declarada, maior)) {
+      const t = `${prefixo}${declarada.join('.')}`;
+      if (!tags.includes(t)) return t;
     }
     if (!maior) return 'v0.1.0';
     let patch = maior[2] + 1;

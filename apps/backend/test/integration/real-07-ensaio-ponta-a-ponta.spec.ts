@@ -134,5 +134,8 @@ d(`ENSAIO REAL ponta a ponta (${IA})`, () => {
     const entregas = ms.filter((m: any) => m.kind === 'entrega').map((m: any) => m.content).join('\n');
     expect(entregas).not.toMatch(/(você|voce) (pode )?rod(a|e)r? (os )?test|rode `?(pnpm|npm) /i);
     expect(ms.some((m: any) => /\(sem resposta\)/.test(m.content))).toBe(false);
+    // A etiqueta enviada ao Git é a versão que o projeto declara (não "v0.1.0" com o package.json em 0.4.0).
+    const versao = JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf8')).version;
+    expect(ms.map((m: any) => m.content).join('\n')).toContain(`Versão v${versao} enviada ao Git`);
   }, 90 * 60_000);
 });

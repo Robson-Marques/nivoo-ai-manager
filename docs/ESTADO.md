@@ -177,6 +177,24 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Ensaio real ponta a ponta com Claude e ChatGPT (2026-11-15)
+
+* `test/integration/real-07-ensaio-ponta-a-ponta` (opt-in `NIVOO_RUN_CLI_INTEGRATION=1`, IA em `NIVOO_ENSAIO_IA`):
+  projeto trazido de um repositório Git (pnpm, testes `node --test`, build) com um bug, um arquivo morto e sem
+  CLAUDE.md; pedido em duas partes pelo chat → plano → "Fazer" → conferências com `npm test && npm run build` →
+  revisão → entrega. Confere na pasta principal: testes passando, bug corrigido, arquivo apagado, CLAUDE.md, versão
+  e CHANGELOG, nada de node_modules, entrega sem pedir nada ao usuário, sem "(sem resposta)", etiqueta = versão.
+* **Resultado**: Claude (Claude Code) e ChatGPT (Codex) concluíram de primeira (uma sessão por etapa, memória com 1–2
+  itens, entrega sem perguntas).
+* **Erro pego pelo ensaio e corrigido**: a etiqueta do Git ignorava a versão do projeto ("Versão v0.1.0 enviada"
+  com o package.json em 0.4.0). Agora a etiqueta é a versão declarada (`package.json`, `pyproject.toml` ou `VERSION`)
+  quando ela ainda não tem etiqueta; sem subir a versão, segue a sequência (v0.4.1). Teste em `15`; confirmado no
+  ensaio real.
+* **Testes nunca mexem nos logins reais**: remover a conexão do ChatGPT roda `codex logout`; nos testes isso deslogava
+  o ChatGPT real da máquina. Agora os testes usam `CODEX_HOME`, `CLAUDE_CONFIG_DIR` e `GEMINI_CLI_HOME` próprios.
+* Plano não amarra a IA a um arquivo só, e a sessão corrige a causa quando a conferência falha por algo fora da etapa
+  (o primeiro ensaio parou porque o script de teste do exemplo estava errado e o plano proibia mexer nele).
+
 ## Ferramentas de projeto no servidor e falha de ambiente (2026-11-15)
 
 * **Bug real (ConnectChat)**: a etapa de versão parou depois de 6 sessões com "Cannot find module

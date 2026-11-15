@@ -140,6 +140,16 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     expect(git(dev, 'ls-remote', '--tags', 'origin')).toContain('refs/tags/v0.1.1');
   });
 
+  it('a etiqueta segue a versão que o projeto declara (package.json): 0.4.0 vira v0.4.0; sem subir, segue a sequência', async () => {
+    const a = await job(pid, { title: 'Versão nova', steps: [{ key: 's', instructions: `printf '{\\n  "name": "loja",\\n  "version": "0.4.0"\\n}\\n' > package.json` }] });
+    expect(a.status).toBe('CONCLUIDO');
+    expect(await logDoEnvio(a.id)).toContain('Versão v0.4.0 enviada ao Git');
+    const b = await job(pid, { title: 'Sem subir versão', steps: [{ key: 's', instructions: 'echo x > outro.txt' }] });
+    expect(b.status).toBe('CONCLUIDO');
+    expect(await logDoEnvio(b.id)).toContain('Versão v0.4.1 enviada ao Git');
+    expect(git(dev, 'ls-remote', '--tags', 'origin')).toMatch(/refs\/tags\/v0\.4\.0[\s\S]*refs\/tags\/v0\.4\.1|refs\/tags\/v0\.4\.1[\s\S]*refs\/tags\/v0\.4\.0/);
+  });
+
   it('envio manual (versionamento automático desligado): push + tag; remoto à frente recusa até atualizar; conflito não estraga nada', async () => {
     await h.http().patch(`/api/projects/${pid}/git`).send({ autoEnvio: false }).expect(200);
     const st = (await h.http().get(`/api/projects/${pid}/git`).expect(200)).body;
