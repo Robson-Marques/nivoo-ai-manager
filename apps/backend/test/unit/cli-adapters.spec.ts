@@ -167,3 +167,16 @@ describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
     expect(r.resourceUnavailable).toBe(true);
   });
 });
+
+describe('Ferramentas de cada IA no prompt', () => {
+  it('o ChatGPT (Codex) é avisado que comandos de LEITURA são permitidos (é como ele lê); o resto continua proibido', () => {
+    const { ferramentasDaIa } = require('../../src/providers/ferramentas');
+    const codex = ferramentasDaIa('codex-cli').join('\n');
+    expect(codex).toMatch(/lê e lista arquivos SÓ pelo terminal/);
+    expect(codex).toMatch(/ls, find, cat, sed -n/);
+    expect(codex).toMatch(/proibidos: rodar testes, build/);
+    expect(ferramentasDaIa('codex-cli--ab12cd34').join('\n')).toMatch(/ChatGPT\/Codex/); // conexão adicional também
+    expect(ferramentasDaIa('claude-code-cli').join('\n')).toMatch(/Read, procura com Grep/);
+    expect(ferramentasDaIa('local-shell')).toEqual([]);
+  });
+});

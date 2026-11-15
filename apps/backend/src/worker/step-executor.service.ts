@@ -1,4 +1,5 @@
 import { tipoDe } from '../accounts/connections';
+import { ferramentasDaIa } from '../providers/ferramentas';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
@@ -731,6 +732,8 @@ export class StepExecutorService {
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
+    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider);
+    if (ferramentas.length) add('ferramentas', ferramentas);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       add('mudancas', ['## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```']);
     }

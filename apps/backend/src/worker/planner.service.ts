@@ -1,4 +1,5 @@
 import { caminhoDoProjeto } from '../common/path-guard';
+import { ferramentasDaIa } from '../providers/ferramentas';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
@@ -119,7 +120,7 @@ export class PlannerService {
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega);
+      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega, providerId);
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -279,7 +280,7 @@ export class PlannerService {
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '') {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
@@ -309,6 +310,10 @@ export class PlannerService {
       '- Você não executa o trabalho: você conversa e, quando fizer sentido, propõe um plano. O usuário aprova; então o trabalho é executado.',
       '',
       profileText,
+      '',
+      ...ferramentasDaIa(providerId),
+      '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
+      '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       '',

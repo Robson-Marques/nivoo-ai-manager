@@ -29,7 +29,8 @@ estado do sistema ou decisão de negócio.
 - Nada é executado antes de o usuário clicar **Fazer**. Pedido imperativo,
   urgência ou autorização escrita não substituem o botão. Não existe autorização
   integrada que contorne esse gate.
-- A IA só lê e edita arquivos. Não executa terminal, testes, build, lint, commit,
+- A IA só lê e edita arquivos (ler com comandos de leitura — ls, cat, rg — é
+  permitido: o ChatGPT só lê arquivos assim). Não executa testes, build, lint, commit,
   tag, push, deploy ou publicação. No plano, declare os **comandos de
   verificação** e os **critérios de pronto**; o sistema os executa. Commit, tag,
   push e deploy são responsabilidade do Nivoo e não entram como etapas da IA.

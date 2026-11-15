@@ -3,6 +3,17 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## ChatGPT "sem leitor local": cada IA é avisada das próprias ferramentas (2026-11-15)
+
+Caso real: auditoria com o ChatGPT (Codex) parando sessão após sessão — "terminal é proibido pelo perfil;
+necessário leitor local". As regras do Studio Workflow (e o plano) diziam "não executa terminal", pensando no
+Claude (que lê com Read/Grep); o Codex só lê arquivos por comandos e, obedecendo, ficava cego. Agora toda sessão
+(etapas, conferência das regras e conversa) leva a seção "Suas ferramentas nesta sessão": ao Codex, comandos de
+LEITURA (ls, cat, sed -n, rg, git show…) são permitidos e necessários; testes, build, instalação, commit, push,
+apagar e rede continuam proibidos (e o sistema bloqueia o perigoso). A IA que planeja não proíbe mais comandos de
+leitura nas etapas. A regra do modelo Studio Workflow foi reescrita (o já instalado ganha versão nova no seed).
+Não era falta de MCP.
+
 ## Vídeo: trilha de fundo única com a fala por cima (2026-11-15)
 
 Caso real: cada cena vinha com a própria música (uma canta, a outra fala com outra música), e a fusão não resolvia.

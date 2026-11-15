@@ -15,6 +15,9 @@ import { LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO } from './areas/area-templates
  * Roda na instalação e em cada atualização (idempotente): garante o modelo padrão ("Geral") e converte em
  * texto os documentos (PDF, Office...) guardados antes de "tudo que entra vira texto".
  */
+const LINHA_STUDIO_ANTIGA = '- A IA só lê e edita arquivos. Não executa terminal, testes, build, lint, commit,';
+const LINHA_STUDIO_NOVA = '- A IA só lê e edita arquivos (ler com comandos de leitura — ls, cat, rg — é\n  permitido: o ChatGPT só lê arquivos assim). Não executa testes, build, lint, commit,';
+
 async function main() {
   const app = await NestFactory.createApplicationContext(CoreModule, { logger: ['warn', 'error'] });
   await app.get(AreasService).ensureDefaultAreas();
@@ -36,6 +39,13 @@ async function main() {
   const removidas = await removerGeminiConta(prisma);
   if (removidas.length) console.log(`Conexão(ões) "Gemini (conta)" removida(s): ${removidas.join(', ')}.`);
 
+  // Studio Workflow já instalado: "não executa terminal" deixava o ChatGPT sem ler nenhum arquivo.
+  const studio = await prisma.area.findUnique({ where: { slug: 'studio-workflow' } });
+  const regraStudio = studio ? await prisma.areaInstruction.findFirst({ where: { areaId: studio.id }, orderBy: { version: 'desc' } }) : null;
+  if (studio && regraStudio?.text.includes(LINHA_STUDIO_ANTIGA)) {
+    await app.get(AreasService).newInstructions(studio.id, { text: regraStudio.text.replace(LINHA_STUDIO_ANTIGA, LINHA_STUDIO_NOVA), author: 'sistema', reason: 'Comandos de leitura permitidos (o ChatGPT só lê arquivos assim)' });
+    console.log('Modelo "Studio Workflow": regra de leitura por comandos atualizada.');
+  }
   // Modelo de vídeo já instalado: a regra antiga ("juntar ainda não é feito") vira a nova, numa versão nova.
   const video = await prisma.area.findUnique({ where: { slug: 'video-veo' } });
   const regra = video ? await prisma.areaInstruction.findFirst({ where: { areaId: video.id }, orderBy: { version: 'desc' } }) : null;
