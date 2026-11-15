@@ -177,6 +177,17 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Banco de teste descartável por trabalho (2026-11-15)
+
+* Testes de integração dos projetos (ex.: os 28 do ConnectChat com PostgreSQL) eram pulados: o servidor não oferecia
+  banco de teste. Agora cada trabalho ganha um PostgreSQL vazio só dele (`teste_<id>`), criado na primeira conferência
+  e apagado quando o trabalho termina (concluído, parado ou com falha). Nas conferências e nos critérios,
+  `DATABASE_URL_TEST`, `TEST_DATABASE_URL`, `DATABASE_URL` e `PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE` apontam para
+  ele; o plano e as sessões são orientados a incluir os testes com banco.
+* Instalador: usuário `nivoo_testes` (só cria bancos; não é superusuário; `REVOKE CONNECT` no banco do Nivoo para
+  PUBLIC) e `NIVOO_TESTES_PG_URL` em `/etc/nivoo/nivoo.env`. Validado: o usuário de testes não entra no banco do
+  Nivoo; cria banco, extensão (`pgcrypto`) e tabelas e apaga no fim. Teste em `32`. `src/common/banco-de-teste.ts`.
+
 ## Perguntas da IA com opções de clicar (2026-11-15)
 
 * Quando a IA da conversa (ou da entrega) precisa de uma decisão do usuário, ela manda `perguntas`: de 1 a 4 perguntas,

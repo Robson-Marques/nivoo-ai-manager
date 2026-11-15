@@ -155,4 +155,36 @@ describe('Auditoria preventiva', () => {
     expect(x.statusDetail).toMatch(/problema do SERVIDOR do Nivoo, não do projeto \(EAI_AGAIN request to https:\/\/registry\.npmjs\.org/);
     expect(x.statusDetail).toMatch(/nivoo update/);
   });
+  it('banco de teste descartável: cada trabalho tem o seu nas conferências e nos critérios; apagado no fim', async () => {
+    // O usuário que o instalador cria: só cria bancos, não é superusuário.
+    await h.prisma.$executeRawUnsafe(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'nivoo_testes_ensaio') THEN
+        CREATE ROLE nivoo_testes_ensaio WITH LOGIN CREATEDB NOSUPERUSER NOCREATEROLE PASSWORD 'abc123';
+      END IF; END $$`);
+    process.env.NIVOO_TESTES_PG_URL = 'postgresql://nivoo_testes_ensaio:abc123@127.0.0.1:5432/postgres';
+    const p = (await h.http().post('/api/projects').send({ name: 'Banco', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'integração',
+      steps: [{
+        key: 'db', instructions: 'echo ok > feito.txt',
+        // Como um teste de integração: migra e grava no banco do trabalho (o mesmo nas três variáveis).
+        verifyCommand: 'test "$DATABASE_URL" = "$DATABASE_URL_TEST" && test "$TEST_DATABASE_URL" = "$DATABASE_URL_TEST" && psql -X "$DATABASE_URL_TEST" -tAc "create table if not exists pedidos(id int); insert into pedidos values (7); select current_database()" | grep -q "^teste_"',
+      }],
+      criteria: [{ key: 'b', description: 'banco', kind: 'COMMAND', config: { command: 'test "$(psql -X -tAc "select count(*) from pedidos where id = 7")" -ge 1' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    // A limpeza roda logo depois do "concluído".
+    await waitFor(async () => {
+      const l = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/logs`)).body.map((y: any) => y.message).join('\n');
+      return /Banco de teste do trabalho apagado/.test(l) ? l : null;
+    }, 20_000);
+    const { nomeDoBancoDeTeste } = require('../../src/common/banco-de-teste');
+    const existe = await h.prisma.$queryRawUnsafe<any[]>(`SELECT 1 FROM pg_database WHERE datname = '${nomeDoBancoDeTeste(x.id)}'`);
+    expect(existe).toHaveLength(0);
+    const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(prompt).toMatch(/BANCO DE TESTE: o servidor dá a cada trabalho um PostgreSQL vazio e descartável/);
+    delete process.env.NIVOO_TESTES_PG_URL;
+  });
 });

@@ -19,6 +19,7 @@ import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
+import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -414,6 +415,7 @@ export class PlannerService {
       '  Makefile, pyproject…; confira antes de citar), instalando as dependências quando preciso. Ex.: "npm ci && npm test && npm run build"',
       '  ou "npm ci && npm run test:upgrade". Nunca deixe teste ou build para o usuário rodar, nem entregue código conferido só por leitura.',
       '  Teste que depende de algo que o servidor do Nivoo não tem (outro banco, outro serviço) fica de fora, e o "texto" diz qual.',
+      ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : ['- Este servidor não oferece banco de teste: testes que precisam de PostgreSQL ficam de fora (diga quais).']),
       '- Não escreva na instrução "não altere nenhum outro arquivo": se a conferência falhar por outra causa (script de teste,',
       '  configuração, dependência), a IA precisa poder corrigir essa causa. Proíba só o que o usuário ou as regras protegem.',
       '- Conferência de documentos: comandos básicos do bash (test, grep, find, wc, ls, cat, head, tail, sed, awk, diff). Não use rg nem jq.',

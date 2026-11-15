@@ -192,3 +192,8 @@ TLS na frente.
 | Interface não abre | o túnel SSH está aberto? `nivoo status`; `nivoo logs api` |
 | Jobs parados em "Aguardando recurso" | `nivoo check` (login/limite do provedor); `nivoo logs worker` |
 | Erro durante a instalação | rode o instalador de novo; ele continua de onde estava |
+
+
+## Bancos de teste dos projetos
+
+O instalador cria o usuário PostgreSQL `nivoo_testes` (só cria bancos; não é superusuário e não entra no banco do Nivoo) e grava `NIVOO_TESTES_PG_URL` em `/etc/nivoo/nivoo.env`. Cada trabalho usa um banco `teste_<id>` vazio para os testes do projeto, apagado quando o trabalho termina. Para desligar, remova a linha `NIVOO_TESTES_PG_URL` e rode `nivoo restart`.

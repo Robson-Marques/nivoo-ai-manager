@@ -28,6 +28,7 @@ import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou, jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
+import { bancoDeTesteDisponivel, descartarBancoDeTeste, prepararBancoDeTeste, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
@@ -346,10 +347,15 @@ export class StepExecutorService {
     let faltaPrograma: string | null = null;
     let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
     if ((result.exitCode === 0 || (isAi && result.sessionEnded)) && !result.interrupted && !result.resourceUnavailable && verifyCommand) {
+      // Banco de teste descartável do trabalho (testes de integração do projeto).
+      const banco = await prepararBancoDeTeste(job.id).catch(async (e) => {
+        await L(`Banco de teste indisponível: ${e?.message ?? e}`, 'WARN', attempt.id);
+        return null;
+      });
       const conferir = () =>
         runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, ...(banco?.env ?? {}) }),
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
           maxBuffer: 20 * 1024 * 1024,
@@ -715,6 +721,7 @@ export class StepExecutorService {
       const p = job.project ?? (await this.prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { dirKey: true } }));
       const wt = path.join(this.workspace.projectDirs(p.dirKey).worktrees, job.id);
       const r = await this.workspace.limparLixoDeExecucao(wt);
+      if (await descartarBancoDeTeste(job.id)) await this.logs.log(job.id, 'Banco de teste do trabalho apagado', { source: 'worker' });
       if (r.removidos.length) await this.logs.log(job.id, `Limpeza: ${r.removidos.join(', ')} apagado(s) da pasta do trabalho (${r.mb} MB; são só instalação/cache)`, { source: 'worker' });
     } catch {
       /* limpeza é melhor esforço */
@@ -843,7 +850,7 @@ export class StepExecutorService {
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
-    if (ferramentas.length) add('ferramentas', ferramentas);
+    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : [])]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
       const emOut = fs.existsSync(path.join(worktree, 'out'))

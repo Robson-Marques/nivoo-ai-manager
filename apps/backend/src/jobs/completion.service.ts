@@ -15,6 +15,7 @@ import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 import { lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
+import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
 
@@ -274,6 +275,7 @@ export class CompletionService {
     // Fim do trabalho (concluído ou parado na conferência final): limpeza de dependências e caches da pasta do trabalho.
     if (updated && status !== 'AGUARDANDO_APROVACAO' && !(report.finalStatus === 'EXECUTANDO')) {
       const limpo = await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees, job.id)).catch(() => null);
+      if (await descartarBancoDeTeste(job.id)) await this.logs.log(jobId, 'Banco de teste do trabalho apagado', { source: 'evaluator' });
       if (limpo?.removidos.length) await this.logs.log(jobId, `Limpeza: ${limpo.removidos.join(', ')} apagado(s) da pasta do trabalho (${limpo.mb} MB; são só instalação/cache)`, { source: 'evaluator' });
     }
     if (updated && status === 'CONCLUIDO') {
@@ -374,6 +376,7 @@ export class CompletionService {
             env: ambienteDaConferencia({
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
+              ...((await prepararBancoDeTeste(job.id).catch(() => null))?.env ?? {}),
             }),
             // Critério pode rodar testes e build (como a conferência das etapas): mesmo limite, 30 min por padrão.
             timeoutMs: (cfg.timeoutSec ?? Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800)) * 1000,

@@ -123,11 +123,34 @@ if [ "$(psql_root -c "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'")" != 1
 fi
 ok "banco '$DB_NAME' e usuário '$DB_USER' prontos (somente localhost)"
 
+# Bancos de teste descartáveis (um por trabalho, apagado no fim): usuário próprio que só cria bancos — não é
+# superusuário e não entra no banco do Nivoo.
+TESTES_USER=nivoo_testes
+TESTES_PASS=""
+if [ -f "$ENV_FILE" ]; then
+  TESTES_PASS="$(sed -n 's#^NIVOO_TESTES_PG_URL=postgresql://[^:]*:\([^@]*\)@.*#\1#p' "$ENV_FILE" | head -1)"
+fi
+[ -n "$TESTES_PASS" ] || TESTES_PASS="$(openssl rand -hex 24)"
+if [ "$(psql_root -c "SELECT 1 FROM pg_roles WHERE rolname='$TESTES_USER'")" = 1 ]; then
+  psql_root -c "ALTER ROLE $TESTES_USER WITH LOGIN CREATEDB NOSUPERUSER NOCREATEROLE PASSWORD '$TESTES_PASS'" >/dev/null
+else
+  psql_root -c "CREATE ROLE $TESTES_USER WITH LOGIN CREATEDB NOSUPERUSER NOCREATEROLE PASSWORD '$TESTES_PASS'" >/dev/null
+fi
+psql_root -c "REVOKE CONNECT ON DATABASE $DB_NAME FROM PUBLIC" >/dev/null
+psql_root -c "GRANT CONNECT ON DATABASE $DB_NAME TO $DB_USER" >/dev/null
+TESTES_URL="postgresql://$TESTES_USER:$TESTES_PASS@127.0.0.1:5432/postgres"
+ok "bancos de teste descartáveis: usuário '$TESTES_USER' (só cria bancos; sem acesso ao banco do Nivoo)"
+
 # -----------------------------------------------------------------------------
 step "5/9 Configuração $ENV_FILE"
 install -d -m 750 -o root -g "$NIVOO_USER" "$ETC_DIR"
 if [ -f "$ENV_FILE" ]; then
   sed -i "s#^DATABASE_URL=.*#DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME#" "$ENV_FILE"
+  if grep -q '^NIVOO_TESTES_PG_URL=' "$ENV_FILE"; then
+    sed -i "s#^NIVOO_TESTES_PG_URL=.*#NIVOO_TESTES_PG_URL=$TESTES_URL#" "$ENV_FILE"
+  else
+    echo "NIVOO_TESTES_PG_URL=$TESTES_URL" >> "$ENV_FILE"
+  fi
   ok "mantida (já existia); para mudar porta/endereço edite o arquivo e rode: nivoo restart"
 else
   API_TOKEN_LINE="# NIVOO_API_TOKEN=   (opcional; obrigatório se HOST=0.0.0.0)"
@@ -138,6 +161,7 @@ else
   cat > "$ENV_FILE" <<EOF
 # Nivoo AI Manager — configuração do servidor (NUNCA versionar)
 DATABASE_URL=postgresql://$DB_USER:$DB_PASS@127.0.0.1:5432/$DB_NAME
+NIVOO_TESTES_PG_URL=$TESTES_URL
 HOST=$NIVOO_HOST
 PORT=$NIVOO_PORT
 NIVOO_WORKSPACES_ROOT=$NIVOO_HOME/data/workspaces
