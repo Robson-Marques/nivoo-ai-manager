@@ -89,6 +89,7 @@ const MOTIVO: Record<string, string> = {
   LIMITE_ORCAMENTO_PROJETO: 'o projeto atingiu o limite de gasto',
   CONFLITO_INCORPORACAO: 'outro trabalho mexeu nos mesmos arquivos',
   INTERROMPIDO: 'foi interrompido',
+  FALHA_INTERNA: 'deu um erro interno no Nivoo (o diagnóstico abaixo mostra qual)',
   POLITICA: 'foi bloqueado por segurança',
   APROVACAO_REJEITADA: 'a confirmação foi recusada',
   FALHA_INFRAESTRUTURA: 'o servidor teve um problema',
@@ -911,7 +912,7 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
         {feitas < total && <div className="atual" style={{ width: `${100 / total}%` }} />}
       </div>
       <div className="muted small">
-        {job.status === 'PENDENTE' || !inicio ? 'Na fila para começar…' : `Rodando há ${duracao(inicio)}${tentativas.length > 1 ? ` · sessão ${tentativas.length} (continua de onde parou)` : ''}`}
+        {job.status !== 'PENDENTE' && !atual && feitas >= total ? 'Etapas prontas: conferindo o resultado final…' : job.status === 'PENDENTE' || !inicio ? 'Na fila para começar…' : `Rodando há ${duracao(inicio)}${tentativas.length > 1 ? ` · sessão ${tentativas.length} (continua de onde parou)` : ''}`}
       </div>
       {anterior?.error && (
         <div className="muted small" title={anterior.error}>

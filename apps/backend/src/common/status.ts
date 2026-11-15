@@ -5,6 +5,7 @@ export const TERMINAL_JOB_STATES: ExecStatus[] = [ExecStatus.CONCLUIDO];
 /** Motivos padronizados de bloqueio (blockedReason). */
 export const BlockedReason = {
   INTERROMPIDO: 'INTERROMPIDO',
+  FALHA_INTERNA: 'FALHA_INTERNA',
   REPETICAO_IMPRODUTIVA: 'REPETICAO_IMPRODUTIVA',
   CRITERIOS_NAO_ATENDIDOS: 'CRITERIOS_NAO_ATENDIDOS',
   SEM_CRITERIOS: 'SEM_CRITERIOS',

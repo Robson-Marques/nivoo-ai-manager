@@ -10,6 +10,7 @@ import { QueueTaskType } from '@prisma/client';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { StepExecutorService } from './step-executor.service';
 import { PlannerService } from './planner.service';
+import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 
 /**
  * Loop do worker: reivindica tarefas da fila persistente, mantém heartbeat do lease e
@@ -25,6 +26,25 @@ const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
 @Injectable()
 export class WorkerRunnerService {
   private readonly logger = new Logger('Worker');
+  private readonly errosSeguidos = new Map<string, number>();
+
+  /** Erro interno repetido: a tarefa sai da fila e o trabalho/mensagem mostra o motivo (diagnóstico tem o resto). */
+  private async desistirDaTarefa(task: ClaimedTask, motivo: string): Promise<void> {
+    const texto = `erro interno do Nivoo repetido 5 vezes: ${motivo.slice(0, 500)}. Use "Copiar diagnóstico completo" e mande para o suporte; depois "Tentar de novo".`;
+    await this.queue.complete(task.id, this.workerId);
+    if (task.jobId) {
+      await this.prisma.$transaction([
+        this.prisma.step.updateMany({ where: { jobId: task.jobId, status: 'EXECUTANDO' }, data: { status: 'BLOQUEADO', statusDetail: texto } }),
+        this.prisma.attempt.updateMany({ where: { jobId: task.jobId, status: 'EXECUTANDO' }, data: { status: 'INTERROMPIDA', endedAt: new Date(), error: texto } }),
+        this.prisma.job.updateMany({ where: { id: task.jobId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO'] } }, data: { status: 'BLOQUEADO', blockedReason: 'FALHA_INTERNA', statusDetail: texto } }),
+      ]);
+      await this.logs.log(task.jobId, `Trabalho parado: ${texto}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
+      await avisarConversaQueParou(this.prisma, task.jobId, texto);
+    }
+    if (task.messageId) {
+      await this.prisma.conversationMessage.updateMany({ where: { id: task.messageId, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: `A IA não conseguiu responder: ${texto}` } });
+    }
+  }
   private running = false;
   private loopPromise: Promise<void> | null = null;
   readonly workerId: string;
@@ -119,13 +139,23 @@ export class WorkerRunnerService {
       } else {
         await this.queue.complete(task.id, this.workerId);
       }
+      this.errosSeguidos.delete(task.id);
     } catch (e: any) {
       this.logger.error(`Falha processando tarefa ${task.id}: ${e?.stack ?? e}`);
       registrarErro('worker', `falha na tarefa ${task.type} ${task.id}${task.jobId ? ` (trabalho ${task.jobId})` : ''}: ${e?.message ?? e}`, e);
       if (task.jobId) {
         await this.logs.log(task.jobId, `Erro interno do worker: ${e?.message ?? e}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
       }
-      await this.queue.requeue(task.id, this.workerId, new Date(Date.now() + 10_000), String(e?.message ?? e)).catch(() => undefined);
+      // O mesmo erro interno várias vezes seguidas: parar e mostrar o motivo, em vez de repetir a cada 10 s para
+      // sempre com o trabalho "executando" na tela.
+      const n = (this.errosSeguidos.get(task.id) ?? 0) + 1;
+      this.errosSeguidos.set(task.id, n);
+      if (n >= 5) {
+        this.errosSeguidos.delete(task.id);
+        await this.desistirDaTarefa(task, String(e?.message ?? e)).catch(() => undefined);
+      } else {
+        await this.queue.requeue(task.id, this.workerId, new Date(Date.now() + 10_000 * n), String(e?.message ?? e)).catch(() => undefined);
+      }
     } finally {
       clearInterval(hb);
     }

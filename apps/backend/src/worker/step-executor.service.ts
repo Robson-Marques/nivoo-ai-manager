@@ -26,7 +26,7 @@ import { AGENT_RULES, evaluatePolicy } from '../security/policy';
 import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } from './context-builder';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
-import { jobsDaConversa } from '../conversations/jobs-da-conversa';
+import { avisarConversaQueParou, jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
@@ -166,7 +166,8 @@ export class StepExecutorService {
     }
 
     // Política: ações destrutivas só com aprovação do usuário.
-    const pol = evaluatePolicy(`${step.instructions}\n${step.verifyCommand ?? ''}`);
+    // Só o que roda como comando: instrução de IA é texto ("não use rm -rf" não é ação destrutiva).
+    const pol = evaluatePolicy(`${(step.provider ?? job.defaultProvider) === "local-shell" ? step.instructions : ""}\n${step.verifyCommand ?? ''}`);
     if (step.requiresApproval || pol.requiresApproval) {
       // A aprovação vale só para o conteúdo exato que foi aprovado (hash das instruções + verificação).
       const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
@@ -213,6 +214,7 @@ export class StepExecutorService {
     // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
     const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
     let repoHarness: string[] = [];
+    let docsPendentes = new Map<string, Buffer>();
     if (isAi) {
       // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
       const ctx = this.workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
@@ -242,7 +244,17 @@ export class StepExecutorService {
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
-      const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !f.startsWith('contexto/'));
+      // Documentos de instrução escritos por uma sessão anterior que ainda não viraram commit (a sessão acabou sem
+      // concluir a etapa): são do trabalho. Saem da pasta durante esta sessão (cópia legível em contexto/repositorio/)
+      // e voltam depois — antes a limpeza abaixo os apagava.
+      const naoVersionados = this.workspace.docsNoTrabalho(worktree).filter((f) => !repoHarness.includes(f));
+      docsPendentes = this.workspace.capturarDocsEditados(worktree, naoVersionados);
+      for (const [rel, conteudo] of docsPendentes) {
+        const dest = path.join(worktree, SESSION_CONTEXT_DIR, 'repositorio', WorkspaceService.sessionPath(rel));
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, conteudo);
+      }
+      const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !docsPendentes.has(f) && !f.startsWith('contexto/'));
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
     }
     const treeBefore = await this.workspace.snapshotHash(worktree);
@@ -258,7 +270,7 @@ export class StepExecutorService {
 
     const profile = await this.profiles.build(job.projectId);
     const { text: contextBase, stats: contextStats } = await this.buildContext(job, step, profile.text, isAi ? worktree : undefined);
-    const docsDoRepo = isAi ? this.workspace.docsEditaveis(repoHarness) : [];
+    const docsDoRepo = isAi ? [...this.workspace.docsEditaveis(repoHarness), ...docsPendentes.keys()] : [];
     const context = docsDoRepo.length
       ? `${contextBase}\n\n## Documentos de instrução do repositório\nNesta sessão ${docsDoRepo.join(', ')} ficam fora da pasta (cópia para ler em contexto/repositorio/, com "_" no nome). Se o trabalho pede para alterar um deles, escreva o arquivo no caminho original (ex.: ${docsDoRepo[0]}) com o conteúdo COMPLETO atualizado (parta da cópia): essa versão entra no trabalho.`
       : contextBase;
@@ -312,6 +324,18 @@ export class StepExecutorService {
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
     if (isAi) this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
 
+    if (isAi && !result.interrupted) {
+      // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
+      const rem = this.workspace.aplicarRemocoesPedidas(worktree);
+      if (rem.feitos.length) await L(`Pedido da IA: ${rem.feitos.length} item(ns) apagado(s)/movido(s): ${rem.feitos.slice(0, 50).join(', ')}`, 'INFO', attempt.id);
+      if (rem.recusados.length) await L(`Pedidos de remoção recusados (caminho inválido, protegido ou inexistente): ${rem.recusados.slice(0, 30).join('; ')}`, 'WARN', attempt.id);
+    }
+    // Sessão de IA que esgotou o tempo = sessão encerrada (não falha): confere, salva o que foi feito e continua
+    // numa nova sessão. Antes contava como falha: sem conferência, sem checkpoint, e dois tempos esgotados seguidos
+    // bloqueavam o trabalho como "repetição improdutiva".
+    if (isAi && !result.interrupted && !result.resourceUnavailable && /^timeout após \d+ ms/.test(result.error ?? '')) {
+      result = { ...result, sessionEnded: true, stopReason: result.stopReason ?? 'tempo da sessão esgotado' };
+    }
     // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
@@ -319,7 +343,7 @@ export class StepExecutorService {
     const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
     let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
-    if (result.exitCode === 0 && !result.interrupted && verifyCommand) {
+    if ((result.exitCode === 0 || (isAi && result.sessionEnded)) && !result.interrupted && !result.resourceUnavailable && verifyCommand) {
       const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
         cwd: worktree,
         env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
@@ -331,10 +355,23 @@ export class StepExecutorService {
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
       const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
+      // Saída inteira da conferência para a próxima sessão ler (o erro do teste costuma estar no fim de muita saída).
+      try {
+        fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
+        fs.writeFileSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'), `$ ${verifyCommand}\n(exit ${v.exitCode})\n\n${`${v.stdout}${v.stderr}`.slice(-2_000_000)}`);
+      } catch {
+        /* melhor esforço */
+      }
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
       verified = v.exitCode === 0;
       // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.
-      if (v.exitCode === 127) faltaPrograma = /(\S+): (?:command not found|comando não encontrado)/.exec(vOut)?.[1] ?? 'um programa';
+      // 127 com um programa que a PRÓPRIA conferência chama (ex.: "rg" em "rg x && …"): nenhuma sessão resolve.
+      // Programa que falta dentro do projeto (ex.: jest num "npm test") a IA corrige: segue o fluxo normal.
+      if (v.exitCode === 127) {
+        const falta = /(\S+): (?:command not found|comando não encontrado|not found)/.exec(vOut)?.[1]?.replace(/^.*:\s*/, '') ?? '';
+        const daConferencia = verifyCommand.split(/&&|\|\||;|\|/).map((x) => x.trim().replace(/^\(+\s*/, '').split(/\s+/)[0]).filter(Boolean);
+        if (falta && daConferencia.includes(falta)) faltaPrograma = falta;
+      }
       if (v.aborted) result = { ...result, interrupted: true };
       else if (v.exitCode !== 0) {
         result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
@@ -374,6 +411,8 @@ export class StepExecutorService {
       const planted = this.workspace.sanitizeHarnessFiles(worktree);
       // Configurações (.claude/, .codex/…) voltam intactas; a IA não mexe em hooks nem permissões.
       await this.workspace.restoreRepoHarness(worktree, repoHarness).catch(async (e) => L(`Falha ao restaurar instruções do repositório: ${e?.message ?? e}`, 'ERROR', attempt.id));
+      // Os pendentes de sessões anteriores voltam (a versão desta sessão, se a IA reescreveu, vale mais).
+      for (const [rel, c] of docsPendentes) if (!editados.has(rel)) editados.set(rel, c);
       if (editados.size) {
         this.workspace.gravarDocsEditados(worktree, editados);
         await L(`Documentos de instrução escritos pela IA (entram no trabalho): ${[...editados.keys()].join(', ')}`, 'INFO', attempt.id);
@@ -513,10 +552,11 @@ export class StepExecutorService {
     // A conferência da etapa falhando sempre igual, sessão após sessão: a IA mexe em arquivos (parece avanço),
     // mas não resolve o que a conferência cobra. Para e explica, em vez de girar sem fim.
     const janelaConferencia = Math.max(6, job.repetitionWindow * 3);
-    const conferencias = sessions.slice(0, janelaConferencia).map((a) => a.error ?? '');
+    // Normalizado: tempos, durações, datas e números mudam a cada execução de teste sem ser progresso.
+    const conferencias = sessions.slice(0, janelaConferencia).map((a) => normalizarErro(a.error ?? ''));
     if (conferencias.length >= janelaConferencia && conferencias[0].startsWith('verificação da etapa falhou') && conferencias.every((e) => e === conferencias[0])) {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `a conferência da etapa falhou ${janelaConferencia} vezes seguidas do mesmo jeito: ${conferencias[0].replace(/^verificação da etapa falhou /, '').slice(0, 400)}`);
+        `a conferência da etapa falhou ${janelaConferencia} vezes seguidas do mesmo jeito: ${(sessions[0].error ?? '').replace(/^verificação da etapa falhou /, '').slice(-600)}`);
     }
     // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
     // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
@@ -672,6 +712,7 @@ export class StepExecutorService {
       });
     });
     await this.logs.log(job.id, `Job BLOQUEADO (${reason}) na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
+    await avisarConversaQueParou(this.prisma, job.id, `${reason}: ${detail}`);
     await this.limparAoFim(job);
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
@@ -688,6 +729,7 @@ export class StepExecutorService {
       });
     });
     await this.logs.log(job.id, `Job FALHOU na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
+    await avisarConversaQueParou(this.prisma, job.id, detail);
     await this.limparAoFim(job);
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
@@ -784,7 +826,14 @@ export class StepExecutorService {
     const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
     if (ferramentas.length) add('ferramentas', ferramentas);
     if (step.key === RULE_REVIEW_STEP && worktree) {
-      add('mudancas', ['## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```']);
+      // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
+      const emOut = fs.existsSync(path.join(worktree, 'out'))
+        ? fs.readdirSync(path.join(worktree, 'out'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.relative(worktree, path.join(e.parentPath ?? (e as any).path, e.name)))
+        : [];
+      add('mudancas', [
+        '## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```',
+        ...(emOut.length ? ['Resultados em out/ (relatórios e documentos entregues; leia e confira também):', ...emOut.slice(0, 100).map((f) => `- ${f}`)] : []),
+      ]);
     }
     if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'))) {
       add('conversa', [
@@ -813,7 +862,15 @@ export class StepExecutorService {
     const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
     if (attempts.length) {
       history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
-      for (const a of [...attempts].reverse()) history.push(`- sessão ${a.number}: ${a.status} (término: ${a.stopReason ?? '-'}) ${(a.error ?? '').slice(0, 400)}`);
+      for (const a of [...attempts].reverse()) {
+        const e = a.error ?? '';
+        // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
+        const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
+        history.push(`- sessão ${a.number}: ${a.status} (término: ${a.stopReason ?? '-'}) ${resumo}`);
+      }
+      if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
+        history.push('A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
+      }
     }
     add('historico', history);
     add('protocolo', [
@@ -862,4 +919,14 @@ export function conversaComoTexto(msgs: Array<{ role: string; content: string; k
     partes.push(bloco);
   }
   return partes.join('\n');
+}
+
+/** Erro sem o que muda a cada execução (horários, durações, números, hashes): para comparar repetição. */
+export function normalizarErro(e: string): string {
+  return e
+    .replace(/\b[0-9a-f]{7,40}\b/gi, 'H')
+    .replace(/\d+([.,]\d+)?\s*(ms|s|seg|min|m|kb|mb)\b/gi, 'N')
+    .replace(/\d+/g, 'N')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

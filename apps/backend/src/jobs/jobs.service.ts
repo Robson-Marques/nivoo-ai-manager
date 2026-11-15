@@ -81,7 +81,10 @@ export class JobsService {
         const m = (providerOptions.mover as Array<{ para: string }>).map((x) => `test -e '${x.para}'`);
         verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
       }
-      const pol = evaluatePolicy(`${instructions}\n${verificacao ?? ''}`);
+      // Política sobre o que vai RODAR: comandos (verificação; instruções só de etapa de comando). Instrução de IA é texto
+      // — "não use rm -rf" ou um achado citando DELETE FROM não é uma ação destrutiva.
+      const ehComando = (provider ?? defaultProvider) === 'local-shell';
+      const pol = evaluatePolicy(`${ehComando ? instructions : ''}\n${verificacao ?? ''}`);
       return {
         key,
         title: optString(s, 'title', 300) ?? key,

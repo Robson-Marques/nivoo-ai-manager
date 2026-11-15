@@ -177,6 +177,44 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Auditoria preventiva do fluxo de trabalho (2026-11-15)
+
+Varredura do fluxo inteiro (conversa → plano → etapas → conferências → revisão → entrega → tela) atrás das mesmas
+classes de defeito que o usuário encontrou em produção. Corrigido:
+
+* **Erro da conferência pela parte certa**: a saída inteira vai para `.nivoo/ultima-conferencia.txt` (a próxima sessão
+  é orientada a ler); o histórico mostra começo + fim do erro (antes só os primeiros 400 caracteres, ruído de
+  instalação); a correção do critério final recebe o fim de stdout/stderr.
+* **Tempo da sessão esgotado = sessão encerrada**: confere, salva (checkpoint) e continua em nova sessão (antes: falha
+  sem conferência e dois tempos esgotados bloqueavam como "repetição").
+* **Critérios COMMAND com o mesmo limite das conferências** (30 min; antes 5 min — testes e build estouravam).
+* **Repetição comparada sem números/horários/hashes** (saída de teste muda a cada execução; o laço nunca era detectado).
+* **Apagar/mover pela IA**: nenhuma IA tinha como apagar (Claude e Gemini sem terminal; Codex orientado a não apagar),
+  e a revisão cobrava "código morto". Agora a IA lista em `.nivoo/remover.txt` ("caminho" ou "mover a -> b") e o
+  sistema executa ao fim da sessão, antes da conferência; caminhos fora do projeto, `.git/`, `contexto/` e `.nivoo/`
+  são recusados e registrados.
+* **Saída das IAs guarda o fim** (onde ficam o resultado, o custo e o erro): limite 20 MB por processo, cortando o
+  começo (antes guardava o começo de 5 MB e perdia o resultado final em sessões longas).
+* **Programa faltando (exit 127)** só bloqueia na hora se for um comando da PRÓPRIA conferência; um `jest` faltando
+  dentro de `npm test` a IA corrige.
+* **Conversa avisa quando o trabalho para** (bloqueado/falhou), com o motivo.
+* **Planner**: resposta vazia por limite de passos vira erro explicado (antes "(sem resposta)"); limite 40 passos;
+  plano com JSON quebrado é dito, em vez de mostrar código.
+* **Política de ação destrutiva** só sobre o que roda (verificação; instrução de etapa de comando): texto de IA
+  com "não use rm -rf" ou achado citando "DELETE FROM" não pede mais aprovação.
+* **Erro interno repetido 5 vezes** para o trabalho (FALHA_INTERNA) ou a resposta, com o motivo — antes repetia a cada
+  10 s para sempre com o trabalho "executando".
+* **Documento de instrução novo** de uma sessão que não concluiu fica guardado entre sessões (antes a limpeza
+  apagava); relatório velho da revisão sempre sai antes de a revisão rodar de novo; FILE_EXISTS aceita pasta; a
+  revisão vê os arquivos de `out/`; `.venv`, `coverage`, `.nyc_output` entram na limpeza e no ignore; vídeo usa
+  padrões (fade, sem legenda) em vez de perguntar; tela mostra "conferindo o resultado final" no fim.
+* **Ainda em aberto** (registrado, não corrigido): dois trabalhos da mesma conversa ao mesmo tempo podem conflitar ao
+  integrar (o "Tentar de novo" pede resolução manual); pasta do projeto chamada `contexto/` colide com a pasta de
+  contexto do Nivoo; um worker processa um trabalho por vez (mais workers = mais paralelismo); pasta `.claude/`
+  pedida de propósito pelo usuário continua sendo removida (segurança).
+* Testes: `32-auditoria-preventiva` (tempo esgotado, remoções pedidas, saída da conferência, aviso na conversa,
+  política) e os anteriores ajustados.
+
 ## Ir até o fim: testes pelo sistema, seguir sozinho, menos perguntas, limpeza (2026-11-15)
 
 * **Problema real (ctrl-leads)**: a entrega dizia "não rodei nenhum teste" e pedia ao usuário para rodar `npm run

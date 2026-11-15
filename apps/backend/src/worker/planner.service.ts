@@ -159,7 +159,7 @@ export class PlannerService {
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
-          maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25),
+          maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 40),
           model: projectModel(project, providerId),
           // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
@@ -197,7 +197,11 @@ export class PlannerService {
           ? `A IA não respondeu em ${Math.round(Number(tempo[1]) / 60000)} minutos (o servidor dela pode estar lento ou sobrecarregado). Envie a mensagem de novo; se repetir, troque a IA do projeto no topo da conversa.`
           : `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
       }
-      else if (parsed?.tipo === 'plano') {
+      else if (!parsed && !content) {
+        erro = result.sessionEnded
+          ? 'A IA usou todos os passos desta resposta sem terminar (pedido grande demais para uma resposta). Envie "continue", ou peça por partes.'
+          : 'A IA terminou sem responder nada. Envie a mensagem de novo; se repetir, troque a IA do projeto no topo da conversa.';
+      } else if (parsed?.tipo === 'plano') {
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId });
@@ -216,6 +220,10 @@ export class PlannerService {
         }
       } else if (parsed?.tipo === 'resposta') {
         content = String(parsed.texto ?? '');
+      } else if (!parsed && /```json/.test(result.output)) {
+        // A IA tentou mandar um plano/resposta estruturada, mas o JSON veio quebrado: dizer, em vez de mostrar o código.
+        const antes = result.output.split('```json')[0].trim();
+        content = `${antes}\n\n[A resposta da IA veio com o plano quebrado (JSON inválido) e não pôde ser lida. Peça "mande o plano de novo".]`.trim();
       }
       if (!erro && Array.isArray(parsed?.memoria)) {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
@@ -424,11 +432,11 @@ export class PlannerService {
             '  Legenda: em vídeo com várias cenas, escreva a legenda de CADA cena (curta, em português, sem emojis); o sistema grava no',
             '  vídeo completo no tempo certo e salva também o .srt. Transição para a cena seguinte (opcional, padrão "fade"): fade,',
             '  fadeblack (passa pelo preto), fadewhite, dissolve, wipeleft, wiperight, slideleft, slideright, slideup, circleopen,',
-            '  circleclose, smoothleft, zoomin ou corte. Pergunte ao usuário se quer legenda e qual estilo de transição, se ele não disse.',
+            '  circleclose, smoothleft, zoomin ou corte. Se ele não disse, use transição "fade" e sem legenda, e conte no texto (ele muda depois).',
             '  TRILHA DE FUNDO (vídeo com várias cenas): uma música só, de ponta a ponta, que abaixa sozinha quando há fala. Coloque na',
             '  PRIMEIRA cena "trilha":{"arquivo":"audio/musica.mp3"} (música do usuário, anexada no chat e posta no projeto com',
             '  "anexosNoProjeto": GRÁTIS) ou "trilha":{"descricao":"estilo, instrumentos, clima, andamento"} (o Google compõe: custa',
-            '  cerca de US$ 0,08). Com trilha, o sistema pede cada cena SEM música própria. Pergunte qual o usuário prefere.',
+            '  cerca de US$ 0,08). Com trilha, o sistema pede cada cena SEM música própria. Se ele não disse, use a trilha composta pelo Google e conte no texto.',
             '  Tudo da montagem (juntar, transição, legenda, trilha, volume) é feito pelo servidor, sem IA e sem custo; só gerar',
             '  cena e gerar música usa o Google. Prefira sempre o caminho sem custo quando ele atender.',
             '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',

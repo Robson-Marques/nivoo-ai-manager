@@ -15,6 +15,7 @@ import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 import { lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
+import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
 
 export interface CriterionResult {
@@ -83,7 +84,11 @@ export class CompletionService {
     const key = `correcao-criterios-${rodadas + 1}`;
     const linhas = falhas.map((f) => {
       const c = criterios.find((x) => x.key === f.key);
-      return `- ${f.key} — ${c?.description ?? ''}\n  evidência: ${JSON.stringify(f.evidence).slice(0, 600)}`;
+      const ev = (f.evidence ?? {}) as Record<string, unknown>;
+      // Saída do comando pelo FIM (onde está o erro do teste/build); o resto da evidência resumido.
+      const saida = [ev.stdout, ev.stderr].filter((x) => typeof x === 'string' && x).join('\n').slice(-3000);
+      const resto = JSON.stringify({ ...ev, stdout: undefined, stderr: undefined }).slice(0, 600);
+      return `- ${f.key} — ${c?.description ?? ''}\n  evidência: ${resto}${saida ? `\n  saída do comando (fim):\n${saida}` : ''}`;
     });
     // A revisão independente apontou violações: elas são o que corrigir (o relatório antigo sai; a revisão roda de novo).
     const revisao: string[] = [];
@@ -103,8 +108,10 @@ export class CompletionService {
       } catch {
         /* sem relatório legível: segue só com o critério */
       }
-      fs.rmSync(arq, { force: true });
     }
+    // A revisão roda de novo depois da correção: o relatório antigo sai SEMPRE (senão um "conforme" velho passaria
+    // pela conferência da etapa de revisão mesmo sem ela gravar nada novo).
+    if (job.steps.some((s) => s.key === RULE_REVIEW_STEP)) fs.rmSync(path.join(worktree, RULE_REVIEW_REPORT), { force: true });
     // A etapa só termina quando os mesmos critérios passam (comandos e arquivos verificáveis aqui mesmo).
     const confere = falhas
       .filter((f) => f.key !== RULE_REVIEW_STEP) // a conformidade é dada pela revisão, que roda de novo depois
@@ -263,6 +270,7 @@ export class CompletionService {
     // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
     if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
     if (updated) await escreverArquivosDaMemoria(this.prisma, job.projectId);
+    if (updated && status === 'BLOQUEADO') await avisarConversaQueParou(this.prisma, job.id, detail);
     // Fim do trabalho (concluído ou parado na conferência final): limpeza de dependências e caches da pasta do trabalho.
     if (updated && status !== 'AGUARDANDO_APROVACAO' && !(report.finalStatus === 'EXECUTANDO')) {
       const limpo = await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees, job.id)).catch(() => null);
@@ -367,7 +375,9 @@ export class CompletionService {
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
             }),
-            timeoutMs: (cfg.timeoutSec ?? 300) * 1000,
+            // Critério pode rodar testes e build (como a conferência das etapas): mesmo limite, 30 min por padrão.
+            timeoutMs: (cfg.timeoutSec ?? Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800)) * 1000,
+            maxBuffer: 20 * 1024 * 1024,
           });
           const expected = cfg.expectExitCode ?? 0;
           return {
@@ -383,7 +393,8 @@ export class CompletionService {
           const minBytes = cfg.minBytes ?? 1;
           return {
             ...base,
-            passed: st.isFile() && st.size >= minBytes,
+            // Pasta também vale ("existe"); arquivo precisa ter o tamanho mínimo.
+            passed: st.isDirectory() || (st.isFile() && st.size >= minBytes),
             evidence: { caminho: cfg.path, existe: true, bytes: st.size, minBytes, sha256: st.isFile() ? await sha256File(p) : null },
           };
         }

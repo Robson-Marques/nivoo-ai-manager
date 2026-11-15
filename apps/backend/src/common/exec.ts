@@ -44,7 +44,7 @@ export function minimalEnv(extra: Record<string, string | undefined> = {}, passK
 /** Executa um processo sem shell implícito; mata o grupo inteiro em timeout/abort. */
 export function runProcess(cmd: string, args: string[], opts: RunOptions): Promise<RunResult> {
   const started = Date.now();
-  const maxBuffer = opts.maxBuffer ?? 5 * 1024 * 1024;
+  const maxBuffer = opts.maxBuffer ?? 20 * 1024 * 1024;
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -86,12 +86,15 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
+    // Passou do limite: guarda o FIM (é lá que ficam o resultado final da IA, o custo e o erro do teste).
     child.stdout.on('data', (c: string) => {
-      if (stdout.length < maxBuffer) stdout += c;
+      stdout += c;
+      if (stdout.length > maxBuffer * 1.25) stdout = stdout.slice(-maxBuffer);
       opts.onStdout?.(c);
     });
     child.stderr.on('data', (c: string) => {
-      if (stderr.length < maxBuffer) stderr += c;
+      stderr += c;
+      if (stderr.length > maxBuffer * 1.25) stderr = stderr.slice(-maxBuffer);
       opts.onStderr?.(c);
     });
     const finish = (exitCode: number | null, spawnError?: string) => {

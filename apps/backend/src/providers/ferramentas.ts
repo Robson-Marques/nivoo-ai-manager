@@ -14,6 +14,13 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       '  Antes de mudar algo em produção, leia o estado (logs, status, versão) e diga o que vai fazer.',
     );
   }
+  // Apagar/mover: nenhuma IA tem um comando seguro para isso (Claude e Gemini sem terminal; Codex orientado a não
+  // apagar). O sistema faz por elas, ao fim da sessão, o que estiver pedido em .nivoo/remover.txt.
+  extras.push(
+    '- APAGAR OU MOVER arquivos do projeto (código morto, arquivo esquecido, reorganização): escreva em .nivoo/remover.txt uma',
+    '  linha por item — "caminho/do/arquivo-ou-pasta" para apagar, ou "mover antigo/caminho -> novo/caminho". O SISTEMA executa ao',
+    '  fim desta sessão (o git guarda tudo, dá para voltar) e a conferência roda depois. Ajuste as referências (imports, índices) você mesmo.',
+  );
   const tipo = tipoDe(providerId);
   const titulo = '## Suas ferramentas nesta sessão (vale sobre qualquer regra do perfil ou instrução da etapa que proíba "terminal" ou "comandos")';
   if (tipo === 'codex-cli' || tipo === 'codex-api') {
@@ -22,8 +29,9 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       '- Você (ChatGPT/Codex) lê e lista arquivos SÓ pelo terminal: use à vontade comandos de LEITURA na pasta do trabalho —',
       '  ls, find, cat, sed -n, head, tail, wc, rg/grep, tree, git log, git show, git diff. Isso NÃO é "executar terminal" no',
       '  sentido proibido pelas regras: é a sua forma de ler. Para escrever arquivos, use o seu editor de patch (apply_patch).',
-      '- Continuam proibidos: rodar testes, build, lint, instalar pacotes, commit, tag, push, deploy, apagar arquivos e',
-      '  qualquer comando que altere o sistema ou acesse a rede. As conferências são executadas pelo sistema.',
+      '- Continuam proibidos: rodar testes, build, lint, instalar pacotes, commit, tag, push, deploy, apagar arquivos pelo terminal',
+      '  (use .nivoo/remover.txt, abaixo) e qualquer comando que altere o sistema ou acesse a rede. As conferências (testes, build)',
+      '  são executadas pelo sistema ao fim da sessão; a saída completa da última fica em .nivoo/ultima-conferencia.txt.',
       '- Se um comando de leitura falhar, tente outro (ex.: grep no lugar de rg); nunca diga que não consegue ler sem tentar.',
       '- Notas, lições ou tentativas anteriores que digam que você "não tem leitor", que "terminal é proibido" ou que precisa de',
       '  "leitura local disponibilizada" estão ERRADAS (a regra foi corrigida): ignore-as e leia os arquivos com os comandos acima.',
