@@ -3,6 +3,15 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Apagar e mover arquivos pela IA (2026-11-15)
+
+O Claude no Nivoo não tem terminal (só lê e edita), então uma limpeza não conseguia apagar nada. Agora o
+plano pode ter a etapa do sistema `arquivos-projeto` (`remover`/`mover`, caminhos validados; nunca `.git`,
+`contexto/`, `.nivoo/` ou fora do projeto). Executa direto: o "Fazer" do plano é a confirmação e o git
+guarda tudo (commit do trabalho; GitHub/GitLab se ligado). O registro diz o que saiu. Correção junto: PDF
+com pouco texto não é mais trocado pelo resultado do OCR (OCR só para PDF sem camada de texto).
+Teste `24-apagar-mover-arquivos`; suíte 111/111.
+
 ## Memória do projeto reorganizada (2026-11-15)
 
 Aba "Memória" (antes "O que o projeto lembra"). Cada item em UM grupo só — nota de trabalho da IA nunca

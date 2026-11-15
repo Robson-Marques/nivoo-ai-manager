@@ -63,6 +63,14 @@ export class JobsService {
         Object.assign(providerOptions, opcoesDeVideo(key, opts));
         verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
       }
+      // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
+      // git guarda tudo (dá para voltar qualquer arquivo) — não pede uma segunda confirmação.
+      if ((provider ?? defaultProvider) === 'arquivos-projeto') {
+        Object.assign(providerOptions, operacoesDeArquivos(key, opts));
+        const r = (providerOptions.remover as string[]).map((p) => `test ! -e '${p}'`);
+        const m = (providerOptions.mover as Array<{ para: string }>).map((x) => `test -e '${x.para}'`);
+        verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
+      }
       const pol = evaluatePolicy(`${instructions}\n${verificacao ?? ''}`);
       return {
         key,
@@ -432,4 +440,18 @@ export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
   }
   if (o.conexao !== undefined) out.conexao = String(o.conexao).slice(0, 60);
   return out;
+}
+
+/** Lista de apagar/mover de uma etapa "arquivos-projeto", validada (só caminhos do projeto, nada protegido). */
+export function operacoesDeArquivos(key: string, o: any): { remover: string[]; mover: Array<{ de: string; para: string }> } {
+  const ok = (p: unknown) => {
+    const r = String(p ?? '').trim().replace(/\/+$/, '');
+    if (!CAMINHO_SEGURO.test(r) || /^(\.git|contexto|\.nivoo)(\/|$)/.test(r) || r === '.') throw new BadRequestException(`Etapa ${key}: caminho inválido ou protegido: ${String(p)}`);
+    return r;
+  };
+  const remover = Array.isArray(o.remover) ? o.remover.map(ok) : [];
+  const mover = Array.isArray(o.mover) ? o.mover.map((m: any) => ({ de: ok(m?.de), para: ok(m?.para) })) : [];
+  if (!remover.length && !mover.length) throw new BadRequestException(`Etapa ${key}: informe "remover" e/ou "mover"`);
+  if (remover.length + mover.length > 2000) throw new BadRequestException(`Etapa ${key}: no máximo 2000 itens por etapa`);
+  return { remover, mover };
 }

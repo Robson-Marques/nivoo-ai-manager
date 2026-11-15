@@ -1,4 +1,5 @@
 import { copiarAnexosParaSessao } from '../conversations/attachments';
+import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import { Injectable, Logger } from '@nestjs/common';
@@ -133,7 +134,10 @@ export class StepExecutorService {
     if (step.requiresApproval || pol.requiresApproval) {
       // A aprovação vale só para o conteúdo exato que foi aprovado (hash das instruções + verificação).
       const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
-      if (!approved) return this.awaitApproval(task, workerId, job, step, pol.reasons);
+      if (!approved) {
+        const ops = (step.provider ?? job.defaultProvider) === 'arquivos-projeto' ? descreverOperacoes((step.providerOptions ?? {}) as never) : '';
+        return this.awaitApproval(task, workerId, job, step, ops ? [ops] : pol.reasons, ops ? `Confirma ${ops}? (fica no histórico do git; dá para desfazer)` : undefined);
+      }
     }
 
     // Disponibilidade do conector.
@@ -590,7 +594,7 @@ export class StepExecutorService {
     return 'FALHOU';
   }
 
-  private async awaitApproval(task: ClaimedTask, workerId: string, job: Job, step: Step, reasons: string[]): Promise<StepOutcome> {
+  private async awaitApproval(task: ClaimedTask, workerId: string, job: Job, step: Step, reasons: string[], descricao?: string): Promise<StepOutcome> {
     const pending = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'PENDENTE' } });
     if (!pending) {
       await this.prisma.approval.create({
@@ -600,7 +604,7 @@ export class StepExecutorService {
           kind: 'ACAO_DESTRUTIVA',
           subjectId: step.id,
           subjectHash: stepHash(step),
-          description: `Etapa "${step.key}" contém ação potencialmente destrutiva: ${reasons.join('; ') || 'marcada como requer aprovação'}`,
+          description: descricao ?? `Etapa "${step.key}" contém ação potencialmente destrutiva: ${reasons.join('; ') || 'marcada como requer aprovação'}`,
         },
       });
     }

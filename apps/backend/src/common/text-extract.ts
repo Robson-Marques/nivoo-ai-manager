@@ -153,9 +153,10 @@ export async function extractText(name: string, content: Buffer): Promise<string
       if (r.spawnError) throw new BadRequestException('Leitor de PDF ausente no servidor (instale poppler-utils)');
       if (r.exitCode !== 0) throw new BadRequestException(`Não foi possível ler o PDF: ${r.stderr.trim().slice(0, 200)}`);
       const texto = limpar(r.stdout);
-      // Pouco texto para o número de páginas = PDF escaneado: tenta OCR.
+      // PDF escaneado (praticamente sem camada de texto): lê por OCR. PDF com texto, mesmo curto, fica com o
+      // texto exato do pdftotext — OCR só "adivinha" letras e não pode substituir texto real.
       const paginas = Math.max(1, (r.stdout.match(/\f/g) ?? []).length);
-      if (texto.replace(/\s/g, '').length >= 40 * paginas) return texto;
+      if (texto.replace(/\s/g, '').length >= 5 * paginas) return texto;
       const ocr = limpar(await ocrPdf(file, dir));
       return ocr.replace(/\s/g, '').length > texto.replace(/\s/g, '').length ? ocr : texto;
     }
