@@ -351,6 +351,21 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
       setOcupado(false);
     }
   };
+  // Respostas dos cartões de pergunta da IA: viram uma mensagem do usuário (a IA continua dali).
+  const responderPerguntas = async (resposta: string) => {
+    if (!conv || enviando.current) return;
+    enviando.current = true;
+    setOcupado(true);
+    setErro(null);
+    try {
+      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: resposta }));
+    } catch (err: any) {
+      setErro(err.message);
+    } finally {
+      enviando.current = false;
+      setOcupado(false);
+    }
+  };
   // Depois de trocar de IA: manda de novo a última pergunta, agora para a nova IA.
   const reenviar = async () => {
     const ultima = [...(conv?.messages ?? [])].reverse().find((m: any) => m.role === 'USUARIO');
@@ -408,7 +423,17 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             </div>
           )}
           {mensagens.map((m) => (
-            <Mensagem key={m.id} m={m} projetoId={projeto.id} podeFazer={m === ultimaIa} onFazer={() => fazer(m)} onMudou={trabalhoMudou} onReenviar={m === ultimaIa ? reenviar : undefined} />
+            <Mensagem
+              key={m.id}
+              m={m}
+              projetoId={projeto.id}
+              podeFazer={m === ultimaIa}
+              onFazer={() => fazer(m)}
+              onMudou={trabalhoMudou}
+              onReenviar={m === ultimaIa ? reenviar : undefined}
+              respondida={mensagens.some((x: any) => x.role === 'USUARIO' && new Date(x.createdAt) > new Date(m.createdAt))}
+              onResponder={responderPerguntas}
+            />
           ))}
           <div ref={fim} />
         </div>
@@ -489,7 +514,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
   );
 }
 
-function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void> }) {
+function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respondida = false, onResponder }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void>; respondida?: boolean; onResponder?: (texto: string) => Promise<void> }) {
   const [indo, setIndo] = useState(false);
   if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}</div>;
   if (m.role === 'USUARIO') {
@@ -519,6 +544,9 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
     <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
       {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
       <div className="texto">{m.content}</div>
+      {Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
+        <PerguntasComOpcoes perguntas={m.perguntas} respondida={respondida} onResponder={onResponder} />
+      )}
       {m.kind === 'entrega' && m.jobId && <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />}
       {m.kind === 'plano' && m.plan && (
         <div className="plano">
@@ -535,6 +563,70 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
           ) : (
             <span className="muted small">Proposta anterior (não executada).</span>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Perguntas da IA em cartões: cada pergunta com as opções para clicar (a recomendada primeiro) e "Outra" para
+ * escrever. "Enviar respostas" manda tudo de uma vez como mensagem do usuário, e a IA continua dali.
+ */
+function PerguntasComOpcoes({ perguntas, respondida, onResponder }: { perguntas: any[]; respondida: boolean; onResponder?: (texto: string) => Promise<void> }) {
+  const [escolhas, setEscolhas] = useState<string[][]>(() => perguntas.map(() => []));
+  const [outras, setOutras] = useState<string[]>(() => perguntas.map(() => ''));
+  const [enviando, setEnviando] = useState(false);
+  const alternar = (i: number, rotulo: string, multipla: boolean) =>
+    setEscolhas((atual) => atual.map((e, k) => (k !== i ? e : multipla ? (e.includes(rotulo) ? e.filter((x) => x !== rotulo) : [...e, rotulo]) : e[0] === rotulo ? [] : [rotulo])));
+  const respostaDe = (i: number) => [...escolhas[i], ...(outras[i].trim() ? [outras[i].trim()] : [])];
+  const completas = perguntas.every((_, i) => respostaDe(i).length > 0);
+  const enviar = async () => {
+    if (!onResponder || !completas) return;
+    setEnviando(true);
+    const texto = ['Minhas respostas:', ...perguntas.map((q, i) => `${perguntas.length > 1 ? `${i + 1}. ` : ''}${q.pergunta}\n→ ${respostaDe(i).join('; ')}`)].join('\n\n');
+    try {
+      await onResponder(texto);
+    } finally {
+      setEnviando(false);
+    }
+  };
+  return (
+    <div className={respondida ? 'perguntas-ia respondida' : 'perguntas-ia'}>
+      {perguntas.map((q, i) => (
+        <div key={i} className="pergunta-ia">
+          <b>{perguntas.length > 1 ? `${i + 1}. ` : ''}{q.pergunta}</b>
+          {q.multipla && <span className="muted small"> (pode escolher mais de uma)</span>}
+          <div className="opcoes-ia">
+            {q.opcoes.map((o: any) => (
+              <button
+                key={o.rotulo}
+                type="button"
+                disabled={respondida}
+                className={escolhas[i].includes(o.rotulo) ? 'opcao-ia escolhida' : 'opcao-ia'}
+                onClick={() => alternar(i, o.rotulo, !!q.multipla)}
+              >
+                <span className="rotulo">{o.rotulo}</span>
+                {o.descricao && <span className="descricao">{o.descricao}</span>}
+              </button>
+            ))}
+          </div>
+          {!respondida && (
+            <input
+              className="outra-ia"
+              placeholder="Outra (escreva a sua resposta)"
+              value={outras[i]}
+              onChange={(e) => setOutras((atual) => atual.map((x, k) => (k === i ? e.target.value : x)))}
+            />
+          )}
+        </div>
+      ))}
+      {respondida ? (
+        <span className="muted small">Respondido.</span>
+      ) : (
+        <div className="row">
+          <button disabled={!completas || enviando || !onResponder} onClick={enviar}>{enviando ? 'Enviando…' : 'Enviar respostas'}</button>
+          {!completas && <span className="muted small">Escolha uma opção (ou escreva em "Outra") em cada pergunta.</span>}
         </div>
       )}
     </div>

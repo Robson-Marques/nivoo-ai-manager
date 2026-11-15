@@ -230,6 +230,7 @@ export class PlannerService {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
+      const perguntas = erro ? null : normalizarPerguntas(parsed?.perguntas);
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
       const gravada = await this.prisma.conversationMessage.updateMany({
@@ -239,6 +240,7 @@ export class PlannerService {
           kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
           content: erro ?? `${trocou}${content || '(sem resposta)'}`,
           plan: planoDaEntrega ? undefined : plan,
+          ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,
         },
@@ -391,6 +393,11 @@ export class PlannerService {
       '2) {"tipo":"plano","texto":"explicação curta para o usuário","continuacao":true|false,"job":{...}} — quando houver trabalho a executar.',
       '   "continuacao": true quando o plano CONTINUA um pedido que o usuário já fez/aprovou nesta conversa (a próxima parte, ou seguir',
       '   depois que ele respondeu as perguntas): o sistema começa sozinho, sem esperar o "Fazer". Pedido novo: false (ele aprova).',
+      'PERGUNTAS COM OPÇÕES: quando precisar perguntar algo ao usuário (em qualquer formato, inclusive na entrega), coloque no JSON',
+      '"perguntas": [{"pergunta":"texto completo, que se entende sozinho","opcoes":[{"rotulo":"curto (1 a 5 palavras)","descricao":"o que',
+      'acontece se escolher"}],"multipla":false}] — de 1 a 4 perguntas, cada uma com 2 a 4 opções; a recomendada PRIMEIRO, com',
+      '" (recomendado)" no rótulo. A tela mostra cartões para o usuário clicar (e "Outra" para escrever). No "texto", diga só em uma',
+      'frase que precisa das respostas — não repita as perguntas nem as opções no texto.',
       'PERGUNTE POUCO: o que está claro no pedido, na conversa, na memória ou nos arquivos, faça. Decisão reversível com uma opção',
       'claramente melhor: decida, siga e conte o que decidiu. Pergunte só o que bloqueia e só o usuário sabe — com opções e a sua recomendação.',
       'Nunca peça ao usuário para fazer o que o sistema faz: rodar testes ou build (é a conferência das etapas), mexer em arquivos do',
@@ -496,7 +503,7 @@ export class PlannerService {
             '3) SE FALTA PARTE DO PEDIDO do usuário (veja a conversa e o objetivo) e nada bloqueia: NÃO pare. Responda com',
             '   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se uma parte depende de uma',
             '   resposta do usuário, faça o plano do resto e pergunte só aquilo.',
-            '4) Perguntas: SÓ o que bloqueia e só o usuário decide (com opções e a sua recomendação). Nada de pedir para ele rodar',
+            '4) Perguntas: SÓ o que bloqueia e só o usuário decide — no campo "perguntas" (cartões com opções). Nada de pedir para ele rodar',
             '   testes, build, comandos ou atualizar o servidor quando o sistema pode fazer isso (conferências e ferramenta SSH).',
             '   Se tudo foi feito e não há bloqueio: só o resumo, sem perguntas. Pedido totalmente concluído: {"tipo":"resposta"}.',
           ]
@@ -531,3 +538,20 @@ export function extractJson(text: string): any | null {
   return null;
 }
 
+/** Perguntas com opções vindas da IA, validadas: 1 a 4 perguntas, 2 a 4 opções cada (texto curto). */
+export function normalizarPerguntas(bruto: unknown): Array<{ pergunta: string; opcoes: Array<{ rotulo: string; descricao: string }>; multipla: boolean }> | null {
+  if (!Array.isArray(bruto)) return null;
+  const lista = bruto
+    .slice(0, 4)
+    .map((q: any) => {
+      const pergunta = String(q?.pergunta ?? q?.texto ?? '').trim().slice(0, 1000);
+      const opcoes = (Array.isArray(q?.opcoes) ? q.opcoes : [])
+        .slice(0, 6)
+        .map((o: any) => (typeof o === 'string' ? { rotulo: o, descricao: '' } : { rotulo: String(o?.rotulo ?? o?.label ?? ''), descricao: String(o?.descricao ?? o?.description ?? '') }))
+        .map((o: { rotulo: string; descricao: string }) => ({ rotulo: o.rotulo.trim().slice(0, 160), descricao: o.descricao.trim().slice(0, 500) }))
+        .filter((o: { rotulo: string }) => o.rotulo);
+      return { pergunta, opcoes, multipla: q?.multipla === true };
+    })
+    .filter((q) => q.pergunta && q.opcoes.length >= 2);
+  return lista.length ? lista : null;
+}

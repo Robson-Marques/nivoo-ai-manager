@@ -260,6 +260,31 @@ const plano = {
     await page.waitForFunction((n) => document.querySelectorAll('.progresso.p-CONCLUIDO').length > n, prontosAntes, { timeout: 90000 });
     fs.rmSync(path.join(ctl, 'conforme'), { force: true });
     passo('revisão com dúvida: perguntas com respostas sugeridas; responder ali mesmo e o trabalho conclui');
+
+    // 4c. A IA pergunta com cartões de opções: clicar e enviar vira a resposta do usuário na conversa.
+    fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
+    fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify({
+      tipo: 'resposta', texto: 'Preciso de duas decisões suas.', memoria: [],
+      perguntas: [
+        { pergunta: 'Qual tamanho de pizza no cardápio?', opcoes: [{ rotulo: 'Média e grande (recomendado)', descricao: 'as mais vendidas' }, { rotulo: 'Só grande', descricao: 'cardápio menor' }] },
+        { pergunta: 'Mostrar preço?', opcoes: ['Sim', 'Não'] },
+      ],
+    }) + '\n```');
+    await page.getByPlaceholder(/Escreva sua mensagem/).fill('Monte o cardápio de tamanhos');
+    await page.keyboard.press('Enter');
+    await page.locator('.perguntas-ia').last().waitFor({ timeout: 60000 });
+    const cartoes = page.locator('.perguntas-ia').last();
+    await cartoes.getByRole('button', { name: /Média e grande/ }).click();
+    if (await cartoes.getByRole('button', { name: 'Enviar respostas' }).isEnabled()) throw new Error('enviou sem responder todas as perguntas');
+    await cartoes.locator('.outra-ia').nth(1).fill('Sim, com preço promocional');
+    await shot(page, '7c-perguntas-com-opcoes');
+    fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify({ tipo: 'resposta', texto: 'Anotado, sigo assim.', memoria: [] }) + '\n```');
+    await cartoes.getByRole('button', { name: 'Enviar respostas' }).click();
+    await page.getByText(/Minhas respostas:/).last().waitFor({ timeout: 30000 });
+    await page.getByText('Anotado, sigo assim.').waitFor({ timeout: 60000 });
+    await page.locator('.perguntas-ia.respondida').last().waitFor();
+    fs.writeFileSync(path.join(ctl, 'mode'), 'bash');
+    passo('a IA pergunta com cartões de opções; clicar (ou "Outra") e enviar vira a resposta na conversa');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md', exact: true }).click();
     await page.getByText('Margherita').last().waitFor();

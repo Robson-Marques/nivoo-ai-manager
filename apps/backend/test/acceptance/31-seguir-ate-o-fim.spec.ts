@@ -103,4 +103,26 @@ describe('Seguir até o fim', () => {
     expect(agora.jobId).toBeNull();
     expect(agora.approvedAt).toBeNull();
   });
+  it('a IA pergunta com opções de clicar: perguntas validadas (1 a 4, 2 a 4 opções), sem opção sozinha', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Perguntas', provider: 'claude-code-cli' }).expect(201)).body;
+    const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    ctl('mode', 'texto');
+    ctl('resposta.txt', json({
+      tipo: 'resposta', texto: 'Preciso de uma decisão sua.', memoria: [],
+      perguntas: [
+        { pergunta: 'Qual versão publicar agora?', opcoes: [{ rotulo: '0.12.0 (recomendado)', descricao: 'segue o padrão' }, { rotulo: '0.11.96', descricao: 'continua a antiga' }] },
+        { pergunta: 'Pergunta sem opções suficientes', opcoes: ['só uma'] },
+        { pergunta: 'Onde publicar?', opcoes: ['GitLab', 'GitHub', 'Os dois'], multipla: true },
+      ],
+    }));
+    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'publica' }).expect(201);
+    const r = await waitFor(async () => (await mensagens(p.id, c.id)).find((m: any) => m.role === 'ASSISTENTE' && m.status === 'PRONTA') ?? null);
+    ctl('mode', null);
+    expect(r.content).toBe('Preciso de uma decisão sua.');
+    expect(r.perguntas).toEqual([
+      { pergunta: 'Qual versão publicar agora?', opcoes: [{ rotulo: '0.12.0 (recomendado)', descricao: 'segue o padrão' }, { rotulo: '0.11.96', descricao: 'continua a antiga' }], multipla: false },
+      { pergunta: 'Onde publicar?', opcoes: [{ rotulo: 'GitLab', descricao: '' }, { rotulo: 'GitHub', descricao: '' }, { rotulo: 'Os dois', descricao: '' }], multipla: true },
+    ]);
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/PERGUNTAS COM OPÇÕES[\s\S]*"perguntas"/);
+  });
 });

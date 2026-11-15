@@ -177,6 +177,16 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Perguntas da IA com opções de clicar (2026-11-15)
+
+* Quando a IA da conversa (ou da entrega) precisa de uma decisão do usuário, ela manda `perguntas`: de 1 a 4 perguntas,
+  cada uma com 2 a 4 opções (rótulo + descrição, a recomendada primeiro, `multipla` opcional). A tela mostra cartões
+  para clicar, "Outra" para escrever e "Enviar respostas" (só com todas respondidas), que vira a mensagem do usuário;
+  depois de respondido, os cartões ficam marcados como respondidos. Coluna `ConversationMessage.perguntas` (migração
+  `20261115160000_perguntas_com_opcoes`); validação em `normalizarPerguntas`.
+* Testes: `31` (validação), tela (`chat-smoke`, foto `7c-perguntas-com-opcoes`) e real `real-08` — Claude e ChatGPT
+  reais perguntaram com cartões (texto curto, opções com a recomendada primeiro).
+
 ## Versão do projeto: padrão do usuário e etiqueta = arquivo (2026-11-15)
 
 * **Bug real (ConnectChat)**: a IA subiu para 0.11.95 olhando o CHANGELOG (parava em 0.11.94), mas o Git já tinha

@@ -163,6 +163,8 @@ model ConversationMessage {
   status         MessageStatus @default(PRONTA)
   kind           String? // resposta | plano | erro
   plan           Json? // rascunho de job proposto pela IA (só vira job com aprovação)
+  /// Perguntas da IA com opções de clicar: [{ pergunta, opcoes: [{ rotulo, descricao }], multipla }]
+  perguntas      Json?
   jobId          String? // job criado ao aprovar o plano
   approvedBy     String?
   approvedAt     DateTime?
