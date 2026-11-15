@@ -3,6 +3,13 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Conferência que falha calada agora explica (2026-11-15)
+
+Caso real: "a conferência da etapa falhou 6 vezes seguidas do mesmo jeito: (exit 1):" — sem dizer o quê (ex.:
+`test -f docs/auditoria.md` não imprime nada). Agora a falha diz o comando e, para `test -f/-s/-e/-d` e
+`grep -q texto arquivo`, o que falta de fato ("falta docs/auditoria.md", "CLAUDE.md não contém \"CHANGELOG\"").
+Isso vai para a IA na sessão seguinte e para o usuário no motivo da parada. Teste em `22`.
+
 ## Bug real: vídeos e imagens baixados pela tela vinham corrompidos (2026-11-15)
 
 A rota que entrega um arquivo da pasta principal (`GET /projects/:pid/files/content`, usada pelo player, pelo

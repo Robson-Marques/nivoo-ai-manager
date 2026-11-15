@@ -57,6 +57,32 @@ const MOTIVO_LICAO: Record<string, string> = {
   POLITICA: 'bloqueado por segurança',
 };
 
+/**
+ * Conferência que falhou sem mensagem: o comando e, para `test -f/-s/-e/-d <arquivo>` e `grep -q <texto> <arquivo>`,
+ * o que de fato falta na pasta do trabalho.
+ */
+export function explicarConferencia(comando: string, pasta: string): string {
+  const faltas: string[] = [];
+  for (const m of comando.matchAll(/test\s+(!\s+)?-([fsed])\s+('([^']+)'|"([^"]+)"|(\S+))/g)) {
+    const neg = !!m[1];
+    const arq = m[4] ?? m[5] ?? m[6];
+    const abs = path.resolve(pasta, arq);
+    if (!abs.startsWith(path.resolve(pasta))) continue;
+    const existe = fs.existsSync(abs);
+    if (!neg && !existe) faltas.push(`falta ${arq}`);
+    else if (!neg && m[2] === 's' && existe && fs.statSync(abs).size === 0) faltas.push(`${arq} está vazio`);
+    else if (neg && existe) faltas.push(`${arq} ainda existe`);
+  }
+  for (const m of comando.matchAll(/grep\s+(?:-[a-zA-Z]+\s+)*('([^']+)'|"([^"]+)"|(\S+))\s+('([^']+)'|"([^"]+)"|(\S+))/g)) {
+    const texto = m[2] ?? m[3] ?? m[4];
+    const arq = m[6] ?? m[7] ?? m[8];
+    const abs = path.resolve(pasta, arq);
+    if (!abs.startsWith(path.resolve(pasta)) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue;
+    if (!fs.readFileSync(abs, 'utf8').includes(texto)) faltas.push(`${arq} não contém "${texto}"`);
+  }
+  return `o comando de conferência falhou sem mensagem: ${comando.slice(0, 300)}${faltas.length ? ` — ${faltas.join('; ')}` : ''}`;
+}
+
 @Injectable()
 export class StepExecutorService {
   private readonly logger = new Logger('StepExecutor');
@@ -278,7 +304,9 @@ export class StepExecutorService {
         timeoutMs: 120_000,
         signal,
       });
-      const vOut = `${v.stdout}${v.stderr}`.trim().slice(-800);
+      // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
+      // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
+      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(step.verifyCommand, worktree) : '')).slice(-800);
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
       verified = v.exitCode === 0;
       // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.

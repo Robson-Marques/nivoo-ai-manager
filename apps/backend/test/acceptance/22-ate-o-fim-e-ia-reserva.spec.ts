@@ -201,7 +201,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
         title: 'gira', objective: 'x', defaultProvider: 'claude-code-cli', conferencia: false,
         limits: { maxSessionsPerStep: 0, maxAttemptsPerStep: 10 },
-        steps: [{ key: 's', instructions: 'date +%s%N > tentativa-$RANDOM.txt', verifyCommand: 'test -f relatorio-final.md || { echo "falta relatorio-final.md"; exit 1; }' }],
+        steps: [{ key: 's', instructions: 'date +%s%N > tentativa-$RANDOM.txt', verifyCommand: 'test -f relatorio-final.md' }], // falha calada: o sistema explica o que falta
         criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }],
       }).expect(201)
     ).body;
@@ -209,7 +209,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const x = await fim(p.id, j.id);
     ctl('mode', null);
     expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'REPETICAO_IMPRODUTIVA' });
-    expect(x.statusDetail).toMatch(/conferência da etapa falhou 6 vezes seguidas do mesmo jeito: \(exit 1\): falta relatorio-final\.md/);
+    expect(x.statusDetail).toMatch(/conferência da etapa falhou 6 vezes seguidas do mesmo jeito: \(exit 1\): o comando de conferência falhou sem mensagem: test -f relatorio-final\.md — falta relatorio-final\.md/);
     expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(6);
   });
 
