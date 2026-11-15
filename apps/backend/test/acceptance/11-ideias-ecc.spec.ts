@@ -40,7 +40,7 @@ describe('Ideias do ECC no Nivoo', () => {
     }, 30000);
   }
 
-  it('remove arquivos de harness plantados antes da sessão de IA (hooks e instruções ocultas)', async () => {
+  it('remove configuração de harness plantada antes da sessão de IA (hooks); documentos de instrução ficam fora da sessão e voltam', async () => {
     const p = await createProject(h, 'harness');
     const j = await run(p.id, {
       title: 'plantio',
@@ -52,10 +52,16 @@ describe('Ideias do ECC no Nivoo', () => {
     });
     expect(j.status).toBe('CONCLUIDO');
     const wt = path.join(p.workspacePath, 'worktrees', j.id);
-    for (const f of ['.claude', 'CLAUDE.md', 'AGENTS.md', 'sub/.claude']) expect(fs.existsSync(path.join(wt, f))).toBe(false);
+    // Configuração (hooks, .claude/) é sempre removida.
+    for (const f of ['.claude', 'sub/.claude']) expect(fs.existsSync(path.join(wt, f))).toBe(false);
     const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/logs`)).body.map((l: any) => l.message).join('\n');
     const linha = logs.split('\n').find((l: string) => l.startsWith('Arquivos de harness removidos antes da sessão')) ?? '';
-    for (const f of ['.claude', 'CLAUDE.md', 'AGENTS.md', 'sub/.claude']) expect(linha.split(/[:,] /)).toContain(f);
+    for (const f of ['.claude', 'sub/.claude']) expect(linha.split(/[:,] /)).toContain(f);
+    // Documentos (CLAUDE.md, AGENTS.md) escritos por uma etapa do trabalho são do trabalho: durante a sessão de IA
+    // ficam fora da pasta (só a cópia legível em contexto/repositorio/, que não vale como configuração) e voltam depois.
+    const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(prompt).toMatch(/CLAUDE\.md, AGENTS\.md ficam fora da pasta|AGENTS\.md, CLAUDE\.md ficam fora da pasta/);
+    expect(fs.readFileSync(path.join(wt, 'CLAUDE.md'), 'utf8')).toBe('regra oculta\n');
   });
 
   it('orçamento de contexto: decisões entram, excesso é omitido e declarado; memória íntegra em .nivoo/memoria.md fora do git', async () => {

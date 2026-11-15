@@ -221,13 +221,19 @@ export class WorkspaceService {
 
   /**
    * Arquivos de instrução de agente que são do próprio repositório do projeto: versionados na pasta principal
-   * (main). Um arquivo desses criado por uma etapa do trabalho NÃO conta — é plantio e é removido.
+   * (main), mais os DOCUMENTOS (CLAUDE.md, AGENTS.md…) já commitados por uma etapa do trabalho. Pastas de
+   * configuração (.claude/, .codex/…) criadas no trabalho continuam sendo plantio e são removidas.
    */
   async trackedHarnessFiles(worktree: string): Promise<string[]> {
     // Versionados na main e no commit da própria pasta de trabalho (o que a sessão encontra em disco).
-    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'refs/heads/main']);
-    if (r.exitCode !== 0) return [];
-    return r.stdout.split('\0').filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
+    // Uma etapa anterior do mesmo trabalho pode ter criado (e commitado) um CLAUDE.md: ele é do trabalho e
+    // precisa ser escondido e devolvido como os da main, não apagado na limpeza antes da próxima sessão.
+    // Do commit do trabalho só valem documentos; pastas de configuração (.claude/…) só se a main já as tem.
+    const listar = async (ref: string) => {
+      const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', ref]);
+      return r.exitCode !== 0 ? [] : r.stdout.split('\0').filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
+    };
+    return [...new Set([...(await listar('refs/heads/main')), ...this.docsEditaveis(await listar('HEAD'))])];
   }
 
   /** Devolve à pasta de trabalho as instruções de agente versionadas, exatamente como estão no git. */
@@ -306,6 +312,28 @@ export class WorkspaceService {
       editados.set(rel, fs.readFileSync(p));
     }
     return editados;
+  }
+
+  /**
+   * Documentos de instrução (CLAUDE.md, AGENTS.md, GEMINI.md…) presentes na pasta depois da sessão — editados OU
+   * criados pela IA (ex.: o plano pede "registre a regra no CLAUDE.md" num repositório que ainda não tem um).
+   * Nunca os de dentro de pastas de configuração (.claude/, .codex/, .gemini/), nem de contexto/, .nivoo/, out/.
+   */
+  docsNoTrabalho(worktree: string): string[] {
+    const achados: string[] = [];
+    const pular = new Set(['.git', 'node_modules', SESSION_CONTEXT_DIR, '.nivoo', 'out']);
+    const walk = (dir: string, depth: number) => {
+      if (depth > 6 || !fs.existsSync(dir)) return;
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (depth === 0 && pular.has(e.name)) continue;
+        if (e.name === '.git' || e.name === 'node_modules' || e.isSymbolicLink()) continue;
+        const p = path.join(dir, e.name);
+        if (e.isFile() && WorkspaceService.DOCS_EDITAVEIS.includes(e.name)) achados.push(path.relative(worktree, p));
+        else if (e.isDirectory() && !WorkspaceService.HARNESS_FILES.includes(e.name)) walk(p, depth + 1);
+      }
+    };
+    walk(worktree, 0);
+    return achados;
   }
 
   gravarDocsEditados(worktree: string, editados: Map<string, Buffer>): void {

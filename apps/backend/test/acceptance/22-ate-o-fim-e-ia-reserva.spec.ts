@@ -241,6 +241,31 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('correcao-criterios-1'));
   });
 
+  it('critério falhou E há aprovação manual pendente: a IA corrige assim mesmo e o trabalho só espera a aprovação', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Corrige com aprovação', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    ctl('correcao.sh', "printf 'Atualize o CHANGELOG\\n' > CLAUDE-regras.md");
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'regra', objective: 'registrar a regra', defaultProvider: 'claude-code-cli', conferencia: false,
+        steps: [{ key: 'regra', instructions: 'echo rascunho > notas.md', verifyCommand: 'test -f notas.md' }],
+        criteria: [
+          { key: 'regra-registrada', description: 'regra do CHANGELOG registrada', kind: 'COMMAND', config: { command: 'grep -q CHANGELOG CLAUDE-regras.md' } },
+          { key: 'teste-na-esteira', description: 'testado na esteira', kind: 'MANUAL_APPROVAL' },
+        ],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await waitFor(async () => {
+      const y = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU', 'AGUARDANDO_APROVACAO'].includes(y.status) ? y : null;
+    }, 60_000);
+    ctl('mode', null);
+    ctl('correcao.sh', null);
+    expect(x.steps.map((s: any) => s.key)).toContain('correcao-criterios-1');
+    expect(x.status).toBe('AGUARDANDO_APROVACAO');
+  });
+
   it('revisão diz "não conforme": a etapa dela termina (não fica em loop); a IA corrige com as violações apontadas e a revisão aprova', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Revisão devolve', provider: 'claude-code-cli' }).expect(201)).body;
     ctl('mode', 'bash');

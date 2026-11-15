@@ -222,4 +222,28 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     expect(claudeMd).toContain('Atualize o CHANGELOG a cada versão.');
     expect(git(repo, 'ls-tree', '-r', '--name-only', 'main')).not.toContain('.claude/');
   });
+  it('repositório SEM CLAUDE.md e o plano pede para criar um: o novo fica, sobrevive às próximas etapas e entra na main', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Sem instruções' }).expect(201)).body;
+    fs.mkdirSync(CTL, { recursive: true });
+    fs.writeFileSync(path.join(CTL, 'mode'), 'bash');
+    const d = await job(p.id, {
+      title: 'Criar o CLAUDE.md',
+      defaultProvider: 'claude-code-cli',
+      conferencia: false,
+      criteria: [{ key: 'regra-registrada', description: 'regra no CLAUDE.md', kind: 'COMMAND', config: { command: 'grep -q REGRA-NOVA-7 CLAUDE.md && grep -q SUB-3 docs/AGENTS.md' } }],
+      steps: [
+        { key: 'regra', instructions: "echo 'Regra: REGRA-NOVA-7' > CLAUDE.md && mkdir -p docs && echo 'SUB-3' > docs/AGENTS.md", verifyCommand: 'grep -q REGRA-NOVA-7 CLAUDE.md' },
+        // Na etapa seguinte o arquivo criado antes é do trabalho: fica fora da pasta (cópia em contexto/) e volta depois.
+        { key: 'depois', instructions: 'test ! -e CLAUDE.md && grep -q REGRA-NOVA-7 contexto/repositorio/_CLAUDE.md && echo ok > feito.txt', verifyCommand: 'test -f feito.txt' },
+      ],
+    });
+    fs.rmSync(path.join(CTL, 'mode'), { force: true });
+    const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${d.id}/logs`)).body.map((x: any) => x.message).join('\n');
+    expect(logs).not.toMatch(/criou arquivos de harness[^\n]*CLAUDE\.md/);
+    expect(d.status).toBe('CONCLUIDO');
+    const repo = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: p.id } })).workspacePath, 'repo');
+    expect(git(repo, 'show', 'main:CLAUDE.md')).toBe('Regra: REGRA-NOVA-7');
+    expect(git(repo, 'show', 'main:docs/AGENTS.md')).toBe('SUB-3');
+    expect(git(repo, 'show', 'main:feito.txt')).toBe('ok');
+  });
 });

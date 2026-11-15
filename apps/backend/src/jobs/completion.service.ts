@@ -202,7 +202,7 @@ export class CompletionService {
       } else {
         status = 'CONCLUIDO';
       }
-      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && waiting.length === 0) {
+      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS) {
         if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree)) {
           report.finalStatus = 'EXECUTANDO';
           return report;

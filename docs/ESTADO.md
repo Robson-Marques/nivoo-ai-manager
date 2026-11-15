@@ -177,6 +177,17 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## CLAUDE.md novo criado pelo trabalho (2026-11-15)
+
+* **Bug real (ctrl-leads)**: o plano pedia para *criar* o `CLAUDE.md` num repositório que não tinha um; o sistema
+  tratava o arquivo novo como instrução plantada e o apagava ao fim da sessão ("removidos: CLAUDE.md"), e o
+  critério "regra-registrada" falhava. Agora qualquer documento de instrução escrito pela IA (editado ou novo,
+  fora de pastas de configuração) entra no trabalho; nas etapas seguintes ele fica fora da pasta durante a sessão
+  (cópia em `contexto/repositorio/`) e volta depois, como os da `main`. Pastas `.claude/`, `.codex/`… criadas no
+  trabalho continuam removidas. Testes em `15` e `11`.
+* A correção automática do critério final agora roda **também com aprovação manual pendente** (antes o trabalho
+  ficava bloqueado sem tentar corrigir). Teste em `22`.
+
 ## CLAUDE.md do repositório atualizável e Gemini sobrecarregado (2026-11-15)
 
 * **Bug real**: trabalho que precisava registrar uma regra no `CLAUDE.md` do repositório falhava no critério
