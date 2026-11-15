@@ -404,6 +404,8 @@ export class PlannerService {
       '  Makefile, pyproject…; confira antes de citar), instalando as dependências quando preciso. Ex.: "npm ci && npm test && npm run build"',
       '  ou "npm ci && npm run test:upgrade". Nunca deixe teste ou build para o usuário rodar, nem entregue código conferido só por leitura.',
       '  Teste que depende de algo que o servidor do Nivoo não tem (outro banco, outro serviço) fica de fora, e o "texto" diz qual.',
+      '- Não escreva na instrução "não altere nenhum outro arquivo": se a conferência falhar por outra causa (script de teste,',
+      '  configuração, dependência), a IA precisa poder corrigir essa causa. Proíba só o que o usuário ou as regras protegem.',
       '- Conferência de documentos: comandos básicos do bash (test, grep, find, wc, ls, cat, head, tail, sed, awk, diff). Não use rg nem jq.',
       '- FAÇA O PEDIDO INTEIRO num plano só (quantas etapas precisar). Não divida em "parte A agora, parte B depois" para esperar o usuário;',
       '  só fica para depois o que depende de uma resposta dele que bloqueia de verdade.',

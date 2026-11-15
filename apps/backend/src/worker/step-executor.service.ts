@@ -880,6 +880,9 @@ export class StepExecutorService {
     const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
     if (attempts.length) {
       history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
+      history.push('Se a conferência falha por uma causa fora do que a etapa pede (ex.: o script de teste do package.json está errado, falta uma configuração),',
+        'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
+        'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
       for (const a of [...attempts].reverse()) {
         const e = a.error ?? '';
         // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).

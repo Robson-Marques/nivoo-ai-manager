@@ -29,7 +29,7 @@ function criarRepositorio(base: string): string {
   };
   w('package.json', JSON.stringify({
     name: 'loja', version: '0.3.0', private: true, type: 'module', packageManager: 'pnpm@10.0.0',
-    scripts: { test: 'node --test test/', build: 'node scripts/build.mjs' },
+    scripts: { test: 'node --test test/*.test.js', build: 'node scripts/build.mjs' },
   }, null, 2) + '\n');
   w('pnpm-lock.yaml', "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n");
   w('src/preco.js', [
@@ -121,14 +121,14 @@ d('ENSAIO REAL ponta a ponta (Claude)', () => {
     expect(jobs.every((j: any) => j.status === 'CONCLUIDO')).toBe(true);
     const tmp = path.join(base, 'confere');
     git(base, 'clone', '-q', repo, tmp);
-    execFileSync('node', ['--test', 'test/'], { cwd: tmp, stdio: 'pipe' }); // testes passando na pasta principal
+    execFileSync('bash', ['-c', 'node --test test/*.test.js'], { cwd: tmp, stdio: 'pipe' }); // testes passando na pasta principal
     expect(fs.existsSync(path.join(tmp, 'src/velho.js'))).toBe(false);
     expect(fs.existsSync(path.join(tmp, 'src/frete.js'))).toBe(true);
     expect(fs.readFileSync(path.join(tmp, 'CLAUDE.md'), 'utf8')).toMatch(/teste/i);
     expect(JSON.parse(fs.readFileSync(path.join(tmp, 'package.json'), 'utf8')).version).not.toBe('0.3.0');
     expect(arquivos).not.toMatch(/node_modules|\.pytest_cache|^dist\//m);
     const verificacoes = (await Promise.all(jobs.map(async (j: any) => (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body.steps.map((s: any) => s.verifyCommand ?? '')))).flat().join('\n');
-    expect(verificacoes).toMatch(/pnpm[^\n]*test|node --test/); // o sistema testou
+    expect(verificacoes).toMatch(/\bp?npm( run)? test|node --test/); // o sistema testou
     const entregas = ms.filter((m: any) => m.kind === 'entrega').map((m: any) => m.content).join('\n');
     expect(entregas).not.toMatch(/(você|voce) (pode )?rod(a|e)r? (os )?test|rode `?(pnpm|npm) /i);
     expect(ms.some((m: any) => /\(sem resposta\)/.test(m.content))).toBe(false);
