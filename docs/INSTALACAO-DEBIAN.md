@@ -197,3 +197,8 @@ TLS na frente.
 ## Bancos de teste dos projetos
 
 O instalador cria o usuário PostgreSQL `nivoo_testes` (só cria bancos; não é superusuário e não entra no banco do Nivoo) e grava `NIVOO_TESTES_PG_URL` em `/etc/nivoo/nivoo.env`. Cada trabalho usa um banco `teste_<id>` vazio para os testes do projeto, apagado quando o trabalho termina. Para desligar, remova a linha `NIVOO_TESTES_PG_URL` e rode `nivoo restart`.
+
+
+## Prévia dos projetos
+
+O botão "Ver o projeto" mostra o site/sistema do projeto rodando ao lado da conversa. O Nivoo serve a prévia por um portão próprio (porta `NIVOO_PREVIA_PORT`, padrão 3100, só 127.0.0.1) num endereço próprio: com domínio da Cloudflare, `nivoo dominio` cria `previa-<endereço>` no mesmo túnel (para quem já tinha domínio, o `nivoo update` cria sozinho; manualmente: `nivoo dominio previa`). Pelo túnel SSH, encaminhe também a porta 3100 (`ssh -N -L 3000:127.0.0.1:3000 -L 3100:127.0.0.1:3100 root@servidor`).

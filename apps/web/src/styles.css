@@ -353,3 +353,31 @@ textarea { resize: vertical; line-height: 1.5; }
 .lado-botao:hover { background: rgba(255, 255, 255, 0.08); }
 .acoes-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
 .abas-topo { display: flex; gap: 10px; font-size: 13px; }
+/* Prévia do projeto (tela dividida) */
+.conversa.com-previa { grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.2fr); }
+.conversa.com-previa.com-painel { grid-template-columns: minmax(300px, 1fr) minmax(340px, 1.1fr) 320px; }
+.previa { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.previa-barra { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.previa-estado { font-size: 13px; font-weight: 600; }
+.previa-estado.e-no-ar { color: #16a34a; }
+.previa-estado.e-ligando { color: #d97706; }
+.previa-estado.e-erro { color: #dc2626; }
+.previa-estado.e-parada { color: var(--muted); }
+.previa-origem { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.previa-acoes { margin-left: auto; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.previa-acoes button { padding: 4px 10px; font-size: 13px; }
+.tamanhos { display: inline-flex; gap: 2px; }
+button.ativo { border-color: var(--accent); color: var(--accent); }
+.previa-corpo { flex: 1; min-height: 0; overflow: auto; background: #e9ecf1; display: flex; }
+.previa-moldura { flex: 1; display: flex; justify-content: center; min-height: 0; }
+.previa-moldura iframe { border: 0; background: #fff; width: 100%; height: 100%; }
+.previa-moldura.t-celular { padding: 12px 0; }
+.previa-moldura.t-celular iframe { width: 390px; max-width: 100%; border-radius: 12px; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15); }
+.previa-info { padding: 18px; max-width: 640px; }
+@media (max-width: 900px) {
+  .conversa.com-previa, .conversa.com-previa.com-painel { grid-template-columns: 1fr; grid-template-rows: 1fr 60vh; }
+}
+.conversa-topo { flex-wrap: wrap; row-gap: 6px; }
+.conversa-topo > div:first-child { min-width: 0; }
+.abas-topo { flex-wrap: wrap; }
+.conversa.com-previa .conversa-topo .seletor-ia { max-width: 100%; }

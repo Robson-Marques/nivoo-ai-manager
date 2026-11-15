@@ -34,10 +34,10 @@ async function psql(sql: string): Promise<{ ok: boolean; saida: string }> {
 }
 
 /** Garante o banco do trabalho e devolve as variáveis para a conferência (ou null, sem o recurso). */
-export async function prepararBancoDeTeste(jobId: string): Promise<{ nome: string; env: Record<string, string> } | null> {
+export async function prepararBancoDeTeste(jobId: string, nomeProprio?: string): Promise<{ nome: string; env: Record<string, string> } | null> {
   const u = conexao();
   if (!u) return null;
-  const nome = nomeDoBancoDeTeste(jobId);
+  const nome = nomeProprio ?? nomeDoBancoDeTeste(jobId);
   const existe = await psql(`SELECT 1 FROM pg_database WHERE datname = '${nome}'`);
   if (!existe.ok) throw new Error(`não consegui falar com o PostgreSQL de testes: ${existe.saida.slice(0, 300)}`);
   if (existe.saida !== '1') {
@@ -64,9 +64,9 @@ export async function prepararBancoDeTeste(jobId: string): Promise<{ nome: strin
 }
 
 /** Apaga o banco do trabalho (fim do trabalho). Nunca lança. */
-export async function descartarBancoDeTeste(jobId: string): Promise<boolean> {
+export async function descartarBancoDeTeste(jobId: string, nomeProprio?: string): Promise<boolean> {
   if (!conexao()) return false;
-  const r = await psql(`DROP DATABASE IF EXISTS "${nomeDoBancoDeTeste(jobId)}" WITH (FORCE)`).catch(() => ({ ok: false, saida: '' }));
+  const r = await psql(`DROP DATABASE IF EXISTS "${nomeProprio ?? nomeDoBancoDeTeste(jobId)}" WITH (FORCE)`).catch(() => ({ ok: false, saida: '' }));
   return r.ok;
 }
 

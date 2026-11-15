@@ -2,10 +2,14 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query
 import type { Response } from 'express';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
+import { PreviaService } from '../previa/previa.service';
 
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly projects: ProjectsService) {}
+  constructor(
+    private readonly projects: ProjectsService,
+    private readonly previa: PreviaService,
+  ) {}
 
   @Get()
   list(@Query('arquivados') arquivados?: string) {
@@ -28,7 +32,8 @@ export class ProjectsController {
   }
 
   @Delete(':pid')
-  remove(@Param('pid', ParseUUIDPipe) pid: string) {
+  async remove(@Param('pid', ParseUUIDPipe) pid: string) {
+    await this.previa.desligar(pid).catch(() => undefined); // a prévia não fica rodando sem projeto
     return this.projects.remove(pid);
   }
 

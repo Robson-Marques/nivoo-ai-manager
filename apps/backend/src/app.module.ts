@@ -16,11 +16,13 @@ import { ConversationsController } from './conversations/conversations.controlle
 import { MemoryController } from './memory/memory.controller';
 import { ProjectsController } from './projects/projects.controller';
 import { SystemController } from './system/system.controller';
+import { PreviaController } from './previa/previa.controller';
+import { PreviaService } from './previa/previa.service';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController],
-  providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService],
+  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
+  providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService, PreviaService],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly areas: AreasService) {}

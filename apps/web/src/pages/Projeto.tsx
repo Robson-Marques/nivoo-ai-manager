@@ -279,6 +279,13 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [versaoPainel, setVersaoPainel] = useState(0);
+  // Prévia do projeto ao lado da conversa (tela dividida); lembrado neste navegador.
+  const [previa, setPreviaBruta] = useState(() => lerPreferencia('nivoo_previa', '0') === '1');
+  const setPrevia = (v: boolean) => {
+    setPreviaBruta(v);
+    gravarPreferencia('nivoo_previa', v ? '1' : '0');
+    if (v && painel) onPainel(); // tela dividida: o painel recolhe para a barra de cima
+  };
   const fim = useRef<HTMLDivElement>(null);
   const [contas, setContas] = useState<any[]>([]);
   useEffect(() => {
@@ -403,7 +410,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
 
   return (
     <IaContexto.Provider value={{ contas, atual: projeto.provider, trocar }}>
-    <div className={painel ? 'conversa com-painel' : 'conversa'}>
+    <div className={`conversa${painel ? ' com-painel' : ''}${previa ? ' com-previa' : ''}`}>
       <div className="conversa-col">
         <header className="conversa-topo">
           <div>
@@ -429,6 +436,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
                 ))}
               </div>
             )}
+            <button className={previa ? 'secondary ativo' : 'secondary'} onClick={() => setPrevia(!previa)} title="Ver o site ou sistema do projeto rodando, ao lado da conversa">{previa ? 'Fechar prévia' : 'Ver o projeto'}</button>
             <button className="secondary" onClick={onPainel} title={painel ? 'Recolher o painel (as abas ficam aqui em cima)' : 'Abrir o painel'}>{painel ? 'Recolher painel ›' : '‹ Painel'}</button>
           </div>
         </header>
@@ -529,6 +537,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
         </>
         )}
       </div>
+      {previa && <PreviaDoProjeto projetoId={projeto.id} onFechar={() => setPrevia(false)} onPedirIa={responderPerguntas} />}
       {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} aba={aba} onAba={onAba} />}
     </div>
     </IaContexto.Provider>
@@ -755,6 +764,112 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       )}
       {erro && <div className="error">{erro}</div>}
     </div>
+  );
+}
+
+/**
+ * Prévia do projeto (site ou sistema rodando no servidor do Nivoo), ao lado da conversa. Liga sob pedido; o endereço
+ * é próprio (previa-<domínio>), então o sistema roda inteiro: rotas, telas, chamadas à API e conexões ao vivo.
+ */
+function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string; onFechar: () => void; onPedirIa: (texto: string) => Promise<void> }) {
+  const [e, setE] = useState<any | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [tamanho, setTamanho] = useState<'computador' | 'celular'>(() => (lerPreferencia('nivoo_previa_tamanho', 'computador') as 'computador' | 'celular'));
+  const [recarga, setRecarga] = useState(0);
+  const [verLog, setVerLog] = useState(false);
+  const carregar = useCallback(async () => {
+    try {
+      setE(await api(`/projects/${projetoId}/previa`));
+    } catch (x: any) {
+      setErro(x.message);
+    }
+  }, [projetoId]);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+  useEffect(() => {
+    const t = setInterval(carregar, e?.estado === 'ligando' ? 1500 : 15000);
+    return () => clearInterval(t);
+  }, [carregar, e?.estado]);
+  const acao = async (qual: 'ligar' | 'desligar') => {
+    setErro(null);
+    try {
+      setE(await api(`/projects/${projetoId}/previa/${qual}`, 'POST'));
+    } catch (x: any) {
+      setErro(x.message);
+    }
+  };
+  const mudarTamanho = (t: 'computador' | 'celular') => {
+    setTamanho(t);
+    gravarPreferencia('nivoo_previa_tamanho', t);
+  };
+  const estado = e?.estado ?? 'parada';
+  const semEndereco = e && !e.enderecoConfigurado && !/^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+  const rotulo: Record<string, string> = { parada: 'Desligada', ligando: 'Ligando…', 'no-ar': 'No ar', erro: 'Com erro' };
+  return (
+    <section className="previa">
+      <div className="previa-barra">
+        <span className={`previa-estado e-${estado}`}>● {rotulo[estado] ?? estado}</span>
+        {estado === 'no-ar' && e?.mensagem && <span className="muted small previa-origem">{e.mensagem}</span>}
+        <span className="previa-acoes">
+          {(estado === 'parada' || estado === 'erro') && <button onClick={() => acao('ligar')}>Ligar a prévia</button>}
+          {estado === 'no-ar' && (
+            <>
+              <button className="secondary" title="Recarregar a página" onClick={() => setRecarga((n) => n + 1)}>Recarregar</button>
+              <button className="secondary" title="Copia de novo a pasta principal (com o último trabalho) e religa" onClick={() => acao('ligar')}>Atualizar versão</button>
+              <span className="tamanhos">
+                <button className={tamanho === 'computador' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('computador')}>Computador</button>
+                <button className={tamanho === 'celular' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('celular')}>Celular</button>
+              </span>
+              <a className="link small" href={e.url} target="_blank" rel="noreferrer">nova aba</a>
+            </>
+          )}
+          {(estado === 'no-ar' || estado === 'ligando') && <button className="secondary" onClick={() => acao('desligar')}>Desligar</button>}
+          <button className="secondary" aria-label="Fechar a prévia" title="Fechar a prévia" onClick={onFechar}>×</button>
+        </span>
+      </div>
+      {semEndereco && (
+        <div className="aviso-sistema">A prévia ainda não tem endereço no seu domínio: no servidor, rode <code>nivoo update</code> (ou <code>nivoo dominio previa</code>).</div>
+      )}
+      {erro && <div className="error small">{erro}</div>}
+      <div className="previa-corpo">
+        {estado === 'no-ar' && e?.url ? (
+          <div className={`previa-moldura t-${tamanho}`}>
+            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads" />
+          </div>
+        ) : estado === 'ligando' ? (
+          <div className="previa-info">
+            <p>{e?.mensagem || 'Preparando…'}</p>
+            <p className="muted small">Na primeira vez, instalar as dependências pode levar alguns minutos.</p>
+            {e?.log && <pre className="texto-arquivo">{e.log.slice(-3000)}</pre>}
+          </div>
+        ) : estado === 'erro' ? (
+          <div className="previa-info">
+            <p className="error">{e?.mensagem}</p>
+            <div className="row">
+              <button
+                className="secondary"
+                onClick={() =>
+                  onPedirIa(
+                    `A prévia do projeto não ligou: ${e?.mensagem ?? ''}\n\nAjuste o projeto para a prévia funcionar: crie ou corrija o nivoo-previa.json na raiz ({"tipo":"servidor","pasta":"…","instalar":"…","comando":"… ouvindo na porta $PORT","caminho":"/"}, ou {"tipo":"estatico","pasta":"…"} para site), conferindo com o sistema ligado na porta $NIVOO_PORTA_TESTE.`,
+                  )
+                }
+              >
+                Pedir à IA para arrumar a prévia
+              </button>
+              {e?.log && <button className="link small" onClick={() => setVerLog(!verLog)}>{verLog ? 'ocultar registro' : 'ver o registro'}</button>}
+            </div>
+            {verLog && <pre className="texto-arquivo">{e.log.slice(-6000)}</pre>}
+          </div>
+        ) : (
+          <div className="previa-info">
+            <p>Veja o site ou o sistema deste projeto funcionando, aqui do lado da conversa.</p>
+            <p className="muted small">Site: abre direto. Sistema: o Nivoo instala, liga numa cópia da pasta principal (com um banco de teste próprio) e desliga sozinho depois de 2 h sem uso.</p>
+            <button onClick={() => acao('ligar')}>Ligar a prévia</button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

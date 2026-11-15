@@ -177,6 +177,24 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Painéis recolhíveis e prévia do projeto em tela dividida (2026-11-15)
+
+* **Painéis**: a lista de projetos recolhe para a esquerda (faixa fina com ☰ e +); o painel Memória/Arquivos/Git/
+  Ajustes recolhe e as abas ficam na barra de cima (abrem o painel direto nelas). Lembrado no navegador.
+* **"Ver o projeto"**: divide a tela — conversa de um lado, o site/sistema do projeto rodando do outro (computador ou
+  celular, recarregar, atualizar versão, nova aba, desligar). Abrir a prévia recolhe o painel.
+* **Como roda** (`src/previa/previa.service.ts`): numa cópia da pasta principal (`<projeto>/previa`); site
+  (`index.html` na raiz, public/, dist/, build/, site/, docs/, www/) servido direto, com rotas de página única; sistema
+  (`package.json` com dev/start, ou `nivoo-previa.json` na raiz: tipo, pasta, instalar, comando com `$PORT`, caminho)
+  instalado e ligado numa porta livre com banco de teste próprio (`previa_<id>`); desliga sozinho após 2 h sem uso
+  (`NIVOO_PREVIA_OCIOSA_MIN`); excluir o projeto desliga. Erro mostra o registro e "Pedir à IA para arrumar a prévia".
+* **Portão da prévia**: servidor HTTP próprio (`NIVOO_PREVIA_PORT`, padrão 3100, só 127.0.0.1) com código aleatório em
+  cookie, encaminhando HTTP e WebSocket; publicado em endereço PRÓPRIO (`NIVOO_PREVIA_URL`) — o sistema roda na raiz
+  (rotas funcionam) e não alcança o token do Nivoo. `nivoo dominio` cria `previa-<endereço>` no mesmo túnel da
+  Cloudflare; para quem já tem domínio, o `nivoo update` cria sozinho (`nivoo dominio previa`).
+* Plano orientado a criar `nivoo-previa.json` quando a detecção não basta. Testes: `33-previa` (site, sistema com
+  WebSocket, desligar, projeto vazio) e tela (`chat-smoke`, fotos `7d-paineis-recolhidos`, `7e-previa-tela-dividida`).
+
 ## Ver o sistema rodando na conferência (2026-11-15)
 
 * A conferência pode ligar o sistema do projeto numa porta livre (`NIVOO_PORTA_TESTE`), esperar responder e conferir

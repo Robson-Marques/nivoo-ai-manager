@@ -231,6 +231,12 @@ ok "pnpm $(pnpm --version 2>/dev/null), yarn $(yarn --version 2>/dev/null)"
 
 # Comando de administração
 install -m 755 "$APP_DIR/deploy/nivoo" /usr/local/bin/nivoo
+
+# Prévia dos projetos: com domínio da Cloudflare já configurado, cria o endereço previa-<endereço> no mesmo túnel.
+if [ -f /etc/cloudflared/config.yml ] && ! grep -q 'hostname: previa-' /etc/cloudflared/config.yml && [ -x /usr/local/bin/nivoo ]; then
+  step "Endereço da prévia dos projetos (Cloudflare)"
+  /usr/local/bin/nivoo dominio previa || warn "não consegui criar agora; rode depois: nivoo dominio previa"
+fi
 sed -i "s#^APP_DIR=.*#APP_DIR=$APP_DIR#" /usr/local/bin/nivoo
 
 # -----------------------------------------------------------------------------

@@ -11,6 +11,7 @@ export function applyTestEnv(): void {
   process.env.NIVOO_ARTIFACTS_ROOT = path.join(TEST_ROOT, 'artifacts');
   process.env.NIVOO_LEASE_MS = process.env.NIVOO_LEASE_MS ?? '3000';
   process.env.NIVOO_POLL_MS = '200';
+  process.env.NIVOO_PREVIA_PORT = process.env.NIVOO_PREVIA_PORT ?? '0'; // portão da prévia em porta livre nos testes
   // Os testes NUNCA mexem nos logins reais desta máquina: remover a conexão do ChatGPT roda "codex logout" e o do
   // Claude "claude auth logout". Fora do ensaio real (NIVOO_RUN_CLI_INTEGRATION=1), cada CLI usa uma pasta de teste.
   if (process.env.NIVOO_RUN_CLI_INTEGRATION !== '1') {

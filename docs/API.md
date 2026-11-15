@@ -104,6 +104,9 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 
 | Método | Rota | Função |
 |---|---|---|
+| GET | `/projects/:pid/previa` | Estado da prévia do projeto: `estado` (parada, ligando, no-ar, erro), `mensagem`, `tipo`, `origem`, `url` (no ar), `enderecoConfigurado`, `log`. |
+| POST | `/projects/:pid/previa/ligar` | Liga (ou religa com a última versão da pasta principal) a prévia. |
+| POST | `/projects/:pid/previa/desligar` | Desliga a prévia (processo e banco de teste da prévia). |
 | GET | `/projects/:pid/memory` | Memória do projeto (`camada=PROJETO`, padrão), a interna do processo (`?camada=INTERNA`) ou as duas (`?camada=todas`); `?all=1` inclui o histórico (versões anteriores); `?category=`. |
 | POST | `/projects/:pid/memory` | `{ "category", "title", "content", "references"?, "author"? }` — Mesmo título = atualiza o item do mesmo assunto (nova versão). `camada: "INTERNA"` grava na memória do processo. EVIDENCIA exige `references.artifactIds` e `references.gitCommit`. |
 | POST | `/projects/:pid/memory/:mid/supersede` | Nova versão de uma entrada (a anterior fica no histórico). |

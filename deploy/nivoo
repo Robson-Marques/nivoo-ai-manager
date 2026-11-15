@@ -141,10 +141,41 @@ case "$cmd" in
     ;;
   tunnel)
     ip="$(hostname -I | awk '{print $1}')"
-    echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT root@$ip"
+    echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT -L 3100:127.0.0.1:3100 root@$ip   (3100 = prévia dos projetos)"
     echo "Depois abra:        http://localhost:$PORT"
     ;;
   dominio)
+    PREVIA_PORT="$(sed -n 's/^NIVOO_PREVIA_PORT=//p' "$ENV_FILE" | head -1)"; PREVIA_PORT="${PREVIA_PORT:-3100}"
+    # previa-<primeira parte>.<resto>: mesmo domínio do Nivoo (certificado da Cloudflare cobre) e mesmo "site" do navegador.
+    host_da_previa() { echo "previa-$1"; }
+    escrever_config_tunel() {
+      local id="$1" host="$2" ph
+      ph="$(host_da_previa "$host")"
+      cat > "$CF_DIR/config.yml" <<CFG
+# Gerado por "nivoo dominio". O Nivoo só ouve em 127.0.0.1; a Cloudflare entrega o HTTPS.
+tunnel: $id
+credentials-file: $CF_DIR/$id.json
+ingress:
+  - hostname: $host
+    service: http://127.0.0.1:$PORT
+  - hostname: $ph
+    service: http://127.0.0.1:$PREVIA_PORT
+  - service: http_status:404
+CFG
+      chmod 600 "$CF_DIR/config.yml"
+    }
+    ligar_previa_no_tunel() {
+      local ph
+      ph="$(host_da_previa "$1")"
+      if cloudflared tunnel route dns --overwrite-dns "$TUNEL" "$ph" >/dev/null 2>&1; then
+        sed -i '/^NIVOO_PREVIA_URL=/d' "$ENV_FILE"
+        echo "NIVOO_PREVIA_URL=https://$ph" >> "$ENV_FILE"
+        systemctl restart nivoo-api 2>/dev/null || true
+        echo "prévia dos projetos: https://$ph"
+      else
+        echo "aviso: não consegui criar o endereço da prévia ($ph) na Cloudflare; rode de novo: nivoo dominio previa" >&2
+      fi
+    }
     # nivoo dominio nivoo.suaempresa.com.br  → publica o Nivoo nesse endereço pela Cloudflare (Cloudflare Tunnel)
     # nivoo dominio status                   → mostra o túnel e testa o endereço
     # nivoo dominio remover                  → desliga o túnel (o Nivoo volta a ser só local)
@@ -157,7 +188,7 @@ case "$cmd" in
       ""|-h|--help)
         echo "uso: nivoo dominio <endereço>   ex.: nivoo dominio nivoo.suaempresa.com.br"
         echo "     nivoo dominio acesso <equipe> <aud>   (login da Cloudflare dispensa o token)"
-        echo "     nivoo dominio status | nivoo dominio remover"
+        echo "     nivoo dominio status | nivoo dominio remover | nivoo dominio previa"
         exit 1
         ;;
       status)
@@ -193,6 +224,16 @@ case "$cmd" in
         systemctl restart nivoo-api nivoo-worker
         echo "ok: quem passar pelo login da Cloudflare ($host) entra no Nivoo sem token."
         echo "O token continua valendo para o acesso pelo túnel SSH."
+        ;;
+      previa)
+        # Endereço da prévia dos projetos (previa-<endereço do Nivoo>) no mesmo túnel. O "nivoo update" chama sozinho.
+        [ -f "$CF_DIR/config.yml" ] || { echo "nenhum domínio configurado (use: nivoo dominio <endereço>)"; exit 1; }
+        host="$(sed -n 's/^ *- hostname: *//p' "$CF_DIR/config.yml" | grep -v '^previa-' | head -1 || true)"
+        id="$(sed -n 's/^tunnel: *//p' "$CF_DIR/config.yml" | head -1)"
+        [ -n "$host" ] && [ -n "$id" ] || { echo "config do túnel incompleta em $CF_DIR/config.yml" >&2; exit 1; }
+        escrever_config_tunel "$id" "$host"
+        ligar_previa_no_tunel "$host"
+        systemctl restart cloudflared 2>/dev/null || true
         ;;
       remover)
         systemctl disable --now cloudflared 2>/dev/null || true
@@ -241,17 +282,9 @@ case "$cmd" in
           }
         fi
         [ -f "/root/.cloudflared/$id.json" ] && install -m 0600 "/root/.cloudflared/$id.json" "$CF_DIR/$id.json"
-        cat > "$CF_DIR/config.yml" <<CFG
-# Gerado por "nivoo dominio". O Nivoo só ouve em 127.0.0.1; a Cloudflare entrega o HTTPS.
-tunnel: $id
-credentials-file: $CF_DIR/$id.json
-ingress:
-  - hostname: $host
-    service: http://127.0.0.1:$PORT
-  - service: http_status:404
-CFG
-        chmod 600 "$CF_DIR/config.yml"
+        escrever_config_tunel "$id" "$host"
         cloudflared tunnel route dns --overwrite-dns "$TUNEL" "$host"
+        ligar_previa_no_tunel "$host"
 
         echo "== 4/5 serviço do túnel (volta sozinho se o servidor reiniciar)"
         if [ ! -f /etc/systemd/system/cloudflared.service ]; then cloudflared service install; fi
@@ -309,6 +342,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo dominio <endereço>  publica o Nivoo num domínio seu pela Cloudflare (HTTPS, sem abrir portas)
   nivoo dominio status      mostra o túnel e testa o endereço  (nivoo dominio remover: desliga)
   nivoo dominio acesso <equipe> <aud>   entra direto pelo login da Cloudflare (sem token)
+  nivoo dominio previa      cria o endereço da prévia dos projetos (previa-<endereço>) no mesmo túnel
   nivoo backup              backup do banco, dados e configuração em $BACKUP_DIR
   nivoo restore <carimbo>   restaura um backup
   nivoo update              backup + atualiza o código (git pull) + reinstala/migra

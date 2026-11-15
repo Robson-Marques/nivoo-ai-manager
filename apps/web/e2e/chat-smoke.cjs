@@ -302,6 +302,31 @@ const plano = {
     await page.locator('.chat-app:not(.lado-recolhido)').waitFor();
     await page.locator('.painel').getByRole('button', { name: 'Memória', exact: true }).click();
     passo('painéis recolhíveis: projetos para a esquerda, painel vira abas na barra de cima; lembrado ao recarregar');
+
+    // 4e. Prévia do projeto em tela dividida: um trabalho cria o site; "Ver o projeto" → "Ligar a prévia" mostra o
+    // site rodando ao lado da conversa (portão da prévia, endereço próprio); celular/computador; desligar.
+    fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
+    fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify({ ...plano, texto: 'Vou criar o site.', memoria: [], job: { ...plano.job, title: 'Site', objective: 'Criar index.html', steps: [{ key: 's', title: 'Criar o site', instructions: "printf '<!doctype html><h1>Pizzaria do Bairro</h1><p id=\\\"cardapio\\\">Margherita</p>' > index.html", verifyCommand: 'test -f index.html' }], criteria: [{ key: 's', description: 'site', kind: 'FILE_EXISTS', config: { path: 'index.html' } }] } }) + '\n```');
+    await page.getByPlaceholder(/Escreva sua mensagem/).fill('Crie o site da pizzaria');
+    await page.keyboard.press('Enter');
+    await page.getByText('Vou criar o site.').first().waitFor({ timeout: 60000 });
+    fs.writeFileSync(path.join(ctl, 'mode'), 'bash');
+    const prontosSite = await page.locator('.progresso.p-CONCLUIDO').count();
+    await page.getByRole('button', { name: 'Fazer', exact: true }).last().click();
+    await page.waitForFunction((n) => document.querySelectorAll('.progresso.p-CONCLUIDO').length > n, prontosSite, { timeout: 90000 });
+    await page.getByRole('button', { name: 'Ver o projeto' }).click();
+    await page.locator('section.previa').waitFor();
+    await page.locator('section.previa').getByRole('button', { name: 'Ligar a prévia' }).first().click();
+    const quadro = page.frameLocator('iframe[title="Prévia do projeto"]');
+    await quadro.getByText('Pizzaria do Bairro').waitFor({ timeout: 60000 });
+    await page.locator('section.previa').getByRole('button', { name: 'Celular' }).click();
+    await page.locator('.previa-moldura.t-celular').waitFor();
+    await shot(page, '7e-previa-tela-dividida');
+    await page.locator('section.previa').getByRole('button', { name: 'Desligar' }).click();
+    await page.locator('section.previa .e-parada').waitFor({ timeout: 15000 });
+    await page.getByRole('button', { name: 'Fechar prévia' }).click();
+    await page.locator('section.previa').waitFor({ state: 'detached' });
+    passo('prévia em tela dividida: o site do projeto aparece ao lado da conversa (computador/celular), liga e desliga');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md', exact: true }).click();
     await page.getByText('Margherita').last().waitFor();
