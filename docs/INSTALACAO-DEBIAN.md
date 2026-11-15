@@ -80,6 +80,25 @@ ssh -N -L 3000:127.0.0.1:3000 root@IP_DO_SERVIDOR
 
 Deixe esse terminal aberto e acesse **http://localhost:3000** no navegador.
 
+### 3b. Publicar num domínio seu (Cloudflare) — recomendado para o dia a dia
+
+Com o domínio já na sua conta da Cloudflare, no servidor:
+
+```bash
+sudo nivoo dominio nivoo.suaempresa.com.br
+```
+
+O comando instala o `cloudflared` (programa oficial da Cloudflare), mostra um link para você autorizar o
+servidor na sua conta (abra no navegador e escolha o domínio), cria o túnel e o endereço, deixa o túnel como
+serviço (volta sozinho se o servidor reiniciar) e liga o **token do Nivoo** (o navegador pede uma vez).
+O Nivoo continua ouvindo só em 127.0.0.1: **nenhuma porta é aberta** e o HTTPS é da Cloudflare.
+
+**Depois, ligue o login da Cloudflare na frente** (grátis até 50 pessoas): dash.cloudflare.com → Zero Trust
+→ Access → Applications → Add an application → Self-hosted → domínio do Nivoo → Policy *Allow* com os
+e-mails que podem entrar. Ao abrir o endereço, a Cloudflare pede o e-mail e envia um código.
+
+`nivoo dominio status` testa o endereço; `nivoo dominio remover` desliga o túnel.
+
 ## 4. Conectar as IAs (pela tela)
 
 Na interface, abra **Conexões** → **+ Nova** e conecte pelo menos uma IA, com o login oficial de cada uma:

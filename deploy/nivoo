@@ -108,6 +108,117 @@ case "$cmd" in
     echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT root@$ip"
     echo "Depois abra:        http://localhost:$PORT"
     ;;
+  dominio)
+    # nivoo dominio nivoo.suaempresa.com.br  → publica o Nivoo nesse endereço pela Cloudflare (Cloudflare Tunnel)
+    # nivoo dominio status                   → mostra o túnel e testa o endereço
+    # nivoo dominio remover                  → desliga o túnel (o Nivoo volta a ser só local)
+    # O Nivoo continua ouvindo só em 127.0.0.1: o cloudflared liga PARA FORA, até a Cloudflare.
+    # Nenhuma porta é aberta no servidor, e o HTTPS é da Cloudflare.
+    CF_DIR=/etc/cloudflared
+    TUNEL="nivoo-$(hostname -s)"
+    sub="${1:-}"
+    case "$sub" in
+      ""|-h|--help)
+        echo "uso: nivoo dominio <endereço>   ex.: nivoo dominio nivoo.suaempresa.com.br"
+        echo "     nivoo dominio status | nivoo dominio remover"
+        exit 1
+        ;;
+      status)
+        systemctl --no-pager --lines=0 status cloudflared || true
+        host="$(sed -n 's/^ *- hostname: *//p' "$CF_DIR/config.yml" 2>/dev/null | head -1)"
+        if [ -n "$host" ]; then
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://$host/api/health" || true)"
+          echo "endereço: https://$host  (resposta: ${code:-sem resposta}; 200 = aberto só com o token, 302/403 = protegido pelo Cloudflare Access)"
+        else
+          echo "nenhum domínio configurado (use: nivoo dominio <endereço>)"
+        fi
+        ;;
+      remover)
+        systemctl disable --now cloudflared 2>/dev/null || true
+        echo "ok: túnel desligado. O Nivoo voltou a ser só local."
+        echo "O registro DNS continua na Cloudflare; apague-o no painel se não for mais usar."
+        ;;
+      *)
+        host="$(echo "$sub" | tr 'A-Z' 'a-z')"
+        echo "$host" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' \
+          || { echo "endereço inválido: $sub (ex.: nivoo.suaempresa.com.br, sem https:// e sem barra)" >&2; exit 1; }
+
+        echo "== 1/5 programa oficial da Cloudflare (cloudflared)"
+        if ! command -v cloudflared >/dev/null 2>&1; then
+          install -d -m 0755 /usr/share/keyrings
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+          chmod 644 /usr/share/keyrings/cloudflare-main.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' > /etc/apt/sources.list.d/cloudflared.list
+          chmod 644 /etc/apt/sources.list.d/cloudflared.list
+          apt-get update -qq && apt-get install -y -qq cloudflared >/dev/null
+        fi
+        cloudflared --version
+
+        echo "== 2/5 autorizar este servidor na sua conta da Cloudflare"
+        if [ ! -f /root/.cloudflared/cert.pem ]; then
+          echo "Vai aparecer um link. Abra no navegador do seu computador, entre na Cloudflare e"
+          echo "escolha o domínio de \"$host\". Depois volte aqui (continua sozinho)."
+          cloudflared tunnel login
+        else
+          echo "já autorizado (/root/.cloudflared/cert.pem)"
+        fi
+
+        echo "== 3/5 túnel \"$TUNEL\" e endereço $host"
+        id="$(cloudflared tunnel list -o json 2>/dev/null | json "j=>{const t=(j||[]).find(x=>x.name==='$TUNEL');if(t)console.log(t.id)}" || true)"
+        if [ -z "$id" ]; then
+          cloudflared tunnel create "$TUNEL" >/dev/null
+          id="$(cloudflared tunnel list -o json | json "j=>{const t=(j||[]).find(x=>x.name==='$TUNEL');if(t)console.log(t.id)}")"
+        fi
+        [ -n "$id" ] || { echo "não consegui criar/achar o túnel $TUNEL" >&2; exit 1; }
+        install -d -m 0755 "$CF_DIR"
+        install -m 0600 "/root/.cloudflared/$id.json" "$CF_DIR/$id.json"
+        cat > "$CF_DIR/config.yml" <<CFG
+# Gerado por "nivoo dominio". O Nivoo só ouve em 127.0.0.1; a Cloudflare entrega o HTTPS.
+tunnel: $id
+credentials-file: $CF_DIR/$id.json
+ingress:
+  - hostname: $host
+    service: http://127.0.0.1:$PORT
+  - service: http_status:404
+CFG
+        chmod 600 "$CF_DIR/config.yml"
+        cloudflared tunnel route dns --overwrite-dns "$TUNEL" "$host"
+
+        echo "== 4/5 serviço do túnel (volta sozinho se o servidor reiniciar)"
+        if [ ! -f /etc/systemd/system/cloudflared.service ]; then cloudflared service install; fi
+        systemctl enable --now cloudflared >/dev/null
+        systemctl restart cloudflared
+
+        echo "== 5/5 segunda tranca: token do Nivoo"
+        if ! grep -q '^NIVOO_API_TOKEN=.\+' "$ENV_FILE"; then
+          sed -i '/^#\? *NIVOO_API_TOKEN=/d' "$ENV_FILE"
+          echo "NIVOO_API_TOKEN=$(openssl rand -hex 24)" >> "$ENV_FILE"
+          systemctl restart nivoo-api nivoo-worker
+          echo "token criado (o navegador pede uma vez; fica guardado nele)"
+        else
+          echo "token já existia (mantido)"
+        fi
+        TOKEN="$(sed -n 's/^NIVOO_API_TOKEN=//p' "$ENV_FILE")"
+
+        code=""
+        for _ in $(seq 1 30); do
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "https://$host/api/health" 2>/dev/null || true)"
+          case "$code" in 2*|3*|401|403) break ;; esac
+          sleep 3
+        done
+        echo
+        echo "Pronto: https://$host  (resposta: ${code:-sem resposta ainda — o DNS pode levar alguns minutos})"
+        echo "Token do Nivoo (o navegador pede uma vez): $TOKEN"
+        echo
+        echo "IMPORTANTE — ligue o login da Cloudflare na frente (grátis até 50 pessoas):"
+        echo "  1. dash.cloudflare.com → Zero Trust → Access → Applications → Add an application → Self-hosted"
+        echo "  2. Application domain: $host"
+        echo "  3. Policy: Action = Allow; Include = Emails → os e-mails que podem entrar"
+        echo "  4. Salve. Ao abrir o endereço, a Cloudflare pede o e-mail e manda um código."
+        echo "Sem isso, só o token do Nivoo protege o endereço."
+        ;;
+    esac
+    ;;
   help|*)
     cat <<EOF
 nivoo — administração do Nivoo AI Manager
@@ -121,6 +232,8 @@ nivoo — administração do Nivoo AI Manager
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)
   nivoo tunnel              mostra o comando de túnel SSH para abrir a interface
+  nivoo dominio <endereço>  publica o Nivoo num domínio seu pela Cloudflare (HTTPS, sem abrir portas)
+  nivoo dominio status      mostra o túnel e testa o endereço  (nivoo dominio remover: desliga)
   nivoo backup              backup do banco, dados e configuração em $BACKUP_DIR
   nivoo restore <carimbo>   restaura um backup
   nivoo update              backup + atualiza o código (git pull) + reinstala/migra

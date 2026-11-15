@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Etapa 19 — publicar num domínio pela Cloudflare (2026-11-15)
+
+`sudo nivoo dominio <endereço>`: instala o `cloudflared`, autoriza o servidor na conta da Cloudflare (link no
+navegador), cria o túnel e o registro DNS, sobe o serviço e liga o token do Nivoo; mostra o passo a passo do
+Cloudflare Access. `status` e `remover`. Validado por simulação (cloudflared/systemctl/curl falsos): fluxo
+completo, segunda execução reaproveitando túnel e token, endereço inválido recusado. Não testado com a
+Cloudflare real.
+
 ## Etapa 18 — vídeo com o Veo, trabalho até o fim e IA reserva (2026-11-14)
 
 * **Vídeo (Veo, Google) pela API do Gemini**: conector `gemini-video` (etapa do sistema, não de IA de texto)
