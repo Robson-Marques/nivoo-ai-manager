@@ -13,7 +13,7 @@ import { extractText, isDocument, isLegacyDocument } from '../common/text-extrac
  */
 export interface Anexo {
   nome: string;
-  tipo: 'imagem' | 'texto';
+  tipo: 'imagem' | 'texto' | 'audio';
   bytes: number;
   /** Nome original quando o arquivo foi convertido em texto (ex.: contrato.pdf). */
   de?: string;
@@ -25,6 +25,8 @@ export const MAX_ANEXO_BYTES = 10 * 1024 * 1024;
 const MAX_ANEXOS_SESSAO_BYTES = 60 * 1024 * 1024;
 
 const IMAGEM = /\.(png|jpe?g|gif|webp)$/i;
+/** Música ou locução (ex.: a trilha de fundo de um vídeo): guardada como está. */
+const AUDIO = /\.(mp3|wav|m4a|aac|ogg)$/i;
 const TEXTO = /\.(txt|md|markdown|csv|tsv|json|html?|xml|ya?ml|ini|toml|log|sql|py|ts|tsx|js|jsx|css|scss|sh|java|kt|go|rs|rb|php|cs|c|h|cpp|swift|vue|svelte)$/i;
 
 export const TIPOS_IMAGEM: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' };
@@ -55,6 +57,7 @@ export async function prepararAnexos(raw: unknown): Promise<Array<Anexo & { cont
     if (conteudo.length > MAX_ANEXO_BYTES) throw new BadRequestException(`${nome} passa de 10 MB`);
     let item: Anexo & { conteudo: Buffer };
     if (IMAGEM.test(nome)) item = { nome, tipo: 'imagem', bytes: conteudo.length, conteudo };
+    else if (AUDIO.test(nome)) item = { nome, tipo: 'audio', bytes: conteudo.length, conteudo };
     else if (isDocument(nome) || isLegacyDocument(nome)) {
       let texto: string;
       try {
@@ -66,7 +69,7 @@ export async function prepararAnexos(raw: unknown): Promise<Array<Anexo & { cont
       const txt = Buffer.from(`${texto}\n`, 'utf8');
       item = { nome: textName(nome, usados), tipo: 'texto', bytes: txt.length, de: nome, conteudo: txt };
     } else if (TEXTO.test(nome)) item = { nome, tipo: 'texto', bytes: conteudo.length, conteudo };
-    else throw new BadRequestException(`${nome}: tipo de arquivo não suportado. Envie imagem (PNG, JPG, GIF, WEBP), PDF, Word, Excel, PowerPoint, LibreOffice ou arquivo de texto/código`);
+    else throw new BadRequestException(`${nome}: tipo de arquivo não suportado. Envie imagem (PNG, JPG, GIF, WEBP), áudio (MP3, WAV, M4A), PDF, Word, Excel, PowerPoint, LibreOffice ou arquivo de texto/código`);
     if (usados.has(item.nome.toLowerCase())) throw new BadRequestException(`Dois anexos com o mesmo nome: ${item.nome}`);
     usados.add(item.nome.toLowerCase());
     out.push(item);
@@ -127,5 +130,6 @@ export function copiarAnexosParaSessao(
 /** "contrato.txt (texto de contrato.pdf)" / "foto.png (imagem)". */
 export function descreverAnexo(a: Anexo & { caminho?: string }): string {
   const onde = a.caminho ?? a.nome;
+  if (a.tipo === 'audio') return `${onde} (áudio: música ou locução; para usar como trilha de um vídeo, coloque no projeto com "anexosNoProjeto")`;
   return a.tipo === 'imagem' ? `${onde} (imagem: abra o arquivo para ver)` : a.de ? `${onde} (texto extraído de ${a.de})` : `${onde} (texto)`;
 }

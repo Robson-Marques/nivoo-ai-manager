@@ -23,6 +23,12 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const VIDEO = Buffer.from('\x00\x00\x00\x18ftypmp42 VIDEO-FALSO-DO-TESTE');
 const CHAVE = 'AIzaSy-CHAVE-DE-TESTE-VEO-0123456789';
 
+const MUSICA = (() => {
+  const d = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'musica-'));
+  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=4', '-c:a', 'libmp3lame', path.join(d, 'm.mp3')]);
+  return fs.readFileSync(path.join(d, 'm.mp3'));
+})();
+
 describe('Vídeo com o Veo (API do Gemini simulada)', () => {
   let h: Harness;
   let google: http.Server;
@@ -46,6 +52,10 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
           res.end(JSON.stringify(b));
         };
         if (chave !== CHAVE) return json(400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } });
+        // Música (Lyria, generateContent): devolve um mp3 de verdade em base64.
+        if (u.pathname === '/v1beta/models/lyria-3-pro-preview:generateContent' && req.method === 'POST') {
+          return json(200, { candidates: [{ content: { parts: [{ text: 'trilha' }, { inlineData: { mimeType: 'audio/mpeg', data: MUSICA.toString('base64') } }] } }] });
+        }
         // Gemini Omni Flash (Interactions): cria em segundo plano, consulta o andamento, devolve o vídeo por endereço.
         if (u.pathname === '/v1beta/interactions' && req.method === 'POST') {
           const corpo = JSON.parse(d);
@@ -268,5 +278,41 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     const lista = (await h.http().get('/api/accounts/gemini-video/models').expect(200)).body;
     expect(lista.opcoes.map((o: any) => o.id)).toEqual(['gemini-omni-1.2-flash', 'gemini-omni-1.1-flash']);
     expect(lista.aviso).toMatch(/não traz modelos de vídeo/);
+  });
+
+  it('trilha gerada pelo Google (Lyria) para o vídeo inteiro; juntar de novo reaproveita a mesma música sem pagar outra', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Com trilha' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 'm'), { recursive: true });
+    for (const n of ['01', '02']) {
+      execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:size=640x360:rate=24:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(repo, `videos/m/cena-${n}.mp4`)]);
+    }
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cenas'], { cwd: repo });
+    const juntar = async () => {
+      const j = (
+        await h.http().post(`/api/projects/${p.id}/jobs`).send({
+          title: 'juntar', objective: 'x', defaultProvider: 'juntar-videos',
+          steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'junta', providerOptions: { cenas: ['videos/m/cena-01.mp4', 'videos/m/cena-02.mp4'], arquivo: 'videos/m/m-completo.mp4', trilha: { descricao: 'violão acústico alegre' } } }],
+          criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/m/m-completo.mp4' } }],
+        }).expect(201)
+      ).body;
+      await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+      return fim(p.id, j.id);
+    };
+    const antes = pedidos.filter((x) => x.url.includes('lyria')).length;
+    const x = await juntar();
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts[0].output).toMatch(/trilha gerada \(lyria-3-pro-preview\) em videos\/m\/m-completo-trilha\.mp3/);
+    expect(Number(x.costSpentUsd)).toBeCloseTo(0.08, 2);
+    const pedido = pedidos.filter((r) => r.url.includes('lyria')).pop()!;
+    expect(pedido.chave).toBe(CHAVE);
+    expect(pedido.corpo.contents[0].parts[0].text).toMatch(/violão acústico alegre[\s\S]*INSTRUMENTAL/);
+    expect(execFileSync('git', ['ls-tree', '-r', '--name-only', 'main', 'videos/m'], { cwd: repo }).toString()).toContain('m-completo-trilha.mp3');
+    // Juntar de novo (ex.: outra transição): a mesma trilha, sem novo pedido ao Google.
+    const y = await juntar();
+    expect(y.status).toBe('CONCLUIDO');
+    expect(y.attempts[0].output).toMatch(/reaproveitada/);
+    expect(pedidos.filter((r) => r.url.includes('lyria')).length).toBe(antes + 1);
   });
 });

@@ -327,7 +327,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             type="file"
             multiple
             hidden
-            accept="image/png,image/jpeg,image/gif,image/webp,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.sql,.py,.ts,.tsx,.js,.jsx,.css,.sh"
+            accept="image/png,image/jpeg,image/gif,image/webp,.mp3,.wav,.m4a,.aac,.ogg,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.sql,.py,.ts,.tsx,.js,.jsx,.css,.sh"
             onChange={(e) => {
               anexar(Array.from(e.target.files ?? []));
               e.target.value = '';

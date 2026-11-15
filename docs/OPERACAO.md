@@ -106,6 +106,7 @@ ganham o critério `conferencia-regras`.
 | `NIVOO_ARTIFACTS_ROOT` | `./data/artifacts` | armazenamento de artefatos |
 | `NIVOO_VEO_USD_POR_SEGUNDO` / `NIVOO_VEO_USD_POR_SEGUNDO_RAPIDO` | 0.40 / 0.15 | estimativa de custo por segundo de vídeo (modelos normais / fast); ajuste conforme a tabela do Google |
 | `NIVOO_VIDEO_TRANSICAO_SEG` | 0.5 | fusão (imagem e som) entre as cenas ao juntar o vídeo completo; 0 = corte seco |
+| `NIVOO_LYRIA_USD_POR_MUSICA` | 0.08 | estimativa por trilha de fundo gerada pelo Google (Lyria) |
 | `NIVOO_OMNI_USD_POR_SEGUNDO` | 0.10 | estimativa por segundo do Gemini Omni Flash (o vídeo atual do Google; o Veo foi desligado na API do Gemini) |
 | `NIVOO_GEMINI_API_BASE` | `https://generativelanguage.googleapis.com` | endereço da API do Gemini (vídeo) |
 | `NIVOO_CF_ACCESS_TEAM` / `NIVOO_CF_ACCESS_AUD` | — | login da Cloudflare como entrada (gravados por `nivoo dominio acesso`) |

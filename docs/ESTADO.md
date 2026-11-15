@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Vídeo: trilha de fundo única com a fala por cima (2026-11-15)
+
+Caso real: cada cena vinha com a própria música (uma canta, a outra fala com outra música), e a fusão não resolvia.
+Agora o vídeo pode ter **uma trilha só, de ponta a ponta**: `trilha` na primeira cena — `{"arquivo":"audio/x.mp3"}`
+(música do usuário, anexada no chat: grátis) ou `{"descricao":"..."}` (o Google compõe com o Lyria,
+`lyria-3-pro-preview` e, se não houver, `lyria-3-clip-preview`; estimativa `NIVOO_LYRIA_USD_POR_MUSICA` = 0,08).
+Com trilha, as cenas são pedidas SEM música própria (só falas e sons do ambiente). Na montagem, a música repete se
+for curta, entra e sai em fade, fica a 30% (`volume`) e abaixa sozinha sob a fala (sidechain/ducking);
+`volumeCenas` (0–1) abaixa o som que veio nas cenas. A trilha gerada fica em `<nome>-completo-trilha.mp3` e é
+reaproveitada ao juntar de novo com a mesma descrição (sem pagar outra). Chat aceita anexo de áudio (mp3, wav,
+m4a, aac, ogg). Tudo da montagem roda no servidor, sem IA e sem custo; só cena e música usam o Google. Testes
+em `21` (Lyria simulado, reaproveitamento) e `26` (trilha do projeto contínua).
+
 ## Vídeo: legendas e estilo de transição (2026-11-15)
 
 * **Legendas**: cada cena pode ter `legenda` (texto curto, escrito pela IA no plano); a junção calcula o tempo

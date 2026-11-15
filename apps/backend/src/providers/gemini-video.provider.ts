@@ -33,6 +33,8 @@ export interface OpcoesVideo {
   negativo?: string;
   imagem?: string;
   conexao?: string;
+  /** Vídeo com trilha única na montagem: a cena vem sem música própria (só falas e sons do ambiente). */
+  semMusica?: boolean;
 }
 
 export interface ModeloVeo {
@@ -200,7 +202,10 @@ export class GeminiVideoProvider implements AiProvider {
     const candidatos = escolhido ? [escolhido, ...automatico.filter((m) => m !== escolhido)] : automatico;
     let modelo = candidatos[0];
 
-    const instancia: Record<string, unknown> = { prompt: req.instructions };
+    const descricao = o.semMusica
+      ? `${req.instructions}\n\nÁudio desta cena: SEM música de fundo e sem trilha sonora — só as falas/narração e os sons do ambiente (a música é colocada depois, única para o vídeo inteiro).`
+      : req.instructions;
+    const instancia: Record<string, unknown> = { prompt: descricao };
     if (o.imagem) {
       try {
         const img = resolveInside(req.cwd, o.imagem);
@@ -218,7 +223,7 @@ export class GeminiVideoProvider implements AiProvider {
     const segundos = Number(parameters.durationSeconds ?? 8);
     // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
     // geração em vez de pagar outra.
-    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, escolhido ?? 'automatico', destino, req.instructions, o.imagem ?? null, parameters])).digest('hex');
+    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, escolhido ?? 'automatico', destino, descricao, o.imagem ?? null, parameters])).digest('hex');
     const anterior = OPERACOES.get(pedido);
     let operacao: string;
     let op: any;
@@ -237,7 +242,7 @@ export class GeminiVideoProvider implements AiProvider {
         req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
         try {
           r = ehOmni(modelo)
-            ? await this.chamar(k.chave, 'POST', `${base()}/v1beta/interactions`, this.pedidoOmni(modelo, req.instructions, instancia, o), req.signal)
+            ? await this.chamar(k.chave, 'POST', `${base()}/v1beta/interactions`, this.pedidoOmni(modelo, descricao, instancia, o), req.signal)
             : await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
         } catch (e: any) {
           return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };

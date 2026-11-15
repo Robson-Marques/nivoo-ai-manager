@@ -4,7 +4,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
+import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
+
+type Trilha = { arquivo?: string; descricao?: string; volume?: number };
+
+/** Modelos de música do Google (Lyria), do mais completo ao clipe de 30 s. */
+const MODELOS_MUSICA = ['lyria-3-pro-preview', 'lyria-3-clip-preview'];
 
 /**
  * Junta as cenas geradas (Veo gera 4–8 s por vez) num vídeo só, na ordem do plano, com o ffmpeg do servidor.
@@ -18,6 +24,8 @@ export class JuntarVideosProvider implements AiProvider {
   readonly label = 'Juntar cenas em um vídeo (sistema)';
   readonly kind = 'executor' as const;
 
+  constructor(private readonly video: GeminiVideoProvider) {}
+
   async checkAvailability(): Promise<ProviderStatus> {
     const r = await runProcess('ffmpeg', ['-hide_banner', '-version'], { cwd: os.tmpdir(), env: minimalEnv(), timeoutMs: 15_000 });
     const ok = !r.spawnError && r.exitCode === 0;
@@ -29,7 +37,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[] };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -110,6 +118,55 @@ export class JuntarVideosProvider implements AiProvider {
         r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
       }
       if (r.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui juntar as cenas: ${r.stderr.trim().slice(-300)}`, interrupted: req.signal.aborted };
+      // Trilha de fundo única, de ponta a ponta: a música abaixa sozinha quando há fala nas cenas (ducking) e
+      // entra/sai em fade. Gerada pelo Google (Lyria) a partir da descrição, ou um áudio do projeto.
+      let custo = 0;
+      let trilhaInfo = '';
+      if (o.trilha || (o.volumeCenas !== undefined && o.volumeCenas < 1)) {
+        const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
+        let musica: string | null = null;
+        if (o.trilha?.arquivo) {
+          musica = resolveInside(req.cwd, o.trilha.arquivo);
+          if (!fs.existsSync(musica)) return { exitCode: 1, output: '', error: `trilha não encontrada no projeto: ${o.trilha.arquivo}` };
+          trilhaInfo = `trilha ${o.trilha.arquivo}`;
+        } else if (o.trilha?.descricao) {
+          // Já gerada antes para este vídeo (mesma descrição): reaproveita, sem pagar de novo.
+          const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
+          const meta = o.arquivo.replace(/\.mp4$/i, '-trilha.txt');
+          const absG = resolveInside(req.cwd, guardada);
+          const absM = resolveInside(req.cwd, meta);
+          if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === o.trilha.descricao.trim()) {
+            musica = absG;
+            trilhaInfo = `trilha ${guardada} (reaproveitada)`;
+          } else {
+            req.onLog(`Gerando a trilha de fundo com o Google (Lyria): ${o.trilha.descricao.slice(0, 120)}`);
+            const g = await this.gerarMusica(o.trilha.descricao, total, req);
+            if ('erro' in g) return { exitCode: 1, output: '', error: `não consegui gerar a trilha: ${g.erro}`, resourceUnavailable: g.indisponivel };
+            fs.mkdirSync(path.dirname(absG), { recursive: true });
+            fs.writeFileSync(absG, g.bytes);
+            fs.writeFileSync(absM, `${o.trilha.descricao.trim()}\n`);
+            musica = absG;
+            custo = g.custo;
+            trilhaInfo = `trilha gerada (${g.modelo}) em ${guardada}`;
+          }
+        }
+        const volM = o.trilha?.volume ?? 0.3;
+        const volC = o.volumeCenas ?? 1;
+        const fimFade = Math.max(0, total - 2.5).toFixed(2);
+        const filtros = musica
+          ? volC > 0
+            ? `[1:a]atrim=0:${total.toFixed(2)},asetpts=PTS-STARTPTS,volume=${volM},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[m];` +
+              `[0:a]volume=${volC},asplit=2[voz][sc];[m][sc]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[md];` +
+              `[voz][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`
+            : `[1:a]atrim=0:${total.toFixed(2)},asetpts=PTS-STARTPTS,volume=${Math.min(1, volM * 2.5)},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[a]`
+          : `[0:a]volume=${volC}[a]`;
+        const mixado = path.join(tmp, 'mixado.mp4');
+        const m = await ff(['-i', saida, ...(musica ? ['-stream_loop', '-1', '-i', musica] : []), '-filter_complex', filtros, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', total.toFixed(2), '-movflags', '+faststart', mixado], 1_800_000);
+        if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui misturar a trilha: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: true };
+        fs.renameSync(mixado, saida);
+        if (!trilhaInfo) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
+        req.onLog(`Áudio: ${trilhaInfo}; música abaixa sob as falas`);
+      }
       // Legendas: o texto de cada cena no tempo exato dela no vídeo final; gravadas na imagem e salvas em .srt.
       let srtTexto: string | null = null;
       let legendado = false;
@@ -139,12 +196,48 @@ export class JuntarVideosProvider implements AiProvider {
       if (srtArquivo && srtTexto) fs.writeFileSync(resolveInside(req.cwd, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());
       const mb = (fs.statSync(destino).size / 1024 / 1024).toFixed(1);
-      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}`;
+      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}`;
       req.onLog(resumo);
-      return { exitCode: 0, output: resumo, stopReason: 'completed' };
+      return { exitCode: 0, output: resumo, stopReason: 'completed', ...(custo ? { costUsd: custo, costEstimated: true } : {}) };
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * Música instrumental pelo Google (Lyria, API do Gemini, generateContent): pede a duração do vídeo; se vier
+   * mais curta, a montagem repete (loop) e, no fim, sai em fade. Custo estimado por música gerada.
+   */
+  private async gerarMusica(descricao: string, segundos: number, req: ExecutionRequest): Promise<{ bytes: Buffer; modelo: string; custo: number } | { erro: string; indisponivel?: boolean }> {
+    const k = this.video.chave();
+    if (!k) return { erro: 'sem conexão "Gemini — chave de API" com chave salva (crie em Conexões)', indisponivel: true };
+    const base = (process.env.NIVOO_GEMINI_API_BASE ?? 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const texto = `${descricao}\n\nMúsica INSTRUMENTAL (sem voz, sem letra), trilha de fundo para um vídeo de cerca de ${Math.ceil(segundos)} segundos: ritmo constante do começo ao fim, sem pausas nem silêncio, sem final abrupto.`;
+    const recusados: string[] = [];
+    for (const modelo of MODELOS_MUSICA) {
+      let res: Response;
+      try {
+        res = await fetch(`${base}/v1beta/models/${modelo}:generateContent`, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': k.chave, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: texto }] }], generationConfig: { responseModalities: ['AUDIO', 'TEXT'] } }),
+          signal: AbortSignal.any([req.signal, AbortSignal.timeout(600_000)]),
+        });
+      } catch (e: any) {
+        return { erro: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, indisponivel: true };
+      }
+      const j: any = await res.json().catch(() => ({}));
+      if (res.status === 404 || (res.status === 400 && /not found|not supported/i.test(String(j?.error?.message ?? '')))) {
+        recusados.push(`${modelo} (${res.status})`);
+        continue;
+      }
+      if (!res.ok) return { erro: `o Google respondeu ${res.status}: ${String(j?.error?.message ?? '').slice(0, 300)}`, indisponivel: [401, 402, 403, 429].includes(res.status) || res.status >= 500 };
+      const parte = (j?.candidates?.[0]?.content?.parts ?? []).find((p: any) => /^audio\//.test(p?.inlineData?.mimeType ?? p?.inline_data?.mime_type ?? ''));
+      const dados = parte?.inlineData?.data ?? parte?.inline_data?.data;
+      if (!dados) return { erro: `o Google não devolveu áudio (${JSON.stringify(j).slice(0, 200)})` };
+      return { bytes: Buffer.from(dados, 'base64'), modelo, custo: Number(process.env.NIVOO_LYRIA_USD_POR_MUSICA ?? 0.08) };
+    }
+    return { erro: `nenhum modelo de música aceitou o pedido com esta chave (${recusados.join(', ')})` };
   }
 }
 

@@ -453,6 +453,9 @@ export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
   // Legenda da cena (texto curto que aparece no vídeo completo) e estilo da transição para a cena seguinte.
   if (o.legenda !== undefined && String(o.legenda).trim()) out.legenda = String(o.legenda).trim().slice(0, 300);
   if (o.transicao !== undefined) out.transicao = transicaoValida(key, o.transicao);
+  // Trilha de fundo do vídeo completo (na cena: vai para a junção) e cena sem música própria.
+  if (o.trilha !== undefined) out.trilha = trilhaValida(key, o.trilha);
+  if (o.semMusica !== undefined) out.semMusica = o.semMusica === true;
   return out;
 }
 
@@ -474,20 +477,45 @@ export function operacoesDeArquivos(key: string, o: any): { remover: string[]; m
 /** Estilos de transição entre as cenas (nomes do ffmpeg xfade); "corte" = sem transição. */
 export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'slideup', 'circleopen', 'circleclose', 'smoothleft', 'zoomin', 'corte'];
 
+/** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
+function trilhaValida(key: string, t: any): { arquivo?: string; descricao?: string; volume?: number } {
+  if (!t || typeof t !== 'object') throw new BadRequestException(`Etapa ${key}: trilha deve ser {"descricao":"..."} ou {"arquivo":"audio/musica.mp3"}`);
+  const out: { arquivo?: string; descricao?: string; volume?: number } = {};
+  if (t.arquivo !== undefined) {
+    const a = caminhoDoProjeto(t.arquivo);
+    if (!a || !/\.(mp3|wav|m4a|aac|ogg)$/i.test(a)) throw new BadRequestException(`Etapa ${key}: trilha.arquivo deve ser um áudio do projeto (mp3, wav, m4a, aac, ogg)`);
+    out.arquivo = a;
+  }
+  if (t.descricao !== undefined && String(t.descricao).trim()) out.descricao = String(t.descricao).trim().slice(0, 1000);
+  if (!out.arquivo && !out.descricao) throw new BadRequestException(`Etapa ${key}: trilha precisa de "descricao" (música gerada) ou "arquivo" (áudio do projeto)`);
+  if (t.volume !== undefined) {
+    const v = Number(t.volume);
+    if (!(v > 0 && v <= 1)) throw new BadRequestException(`Etapa ${key}: trilha.volume deve ser entre 0 e 1`);
+    out.volume = v;
+  }
+  return out;
+}
+
 function transicaoValida(key: string, t: unknown): string {
   const v = String(t).trim().toLowerCase();
   if (!TRANSICOES.includes(v)) throw new BadRequestException(`Etapa ${key}: transicao deve ser uma de: ${TRANSICOES.join(', ')}`);
   return v;
 }
 
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[] } {
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number } {
   const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
   const arquivo = caminhoDoProjeto(o.arquivo) ?? '';
   if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
   if (cenas.includes(arquivo)) throw new BadRequestException(`Etapa ${key}: o vídeo final não pode ter o nome de uma cena`);
-  const out: { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[] } = { cenas, arquivo };
+  const out: ReturnType<typeof opcoesDeJuncao> = { cenas, arquivo };
+  if (o.trilha !== undefined) out.trilha = trilhaValida(key, o.trilha);
+  if (o.volumeCenas !== undefined) {
+    const v = Number(o.volumeCenas);
+    if (!(v >= 0 && v <= 1)) throw new BadRequestException(`Etapa ${key}: volumeCenas deve ser entre 0 (sem o som das cenas) e 1`);
+    out.volumeCenas = v;
+  }
   if (Array.isArray(o.legendas) && o.legendas.some((l: unknown) => String(l ?? '').trim())) out.legendas = cenas.map((_: string, i: number) => String(o.legendas[i] ?? '').trim().slice(0, 300));
   if (o.transicao !== undefined || Array.isArray(o.transicoes)) {
     const lista = Array.isArray(o.transicoes) ? o.transicoes : [];
@@ -501,11 +529,19 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
  * gera de 4 a 8 s por vez; quem pediu o vídeo quer o vídeo inteiro). Se o plano já tem a etapa, nada muda.
  * Nome do final: `<pasta das cenas>/<pasta>-completo.mp4` (ex.: videos/pizzaria/pizzaria-completo.mp4).
  */
-export function comVideoCompleto(raw: unknown, defaultProvider: string): unknown {
-  if (!Array.isArray(raw)) return raw;
+export function comVideoCompleto(entrada: unknown, defaultProvider: string): unknown {
+  if (!Array.isArray(entrada)) return entrada;
+  let raw: any[] = entrada;
   if (raw.some((s: any) => (s?.provider ?? defaultProvider) === 'juntar-videos')) return raw;
-  const cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
+  let cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
   if (cenas.length < 2) return raw;
+  // Com trilha de fundo, as cenas vêm SEM música própria (só falas e sons do ambiente): a música corre única,
+  // de ponta a ponta, na montagem.
+  const trilha = cenas.map((s: any) => s.providerOptions?.trilha).find((t: unknown) => t);
+  if (trilha) {
+    raw = raw.map((s: any) => (cenas.includes(s) ? { ...s, providerOptions: { ...(s.providerOptions ?? {}), semMusica: true } } : s));
+    cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
+  }
   const arquivos = cenas.map((s: any) => caminhoDoProjeto(s.providerOptions?.arquivo ?? `videos/${s.key}.mp4`));
   if (arquivos.some((a) => !a)) return raw; // a validação da cena aponta o erro
   const pastas = [...new Set(arquivos.map((a) => path.posix.dirname(a as string)))];
@@ -530,6 +566,7 @@ export function comVideoCompleto(raw: unknown, defaultProvider: string): unknown
         // Legenda de cada cena (se o plano trouxe) e a transição escolhida em cada cena para a seguinte.
         ...(cenas.some((s: any) => String(s.providerOptions?.legenda ?? '').trim()) ? { legendas: cenas.map((s: any) => String(s.providerOptions?.legenda ?? '').trim()) } : {}),
         ...(cenas.some((s: any) => s.providerOptions?.transicao) ? { transicoes: cenas.slice(0, -1).map((s: any) => String(s.providerOptions?.transicao ?? 'fade')) } : {}),
+        ...(trilha ? { trilha } : {}),
       },
     },
   ];

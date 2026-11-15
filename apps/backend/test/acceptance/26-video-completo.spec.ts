@@ -139,4 +139,53 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect(naoAzul(quadro('1.5'))).toBeGreaterThan(20);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
+
+  it('trilha de fundo única (áudio do projeto) de ponta a ponta, abaixando sob a fala das cenas; cenas pedidas sem música', async () => {
+    // Plano com trilha: as cenas passam a ser pedidas sem música e a junção leva a trilha.
+    const plano = comVideoCompleto(
+      [
+        { key: 'c1', provider: 'gemini-video', instructions: 'x', providerOptions: { arquivo: 'videos/t/cena-01.mp4', trilha: { arquivo: 'audio/trilha.mp3' } } },
+        { key: 'c2', provider: 'gemini-video', instructions: 'x', providerOptions: { arquivo: 'videos/t/cena-02.mp4' } },
+      ],
+      'x',
+    ) as any[];
+    expect(plano.slice(0, 2).map((s) => s.providerOptions.semMusica)).toEqual([true, true]);
+    expect(plano[2].providerOptions.trilha).toEqual({ arquivo: 'audio/trilha.mp3' });
+
+    const p = (await h.http().post('/api/projects').send({ name: 'Trilha' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 't'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'audio'), { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    // "Fala" só na cena 1 (tom de 1 kHz); cena 2 em silêncio. Trilha: 2 s de 220 Hz (curta: precisa repetir).
+    ff('-f', 'lavfi', '-i', 'color=c=black:size=640x360:rate=24:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=1000:duration=3', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(repo, 'videos/t/cena-01.mp4'));
+    ff('-f', 'lavfi', '-i', 'color=c=gray:size=640x360:rate=24:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(repo, 'videos/t/cena-02.mp4'));
+    ff('-f', 'lavfi', '-i', 'sine=frequency=220:duration=2', '-c:a', 'libmp3lame', path.join(repo, 'audio/trilha.mp3'));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cenas e trilha'], { cwd: repo });
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'trilha', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'junta', providerOptions: plano[2].providerOptions }],
+        criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/t/t-completo.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    expect(fim.attempts[0].output).toMatch(/trilha audio\/trilha\.mp3/);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tri-'));
+    const final = path.join(tmp, 'f.mp4');
+    fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/t/t-completo.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
+    // A música não para: o trecho da cena 2 (sem fala, depois da trilha original de 2 s acabar) tem som.
+    const volume = (de: string, por: string) => {
+      const r = require('node:child_process').spawnSync('ffmpeg', ['-hide_banner', '-ss', de, '-t', por, '-i', final, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
+      return Number(/mean_volume: (-?[\d.]+) dB/.exec(r.stderr)?.[1] ?? -99);
+    };
+    expect(volume('3.5', '1')).toBeGreaterThan(-50); // silêncio daria ~ -90 dB
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 });
