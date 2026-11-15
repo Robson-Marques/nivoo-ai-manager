@@ -110,9 +110,9 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     await h.http().post(`/api/accounts/${c.id}/key`).send({ key: CHAVE }).expect(201);
     const modelos = (await h.http().get('/api/accounts/gemini-video/models').expect(200)).body.opcoes;
     expect(modelos).toEqual([
-      { id: 'veo-3.1-generate-preview', nome: 'Veo 3.1' },
-      { id: 'veo-3.1-fast-generate-preview', nome: 'Veo 3.1 Fast' },
-      { id: 'veo-3.0-generate-001', nome: 'Veo 3' },
+      { id: 'veo-3.1-generate-preview', nome: 'Veo 3.1 — melhor qualidade, com som (~US$ 0,40/s)' },
+      { id: 'veo-3.1-fast-generate-preview', nome: 'Veo 3.1 Fast — mais rápido e barato, com som (~US$ 0,15/s)' },
+      { id: 'veo-3.0-generate-001', nome: 'Veo 3 — com som (~US$ 0,40/s)' },
     ]);
 
     const p = (await h.http().post('/api/projects').send({ name: 'Campanha', provider: 'claude-code-cli' }).expect(201)).body;

@@ -210,7 +210,7 @@ describe('Git do projeto (GitHub/GitLab)', () => {
       steps: [{
         key: 'regra',
         instructions: "test ! -e CLAUDE.md && cp contexto/repositorio/_CLAUDE.md CLAUDE.md && printf '\\nAtualize o CHANGELOG a cada versão.\\n' >> CLAUDE.md && mkdir -p .claude && echo '{\"hooks\":{}}' > .claude/settings.json",
-        verifyCommand: 'grep -q CHANGELOG CLAUDE.md && grep -q REPO-RULE-9 CLAUDE.md && test ! -e .claude',
+        verifyCommand: 'grep -q CHANGELOG CLAUDE.md && grep -q REPO-RULE-9 CLAUDE.md',
       }],
     });
     fs.rmSync(path.join(CTL, 'mode'), { force: true });

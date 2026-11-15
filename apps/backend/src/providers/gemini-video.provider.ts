@@ -60,7 +60,7 @@ export const MODELOS_VEO_CONHECIDOS: ModeloVeo[] = [
 /** Nome para a tela: o conhecido (ou o do Google) + o custo estimado por segundo. */
 export function nomeDoModeloVeo(id: string, nomeDoGoogle?: string): string {
   const base = MODELOS_VEO_CONHECIDOS.find((m) => m.id === id)?.nome ?? nomeDoGoogle ?? id;
-  return `${base} (~US$ ${precoPorSegundo(id).toFixed(2)}/s)`;
+  return `${base} (~US$ ${precoPorSegundo(id).toFixed(2).replace('.', ',')}/s)`;
 }
 
 /** Versão do modelo para ordenar: veo-3.1-… > veo-3.0-… > veo-2.0-… */
