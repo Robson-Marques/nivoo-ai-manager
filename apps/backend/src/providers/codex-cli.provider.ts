@@ -16,6 +16,24 @@ import {
  */
 @Injectable()
 export class CodexCliProvider implements AiProvider {
+  /** Um evento do `codex exec --json` em linha de log legível. */
+  static logEvento(line: string, onLog: ExecutionRequest['onLog']): void {
+    if (!line.trim()) return;
+    let ev: any;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      onLog(line.slice(0, 500));
+      return;
+    }
+    const it = ev.item ?? {};
+    if (ev.type === 'item.completed') {
+      if (it.type === 'command_execution') onLog(`[comando] ${String(it.command ?? '').slice(0, 300)}`);
+      else if (it.type === 'file_change') onLog(`[arquivos] ${(it.changes ?? []).map((c: any) => `${c.kind ?? ''} ${c.path ?? ''}`.trim()).join(', ').slice(0, 300)}`);
+      else onLog(`[${it.type}] ${String(it.text ?? it.command ?? '').slice(0, 500)}`);
+    } else if (ev.type === 'error' || ev.type === 'turn.failed') onLog(`[erro] ${JSON.stringify(ev.error ?? ev.message ?? ev).slice(0, 300)}`, 'WARN');
+  }
+
   readonly id: string = 'codex-cli';
   readonly label: string = 'ChatGPT (conta)';
   readonly kind = 'cli' as const;
@@ -80,6 +98,7 @@ export class CodexCliProvider implements AiProvider {
     for (const img of req.options?.images ?? []) args.push('--image', img);
     args.push('-');
     req.onLog(`codex ${args.join(' ')}`);
+    let pendente = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
       env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
@@ -87,7 +106,15 @@ export class CodexCliProvider implements AiProvider {
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
+      // Cada passo do agente vai para o log na hora (a tela mostra o que a IA está fazendo, sem esperar a sessão acabar).
+      onStdout: (c) => {
+        pendente += c;
+        const linhas = pendente.split('\n');
+        pendente = linhas.pop() ?? '';
+        for (const l of linhas) CodexCliProvider.logEvento(l, req.onLog);
+      },
     });
+    if (pendente.trim()) CodexCliProvider.logEvento(pendente, req.onLog);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
@@ -107,9 +134,8 @@ export class CodexCliProvider implements AiProvider {
           outputTokens = ev.usage.output_tokens;
         }
         if (ev.type === 'error' || ev.type === 'turn.failed') errors.push(JSON.stringify(ev.error ?? ev.message ?? ev));
-        if (ev.type === 'item.completed') req.onLog(`[${ev.item?.type}] ${String(ev.item?.text ?? ev.item?.command ?? '').slice(0, 500)}`);
       } catch {
-        req.onLog(line);
+        /* linha não-JSON: já foi para o log durante a sessão */
       }
     }
     const failed = r.exitCode !== 0 || errors.length > 0;

@@ -128,7 +128,7 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 |---|---|---|
 | GET | `/jobs` | Todos os jobs (`?status=BLOQUEADO`). |
 | GET / POST | `/projects/:pid/jobs` | Lista / cria (exemplo abaixo). |
-| GET | `/projects/:pid/jobs/:jid` | Job completo: objetivos, etapas, tentativas, critérios com evidência, checkpoints, artefatos, aprovações. |
+| GET | `/projects/:pid/jobs/:jid` | Job completo: objetivos, etapas, tentativas, critérios com evidência, checkpoints, artefatos, aprovações e `ultimaAtividade` ({mensagem, em}: última linha do log, para a tela mostrar o andamento). |
 | GET | `/projects/:pid/jobs/:jid/report` | Estado real e pendências (o que falta para concluir). |
 | POST | `/projects/:pid/jobs/:jid/start` | PENDENTE → EXECUTANDO. |
 | POST | `/projects/:pid/jobs/:jid/interrupt` | `{ "by"? }` — interrompe (BLOQUEADO/INTERROMPIDO), preservando o estado. |

@@ -61,7 +61,7 @@ const plano = {
   job: {
     title: 'Cardápio',
     objective: 'Criar cardapio.md',
-    steps: [{ key: 'c', title: 'Escrever o cardápio', instructions: "printf '# Cardápio\\n- Margherita\\n' > cardapio.md", verifyCommand: 'test -f cardapio.md' }],
+    steps: [{ key: 'c', title: 'Escrever o cardápio', instructions: "sleep 6; printf '# Cardápio\\n- Margherita\\n' > cardapio.md", verifyCommand: 'test -f cardapio.md' }],
     criteria: [{ key: 'a', description: 'cardápio existe', kind: 'FILE_EXISTS', config: { path: 'cardapio.md' } }],
   },
   memoria: [
@@ -187,6 +187,11 @@ const plano = {
     passo('a IA recebeu o perfil do projeto e propôs um plano');
     fs.writeFileSync(path.join(ctl, 'mode'), 'bash'); // a "IA" executa a etapa do plano
     await page.getByRole('button', { name: 'Fazer', exact: true }).click();
+    // Enquanto roda: barra de porcentagem, etapa atual, tempo e última atividade (não parece travado).
+    await page.locator('.andamento [role=progressbar]').waitFor({ timeout: 30000 });
+    await page.locator('.andamento', { hasText: /Etapa 1 de 2: Escrever o cardápio/ }).waitFor();
+    await page.locator('.andamento', { hasText: /Rodando há/ }).waitFor({ timeout: 15000 });
+    await shot(page, '6b-andamento');
     await page.getByText(/Pronto\. O resultado/).waitFor({ timeout: 90000 });
     if (!fs.existsSync(path.join(ctl, 'prompt-revisor.txt'))) throw new Error('a conferência das regras não rodou');
     await page.getByText('Tom das peças', { exact: true }).waitFor({ timeout: 15000 });

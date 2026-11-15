@@ -454,9 +454,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
       {job.status === 'CONCLUIDO' && <ArquivosDoTrabalho projetoId={projetoId} jobId={jobId} />}
       {job.status === 'CONCLUIDO' && <VideosDoTrabalho projetoId={projetoId} steps={job.steps} />}
-      {['EXECUTANDO', 'PENDENTE'].includes(job.status) && (
-        <span>Trabalhando… {feitas} de {job.steps.length} feito(s){atual ? ` — agora: ${atual.title || atual.key}` : ''}</span>
-      )}
+      {['EXECUTANDO', 'PENDENTE'].includes(job.status) && <Andamento job={job} feitas={feitas} atual={atual} />}
       {job.status === 'AGUARDANDO_RECURSO' && (
         <span>
           A IA está sem limite/crédito ou desconectada. Continua sozinho quando ela voltar, ou troque agora:
@@ -689,6 +687,65 @@ function ItemDaMemoria({ m, texto, onEsquecer }: { m: any; texto: string; onEsqu
           <Icone nome="lixeira" />
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Há quanto tempo, em português curto: "40 s", "12 min", "1 h 05 min". */
+function duracao(desde: string | Date): string {
+  const s = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 1000));
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+}
+
+/** Linha do log em português simples (o que a IA está fazendo agora). */
+function atividadeLegivel(msg: string): string {
+  return msg
+    .replace(/^\[ferramenta\] (Read|read_file|ReadFile)\b/i, 'lendo')
+    .replace(/^\[ferramenta\] (Grep|Glob|search_file_content|glob)\b/i, 'procurando')
+    .replace(/^\[ferramenta\] (Edit|Write|MultiEdit|write_file|replace)\b/i, 'escrevendo')
+    .replace(/^\[ferramenta\] /, 'usando ')
+    .replace(/^\[comando\] /, 'rodando: ')
+    .replace(/^\[arquivos\] /, 'arquivos: ')
+    .replace(/^\[agente\] |^\[agent_message\] |^\[reasoning\] /, '')
+    .replace(/^Tentativa #(\d+).*/, 'sessão $1 começou')
+    .replace(/^(claude|codex|gemini) .*/s, 'a IA começou a trabalhar (lendo o projeto)…')
+    .replace(/^\[sessão [^\]]*\] término=.*/, 'sessão encerrada; conferindo o resultado…');
+}
+
+/** Trabalho rodando: barra pelas etapas (a etapa atual animada), tempo, sessão e a última atividade da IA. */
+function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: any }) {
+  const total = job.steps.length || 1;
+  const pct = Math.round((feitas / total) * 100);
+  const tentativas = atual ? job.attempts.filter((a: any) => a.stepId === atual.id) : [];
+  const inicio = tentativas[0]?.startedAt;
+  const ult = job.ultimaAtividade;
+  const parado = ult && Date.now() - new Date(ult.em).getTime() > 10 * 60_000;
+  return (
+    <div className="andamento">
+      <div className="andamento-topo">
+        <span className="pulso" aria-hidden="true" />
+        <b>{pct}%</b>
+        <span>
+          Etapa {Math.min(feitas + 1, total)} de {total}
+          {atual ? `: ${atual.title || atual.key}` : ''}
+        </span>
+      </div>
+      <div className="barra" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className="feito" style={{ width: `${pct}%` }} />
+        {feitas < total && <div className="atual" style={{ width: `${100 / total}%` }} />}
+      </div>
+      <div className="muted small">
+        {job.status === 'PENDENTE' || !inicio ? 'Na fila para começar…' : `Rodando há ${duracao(inicio)}${tentativas.length > 1 ? ` · sessão ${tentativas.length} (continua de onde parou)` : ''}`}
+      </div>
+      {ult && (
+        <div className={parado ? 'atividade parada small' : 'atividade small'} title={ult.mensagem}>
+          {parado ? `Sem novidade há ${duracao(ult.em)} (leituras longas podem demorar). Última: ` : `Agora (há ${duracao(ult.em)}): `}
+          {atividadeLegivel(ult.mensagem)}
+        </div>
+      )}
     </div>
   );
 }

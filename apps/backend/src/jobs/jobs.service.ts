@@ -241,7 +241,9 @@ export class JobsService {
       },
     });
     if (!job) throw new NotFoundException('Job não encontrado neste projeto');
-    return job;
+    // Última coisa registrada (ex.: "[ferramenta] Read src/app.ts"): a tela mostra que o trabalho está vivo.
+    const ultima = await this.prisma.logEntry.findFirst({ where: { jobId }, orderBy: { id: 'desc' }, select: { message: true, createdAt: true } });
+    return { ...job, ultimaAtividade: ultima ? { mensagem: ultima.message.slice(0, 300), em: ultima.createdAt } : null };
   }
 
   /** Busca por id global (usado em rotas /jobs/:id); retorna o projectId para checagens de isolamento. */

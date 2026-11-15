@@ -3,6 +3,15 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Andamento ao vivo do trabalho (2026-11-15)
+
+O cartão do trabalho na conversa mostra que está vivo: bolinha pulsando, **barra de porcentagem** (pelas etapas
+concluídas; a etapa atual aparece animada — dentro de uma etapa não há como medir "quanto falta" sem inventar),
+"Etapa N de M", há quanto tempo a etapa roda, em qual sessão está e a **última atividade da IA** em português
+("lendo src/app.ts", "rodando: npm test"…), com aviso se ficar 10 min sem novidade. O ChatGPT (Codex) e o
+Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
+trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
+
 ## CLAUDE.md do repositório atualizável e Gemini sobrecarregado (2026-11-15)
 
 * **Bug real**: trabalho que precisava registrar uma regra no `CLAUDE.md` do repositório falhava no critério

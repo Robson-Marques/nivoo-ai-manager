@@ -94,6 +94,7 @@ export class GeminiApiProvider implements AiProvider {
     const model = req.options?.model ?? process.env.NIVOO_GEMINI_MODEL;
     if (model) args.push('--model', model);
     req.onLog(`gemini ${args.join(' ')} (cwd=${req.cwd})`);
+    let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
@@ -102,7 +103,15 @@ export class GeminiApiProvider implements AiProvider {
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
+      // Ferramentas usadas vão para o log na hora (a tela mostra o que a IA está fazendo).
+      onStdout: (c) => {
+        pendente += c;
+        const linhas = pendente.split('\n');
+        pendente = linhas.pop() ?? '';
+        for (const l of linhas) GeminiApiProvider.logEvento(l, req.onLog);
+      },
     });
+    if (pendente.trim()) GeminiApiProvider.logEvento(pendente, req.onLog);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) {
       // O Gemini CLI repete sozinho, em silêncio, quando o Google responde 503 (sobrecarga): o tempo acaba
@@ -113,7 +122,24 @@ export class GeminiApiProvider implements AiProvider {
       return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     }
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
-    return GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, req.onLog);
+    const res = GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, () => undefined); // eventos já registrados
+    if (res.output && res.exitCode === 0) req.onLog(`[agente] ${res.output.slice(0, 1500)}`);
+    return res;
+  }
+
+  /** Um evento do stream-json em linha de log (ferramentas e erros; o texto vai no fim, inteiro). */
+  static logEvento(line: string, onLog: ExecutionRequest['onLog']): void {
+    if (!line.trim()) return;
+    let ev: any;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      onLog(line.slice(0, 500));
+      return;
+    }
+    if (ev.type === 'tool_use') onLog(`[ferramenta] ${ev.tool_name ?? ev.name ?? ''} ${JSON.stringify(ev.parameters ?? ev.args ?? {}).slice(0, 300)}`);
+    else if (ev.type === 'tool_result' && ev.status === 'error') onLog(`[ferramenta negada/erro] ${JSON.stringify(ev.error ?? ev).slice(0, 300)}`, 'WARN');
+    else if (ev.type === 'error') onLog(`[erro] ${String(ev.message ?? JSON.stringify(ev)).slice(0, 300)}`, 'WARN');
   }
 
   /** Interpreta a saída stream-json do Gemini CLI. */

@@ -292,3 +292,15 @@ textarea { resize: vertical; line-height: 1.5; }
 .chat-side .brand .marca-sistema { font-size: 17px; letter-spacing: .01em; color: #fff; }
 .entrada-caixa h1 .marca-sistema { gap: 12px; }
 .chat-vazio .logo { margin-bottom: 8px; }
+
+/* Andamento do trabalho (barra, tempo, última atividade) */
+.andamento { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.andamento-topo { display: flex; align-items: center; gap: 8px; }
+.pulso { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex: none; animation: pulso 1.4s ease-in-out infinite; }
+@keyframes pulso { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.75); } }
+.barra { position: relative; display: flex; height: 8px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.barra .feito { background: var(--accent); transition: width .4s; }
+.barra .atual { background: repeating-linear-gradient(45deg, var(--accent) 0 8px, color-mix(in srgb, var(--accent) 55%, transparent) 8px 16px); background-size: 22px 22px; animation: listras 1s linear infinite; opacity: .75; }
+@keyframes listras { from { background-position: 0 0; } to { background-position: 22px 0; } }
+.atividade { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.atividade.parada { color: var(--warn); }

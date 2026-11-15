@@ -97,7 +97,20 @@ describe('Adaptador Codex CLI (stub TEST-ONLY)', () => {
     const logs: string[] = [];
     const r = await p.execute(req(fs.mkdtempSync(path.join(os.tmpdir(), 'cx-')), logs));
     expect(r).toMatchObject({ exitCode: 0, output: 'resposta final', inputTokens: 7, outputTokens: 3 });
-    expect(logs.join('\n')).toContain('[command_execution] ls');
+    expect(logs.join('\n')).toContain('[comando] ls');
+  });
+});
+
+describe('Andamento ao vivo (ChatGPT/Codex)', () => {
+  it('cada passo do agente vira uma linha legível no log, na hora', () => {
+    const { CodexCliProvider } = require('../../src/providers/codex-cli.provider');
+    const logs: string[] = [];
+    const log = (l: string) => logs.push(l);
+    CodexCliProvider.logEvento(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'rg -n TODO src' } }), log);
+    CodexCliProvider.logEvento(JSON.stringify({ type: 'item.completed', item: { type: 'file_change', changes: [{ kind: 'add', path: 'docs/auditoria.md' }] } }), log);
+    CodexCliProvider.logEvento(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Auditoria pronta.' } }), log);
+    CodexCliProvider.logEvento('', log);
+    expect(logs).toEqual(['[comando] rg -n TODO src', '[arquivos] add docs/auditoria.md', '[agent_message] Auditoria pronta.']);
   });
 });
 
