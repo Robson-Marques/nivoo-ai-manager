@@ -91,7 +91,7 @@ Tokens ficam em `git-contas.json` (600) no servidor; nenhuma rota devolve o toke
 | GET | `/projects/:pid/git` | `{ ligado, url, branch, conta, autoEnvio, enviar, receber, remotoVazio, erro, commits[] }` (faz `fetch`). |
 | POST | `/projects/:pid/git/link` | `{ "url", "branch"?, "accountId"? }` — liga um projeto existente a um repositório (vazio ou com o mesmo histórico). |
 | DELETE | `/projects/:pid/git` | Desliga do repositório (nada é apagado). |
-| PATCH | `/projects/:pid/git` | `{ "autoEnvio": true \| false }` — enviar sozinho a cada trabalho concluído. |
+| PATCH | `/projects/:pid/git` | `{ "autoEnvio": true \| false }` — versionamento automático (padrão ligado): a cada trabalho concluído que mudou arquivos, tag da próxima versão + push (com pull antes, se o repositório andou). |
 | POST | `/projects/:pid/git/pull` | Atualiza a pasta principal com o repositório; conflito → 409 e nada muda. |
 | POST | `/projects/:pid/git/push` | `{ "tag"?, "mensagem"? }` — envia a pasta principal para a branch; tag anotada opcional. Repositório à frente → 409 (atualize antes). |
 

@@ -375,8 +375,10 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
     );
   }
   return (
-    <div className="msg ia">
+    <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
+      {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
       <div className="texto">{m.content}</div>
+      {m.kind === 'entrega' && m.jobId && <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />}
       {m.kind === 'plano' && m.plan && (
         <div className="plano">
           <b>Posso fazer isto:</b>
@@ -446,6 +448,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   return (
     <div className={`progresso p-${job.status}`}>
       {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
+      {job.status === 'CONCLUIDO' && <ArquivosDoTrabalho projetoId={projetoId} jobId={jobId} />}
       {job.status === 'CONCLUIDO' &&
         job.steps
           .filter((x: any) => x.provider === 'gemini-video' && x.providerOptions?.arquivo)
@@ -703,6 +706,64 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
           baixar {caminho}
         </a>
       )}
+    </div>
+  );
+}
+
+/** Arquivos que o trabalho criou/alterou/apagou: clique abre para ler (texto) ou assistir (vídeo). */
+function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: string }) {
+  const [lista, setLista] = useState<any[] | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
+  useEffect(() => {
+    api<any[]>(`/projects/${projetoId}/jobs/${jobId}/arquivos`).then(setLista).catch(() => setLista([]));
+  }, [projetoId, jobId]);
+  if (!lista?.length) return null;
+  const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
+  const visiveis = lista.slice(0, 40);
+  return (
+    <div className="arquivos-trabalho">
+      <span className="small">Arquivos deste trabalho ({lista.length}):</span>
+      <div className="arquivos-chips">
+        {visiveis.map((f) =>
+          f.status === 'D' ? (
+            <span key={f.path} className="arquivo-chip apagado" title="apagado (continua no histórico do git)">{f.path}</span>
+          ) : (
+            <button key={f.path} className="arquivo-chip" onClick={() => setAberto(f.path)} title={f.de ? `movido de ${f.de}` : nome[f.status]}>
+              {f.path} <span className="muted">· {nome[f.status] ?? f.status}</span>
+            </button>
+          ),
+        )}
+        {lista.length > visiveis.length && <span className="muted small">… e mais {lista.length - visiveis.length} (veja na aba Arquivos)</span>}
+      </div>
+      {aberto && <ArquivoAberto projetoId={projetoId} caminho={aberto} onFechar={() => setAberto(null)} />}
+    </div>
+  );
+}
+
+/** Janela para ler um arquivo da pasta do projeto (ou assistir, se for vídeo). */
+export function ArquivoAberto({ projetoId, caminho, onFechar }: { projetoId: string; caminho: string; onFechar: () => void }) {
+  const [texto, setTexto] = useState<string | null>(null);
+  const video = /\.(mp4|webm|mov)$/i.test(caminho);
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => {
+    if (!video) lerArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`).then(setTexto);
+  }, [projetoId, caminho, video]);
+  return (
+    <div className="modal-fundo" onClick={onFechar}>
+      <div className="modal largo" onClick={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <h2>{caminho}</h2>
+          <span className="row">
+            {!video && texto !== null && (
+              <button className="secondary" onClick={async () => { await copiarTexto(texto); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }}>
+                {copiado ? 'Copiado' : 'Copiar'}
+              </button>
+            )}
+            <button className="secondary" onClick={onFechar}>Fechar</button>
+          </span>
+        </div>
+        {video ? <VideoDoProjeto projetoId={projetoId} caminho={caminho} /> : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
+      </div>
     </div>
   );
 }

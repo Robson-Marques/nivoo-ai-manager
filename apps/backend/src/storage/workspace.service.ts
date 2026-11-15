@@ -364,7 +364,7 @@ export class WorkspaceService {
    * Só acontece se a pasta principal não mudou desde a verificação (main contida na branch do job);
    * senão devolve ok=false e a conclusão reintegra e reverifica.
    */
-  async integrateIntoMain(dirKey: string, jobId: string, message: string): Promise<{ ok: boolean; commit: string | null }> {
+  async integrateIntoMain(dirKey: string, jobId: string, message: string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
     const repo = this.projectDirs(dirKey).repo;
     const branch = this.jobBranch(jobId);
     if ((await this.git(repo, ['merge-base', '--is-ancestor', 'main', branch])).exitCode !== 0) return { ok: false, commit: null };
@@ -376,10 +376,25 @@ export class WorkspaceService {
     const mudou = (await this.git(repo, ['diff', '--cached', '--quiet'])).exitCode !== 0;
     if (mudou) await this.gitOk(repo, ['commit', '-q', '-m', message]);
     const head = await this.git(repo, ['rev-parse', 'HEAD']);
-    return { ok: true, commit: head.exitCode === 0 ? head.stdout.trim() : null };
+    return { ok: true, commit: head.exitCode === 0 ? head.stdout.trim() : null, mudou };
   }
 
   /** Arquivos da pasta principal (main) do projeto. */
+  /** Arquivos que um commit da pasta principal criou (A), alterou (M), apagou (D) ou renomeou (R). */
+  async arquivosDoCommit(dirKey: string, commit: string): Promise<Array<{ status: string; path: string; de?: string }>> {
+    if (!/^[0-9a-f]{7,40}$/.test(commit)) return [];
+    const r = await this.git(this.projectDirs(dirKey).repo, ['diff-tree', '--no-commit-id', '--name-status', '-r', '-M', '--root', commit]);
+    if (r.exitCode !== 0) return [];
+    return r.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => {
+        const [st, a, b] = l.split('\t');
+        return st.startsWith('R') ? { status: 'R', path: b, de: a } : { status: st[0], path: a };
+      })
+      .filter((f) => !f.path.startsWith('.nivoo/'));
+  }
+
   async listMainFiles(dirKey: string): Promise<Array<{ path: string; size: number }>> {
     const repo = this.projectDirs(dirKey).repo;
     const r = await this.git(repo, ['ls-tree', '-r', '-l', 'main']);

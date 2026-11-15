@@ -174,7 +174,8 @@ export class GitService {
     const tem = (await this.git(repo, ['remote'], null)).stdout.split('\n').includes('origin');
     await this.ok(repo, ['remote', tem ? 'set-url' : 'add', 'origin', url], null);
     await this.identidade(repo, conta);
-    await this.prisma.project.update({ where: { id: projectId }, data: { gitUrl: url, gitBranch: branch, gitAccountId: conta?.id ?? null } });
+    // Ligado ao Git = versionamento padrão (commit + tag + push a cada trabalho concluído).
+    await this.prisma.project.update({ where: { id: projectId }, data: { gitUrl: url, gitBranch: branch, gitAccountId: conta?.id ?? null, gitAutoPush: true } });
     return this.status(projectId);
   }
 
@@ -295,5 +296,47 @@ export class GitService {
       await this.prisma.project.update({ where: { id: p.id }, data: { gitLastSyncAt: new Date() } });
       return { resultado: 'enviado', tag: tag || null, ...(await this.status(projectId)) };
     });
+  }
+
+  /** Próxima versão: segue as tags X.Y.Z do repositório (remoto incluído) e sobe o último número; sem nenhuma, v0.1.0. */
+  async proximaVersao(projectId: string): Promise<string> {
+    const { repo, conta } = await this.linked(projectId);
+    await this.git(repo, ['fetch', '--quiet', '--tags', 'origin'], conta); // repositório vazio: sem tags, segue
+    const tags = (await this.git(repo, ['tag', '-l'], null)).stdout.split('\n').map((t) => t.trim()).filter(Boolean);
+    let maior: number[] | null = null;
+    let prefixo = 'v';
+    for (const t of tags) {
+      const m = /^(v?)(\d+)\.(\d+)\.(\d+)$/.exec(t);
+      if (!m) continue;
+      const v = [Number(m[2]), Number(m[3]), Number(m[4])];
+      const acima = (x: number[], y: number[]) => (x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2]);
+      if (!maior || acima(v, maior)) {
+        maior = v;
+        prefixo = m[1];
+      }
+    }
+    if (!maior) return 'v0.1.0';
+    let patch = maior[2] + 1;
+    let nova = `${prefixo}${maior[0]}.${maior[1]}.${patch}`;
+    while (tags.includes(nova)) nova = `${prefixo}${maior[0]}.${maior[1]}.${++patch}`;
+    return nova;
+  }
+
+  /**
+   * Versionamento padrão de projeto ligado ao Git, ao fim de cada trabalho: o commit já está na pasta principal;
+   * cria a tag da próxima versão e envia (push). Se o repositório andou, atualiza (pull) e envia de novo.
+   */
+  async versionar(projectId: string, mensagem: string): Promise<{ tag: string; atualizou: boolean }> {
+    const tag = await this.proximaVersao(projectId);
+    try {
+      await this.push(projectId, { tag, mensagem });
+      return { tag, atualizou: false };
+    } catch (e: any) {
+      if (!(e instanceof ConflictException) || !/mudanças que ainda não estão aqui/.test(String(e.message))) throw e;
+      await this.pull(projectId);
+      const nova = await this.proximaVersao(projectId);
+      await this.push(projectId, { tag: nova, mensagem });
+      return { tag: nova, atualizou: true };
+    }
   }
 }

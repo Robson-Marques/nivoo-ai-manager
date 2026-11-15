@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, MessageEvent, Param, ParseUUIDPipe, Patch, Post, Query, Res, Sse } from '@nestjs/common';
+import { Body, Controller, Get, Headers, MessageEvent, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res, Sse } from '@nestjs/common';
 import type { Response } from 'express';
 import { Observable } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +6,7 @@ import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { ApprovalsService } from './approvals.service';
 import { JobsService } from './jobs.service';
 import { LogService } from './log.service';
+import { WorkspaceService } from '../storage/workspace.service';
 
 @Controller('projects/:pid')
 export class JobsController {
@@ -14,6 +15,7 @@ export class JobsController {
     private readonly logs: LogService,
     private readonly artifacts: ArtifactStoreService,
     private readonly prisma: PrismaService,
+    private readonly workspace: WorkspaceService,
   ) {}
 
   @Get('jobs')
@@ -29,6 +31,14 @@ export class JobsController {
   @Get('jobs/:jid')
   get(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string) {
     return this.jobs.get(pid, jid);
+  }
+
+  /** Arquivos que o trabalho criou/alterou/apagou na pasta principal (para abrir pela tela). */
+  @Get('jobs/:jid/arquivos')
+  async arquivos(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string) {
+    const job = await this.prisma.job.findFirst({ where: { id: jid, projectId: pid }, include: { project: { select: { dirKey: true } } } });
+    if (!job) throw new NotFoundException('Trabalho não encontrado');
+    return job.mergedCommit ? this.workspace.arquivosDoCommit(job.project.dirKey, job.mergedCommit) : [];
   }
 
   @Get('jobs/:jid/report')

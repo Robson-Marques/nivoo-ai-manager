@@ -58,7 +58,7 @@ export class ProjectsService {
     await this.workspace.ensureKnowledge(dirs.knowledge);
     const description = optString(body, 'description', 20000) ?? '';
     const author = optString(body, 'author', 100) ?? 'usuario';
-    const project = await this.prisma.project.create({ data: { name, slug, description, areaId: area.id, dirKey, workspacePath: dirs.root, provider, gitUrl: git?.url, gitBranch: git?.branch, gitAccountId: git?.accountId } });
+    const project = await this.prisma.project.create({ data: { name, slug, description, areaId: area.id, dirKey, workspacePath: dirs.root, provider, gitUrl: git?.url, gitBranch: git?.branch, gitAccountId: git?.accountId, gitAutoPush: !!git } });
     if (description) {
       await this.prisma.memoryEntry.create({ data: { projectId: project.id, category: 'ESPECIFICACAO', title: 'Sobre o projeto', content: description, author } });
     }

@@ -202,7 +202,7 @@ const plano = {
     await page.getByRole('button', { name: /^Memória$/ }).waitFor();
     passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível, abre e copia');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
-    await page.getByRole('button', { name: 'cardapio.md' }).click();
+    await page.getByRole('button', { name: 'cardapio.md', exact: true }).click();
     await page.getByText('Margherita').last().waitFor();
     await shot(page, '8-arquivo');
     await page.getByRole('button', { name: 'Fechar' }).click();

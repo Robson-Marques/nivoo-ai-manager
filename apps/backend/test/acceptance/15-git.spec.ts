@@ -48,6 +48,13 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     fs.rmSync(base, { recursive: true, force: true });
   });
 
+  // O envio ao Git acontece logo depois do "Pronto": espera a linha dele no registro do trabalho.
+  const logDoEnvio = (jid: string) =>
+    waitFor(async () => {
+      const l = (await h.http().get(`/api/projects/${pid}/jobs/${jid}/logs`)).body.map((x: any) => x.message).join('\n');
+      return /enviada ao Git|envio automático ao Git falhou/.test(l) ? l : null;
+    }, 30_000);
+
   const job = async (pid: string, body: any) => {
     const j = (await h.http().post(`/api/projects/${pid}/jobs`).send({ objective: 'objetivo do trabalho', criteria: ok, ...body }).expect(201)).body;
     await h.http().post(`/api/projects/${pid}/jobs/${j.id}/start`).expect(201);
@@ -109,14 +116,36 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     expect(git(repo, 'log', '-1', '--format=%s', 'main')).toBe('Versão 2 do app');
     expect(git(repo, 'log', '-1', '--format=%B', 'main')).toContain('conferência das regras');
     expect(git(repo, 'log', '--format=%s', 'main')).not.toContain('checkpoint'); // sem commits internos
-  });
-
-  it('enviar: push + tag; com o remoto à frente o envio é recusado até atualizar (pull); conflito não estraga nada', async () => {
-    const st = (await h.http().get(`/api/projects/${pid}/git`).expect(200)).body;
-    expect(st).toMatchObject({ ligado: true, branch: 'develop', enviar: 1, receber: 0 });
-    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0', mensagem: 'primeira versão' }).expect(201);
+    // Versionamento padrão (projeto ligado ao Git): commit + tag + push sozinho; trabalho sem mudança não gera versão.
+    const envio = await logDoEnvio(d2.id);
+    expect((await h.http().get(`/api/projects/${pid}/git`)).body).toMatchObject({ autoEnvio: true, enviar: 0 });
+    const tags = git(dev, 'ls-remote', '--tags', 'origin');
+    expect(tags).toContain('refs/tags/v0.1.0');
+    expect(tags).not.toContain('refs/tags/v0.1.1');
     git(dev, 'pull', '-q', 'origin', 'develop');
     expect(fs.readFileSync(path.join(dev, 'app.txt'), 'utf8')).toBe('versão 2\n');
+    expect(envio).toContain('Versão v0.1.0 enviada ao Git (commit + tag + push).');
+  });
+
+  it('versionamento padrão com o repositório à frente: traz as novidades, cria a próxima versão e envia', async () => {
+    fs.writeFileSync(path.join(dev, 'externo.md'), 'feito fora do Nivoo\n');
+    git(dev, 'add', '-A');
+    git(dev, 'commit', '-q', '-m', 'mudança externa antes');
+    git(dev, 'push', '-q', 'origin', 'develop');
+    const d = await job(pid, { title: 'Mais um ajuste', steps: [{ key: 's', instructions: 'echo ajuste > ajuste.txt' }] });
+    expect(d.status).toBe('CONCLUIDO');
+    expect(await logDoEnvio(d.id)).toContain('Versão v0.1.1 enviada ao Git (commit + tag + push); antes, trouxe as novidades que já estavam no repositório.');
+    git(dev, 'pull', '-q', 'origin', 'develop');
+    expect(fs.existsSync(path.join(dev, 'ajuste.txt')) && fs.existsSync(path.join(dev, 'externo.md'))).toBe(true);
+    expect(git(dev, 'ls-remote', '--tags', 'origin')).toContain('refs/tags/v0.1.1');
+  });
+
+  it('envio manual (versionamento automático desligado): push + tag; remoto à frente recusa até atualizar; conflito não estraga nada', async () => {
+    await h.http().patch(`/api/projects/${pid}/git`).send({ autoEnvio: false }).expect(200);
+    const st = (await h.http().get(`/api/projects/${pid}/git`).expect(200)).body;
+    expect(st).toMatchObject({ ligado: true, branch: 'develop', enviar: 0, receber: 0, autoEnvio: false });
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0', mensagem: 'primeira versão' }).expect(201);
+    git(dev, 'pull', '-q', 'origin', 'develop');
     expect(git(dev, 'ls-remote', '--tags', 'origin')).toContain('refs/tags/v1.0.0');
     await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0' }).expect(409); // tag repetida
     await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'nome inválido' }).expect(400);

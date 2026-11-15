@@ -107,7 +107,8 @@ export class PlannerService {
       const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
 
       const profile = await this.profiles.build(project.id);
-      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos);
+      const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
+      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega);
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -154,7 +155,10 @@ export class PlannerService {
         erro = `A ${status.label} recusou o login (o acesso expirou ou foi revogado): ${result.error ?? ''}. Reconecte em "Conexões" ou continue com outra IA.`.trim();
       } else if (result.resourceUnavailable) erro = `IA indisponível no momento (limite ou login): ${result.error ?? ''}`.trim();
       else if (result.exitCode !== 0 && !result.sessionEnded) erro = `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
-      else if (parsed?.tipo === 'plano') {
+      else if (parsed?.tipo === 'plano' && msg.kind === 'entrega') {
+        // A entrega é sempre um relatório (o plano novo vem depois das respostas do usuário).
+        content = String(parsed.texto ?? '');
+      } else if (parsed?.tipo === 'plano') {
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId });
@@ -182,7 +186,7 @@ export class PlannerService {
         where: { id: msg.id, status: 'PENDENTE' },
         data: {
           status: erro ? 'ERRO' : 'PRONTA',
-          kind: erro ? 'erro' : kind,
+          kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
           content: erro ?? `${trocou}${content || '(sem resposta)'}`,
           plan,
           sessionId: result.sessionId,
@@ -232,7 +236,20 @@ export class PlannerService {
     return guardados;
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = []) {
+  /** O que a IA precisa para apresentar a entrega: o trabalho e os arquivos que ele criou/alterou/apagou. */
+  private async dadosDaEntrega(jobId: string, dirKey: string): Promise<string> {
+    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 } } });
+    if (!job) return '';
+    const arquivos = job.mergedCommit ? await this.workspace.arquivosDoCommit(dirKey, job.mergedCommit) : [];
+    const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
+    return [
+      `Trabalho concluído e conferido: "${job.title}".`,
+      `Objetivo: ${job.objectives[0]?.text ?? ''}`,
+      `Arquivos (${arquivos.length}): ${arquivos.slice(0, 80).map((f) => `${f.path} (${nome[f.status] ?? f.status}${f.de ? ` de ${f.de}` : ''})`).join('; ') || 'nenhum arquivo mudou'}`,
+    ].join('\n');
+  }
+
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
@@ -323,6 +340,19 @@ export class PlannerService {
       'Formato: {"tipo":"DECISAO|PREFERENCIA|FATO|PENDENCIA","titulo":"curto","conteudo":"frase completa"}.',
       'Só registre o que o usuário disse ou confirmou; não invente. Não repita o que já está na memória. Lista vazia se não houver nada.',
       '',
+      ...(entrega
+        ? [
+            '## AGORA: apresente a ENTREGA do trabalho que acabou de terminar (o usuário ainda não viu o resultado)',
+            entrega,
+            'Leia os arquivos novos/alterados acima e responda em linguagem simples:',
+            '1) O que foi feito (poucas linhas).',
+            '2) Onde está: os caminhos exatos dos arquivos principais (o usuário abre pela tela clicando neles).',
+            '3) Se o resultado tiver decisões, dúvidas, riscos ou itens que dependem do usuário (ex.: um documento com pendências),',
+            '   LISTE TODAS como perguntas numeradas — cada uma com as opções e a SUA recomendação — e peça a resposta',
+            '   (ex.: "1. C5 — página de teste de iconografia: (a) apagar (b) manter. Recomendo (a) porque…").',
+            '4) O próximo passo sugerido. Não proponha plano agora: espere as respostas. Use {"tipo":"resposta"}.',
+          ]
+        : [
       '## Mensagem atual do usuário',
       ...(await (async () => {
         const atual = await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } });
@@ -334,6 +364,7 @@ export class PlannerService {
             : []),
         ];
       })()),
+          ]),
     ].join('\n');
   }
 }

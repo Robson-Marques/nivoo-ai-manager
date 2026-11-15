@@ -30,7 +30,7 @@ if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   echo '{"type":"result","subtype":"success","is_error":false,"result":"conferido","session_id":"stub-revisor","total_cost_usd":0.01,"terminal_reason":"completed"}'
   exit 0
 fi
-if [ "$MODE" = "texto" ]; then
+if [ "$MODE" = "texto" ] || { [ -f "$CTL/resposta.txt" ] && printf '%s' "$prompt" | grep -q "apresente a ENTREGA"; }; then
   # Devolve como resposta final o conteúdo de $CTL/resposta.txt (usado para simular a IA da conversa).
   python3 -c 'import json,sys; print(json.dumps({"type":"result","subtype":"success","is_error":False,"terminal_reason":"completed","session_id":"stub-conversa","total_cost_usd":0.02,"result":open(sys.argv[1]).read()}))' "$CTL/resposta.txt"
   exit 0

@@ -146,4 +146,35 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('logged_in', null);
     ctl('mode', null);
   });
+
+  it('entrega: terminado o trabalho da conversa, a IA volta sozinha com o que fez, os arquivos e as perguntas', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Entrega', provider: 'claude-code-cli' }).expect(201)).body;
+    const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    ctl('mode', 'texto');
+    ctl('resposta.txt', '```json\n' + JSON.stringify({
+      tipo: 'plano', texto: 'Vou auditar.',
+      job: { title: 'Auditoria', objective: 'docs/auditoria.md com as decisões pendentes', steps: [{ key: 'doc', instructions: "mkdir -p docs && printf '# Auditoria\\nC5: apagar a POC?\\n' > docs/auditoria.md", verifyCommand: 'test -s docs/auditoria.md' }], criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'docs/auditoria.md' } }] },
+      memoria: [],
+    }) + '\n```');
+    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'audite' }).expect(201);
+    const plano = await resposta(p.id, c.id, 1);
+    ctl('resposta.txt', '```json\n{"tipo":"resposta","texto":"Pronto: docs/auditoria.md. 1. C5 — apagar a POC? Recomendo apagar.","memoria":[]}\n```');  // a entrega (lida pela IA ao terminar)
+    ctl('mode', 'bash'); // a "IA" executa a etapa e grava o documento
+    const ap = (await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages/${plano.id}/approve`).send({ decidedBy: 'Robson' }).expect(201)).body;
+    const jobId = ap.messages.find((m: any) => m.id === plano.id).jobId;
+    expect((await fim(p.id, jobId)).status).toBe('CONCLUIDO');
+    expect((await h.http().get(`/api/projects/${p.id}/jobs/${jobId}/arquivos`).expect(200)).body).toEqual([{ status: 'A', path: 'docs/auditoria.md' }]);
+    const entrega = await waitFor(async () => {
+      const ms = (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages;
+      const e = ms.find((m: any) => m.kind === 'entrega' && m.status !== 'PENDENTE');
+      return e ?? null;
+    }, 30_000);
+    expect(entrega.content).toMatch(/1\. C5 — apagar a POC\? Recomendo apagar/);
+    expect(entrega.jobId).toBe(jobId);
+    const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(prompt).toContain('apresente a ENTREGA do trabalho que acabou de terminar');
+    expect(prompt).toContain('docs/auditoria.md (novo)');
+    expect(prompt).toContain('LISTE TODAS como perguntas numeradas');
+    ctl('mode', null);
+  });
 });

@@ -81,6 +81,7 @@ export class CompletionService {
     let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
     let completion: Awaited<ReturnType<CompletionService['prepareCompletion']>> | null = null;
+    let trouxeMudanca = false;
     let mergedCommit: string | null = null;
     // Os critérios são verificados sobre o resultado JÁ INTEGRADO à pasta principal do projeto; só então
     // a pasta principal avança. Se outro job mudou a pasta principal no meio, integra e verifica de novo.
@@ -135,6 +136,7 @@ export class CompletionService {
       );
       if (ff.ok) {
         mergedCommit = ff.commit;
+        trouxeMudanca = ff.mudou !== false;
         break;
       }
       if (rodada >= 3) return this.blockConflict(job, report, ['a pasta principal mudou repetidamente durante a verificação; retome o job']);
@@ -164,7 +166,9 @@ export class CompletionService {
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
-    if (updated && status === 'CONCLUIDO' && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
+    // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
+    if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
+    if (updated && status === 'CONCLUIDO') await this.pedirEntrega(job.id);
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
@@ -180,16 +184,37 @@ export class CompletionService {
   }
 
   /** Envio automático ao Git depois de concluir. Falha não desfaz a conclusão: vira aviso e pendência. */
+  /**
+   * Entrega na conversa (padrão, qualquer IA): o trabalho aprovado no chat terminou → a IA volta sozinha com o
+   * que fez, onde estão os arquivos e as perguntas que dependem do usuário, numeradas, com recomendação.
+   */
+  private async pedirEntrega(jobId: string): Promise<void> {
+    const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
+    if (!plano) return;
+    await this.prisma.$transaction(async (tx) => {
+      const m = await tx.conversationMessage.create({ data: { conversationId: plano.conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE', kind: 'entrega', jobId } });
+      await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: m.id } });
+    });
+  }
+
+  /** Versionamento padrão: tag da próxima versão + push (o commit já entrou na pasta principal). */
   private async autoPush(job: Job & { title: string }): Promise<void> {
+    const avisar = async (texto: string) => {
+      const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
+      if (origem) await this.prisma.conversationMessage.create({ data: { conversationId: origem.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: texto, jobId: job.id } });
+    };
     try {
-      await this.git.push(job.projectId);
-      await this.logs.log(job.id, 'Enviado ao repositório Git (envio automático).', { source: 'git' });
+      const r = await this.git.versionar(job.projectId, `${job.title}`);
+      const texto = `Versão ${r.tag} enviada ao Git (commit + tag + push)${r.atualizou ? '; antes, trouxe as novidades que já estavam no repositório' : ''}.`;
+      await this.logs.log(job.id, texto, { source: 'git' });
+      await avisar(texto);
     } catch (e: any) {
       const motivo = String(e?.response?.message ?? e?.message ?? e);
       await this.logs.log(job.id, `Envio automático ao Git falhou: ${motivo}`, { source: 'git', level: 'WARN' });
       await this.prisma.memoryEntry.create({
         data: { projectId: job.projectId, category: 'PENDENCIA', title: 'Envio ao Git pendente', content: `O trabalho "${job.title}" foi concluído, mas o envio automático ao Git falhou: ${motivo}. Use "Enviar para o Git".`, references: { jobId: job.id, origem: 'git' }, author: 'sistema:git' },
       });
+      await avisar(`O trabalho foi concluído, mas o envio ao Git falhou: ${motivo}. Veja a aba Git.`);
     }
   }
 

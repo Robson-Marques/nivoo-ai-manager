@@ -191,7 +191,7 @@ model Project {
   gitUrl        String? // repositório remoto (GitHub/GitLab) ligado ao projeto; null = projeto só local
   gitBranch     String? // branch remota que a pasta principal acompanha
   gitAccountId  String? // conta Git (credencial guardada fora do banco) usada para pull/push
-  gitAutoPush   Boolean   @default(false) // enviar ao Git sozinho a cada trabalho concluído
+  gitAutoPush   Boolean   @default(true) // versionar sozinho (commit + tag + push) a cada trabalho concluído — padrão
   gitLastSyncAt DateTime? // último envio/atualização bem-sucedido
   rulesVersion  Int       @default(0)
   maxCostUsd    Decimal?  @db.Decimal(12, 4) // orçamento total do projeto (soma dos jobs); null = sem limite

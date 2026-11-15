@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Versionamento padrão e entrega na conversa (2026-11-15)
+
+* **Projeto ligado ao GitHub/GitLab versiona sozinho**: a cada trabalho concluído que mudou arquivos, commit
+  legível + tag da próxima versão (segue as tags X.Y.Z do repositório; sem nenhuma, `v0.1.0`) + push. Se o
+  repositório andou, atualiza (pull) e envia de novo; só para em conflito real, avisando. Vale para projetos
+  já ligados (migração). A conversa avisa a versão enviada. Feito pelo sistema: qualquer IA.
+* **Entrega**: terminado um trabalho aprovado na conversa, a IA volta sozinha com o que fez, os caminhos dos
+  arquivos e TODAS as perguntas que dependem do usuário, numeradas, com opções e recomendação. O cartão
+  "Pronto" e a entrega listam os arquivos criados/alterados/apagados, que abrem pela tela (ler, copiar,
+  assistir vídeo). Rota `GET /projects/:pid/jobs/:jid/arquivos`.
+
+Testes: suíte 113/113, `15` (versão automática, repositório à frente), `22` (entrega); tela OK.
+
 ## Apagar e mover arquivos pela IA (2026-11-15)
 
 O Claude no Nivoo não tem terminal (só lê e edita), então uma limpeza não conseguia apagar nada. Agora o

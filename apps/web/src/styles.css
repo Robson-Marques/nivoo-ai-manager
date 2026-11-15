@@ -278,3 +278,10 @@ textarea { resize: vertical; line-height: 1.5; }
 .entrada-caixa { width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 12px; }
 .entrada-caixa h1 { margin: 0; font-size: 22px; }
 .entrada-caixa p { margin: 0; }
+.arquivos-trabalho { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.arquivos-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.arquivo-chip { font-size: 12px; padding: 3px 8px; border-radius: 6px; background: var(--panel); color: var(--text); border: 1px solid var(--line); cursor: pointer; text-align: left; }
+.arquivo-chip:hover { border-color: var(--accent); }
+.arquivo-chip.apagado { text-decoration: line-through; color: var(--muted); cursor: default; }
+.msg.ia.entrega { border-left: 3px solid var(--ok); }
+.selo-entrega { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); margin-bottom: 4px; }
