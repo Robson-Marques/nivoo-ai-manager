@@ -3,6 +3,17 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Vídeo: legendas e estilo de transição (2026-11-15)
+
+* **Legendas**: cada cena pode ter `legenda` (texto curto, escrito pela IA no plano); a junção calcula o tempo
+  real de cada cena no vídeo final (já com as transições), grava a legenda na imagem (branco com contorno,
+  embaixo, centralizado, quebra de linha automática; ffmpeg `subtitles` com DejaVu Sans) e salva
+  `<nome>-completo.srt` ao lado (para Instagram/YouTube). Sem conseguir gravar, fica só o .srt, com aviso.
+* **Transição escolhível** por emenda (`transicao` na cena; `transicoes` na junção manual): fade (padrão),
+  fadeblack, fadewhite, dissolve, wipeleft/right, slideleft/right/up, circleopen/close, smoothleft, zoomin ou
+  corte. A IA pergunta se o usuário quer legenda e qual transição. Instalador inclui `fonts-dejavu-core`.
+  Teste em `26` (legenda conferida no quadro e nos tempos do .srt).
+
 ## Vídeo completo com transição suave (2026-11-15)
 
 Caso real: o vídeo juntado tinha trancos e micro-pausas no áudio entre as cenas (corte seco; cada cena tem o

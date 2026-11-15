@@ -62,7 +62,7 @@ step "1/9 Pacotes do sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -q --no-install-recommends \
-  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils tesseract-ocr tesseract-ocr-por ripgrep ffmpeg >/dev/null 2>&1
+  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils tesseract-ocr tesseract-ocr-por ripgrep ffmpeg fonts-dejavu-core >/dev/null 2>&1
 ok "git $(git --version | awk '{print $3}'), python $(python3 -V | awk '{print $2}'), $(psql -V)"
 
 # -----------------------------------------------------------------------------

@@ -29,7 +29,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[] };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -73,20 +73,29 @@ export class JuntarVideosProvider implements AiProvider {
       const duracoes: number[] = [];
       for (const p of partes) duracoes.push(Number((await probe(p, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0);
       const T = Number(process.env.NIVOO_VIDEO_TRANSICAO_SEG ?? 0.5);
+      // Transição de cada emenda (da cena i para a i+1): a escolhida no plano, ou fade; "corte" = quase instantânea.
+      const estilos = cenas.slice(1).map((_, i) => o.transicoes?.[i] ?? 'fade');
+      const durT = estilos.map((e) => (e === 'corte' ? 0.04 : T));
+      // Início de cada cena no vídeo final (para as legendas): sem fusão, a soma das anteriores.
+      let inicios = duracoes.map((_, i) => duracoes.slice(0, i).reduce((x, y) => x + y, 0));
       let r: Awaited<ReturnType<typeof ff>> | null = null;
-      if (partes.length > 1 && T > 0 && duracoes.every((d) => d > T * 2)) {
+      if (partes.length > 1 && T > 0 && duracoes.every((d, i) => d > (durT[i - 1] ?? 0) + (durT[i] ?? 0))) {
         const filtros: string[] = [];
         let v = '0:v';
         let a = '0:a';
         let acumulado = duracoes[0];
+        const com = [0];
         for (let i = 1; i < partes.length; i++) {
-          const offset = (acumulado - T).toFixed(3);
-          filtros.push(`[${v}][${i}:v]xfade=transition=fade:duration=${T}:offset=${offset}[v${i}]`);
-          filtros.push(`[${a}][${i}:a]acrossfade=d=${T}:c1=tri:c2=tri[a${i}]`);
+          const d = durT[i - 1];
+          const offset = acumulado - d;
+          com.push(offset);
+          filtros.push(`[${v}][${i}:v]xfade=transition=${estilos[i - 1] === 'corte' ? 'fade' : estilos[i - 1]}:duration=${d}:offset=${offset.toFixed(3)}[v${i}]`);
+          filtros.push(`[${a}][${i}:a]acrossfade=d=${d}:c1=tri:c2=tri[a${i}]`);
           v = `v${i}`;
           a = `a${i}`;
-          acumulado += duracoes[i] - T;
+          acumulado += duracoes[i] - d;
         }
+        inicios = com;
         r = await ff([
           ...partes.flatMap((p) => ['-i', p]),
           '-filter_complex', filtros.join(';'),
@@ -101,16 +110,50 @@ export class JuntarVideosProvider implements AiProvider {
         r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
       }
       if (r.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui juntar as cenas: ${r.stderr.trim().slice(-300)}`, interrupted: req.signal.aborted };
+      // Legendas: o texto de cada cena no tempo exato dela no vídeo final; gravadas na imagem e salvas em .srt.
+      let srtTexto: string | null = null;
+      let legendado = false;
+      if (o.legendas?.some((l) => l.trim())) {
+        const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || inicios[inicios.length - 1] + duracoes[duracoes.length - 1];
+        const blocos: string[] = [];
+        o.legendas.forEach((texto, i) => {
+          if (!texto.trim() || i >= partes.length) return;
+          const de = i === 0 ? 0.2 : inicios[i] + (durT[i - 1] ?? 0) / 2;
+          const ate = i === partes.length - 1 ? total - 0.2 : inicios[i + 1] + (durT[i] ?? 0) / 2;
+          blocos.push(`${blocos.length + 1}\n${tempoSrt(de)} --> ${tempoSrt(Math.max(de + 0.5, ate))}\n${texto.trim()}\n`);
+        });
+        srtTexto = blocos.join('\n');
+        fs.writeFileSync(path.join(tmp, 'legendas.srt'), srtTexto);
+        const legendada = path.join(tmp, 'legendado.mp4');
+        const estilo = "FontName=DejaVu Sans,Bold=1,FontSize=12,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,Alignment=2,MarginV=28";
+        const l = await ff(['-i', saida, '-vf', `subtitles=legendas.srt:force_style='${estilo}'`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', legendada], 1_800_000);
+        if (l.exitCode === 0) {
+          fs.renameSync(legendada, saida);
+          legendado = true;
+        } else req.onLog(`não consegui gravar as legendas no vídeo (${l.stderr.trim().slice(-200)}); ficam só no arquivo .srt`, 'WARN');
+      }
       const destino = resolveInside(req.cwd, o.arquivo);
       fs.mkdirSync(path.dirname(destino), { recursive: true });
       fs.copyFileSync(saida, destino);
+      const srtArquivo = srtTexto ? o.arquivo.replace(/\.mp4$/i, '.srt') : null;
+      if (srtArquivo && srtTexto) fs.writeFileSync(resolveInside(req.cwd, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());
       const mb = (fs.statSync(destino).size / 1024 / 1024).toFixed(1);
-      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)`;
+      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}`;
       req.onLog(resumo);
       return { exitCode: 0, output: resumo, stopReason: 'completed' };
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   }
+}
+
+/** 12.5 → "00:00:12,500" (tempo do arquivo .srt). */
+function tempoSrt(seg: number): string {
+  const ms = Math.max(0, Math.round(seg * 1000));
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  const p = (n: number, t = 2) => String(n).padStart(t, '0');
+  return `${p(h)}:${p(m)}:${p(s)},${p(ms % 1000, 3)}`;
 }

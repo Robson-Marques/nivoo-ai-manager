@@ -88,4 +88,55 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect(arquivos.sort()).toEqual(['videos/pizzaria/cena-01.mp4', 'videos/pizzaria/cena-02.mp4', 'videos/pizzaria/pizzaria-completo.mp4']);
     fs.rmSync(tmp, { recursive: true, force: true });
   });
+
+  it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
+    const plano = comVideoCompleto(
+      [
+        { key: 'c1', provider: 'gemini-video', instructions: 'x', providerOptions: { arquivo: 'videos/p/cena-01.mp4', legenda: 'Queijo derretido', transicao: 'fadeblack' } },
+        { key: 'c2', provider: 'gemini-video', instructions: 'x', providerOptions: { arquivo: 'videos/p/cena-02.mp4', legenda: 'Peça já a sua' } },
+      ],
+      'x',
+    ) as any[];
+    expect(plano[2].providerOptions).toMatchObject({ legendas: ['Queijo derretido', 'Peça já a sua'], transicoes: ['fadeblack'] });
+
+    const p = (await h.http().post('/api/projects').send({ name: 'Legendas' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    const pasta = path.join(repo, 'videos', 'p');
+    fs.mkdirSync(pasta, { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    for (const n of ['01', '02']) ff('-f', 'lavfi', '-i', 'color=c=blue:size=720x1280:rate=24:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=3', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(pasta, `cena-${n}.mp4`));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cenas'], { cwd: repo });
+    await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 'x', objective: 'x', defaultProvider: 'juntar-videos', steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'x', providerOptions: { cenas: ['videos/p/cena-01.mp4', 'videos/p/cena-02.mp4'], arquivo: 'videos/p/f.mp4', transicao: 'explodir' } }], criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }] }).expect(400);
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'legendas', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'junta', providerOptions: plano[2].providerOptions }],
+        criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/p/p-completo.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    expect(fim.attempts[0].output).toMatch(/com legendas \(videos\/p\/p-completo\.srt\)/);
+    const srt = execFileSync('git', ['show', 'main:videos/p/p-completo.srt'], { cwd: repo }).toString();
+    // Cena 1: do começo até o meio da transição (3 s - 0,5 s + 0,25 s); cena 2: dali até o fim (5,5 s).
+    const blocos = [...srt.matchAll(/(\d+)\n00:00:(\d\d),(\d{3}) --> 00:00:(\d\d),(\d{3})\n(.+)\n/g)].map((m) => [Number(`${m[2]}.${m[3]}`), Number(`${m[4]}.${m[5]}`), m[6]]);
+    expect(blocos.map((b) => b[2])).toEqual(['Queijo derretido', 'Peça já a sua']);
+    expect(blocos[0][0]).toBeCloseTo(0.2, 1);
+    expect(blocos[0][1]).toBeCloseTo(2.75, 1);
+    expect(blocos[1][0]).toBe(blocos[0][1]); // a segunda começa onde a primeira termina (no meio da transição)
+    expect(blocos[1][1]).toBeCloseTo(5.3, 0);
+    // A legenda foi gravada na imagem: o quadro do meio da cena 1 não é mais azul puro.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'leg-'));
+    const final = path.join(tmp, 'f.mp4');
+    fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/p/p-completo.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
+    const quadro = (seg: string) => execFileSync('ffmpeg', ['-v', 'error', '-ss', seg, '-i', final, '-frames:v', '1', '-vf', 'scale=72:128', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']);
+    const naoAzul = (b: Buffer) => { let n = 0; for (let i = 0; i < b.length; i += 3) if (!(b[i] < 40 && b[i + 1] < 40 && b[i + 2] > 200)) n++; return n; };
+    expect(naoAzul(quadro('1.5'))).toBeGreaterThan(20);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 });

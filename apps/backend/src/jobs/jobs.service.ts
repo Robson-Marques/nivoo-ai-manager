@@ -450,6 +450,9 @@ export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
     out.imagem = img;
   }
   if (o.conexao !== undefined) out.conexao = String(o.conexao).slice(0, 60);
+  // Legenda da cena (texto curto que aparece no vídeo completo) e estilo da transição para a cena seguinte.
+  if (o.legenda !== undefined && String(o.legenda).trim()) out.legenda = String(o.legenda).trim().slice(0, 300);
+  if (o.transicao !== undefined) out.transicao = transicaoValida(key, o.transicao);
   return out;
 }
 
@@ -468,14 +471,29 @@ export function operacoesDeArquivos(key: string, o: any): { remover: string[]; m
 }
 
 /** Opções da etapa que junta as cenas: lista de cenas (na ordem) e o arquivo final, só caminhos do projeto. */
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string } {
+/** Estilos de transição entre as cenas (nomes do ffmpeg xfade); "corte" = sem transição. */
+export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'slideup', 'circleopen', 'circleclose', 'smoothleft', 'zoomin', 'corte'];
+
+function transicaoValida(key: string, t: unknown): string {
+  const v = String(t).trim().toLowerCase();
+  if (!TRANSICOES.includes(v)) throw new BadRequestException(`Etapa ${key}: transicao deve ser uma de: ${TRANSICOES.join(', ')}`);
+  return v;
+}
+
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[] } {
   const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
   const arquivo = caminhoDoProjeto(o.arquivo) ?? '';
   if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
   if (cenas.includes(arquivo)) throw new BadRequestException(`Etapa ${key}: o vídeo final não pode ter o nome de uma cena`);
-  return { cenas, arquivo };
+  const out: { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[] } = { cenas, arquivo };
+  if (Array.isArray(o.legendas) && o.legendas.some((l: unknown) => String(l ?? '').trim())) out.legendas = cenas.map((_: string, i: number) => String(o.legendas[i] ?? '').trim().slice(0, 300));
+  if (o.transicao !== undefined || Array.isArray(o.transicoes)) {
+    const lista = Array.isArray(o.transicoes) ? o.transicoes : [];
+    out.transicoes = cenas.slice(1).map((_: string, i: number) => transicaoValida(key, lista[i] ?? o.transicao ?? 'fade'));
+  }
+  return out;
 }
 
 /**
@@ -506,7 +524,13 @@ export function comVideoCompleto(raw: unknown, defaultProvider: string): unknown
       provider: 'juntar-videos',
       instructions: `Junta as ${cenas.length} cenas, na ordem, em ${arquivo}.`,
       dependsOn: cenas.map((s: any) => s.key),
-      providerOptions: { cenas: arquivos, arquivo },
+      providerOptions: {
+        cenas: arquivos,
+        arquivo,
+        // Legenda de cada cena (se o plano trouxe) e a transição escolhida em cada cena para a seguinte.
+        ...(cenas.some((s: any) => String(s.providerOptions?.legenda ?? '').trim()) ? { legendas: cenas.map((s: any) => String(s.providerOptions?.legenda ?? '').trim()) } : {}),
+        ...(cenas.some((s: any) => s.providerOptions?.transicao) ? { transicoes: cenas.slice(0, -1).map((s: any) => String(s.providerOptions?.transicao ?? 'fade')) } : {}),
+      },
     },
   ];
 }
