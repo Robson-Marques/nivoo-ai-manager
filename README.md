@@ -80,7 +80,7 @@ npm run dev:web      # opcional: interface com recarga em http://localhost:5173
 |---|---|
 | `claude-code-cli` (Claude) | tela **Contas de IA** (login oficial `claude setup-token`) ou chave `ANTHROPIC_API_KEY` |
 | `codex-cli` (ChatGPT) | tela **Contas de IA** (login oficial `codex login --device-auth`) ou chave de API OpenAI |
-| `gemini-cli` (Gemini) | tela **Contas de IA** (login oficial com conta Google) ou chave `GEMINI_API_KEY` |
+| `gemini-api` (Gemini) | tela **Conexões**, só por chave de API (`GEMINI_API_KEY`); também gera vídeos (Veo) |
 | `local-shell` | sempre disponível (executor de comandos, **não é IA**) |
 
 O sistema **não** captura cookies, não extrai credenciais de navegador e não contorna limites. Se uma

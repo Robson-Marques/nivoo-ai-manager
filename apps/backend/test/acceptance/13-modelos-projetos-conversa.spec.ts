@@ -151,8 +151,8 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(det.knowledgeFiles.map((f: any) => f.path)).toEqual(['cardapio.txt']);
     expect((await h.http().get(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.txt' }).expect(200)).text).toContain('Margherita');
     await h.http().delete(`/api/projects/${p.id}/knowledge/file`).query({ path: 'cardapio.txt' }).expect(200);
-    const ajustado = (await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'gemini-cli', maxCostUsd: 7 }).expect(200)).body;
-    expect(ajustado.provider).toBe('gemini-cli');
+    const ajustado = (await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'codex-cli', maxCostUsd: 7 }).expect(200)).body;
+    expect(ajustado.provider).toBe('codex-cli');
     expect(Number(ajustado.maxCostUsd)).toBe(7);
     await h.http().patch(`/api/projects/${p.id}`).send({ provider: 'local-shell' }).expect(400);
   });
@@ -453,7 +453,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
   it('contas de IA: Claude, ChatGPT e Gemini; login pela tela com o fluxo oficial; chave guardada fora do banco', async () => {
     // Tipos para "+ Nova conexão": Claude, ChatGPT e Gemini, pela conta e por chave de API.
     const tipos = (await h.http().get('/api/accounts/tipos').expect(200)).body;
-    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini conta', 'Gemini api']);
+    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini api']); // Gemini pela conta: encerrado pelo Google, removido
 
     // Login do Claude pela tela (CLI simulado: mostra o link, lê o código e devolve o token oficial).
     const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-claude-')), 'claude');
@@ -489,11 +489,10 @@ exec ${process.env.NIVOO_CLAUDE_BIN} "$@"
 
     // Chave de API do Gemini (alternativa ao login com a conta).
     await h.http().post('/api/accounts/gemini-api/key').send({ key: 'curta' }).expect(400);
-    await h.http().post('/api/accounts/gemini-cli/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(400); // conta não usa chave
+    await h.http().post('/api/accounts/gemini-cli/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(400); // não existe mais
     await h.http().post('/api/accounts/gemini-api/login').expect(400); // API não tem login de conta
     await h.http().post('/api/accounts/gemini-api/key').send({ key: 'AIzaSy-chave-de-teste-0123456789' }).expect(201);
     expect((await h.http().get('/api/accounts')).body.find((c: any) => c.id === 'gemini-api').conectado).toBe(true);
-    expect((await h.http().get('/api/accounts')).body.some((c: any) => c.id === 'gemini-cli' && c.conectado)).toBe(false); // conta e API são independentes
     expect(JSON.parse(fs.readFileSync(segredos, 'utf8')).GEMINI_API_KEY).toBe('AIzaSy-chave-de-teste-0123456789');
     await h.http().post('/api/accounts/gemini-api/disconnect').expect(201);
     expect(JSON.parse(fs.readFileSync(segredos, 'utf8')).GEMINI_API_KEY).toBeUndefined();

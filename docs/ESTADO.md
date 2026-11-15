@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Gemini pela conta removido (2026-11-15)
+
+O Google encerrou o Gemini CLI com conta pessoal ("IneligibleTierError… migrate to Antigravity"), então o
+tipo "Gemini — conta" saiu por completo: conector, login pela tela, mensagens e documentação. Na atualização
+(`removerGeminiConta`, pelo seed), as conexões dele saem com login e pasta, e projetos, trabalhos em
+andamento, listas de reserva e modelos escolhidos passam para a IA padrão. Fica o **Gemini por chave de
+API** (que também gera os vídeos com o Veo). Teste `25-remover-gemini-conta`.
+
 ## Versionamento padrão e entrega na conversa (2026-11-15)
 
 * **Projeto ligado ao GitHub/GitLab versiona sozinho**: a cada trabalho concluído que mudou arquivos, commit

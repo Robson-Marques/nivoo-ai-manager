@@ -118,13 +118,13 @@ Na interface, abra **Conexões** → **+ Nova** e conecte pelo menos uma IA, com
 |---|---|
 | Claude | "Conectar" → abra o link, entre com a sua conta do Claude, copie o código e cole na tela |
 | ChatGPT | "Conectar" → abra o link, entre com a sua conta do ChatGPT e digite o código mostrado na tela |
-| Gemini | "Conectar" → abra o link, entre com a sua conta Google, copie o código e cole na tela |
+| Gemini | só por **chave de API** (aistudio.google.com): "+ Nova" → "Gemini — chave de API". O Google encerrou o uso do Gemini CLI com conta pessoal |
 
 Também dá para usar uma chave de API ("ou usar uma chave de API"). As credenciais ficam em
 `/var/lib/nivoo/data/segredos.json` (permissão 600) ou nos arquivos do próprio CLI no HOME do serviço
-(`/var/lib/nivoo/.codex`, `/var/lib/nivoo/.gemini`); nunca no git nem no banco.
+(`/var/lib/nivoo/.codex`, `/var/lib/nivoo/.nivoo-ia/<conexão>`); nunca no git nem no banco.
 
-> Gemini e ChatGPT ainda não foram testados com conta real neste desenvolvimento (ver `docs/ESTADO.md`).
+> ChatGPT e Gemini (API) ainda não foram testados com conta real neste desenvolvimento (ver `docs/ESTADO.md`).
 
 **Alternativa pelo terminal** (no servidor):
 

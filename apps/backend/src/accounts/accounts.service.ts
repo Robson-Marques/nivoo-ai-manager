@@ -1,7 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -29,7 +27,6 @@ const NOME_ANTIGO: Record<TipoIa, string> = {
   'claude-api': 'Claude (API)',
   'codex-cli': 'ChatGPT (conta)',
   'codex-api': 'ChatGPT (API)',
-  'gemini-cli': 'Gemini (conta)',
   'gemini-api': 'Gemini (API)',
 };
 
@@ -88,7 +85,7 @@ export class AccountsService {
     await this.migrar();
     const projetos = await this.prisma.project.groupBy({ by: ['provider'], _count: { _all: true } });
     return Promise.all(
-      listarConexoes().map(async (c) => {
+      listarConexoes().filter((c) => TIPO_INFO[c.tipo]).map(async (c) => {
         const info = TIPO_INFO[c.tipo];
         const st = await this.registry.status(c.id, atualizar ? 0 : 5_000);
         let login: LoginSession | null = null;
@@ -236,9 +233,6 @@ export class AccountsService {
       if (!propria) await runProcess(process.env.NIVOO_CLAUDE_BIN ?? 'claude', ['auth', 'logout'], { cwd: process.cwd(), env: minimalEnv(), timeoutMs: 30_000 });
     } else if (c.tipo === 'codex-cli' || c.tipo === 'codex-api') {
       await runProcess(process.env.NIVOO_CODEX_BIN ?? 'codex', ['logout'], { cwd: process.cwd(), env: this.env(id), timeoutMs: 30_000 });
-    } else if (c.tipo === 'gemini-cli') {
-      const home = propria ? isolatedHome(propria) : (process.env.HOME ?? os.homedir());
-      fs.rmSync(path.join(home, '.gemini', 'oauth_creds.json'), { force: true });
     } else {
       gravarSegredoDaConexao(propria, CHAVE[c.tipo]!, null);
     }

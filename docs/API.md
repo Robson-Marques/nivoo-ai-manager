@@ -14,14 +14,14 @@ Na interface, "modelo" = `Area` no banco e `/areas` na API.
 | GET | `/health` | Saúde da API e do banco (não exige token). |
 | GET | `/system/workers` | Workers e último sinal (`online`). |
 | GET | `/system/config` | Diretórios e configuração não secreta. |
-| GET | `/providers` | Conectores (`claude-code-cli`, `codex-cli`, `gemini-cli`, `local-shell`): status visto pela API e por cada worker. |
+| GET | `/providers` | Conectores (`claude-code-cli`, `claude-api`, `codex-cli`, `codex-api`, `gemini-api`, `gemini-video`, `arquivos-projeto`, `local-shell`): status visto pela API e por cada worker. |
 | POST | `/providers/:id/check` | Verifica um conector agora. |
 | PATCH | `/providers/:id` | `{ "enabled": false }` desabilita; segredos são recusados. |
 | POST | `/extract-text` | `{ "name", "contentBase64" }` → `{ "texto" }`. PDF (`pdftotext`; escaneado por OCR com `tesseract`), Word `.docx`, PowerPoint `.pptx`, Excel `.xlsx`, LibreOffice `.odt`/`.odp`/`.ods` ou texto; até 10 MB; nada é gravado. Formatos antigos (`.doc`, `.xls`, `.ppt`, `.rtf`) → 400 pedindo PDF ou formato novo. |
 
 ## Conexões de IA
 
-Quantas conexões quiser de cada tipo (`claude-code-cli`, `claude-api`, `codex-cli`, `codex-api`, `gemini-cli`,
+Quantas conexões quiser de cada tipo (`claude-code-cli`, `claude-api`, `codex-cli`, `codex-api`,
 `gemini-api`). `:id` = id da conexão: a primeira de cada tipo tem o próprio tipo como id (configuração padrão
 do serviço); as seguintes são `<tipo>--<8 hex>`, com credencial e pasta próprias (`~/.nivoo-ia/<id>`).
 O `provider` de um projeto é o id da conexão.
@@ -62,7 +62,7 @@ Lista de conexões em `conexoes.json`; credenciais em `segredos.json` (permissã
 | Método | Rota | Função |
 |---|---|---|
 | GET | `/projects` | Lista projetos ativos (com o modelo); `?arquivados=1` lista os arquivados. |
-| POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (`claude-code-cli` \| `codex-cli` \| `gemini-cli`; padrão Claude), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
+| POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (id de uma conexão de IA; padrão: a conexão padrão), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
 | GET | `/projects/:pid` | Projeto com regras vigentes, arquivos de conhecimento e `custoGastoUsd` (trabalhos + conversa). |
 | PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "model"? (modelo da IA do projeto; `null` = padrão; guardado por IA em `aiModels`), "modeloDe"? (guardar o modelo de outro conector, ex.: `gemini-video`), "reserva"? (lista ordenada de conexões de IA reserva), "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
 | DELETE | `/projects/:pid` | Exclui o projeto: para antes os trabalhos e respostas em andamento (espera até 20 s as sessões encerrarem) e apaga registros, pasta e artefatos. |

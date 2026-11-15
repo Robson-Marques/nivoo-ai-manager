@@ -18,7 +18,6 @@ export const NOME_IA: Record<string, string> = {
   'claude-api': 'Claude (API)',
   'codex-cli': 'ChatGPT (conta)',
   'codex-api': 'ChatGPT (API)',
-  'gemini-cli': 'Gemini (conta)',
   'gemini-api': 'Gemini (API)',
 };
 

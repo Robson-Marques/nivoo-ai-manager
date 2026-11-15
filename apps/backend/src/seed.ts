@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { CoreModule } from './core.module';
 import { AreasService } from './areas/areas.service';
 import { convertStoredDocuments } from './common/knowledge-upload';
+import { removerGeminiConta } from './accounts/remover-gemini-conta';
 import { PrismaService } from './prisma/prisma.service';
 import { WorkspaceService } from './storage/workspace.service';
 import { ehProblemaDeInfra } from './worker/step-executor.service';
@@ -30,6 +31,9 @@ async function main() {
     for (const f of r.falhas) console.warn(`Não converti (${p.nome}): ${f}`);
   }
   if (total) console.log(`${total} documento(s) guardado(s) convertido(s) em texto.`);
+  const removidas = await removerGeminiConta(prisma);
+  if (removidas.length) console.log(`Conexão(ões) "Gemini (conta)" removida(s): ${removidas.join(', ')}.`);
+
   // Lições que eram, na verdade, problemas de infraestrutura (programa faltando, IA sem acesso, limite do
   // sistema): nunca foram aprendizado. Também as repetidas (uma por etapa e motivo).
   const licoes = await prisma.memoryEntry.findMany({ where: { references: { path: ['origem'], equals: 'licao-automatica' } }, orderBy: { createdAt: 'asc' } });

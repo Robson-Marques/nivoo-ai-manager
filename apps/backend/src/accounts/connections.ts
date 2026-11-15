@@ -10,7 +10,7 @@ import { appConfig } from '../config';
  * configuração padrão do serviço (compatível com o que já estava conectado); as seguintes são
  * `<tipo>--<8 hex>` e usam pasta própria em ~/.nivoo-ia/<id>.
  */
-export const TIPOS_IA = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-cli', 'gemini-api'] as const;
+export const TIPOS_IA = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-api'] as const;
 export type TipoIa = (typeof TIPOS_IA)[number];
 
 export const TIPO_INFO: Record<TipoIa, { ia: string; modo: 'conta' | 'api'; nomePadrao: string; conta?: string; ondeChave?: string }> = {
@@ -18,7 +18,6 @@ export const TIPO_INFO: Record<TipoIa, { ia: string; modo: 'conta' | 'api'; nome
   'claude-api': { ia: 'Claude', modo: 'api', nomePadrao: 'Claude API', ondeChave: 'console.anthropic.com' },
   'codex-cli': { ia: 'ChatGPT', modo: 'conta', nomePadrao: 'ChatGPT', conta: 'conta do ChatGPT (Plus/Pro)' },
   'codex-api': { ia: 'ChatGPT', modo: 'api', nomePadrao: 'ChatGPT API', ondeChave: 'platform.openai.com' },
-  'gemini-cli': { ia: 'Gemini', modo: 'conta', nomePadrao: 'Gemini', conta: 'conta Google (Gemini)' },
   'gemini-api': { ia: 'Gemini', modo: 'api', nomePadrao: 'Gemini API', ondeChave: 'aistudio.google.com' },
 };
 
@@ -43,7 +42,8 @@ export function tipoDe(id: string): TipoIa | null {
 
 /** Conexão adicional (pasta própria) ou a primeira de cada tipo (configuração padrão do serviço). */
 export function ehAdicional(id: string): boolean {
-  return ID_EXTRA.test(id);
+  const m = ID_EXTRA.exec(id);
+  return !!m && (TIPOS_IA as readonly string[]).includes(m[1]);
 }
 
 function file(): string {
@@ -83,12 +83,7 @@ export function novoId(tipo: TipoIa, existentes: Conexao[]): string {
   return id;
 }
 
-const FALHA_LOGIN = /IneligibleTierError|no longer supported for Gemini Code Assist|\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
-
-/** O Google encerrou o Gemini CLI com conta pessoal (Code Assist for individuals). Reconectar não resolve. */
-export const GEMINI_CONTA_ENCERRADA = /IneligibleTierError|no longer supported for Gemini Code Assist/i;
-export const EXPLICACAO_GEMINI_ENCERRADA =
-  'o Google encerrou o uso do Gemini CLI com conta pessoal (Code Assist for individuals); reconectar não resolve. Use uma conexão "Gemini — chave de API" ou outra IA';
+const FALHA_LOGIN = /\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
 
 /** O erro de uma sessão é de login recusado (não de limite de uso ou rede)? */
 export function ehFalhaDeLogin(texto: string | undefined | null): boolean {
@@ -104,8 +99,7 @@ export function marcarFalhaLogin(id: string, mensagem: string | null): void {
   const c = lista.find((x) => x.id === id);
   if (!c) return;
   if (!mensagem && !c.falhaLogin) return;
-  const texto = mensagem && GEMINI_CONTA_ENCERRADA.test(mensagem) ? EXPLICACAO_GEMINI_ENCERRADA : mensagem;
-  c.falhaLogin = texto ? { mensagem: texto.slice(0, 300), em: new Date().toISOString() } : null;
+  c.falhaLogin = mensagem ? { mensagem: mensagem.slice(0, 300), em: new Date().toISOString() } : null;
   gravarConexoes(lista);
 }
 

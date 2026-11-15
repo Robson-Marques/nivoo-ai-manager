@@ -136,7 +136,8 @@ privado e `NoNewPrivileges`. `Restart=always` + lease garantem retomada após qu
 
 * "Fine-tune do projeto" é contexto, não treino: a IA recebe regras e materiais em toda sessão e a
   conferência cobra o resultado, mas um modelo de IA ainda pode errar; a trava reduz, não elimina.
-* Gemini e Codex não foram testados com conta real neste desenvolvimento (só com stub).
+* ChatGPT e Gemini (API) não foram testados com conta real neste desenvolvimento (só com stub). O Gemini
+  pela conta Google foi removido: o Google encerrou o Gemini CLI com conta pessoal.
 * O Codex e o Gemini recebem o perfil do projeto só no prompt (o Claude também como instrução de sistema).
 * Geração de imagem/vídeo de verdade exige um conector próprio; hoje a IA entrega texto, briefing,
   prompts e peças em SVG/HTML.

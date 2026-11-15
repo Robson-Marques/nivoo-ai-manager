@@ -22,7 +22,7 @@ Menu **Contas de IA** → "Conectar" na IA desejada:
 |---|---|---|
 | Claude | `claude setup-token` — mostra link; você cola o código | token oficial guardado como `CLAUDE_CODE_OAUTH_TOKEN` em `segredos.json` (permissão 600) |
 | ChatGPT | `codex login --device-auth` — mostra link e código do usuário | login guardado pelo próprio Codex em `~/.codex` |
-| Gemini | `gemini` com `NO_BROWSER` e login de conta Google — mostra link; você cola o código | o CLI grava `~/.gemini/oauth_creds.json` |
+| Gemini | sem login pela tela: só chave de API (o Google encerrou o login com conta pessoal) | chave em `segredos.json` |
 
 Os CLIs exigem terminal; uma ponte Python com pseudo-terminal (pty) faz a ponte com a tela
 (`apps/backend/src/accounts/login-sessions.service.ts`). O login expira em 15 minutos.
@@ -56,7 +56,7 @@ codex login status                                   # exit 0 ("Logged in")
 
 ```bash
 curl -s localhost:3000/api/accounts | jq '.[] | {id, conectado, problema}'
-curl -s -X POST localhost:3000/api/providers/gemini-cli/check | jq '{available,authenticated,version,errors}'
+curl -s -X POST localhost:3000/api/providers/gemini-api/check | jq '{available,authenticated,version,errors}'
 ```
 
 ## 5. Rodar as provas reais

@@ -73,8 +73,9 @@ apps/backend/
     planner.service.ts            responde no chat (PLAN_MESSAGE) com a IA do projeto; recusa fora do escopo
 
   src/queue/queue.service.ts      fila em PostgreSQL (SKIP LOCKED + lease)
-  src/providers/                  interface comum + claude-code-cli, codex-cli, gemini-cli
-                                  (gemini-cli.provider.ts), local-shell; registry com status
+  src/providers/                  interface comum + claude-code-cli/claude-api, codex-cli/codex-api,
+                                  gemini-api (só chave), gemini-video (Veo), arquivos-projeto, local-shell;
+                                  registry com status
   src/storage/
     workspace.service.ts          git por projeto, worktree por job, pastas de conhecimento,
                                   cópias em contexto/, diffAgainstMain, limpeza de harness

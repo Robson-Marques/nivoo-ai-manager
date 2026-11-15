@@ -130,7 +130,9 @@ Interface comum `AiProvider` (`providers/provider.interface.ts`): `checkAvailabi
 |---|---|---|
 | `claude-code-cli` | `claude -p --output-format stream-json --verbose --restricted --strict-mcp-config --permission-mode acceptEdits` + `--append-system-prompt <perfil>` | sem Bash/WebFetch/WebSearch, sem regras genéricas, sem configurações de usuário/projeto |
 | `codex-cli` | `codex exec --json --sandbox workspace-write --skip-git-repo-check -c project_doc_max_bytes=0` | sandbox do Codex; ignora `AGENTS.md` |
-| `gemini-cli` | `gemini -p --output-format stream-json --approval-mode auto_edit` | configuração no `~/.gemini/settings.json` do usuário do serviço (o CLI só aceita configuração "de sistema" em pasta do root): sem shell, sem web; `.gemini/` e `GEMINI.md` do workspace removidos antes de cada sessão |
+| `gemini-api` | `gemini -p --output-format stream-json --approval-mode auto_edit` com `GEMINI_API_KEY` | só por chave de API (o Google encerrou o Gemini CLI com conta pessoal; removido); HOME próprio com `~/.gemini/settings.json`: sem shell, sem web; `.gemini/` e `GEMINI.md` do workspace removidos antes de cada sessão |
+| `gemini-video` | API do Gemini (Veo) | etapa do sistema, não é IA de texto |
+| `arquivos-projeto` | apagar/mover arquivos | etapa do sistema |
 | `local-shell` | executor determinístico | **não é IA**; usado em verificações e etapas de comando |
 
 Projetos só aceitam as três IAs que editam arquivos. Os conectores por API HTTP foram removidos
@@ -188,8 +190,7 @@ Python com pseudo-terminal e lê da saída o link e o código:
 * Claude: `claude setup-token` → o usuário cola o código → token `sk-ant-oat…` gravado como
   `CLAUDE_CODE_OAUTH_TOKEN` em `segredos.json`.
 * ChatGPT: `codex login --device-auth` → link + código do usuário; o Codex grava o próprio login.
-* Gemini: `gemini` com `NO_BROWSER` e `selectedType: oauth-personal` → o usuário cola o código → o CLI
-  grava `~/.gemini/oauth_creds.json`.
+* Gemini: só por chave de API (sem login pela tela).
 
 `segredos.json` fica em `NIVOO_SECRETS_FILE` ou ao lado da pasta de workspaces, permissão 600, gravado de
 forma atômica; variáveis de ambiente de mesmo nome prevalecem. A API e o worker leem o arquivo a cada

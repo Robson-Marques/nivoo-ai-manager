@@ -4,7 +4,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
-import { GeminiCliProvider } from '../providers/gemini-cli.provider';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ehAdicional, ehFalhaDeLogin, marcarFalhaLogin, tipoDe } from './connections';
 import { gravarSegredoDaConexao, isolatedHome } from './secrets';
@@ -14,7 +13,6 @@ import { gravarSegredoDaConexao, isolatedHome } from './secrets';
  *  - Claude: `claude setup-token` mostra um link; o usuário entra com a conta e cola o código na tela;
  *    o CLI devolve o token oficial, guardado como CLAUDE_CODE_OAUTH_TOKEN.
  *  - ChatGPT: `codex login --device-auth` mostra um link e um código para digitar no site da OpenAI.
- *  - Gemini: o próprio CLI mostra o link do Google; o usuário cola o código; o CLI grava a credencial.
  * Os CLIs exigem terminal: um pequeno ponte em Python abre um pseudo-terminal (pty) para eles.
  */
 
@@ -80,7 +78,6 @@ export class LoginSessionsService implements OnModuleDestroy {
   get(provider: string): LoginSession {
     const s = this.sessions.get(provider);
     if (!s) throw new NotFoundException('Nenhum login em andamento');
-    if (s.info.state !== 'conectado' && this.connected(provider)) this.finish(provider, 'conectado', 'Conectado.');
     return s.info;
   }
 
@@ -110,13 +107,12 @@ export class LoginSessionsService implements OnModuleDestroy {
       if (!['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(entry.info.state)) return;
       if (entry.conferindo) return; // o token já foi lido e está sendo conferido
       if (tipoDe(provider) === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
-      if (this.connected(provider)) return this.finish(provider, 'conectado', 'Conectado.');
       this.finish(provider, 'erro', `O login não foi concluído. ${entry.output.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
     });
     return info;
   }
 
-  /** Código colado pelo usuário (Claude e Gemini). */
+  /** Código colado pelo usuário (Claude). */
   submitCode(provider: string, code: unknown): LoginSession {
     const s = this.sessions.get(provider);
     if (!s || s.info.state !== 'aguardando_codigo') throw new ConflictException('Este login não está esperando um código');
@@ -149,11 +145,6 @@ export class LoginSessionsService implements OnModuleDestroy {
     const propria = ehAdicional(provider) ? isolatedHome(provider) : null;
     if (tipo === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: propria ? { CLAUDE_CONFIG_DIR: propria } : {} };
     if (tipo === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: propria ? { CODEX_HOME: propria } : {} };
-    if (tipo === 'gemini-cli') {
-      // Login com conta Google (sem perguntar o método); o CLI grava a credencial no HOME da conexão.
-      GeminiCliProvider.ensureUserSettings('oauth-personal', propria ?? undefined);
-      return { args: [process.env.NIVOO_GEMINI_BIN ?? 'gemini'], cwd: scratch, env: propria ? { HOME: propria } : {} };
-    }
     throw new BadRequestException('Esta IA não tem login pela tela');
   }
 
@@ -194,15 +185,6 @@ export class LoginSessionsService implements OnModuleDestroy {
             'Se o site disser para ativar o "login com código de dispositivo": em chatgpt.com abra Configurações → Segurança, ative essa opção e clique em Conectar de novo aqui.',
         };
       }
-    } else if (tipo === 'gemini-cli') {
-      if (this.connected(provider)) return this.finish(provider, 'conectado', 'Gemini conectado.');
-      if (s.marca !== undefined && /invalid_grant|Failed to (?:authenticate|login)|Authentication failed/i.test(clean(s.raw.slice(s.marca)))) {
-        return this.finish(provider, 'erro', 'O código não foi aceito pelo Google. Clique em Conectar de novo, abra o link novo e cole o código que aparecer.');
-      }
-      const url = /(https:\/\/accounts\.google\.com\/o\/oauth2\/\S+)/.exec(out);
-      if (url && !s.info.url) {
-        s.info = { ...s.info, state: 'aguardando_codigo', url: url[1], message: 'Abra o link, entre com a sua conta Google e cole aqui o código que aparecer.' };
-      }
     }
   }
 
@@ -227,11 +209,6 @@ export class LoginSessionsService implements OnModuleDestroy {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  }
-
-  private connected(provider: string): boolean {
-    if (tipoDe(provider) !== 'gemini-cli') return false;
-    return fs.existsSync(path.join(ehAdicional(provider) ? isolatedHome(provider) : (process.env.HOME ?? os.homedir()), '.gemini', 'oauth_creds.json'));
   }
 
   private finish(provider: string, state: LoginState, message: string): void {

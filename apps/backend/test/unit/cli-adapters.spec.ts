@@ -103,12 +103,12 @@ describe('Adaptador Codex CLI (stub TEST-ONLY)', () => {
 
 describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
   // Formato capturado do Gemini CLI 0.68 (eventos init/message/result); o texto do agente vem em pedaços.
-  const { GeminiCliProvider } = require('../../src/providers/gemini-cli.provider');
+  const { GeminiApiProvider } = require('../../src/providers/gemini-api.provider');
   const linhas = (evs: unknown[]) => evs.map((e) => JSON.stringify(e)).join('\n');
 
   it('junta a resposta do agente, sessão e tokens em caso de sucesso', () => {
     const logs: string[] = [];
-    const r = GeminiCliProvider.parse(
+    const r = GeminiApiProvider.parse(
       linhas([
         { type: 'init', session_id: 's-1', model: 'auto' },
         { type: 'message', role: 'user', content: 'oi' },
@@ -124,7 +124,7 @@ describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
   });
 
   it('chave inválida ou limite vira "recurso indisponível" (reagendar), não falha do trabalho', () => {
-    const r = GeminiCliProvider.parse(
+    const r = GeminiApiProvider.parse(
       linhas([{ type: 'init', session_id: 's-2' }, { type: 'result', status: 'error', error: { type: 'unknown', message: 'API key not valid. Please pass a valid API key.' } }]),
       '',
       1,
@@ -133,39 +133,5 @@ describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
     expect(r.exitCode).not.toBe(0);
     expect(r.resourceUnavailable).toBe(true);
     expect(r.error).toMatch(/API key not valid/);
-  });
-
-  it('Google encerrou o Gemini CLI com conta pessoal (saída real): recurso indisponível com o motivo, e a conexão fica marcada', () => {
-    const stderr = [
-      "      reason: 'Gemini Code Assist for individuals'",
-      '    }',
-      '  ]',
-      '}',
-      'An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google',
-      '    at throwIneligibleOrProjectIdError (file:///usr/local/lib/node_modules/@google/gemini-cli/bundle/chunk-RCB6BI5H.js:312981:11)',
-      '    at _doSetupUser (file:///usr/local/lib/node_modules/@google/gemini-cli/bundle/chunk-RCB6BI5H.js:312970:5)',
-    ].join('\n');
-    const r = GeminiCliProvider.parse('', stderr, 1, () => undefined);
-    expect(r.resourceUnavailable).toBe(true);
-    expect(r.error).toMatch(/^IneligibleTierError: This client is no longer supported/);
-    const { ehFalhaDeLogin, GEMINI_CONTA_ENCERRADA } = require('../../src/accounts/connections');
-    expect(ehFalhaDeLogin(r.error)).toBe(true);
-    expect(GEMINI_CONTA_ENCERRADA.test(r.error)).toBe(true);
-  });
-
-  it('a conexão do Gemini (conta) fica marcada com a explicação certa, não "reconecte"', () => {
-    const fs = require('node:fs');
-    const os = require('node:os');
-    const path = require('node:path');
-    const arq = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'conexoes-')), 'conexoes.json');
-    process.env.NIVOO_CONEXOES_FILE = arq;
-    try {
-      const c = require('../../src/accounts/connections');
-      c.gravarConexoes([{ id: 'gemini-cli', tipo: 'gemini-cli', nome: 'Gemini', padrao: true, criadaEm: '2026-11-15' }]);
-      c.marcarFalhaLogin('gemini-cli', 'IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals.');
-      expect(c.acharConexao('gemini-cli').falhaLogin.mensagem).toBe(c.EXPLICACAO_GEMINI_ENCERRADA);
-    } finally {
-      delete process.env.NIVOO_CONEXOES_FILE;
-    }
   });
 });

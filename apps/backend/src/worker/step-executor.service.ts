@@ -42,7 +42,7 @@ export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQU
 
 /** Erros que não são do trabalho da IA: não geram lição. */
 export function ehProblemaDeInfra(texto: string): boolean {
-  return /command not found|comando não encontrado|exit 127|IneligibleTierError|no longer supported|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
+  return /command not found|comando não encontrado|exit 127|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
 }
 
 const MOTIVO_LICAO: Record<string, string> = {

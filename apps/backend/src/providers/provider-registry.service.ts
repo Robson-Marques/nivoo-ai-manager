@@ -4,7 +4,7 @@ import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.provider';
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
-import { GeminiApiProvider, GeminiCliProvider } from './gemini-cli.provider';
+import { GeminiApiProvider } from './gemini-api.provider';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { ArquivosProjetoProvider } from './arquivos-projeto.provider';
 import { LocalShellProvider } from './local-shell.provider';
@@ -19,7 +19,6 @@ export class ProviderRegistry {
     private readonly prisma: PrismaService,
     claude: ClaudeCodeCliProvider,
     codex: CodexCliProvider,
-    gemini: GeminiCliProvider,
     claudeApi: ClaudeApiProvider,
     codexApi: CodexApiProvider,
     geminiApi: GeminiApiProvider,
@@ -27,7 +26,7 @@ export class ProviderRegistry {
     arquivos: ArquivosProjetoProvider,
     shell: LocalShellProvider,
   ) {
-    for (const p of [claude, claudeApi, codex, codexApi, gemini, geminiApi, video, arquivos, shell]) this.providers.set(p.id, p);
+    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, video, arquivos, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */
@@ -89,8 +88,7 @@ export class ProviderRegistry {
     }
     const falha = acharConexao(id)?.falhaLogin;
     if (falha && status.available) {
-      const encerrada = falha.mensagem.startsWith('o Google encerrou');
-      status = { ...status, available: false, authenticated: false, errors: [...status.errors, encerrada ? falha.mensagem : `a IA recusou o login (${falha.mensagem}). Reconecte em Conexões`] };
+      status = { ...status, available: false, authenticated: false, errors: [...status.errors, `a IA recusou o login (${falha.mensagem}). Reconecte em Conexões`] };
     }
     if (cfg && !cfg.enabled) {
       status = { ...status, available: false, errors: [...status.errors, 'desabilitado nas configurações'] };
