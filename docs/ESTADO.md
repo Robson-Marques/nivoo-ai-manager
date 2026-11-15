@@ -3,6 +3,21 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Diagnóstico para o suporte e registro de erros (2026-11-15)
+
+Para corrigir sem tentativa e erro:
+* **Trabalho parado** → botão **Copiar diagnóstico completo** (e "baixar .md"): motivo, objetivo, limites, cada
+  etapa (IA/executor, conferência), as tentativas recentes (erro, término, turnos, fim da resposta, se mudou
+  arquivo, notas), critérios com evidência, aprovações e comandos SSH, status/versão das IAs usadas, ferramentas
+  MCP, as últimas 150 linhas do log e os erros do sistema ligados ao trabalho. `GET /projects/:pid/jobs/:jid/diagnostico`.
+* **Página Diagnóstico** (menu lateral) e **`nivoo diagnostico`** (salva em /root, inclui o journal dos serviços):
+  versão (commit), worker no ar, fila (inclusive tarefas mortas), conexões de IA, trabalhos parados recentes e os
+  últimos erros do sistema. `GET /system/diagnostico`.
+* **Registro de erros do sistema** (`erros.log` ao lado dos dados, 600, gira em 2 MB): todo 500 da API (filtro global)
+  e toda falha do worker/conector, com detalhe.
+* Tudo passa por `redigir()`: chaves privadas, tokens (Anthropic, OpenAI, Google, GitHub, GitLab), "Bearer …",
+  senha em URL de banco e `senha=/token=/api_key=` saem ocultos. Teste `29-diagnostico` e tela (`chat-smoke`).
+
 ## ChatGPT: histórico antigo e teste no servidor (2026-11-15)
 
 O aviso de ferramentas do Codex agora diz que notas/lições anteriores do tipo "não tenho leitor" / "terminal é

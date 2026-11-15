@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import './styles.css';
 import { Layout } from './Layout';
 import { Contas } from './pages/Contas';
+import { Diagnostico } from './pages/Diagnostico';
 import { Inicio } from './pages/Inicio';
 import { Modelos } from './pages/Modelos';
 import { Projeto } from './pages/Projeto';
@@ -20,6 +21,7 @@ function App() {
           <Route path="/p/:pid/c/:cid" element={<Projeto />} />
           <Route path="/modelos" element={<Modelos />} />
           <Route path="/contas" element={<Contas />} />
+          <Route path="/diagnostico" element={<Diagnostico />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

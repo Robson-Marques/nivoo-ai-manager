@@ -99,6 +99,24 @@ case "$cmd" in
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
     echo "ok: restaurado"
     ;;
+  diagnostico)
+    # Relatório para o suporte: estado do sistema (versão, worker, fila, IAs, trabalhos parados, erros registrados)
+    # + avisos e erros recentes dos serviços. Sem segredos. Salvo em /root para anexar.
+    arq="/root/nivoo-diagnostico-$(date +%Y%m%d-%H%M%S).md"
+    {
+      curl -fsS --max-time 60 ${TOKEN:+-H "Authorization: Bearer $TOKEN"} "$API/system/diagnostico" || echo "# A API não respondeu ao diagnóstico (nivoo status / nivoo logs api)"
+      echo; echo "## Serviços"; echo '```'
+      systemctl --no-pager --lines=0 status nivoo-api nivoo-worker 2>&1 | grep -E '●|Active:' || true
+      echo '```'; echo; echo "## Avisos e erros recentes dos serviços (journal)"; echo '```'
+      journalctl -u nivoo-api -u nivoo-worker -p warning -n 120 --no-pager 2>/dev/null \
+        | sed -E 's/(sk-ant-[A-Za-z0-9_-]{6})[A-Za-z0-9_-]+/\1…[oculto]/g; s/(Bearer )[A-Za-z0-9._~+\/=-]+/\1[oculto]/g; s/(postgres(ql)?:\/\/[^:]+:)[^@]+@/\1[oculto]@/g' || true
+      echo '```'
+    } > "$arq"
+    chmod 600 "$arq"
+    cat "$arq"
+    echo
+    echo "== salvo em $arq (mande este arquivo ou o texto acima para o suporte)"
+    ;;
   testar-chatgpt)
     # Teste real do ChatGPT (Codex) como o worker usa: lê um arquivo pelo terminal dentro do isolamento dele.
     # Mostra se o login, o isolamento (sandbox) e a leitura funcionam neste servidor. Custa uma resposta curta.
@@ -283,6 +301,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo check               conferir API, workers e conectores de IA
   nivoo verificar           roda um job de teste de ponta a ponta (sem IA)
   nivoo testar-chatgpt      confere se o ChatGPT (Codex) consegue ler arquivos neste servidor
+  nivoo diagnostico         relatório para o suporte (sistema, fila, IAs, trabalhos parados e erros, sem segredos)
   nivoo login-claude        login oficial do Claude Code para o worker
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)

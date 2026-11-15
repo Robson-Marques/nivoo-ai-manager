@@ -140,6 +140,7 @@ export function Layout() {
           <div className="side-foot">
             <NavLink to="/modelos">Modelos</NavLink>
             <NavLink to="/contas">Conexões</NavLink>
+            <NavLink to="/diagnostico">Diagnóstico</NavLink>
           </div>
         </aside>
         <main className="chat-main">

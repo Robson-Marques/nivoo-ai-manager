@@ -1,3 +1,4 @@
+import { DiagnosticoService } from './diagnostico/diagnostico.service';
 import { Module } from '@nestjs/common';
 import { AreasService } from './areas/areas.service';
 import { ConversationsService } from './conversations/conversations.service';
@@ -15,7 +16,7 @@ import { ProvidersModule } from './providers/providers.module';
 import { QueueModule } from './queue/queue.module';
 import { StorageModule } from './storage/storage.module';
 
-const services = [ConversationsService, AreasService, ApprovalsService, CompletionService, JobsService, LogService, OrchestratorService, MemoryService, ProjectProfileService, ProjectsService, GitService];
+const services = [ConversationsService, AreasService, ApprovalsService, CompletionService, JobsService, LogService, OrchestratorService, MemoryService, ProjectProfileService, ProjectsService, GitService, DiagnosticoService];
 
 /** Serviços compartilhados entre API e worker. */
 @Module({

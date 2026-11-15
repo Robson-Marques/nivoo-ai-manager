@@ -197,3 +197,10 @@ reservada; dependências precisam existir e não formar ciclo; ações destrutiv
 | POST | `/ssh/servidores/:id/nova-chave` | Gera outra chave (troque no servidor). |
 | GET | `/projects/:pid/ssh/pedidos?status=PENDENTE` | Pedidos de comando da IA. |
 | POST | `/projects/:pid/ssh/pedidos/:id/decidir` | `{ permitir: true|false, por }`: permitir roda o comando (em segundo plano). |
+
+## Diagnóstico
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/projects/:pid/jobs/:jid/diagnostico` | Relatório do trabalho em Markdown (sem segredos). |
+| GET | `/system/diagnostico` | Relatório do sistema em Markdown (versão, worker, fila, IAs, parados, últimos erros). |

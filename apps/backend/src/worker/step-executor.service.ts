@@ -1,3 +1,4 @@
+import { registrarErro } from '../diagnostico/erros';
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
 import { mcpDoProjeto } from '../mcp/mcp';
@@ -291,6 +292,7 @@ export class StepExecutorService {
       });
     } catch (e: any) {
       result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
+      registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);
     }
     await logChain;
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".

@@ -6,6 +6,7 @@ import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
 import { Icone } from './Contas';
 import { PedidosSsh } from './Ssh';
+import { BotaoDiagnostico } from './Diagnostico';
 import { SeletorModelo } from '../Pecas';
 
 /**
@@ -679,6 +680,10 @@ function DetalhesDaParada({ job }: { job: any }) {
           </button>
         </>
       )}
+      <div className="row small" style={{ marginTop: 4 }}>
+        <BotaoDiagnostico url={`/projects/${job.projectId}/jobs/${job.id}/diagnostico`} nomeArquivo={`diagnostico-trabalho-${String(job.id).slice(0, 8)}.md`} />
+        <span className="muted">para o suporte: todas as tentativas, conferências, log e IAs, sem senhas</span>
+      </div>
     </div>
   );
 }

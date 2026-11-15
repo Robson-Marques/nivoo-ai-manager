@@ -119,6 +119,15 @@ const plano = {
     await renomeada.getByRole('button', { name: 'Usar como padrão nos projetos novos' }).click();
     await renomeada.locator('.selo-padrao').waitFor();
     await shot(page, '1-conexoes');
+    // Diagnóstico do sistema pela tela (para mandar ao suporte).
+    await page.getByRole('link', { name: 'Diagnóstico' }).click();
+    await page.getByRole('button', { name: 'Gerar diagnóstico do sistema' }).click();
+    await page.locator('pre.diagnostico', { hasText: 'Diagnóstico do sistema Nivoo' }).waitFor({ timeout: 30000 });
+    await page.locator('pre.diagnostico', { hasText: '## Worker' }).waitFor();
+    await shot(page, '1a-diagnostico');
+    await page.goto(`${base}/contas`);
+    await page.getByRole('heading', { name: 'Conexões', exact: true }).waitFor();
+    passo('diagnóstico do sistema gerado pela tela');
     // Ferramenta MCP pela tela: cria (com token secreto), testa (liga e lista as ferramentas) e exclui.
     const mcpStub = path.join(__dirname, '..', '..', 'backend', 'test', 'support', 'stubs', 'mcp-stub.cjs');
     const mcpSaida = path.join(os.tmpdir(), `mcp-smoke-${stamp}.json`);

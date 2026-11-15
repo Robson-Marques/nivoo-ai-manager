@@ -1,3 +1,4 @@
+import { DiagnosticoController } from './diagnostico/diagnostico.controller';
 import { SshController } from './ssh/ssh.controller';
 import { McpController } from './mcp/mcp.controller';
 import { Module, OnModuleInit } from '@nestjs/common';
@@ -18,7 +19,7 @@ import { SystemController } from './system/system.controller';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController],
+  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController],
   providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService],
 })
 export class AppModule implements OnModuleInit {

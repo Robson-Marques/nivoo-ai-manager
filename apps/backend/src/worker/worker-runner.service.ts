@@ -1,3 +1,4 @@
+import { registrarErro } from '../diagnostico/erros';
 import { Injectable, Logger } from '@nestjs/common';
 import * as os from 'node:os';
 import { appConfig } from '../config';
@@ -79,6 +80,7 @@ export class WorkerRunnerService {
         await this.process(task, leaseMs);
       } catch (e: any) {
         this.logger.error(`Erro no loop: ${e?.stack ?? e}`);
+        registrarErro('worker', `erro no loop do worker: ${e?.message ?? e}`, e);
         await sleep(pollMs * 2);
       }
     }
@@ -119,6 +121,7 @@ export class WorkerRunnerService {
       }
     } catch (e: any) {
       this.logger.error(`Falha processando tarefa ${task.id}: ${e?.stack ?? e}`);
+      registrarErro('worker', `falha na tarefa ${task.type} ${task.id}${task.jobId ? ` (trabalho ${task.jobId})` : ''}: ${e?.message ?? e}`, e);
       if (task.jobId) {
         await this.logs.log(task.jobId, `Erro interno do worker: ${e?.message ?? e}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
       }
