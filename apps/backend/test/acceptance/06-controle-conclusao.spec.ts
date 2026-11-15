@@ -106,7 +106,7 @@ describe('Controle de conclusão', () => {
     expect(j.attempts).toHaveLength(3);
     expect(new Set(j.attempts.map((a: any) => a.outputHash)).size).toBe(1);
     // Lição registrada na memória do projeto, com referência às tentativas.
-    const licoes = (await h.http().get(`/api/projects/${pid}/memory?category=PENDENCIA`)).body.filter((m: any) => m.references?.origem === 'licao-automatica' && m.references.jobId === j.id);
+    const licoes = (await h.http().get(`/api/projects/${pid}/memory?category=PENDENCIA&camada=INTERNA`)).body.filter((m: any) => m.references?.origem === 'licao-automatica' && m.references.jobId === j.id);
     expect(licoes).toHaveLength(1);
     expect(licoes[0].references.motivo).toBe('REPETICAO_IMPRODUTIVA');
     expect(licoes[0].references.attemptIds).toHaveLength(3);

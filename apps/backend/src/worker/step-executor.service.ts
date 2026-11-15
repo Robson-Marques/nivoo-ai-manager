@@ -27,6 +27,7 @@ import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } fro
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
+import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 
@@ -559,6 +560,7 @@ export class StepExecutorService {
       .join(' | ');
     await this.prisma.memoryEntry.create({
       data: {
+        camada: 'INTERNA',
         projectId: job.projectId,
         category: 'PENDENCIA',
         title: `Lição: "${step.title || step.key}" (${job.title}) — ${MOTIVO_LICAO[reason] ?? reason}`,
@@ -597,7 +599,7 @@ export class StepExecutorService {
       } catch {
         await this.logs.log(job.id, `Nota inválida ignorada (não é JSON): ${line.slice(0, 200)}`, { stepId: step.id, level: 'WARN', source: 'worker' });
         await this.prisma.memoryEntry.create({
-          data: { projectId: job.projectId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
+          data: { camada: 'INTERNA', projectId: job.projectId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
         });
         continue;
       }
@@ -617,10 +619,11 @@ export class StepExecutorService {
       }
       const prefix = tipo === 'DECISAO_PROPOSTA' ? '[decisão proposta pelo agente — requer aprovação] ' : tipo === 'PROGRESSO' ? '[progresso] ' : tipo === 'EVIDENCIA' && category !== 'EVIDENCIA' ? '[evidência sem artefato verificável] ' : '';
       await this.prisma.memoryEntry.create({
-        data: { projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
+        data: { camada: 'INTERNA', projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
       });
     }
-    if (count) await this.logs.log(job.id, `${count} nota(s) do agente importada(s) para a memória do projeto`, { stepId: step.id, source: 'worker' });
+    if (count) await escreverArquivosDaMemoria(this.prisma, job.projectId);
+    if (count) await this.logs.log(job.id, `${count} nota(s) do agente guardada(s) na memória interna do processo`, { stepId: step.id, source: 'worker' });
     void outputs;
     return count;
   }
@@ -740,7 +743,17 @@ export class StepExecutorService {
       this.prisma.step.findMany({ where: { jobId: job.id }, orderBy: { order: 'asc' } }),
       this.prisma.checkpoint.findFirst({ where: { jobId: job.id }, orderBy: { seq: 'desc' } }),
       this.prisma.memoryEntry.findMany({
-        where: { projectId: job.projectId, supersededById: null },
+        // Memória do projeto inteira + da interna só o que serve a esta sessão: lições de falhas do projeto e as
+        // notas DESTE trabalho (notas de outros trabalhos são processo encerrado, não contexto).
+        where: {
+          projectId: job.projectId,
+          supersededById: null,
+          OR: [
+            { camada: 'PROJETO' },
+            { camada: 'INTERNA', references: { path: ['origem'], equals: 'licao-automatica' } },
+            { camada: 'INTERNA', references: { path: ['jobId'], equals: job.id } },
+          ],
+        },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 5 }),

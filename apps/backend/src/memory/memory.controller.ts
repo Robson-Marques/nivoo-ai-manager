@@ -6,8 +6,8 @@ export class MemoryController {
   constructor(private readonly memory: MemoryService) {}
 
   @Get()
-  list(@Param('pid', ParseUUIDPipe) pid: string, @Query('category') category?: string, @Query('all') all?: string) {
-    return this.memory.list(pid, category, all === '1');
+  list(@Param('pid', ParseUUIDPipe) pid: string, @Query('category') category?: string, @Query('all') all?: string, @Query('camada') camada?: string) {
+    return this.memory.list(pid, category, all === '1', camada ?? 'PROJETO');
   }
 
   @Post()

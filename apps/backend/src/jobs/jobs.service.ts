@@ -28,6 +28,8 @@ export interface StepInput {
   providerOptions: Prisma.InputJsonValue;
 }
 
+import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
+
 @Injectable()
 export class JobsService {
   constructor(
@@ -482,14 +484,14 @@ export class JobsService {
       });
       await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
       await tx.job.update({ where: { id: jobId }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `aplicando a resposta de ${por}`, finishedAt: null } });
-      await tx.memoryEntry.create({
-        data: {
-          projectId, category: 'ESPECIFICACAO', author: por, references: { jobId },
-          title: `Resposta do usuário: ${resposta.replace(/\s+/g, ' ').slice(0, 120)}`,
-          content: [...lista('Perguntas:', r.perguntas.map((q) => q.pergunta)), 'Resposta:', resposta].join('\n').slice(0, 50000),
-        },
+      // A resposta do usuário é decisão dele: memória do projeto, um item por pergunta (responder de novo atualiza).
+      await gravarNoProjeto(tx, {
+        projectId, category: 'DECISAO_APROVADA', author: por, references: { jobId, origem: 'resposta-a-revisao' },
+        title: `Resposta: ${(r.perguntas[0]?.pergunta ?? job.title).replace(/\s+/g, ' ').replace(/^#+\s*/, '').slice(0, 120)}`,
+        content: [...lista('Perguntas:', r.perguntas.map((q) => q.pergunta)), 'Resposta:', resposta].join('\n').slice(0, 50000),
       });
     });
+    await escreverArquivosDaMemoria(this.prisma, projectId);
     await this.logs.log(jobId, `Resposta de ${por} às perguntas da revisão: a IA aplica e a revisão confere de novo`, { level: 'INFO' });
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);

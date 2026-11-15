@@ -427,6 +427,13 @@ model MemoryEntry {
   supersededById String?
   author         String
   createdAt      DateTime       @default(now())
+  /// PROJETO: memória que o usuário vê (decisões, preferências, fatos, pendências), uma por assunto.
+  /// INTERNA: memória do processo (notas das sessões, lições de falhas, registro de trabalhos), usada pela IA.
+  camada         String         @default("PROJETO")
+  /// Assunto (título normalizado): o mesmo assunto ATUALIZA o item (a versão anterior vai para o histórico).
+  chave          String?
+
+  @@index([projectId, camada, supersededById])
 }
 
 model QueueTask {

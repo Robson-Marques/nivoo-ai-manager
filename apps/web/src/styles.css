@@ -330,3 +330,5 @@ textarea { resize: vertical; line-height: 1.5; }
 .pedido-ssh pre { margin: 0; white-space: pre-wrap; word-break: break-word; background: var(--panel); }
 
 .diagnostico { max-height: 65vh; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.mem-interna { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.mem-item.interna .mem-corpo { display: flex; flex-direction: column; gap: 2px; cursor: default; }

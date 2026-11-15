@@ -14,6 +14,7 @@ import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 import { lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
+import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { tipoDe } from '../accounts/connections';
 
 export interface CriterionResult {
@@ -261,6 +262,7 @@ export class CompletionService {
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
     // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
     if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
+    if (updated) await escreverArquivosDaMemoria(this.prisma, job.projectId);
     if (updated && status === 'CONCLUIDO') {
       // Resultados (relatórios, inventários, planos de out/) também na pasta DEFINITIVA do projeto.
       const pasta = await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(async (e) => {
@@ -312,9 +314,8 @@ export class CompletionService {
     } catch (e: any) {
       const motivo = String(e?.response?.message ?? e?.message ?? e);
       await this.logs.log(job.id, `Envio automático ao Git falhou: ${motivo}`, { source: 'git', level: 'WARN' });
-      await this.prisma.memoryEntry.create({
-        data: { projectId: job.projectId, category: 'PENDENCIA', title: 'Envio ao Git pendente', content: `O trabalho "${job.title}" foi concluído, mas o envio automático ao Git falhou: ${motivo}. Use "Enviar para o Git".`, references: { jobId: job.id, origem: 'git' }, author: 'sistema:git' },
-      });
+      await gravarNoProjeto(this.prisma, { projectId: job.projectId, category: 'PENDENCIA', title: 'Envio ao Git pendente', content: `O trabalho "${job.title}" foi concluído, mas o envio automático ao Git falhou: ${motivo}. Use "Enviar para o Git".`, references: { jobId: job.id, origem: 'git' }, author: 'sistema:git' });
+      await escreverArquivosDaMemoria(this.prisma, job.projectId);
       await avisar(`O trabalho foi concluído, mas o envio ao Git falhou: ${motivo}. Veja a aba Git.`);
     }
   }
@@ -330,16 +331,15 @@ export class CompletionService {
       });
     });
     if (r.count) {
-      await this.prisma.memoryEntry.create({
-        data: {
-          projectId: job.projectId,
-          category: 'PENDENCIA',
-          title: `Resultado do job "${job.title}" não incorporado (conflito)`,
-          content: `${detail}. O trabalho continua na branch job/${job.id}. Resolva os arquivos em conflito e retome o job.`,
-          references: { jobId: job.id, origem: 'conflito-incorporacao', arquivos: files },
-          author: 'sistema:verificador',
-        },
+      await gravarNoProjeto(this.prisma, {
+        projectId: job.projectId,
+        category: 'PENDENCIA',
+        title: `Resultado do trabalho "${job.title}" não incorporado (conflito)`,
+        content: `${detail}. O trabalho continua na branch job/${job.id}. Resolva os arquivos em conflito e retome o trabalho.`,
+        references: { jobId: job.id, origem: 'conflito-incorporacao', arquivos: files },
+        author: 'sistema:verificador',
       });
+      await escreverArquivosDaMemoria(this.prisma, job.projectId);
     }
     await this.logs.log(job.id, `Job BLOQUEADO (CONFLITO_INCORPORACAO): ${detail}`, { source: 'evaluator', level: 'ERROR' });
     report.finalStatus = 'BLOQUEADO';
@@ -443,6 +443,7 @@ export class CompletionService {
     return {
       memory: {
         data: {
+          camada: 'INTERNA',
           projectId: job.projectId,
           category: 'EVIDENCIA',
           title: `Resultado do trabalho "${job.title}"`,

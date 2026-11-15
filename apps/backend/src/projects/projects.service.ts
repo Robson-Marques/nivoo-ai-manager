@@ -25,6 +25,8 @@ import { checkBranch, GitService, normalizeRepoUrl } from '../git/git.service';
  * Projeto = pasta de trabalho + "fine-tune do projeto": base escolhida, regras próprias (versionadas),
  * conhecimento enviado pelo usuário, memória automática da conversa e a IA que trabalha nele.
  */
+import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -60,7 +62,8 @@ export class ProjectsService {
     const author = optString(body, 'author', 100) ?? 'usuario';
     const project = await this.prisma.project.create({ data: { name, slug, description, areaId: area.id, dirKey, workspacePath: dirs.root, provider, gitUrl: git?.url, gitBranch: git?.branch, gitAccountId: git?.accountId, gitAutoPush: !!git } });
     if (description) {
-      await this.prisma.memoryEntry.create({ data: { projectId: project.id, category: 'ESPECIFICACAO', title: 'Sobre o projeto', content: description, author } });
+      await gravarNoProjeto(this.prisma, { projectId: project.id, category: 'ESPECIFICACAO', title: 'Sobre o projeto', content: description, author });
+      await escreverArquivosDaMemoria(this.prisma, project.id);
     }
     const rules = optString(body, 'rules', 50000);
     if (rules) await this.newRules(project.id, { text: rules, reason: 'regras iniciais', author });

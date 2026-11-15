@@ -122,7 +122,7 @@ describe('Execução por conector, logs e artefatos', () => {
     expect(tracked).not.toMatch(/^\.nivoo\//m);
 
     // Evidência na memória do projeto, com artefatos e commit.
-    const mem = (await h.http().get(`/api/projects/${p.id}/memory?category=EVIDENCIA`).expect(200)).body;
+    const mem = (await h.http().get(`/api/projects/${p.id}/memory?category=EVIDENCIA&camada=INTERNA`).expect(200)).body;
     expect(mem).toHaveLength(1);
     expect(mem[0].references.artifactIds).toContain(metrics.id);
     expect(mem[0].references.gitCommit).toMatch(/^[0-9a-f]{40}$/);

@@ -21,6 +21,7 @@ import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
 import { sha256 } from '../common/hash';
+import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 
 const MAX_MEMORIA = 15_000;
 const MAX_ARQUIVOS = 300;
@@ -257,21 +258,15 @@ export class PlannerService {
       const titulo = String(it?.titulo ?? '').trim().slice(0, 200);
       const conteudo = String(it?.conteudo ?? it?.texto ?? '').trim().slice(0, 5000);
       if (!category || !titulo || !conteudo) continue;
-      const hash = sha256(`${category}|${titulo.toLowerCase()}|${conteudo.toLowerCase()}`);
-      const existe = await this.prisma.memoryEntry.findFirst({ where: { projectId, supersededById: null, references: { path: ['memoryHash'], equals: hash } } });
-      if (existe) continue;
-      await this.prisma.memoryEntry.create({
-        data: {
-          projectId,
-          category,
-          title: titulo,
-          content: conteudo,
-          references: { origem: 'conversa', conversationId, messageId, memoryHash: hash },
-          author: 'conversa',
-        },
+      // Uma entrada por assunto: o mesmo título com conteúdo novo ATUALIZA (a versão anterior vai para o histórico).
+      const gravado = await gravarNoProjeto(this.prisma, {
+        projectId, category, title: titulo, content: conteudo, author: 'conversa',
+        references: { origem: 'conversa', conversationId, messageId },
       });
+      if (!gravado) continue;
       guardados.push(titulo);
     }
+    if (guardados.length) await escreverArquivosDaMemoria(this.prisma, projectId);
     return guardados;
   }
 
@@ -295,7 +290,7 @@ export class PlannerService {
   private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
-      this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
+      this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null, camada: 'PROJETO' } }),
       this.prisma.conversationMessage.findMany({ where: { conversationId, id: { not: messageId } }, orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
     const arquivos = (await this.workspace.listMainFiles(project.dirKey)).filter((f) => !f.path.startsWith('.'));
@@ -415,10 +410,14 @@ export class PlannerService {
       '  o sistema copia o arquivo antes de o trabalho começar. Nunca tente recriar uma imagem escrevendo o arquivo.',
       '',
       '## Memória do projeto (obrigatório)',
-      'Em qualquer dos dois formatos, inclua "memoria": [...] com o que precisa ser lembrado para sempre neste projeto:',
-      'decisões e preferências que o usuário expressou, fatos importantes que ele informou e pendências combinadas.',
-      'Formato: {"tipo":"DECISAO|PREFERENCIA|FATO|PENDENCIA","titulo":"curto","conteudo":"frase completa"}.',
-      'Só registre o que o usuário disse ou confirmou; não invente. Não repita o que já está na memória. Lista vazia se não houver nada.',
+      'Em qualquer dos dois formatos, inclua "memoria": [...] SÓ com o que precisa ser lembrado para sempre neste projeto:',
+      'decisões CONCRETAS do usuário, preferências e regras que ele expressou, fatos do projeto que ele informou e pendências combinadas.',
+      'Formato: {"tipo":"DECISAO|PREFERENCIA|FATO|PENDENCIA","titulo":"assunto curto e estável","conteudo":"frase completa e autossuficiente"}.',
+      'O título é o ASSUNTO (ex.: "Banco de dados", "Tom das peças"): para mudar algo já guardado, use EXATAMENTE o mesmo título',
+      'da memória acima com o conteúdo novo — o sistema atualiza o item (não cria outro). Uma pendência resolvida: mesmo título,',
+      'conteúdo dizendo como foi resolvida.',
+      'NÃO guarde: andamento ou resumo de trabalho, o que a IA fez ou vai fazer, planos, suposições suas, dúvidas, o que já está',
+      'na memória com o mesmo sentido, nem detalhes que estão nos arquivos do projeto. Na dúvida, não guarde. Lista vazia é o normal.',
       '',
       ...(entrega
         ? [

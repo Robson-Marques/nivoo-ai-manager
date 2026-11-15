@@ -24,33 +24,57 @@ export const NOME_IA: Record<string, string> = {
 };
 
 /**
- * Grupos da memória, cada item em UM grupo só (a primeira regra que bater). Na tela, o que o usuário combinou
- * vem primeiro; as anotações de trabalho da IA ficam por último e recolhidas.
+ * Memória do projeto (o que o usuário combinou), em grupos. A memória interna do processo (notas das sessões da IA,
+ * lições de falhas, registro de trabalhos) não se mistura: fica num bloco recolhido no fim.
  */
-type GrupoMemoria = { chave: string; titulo: string; filtro: (m: any) => boolean; recolhido?: boolean };
+type GrupoMemoria = { chave: string; titulo: string; categorias: string[] };
 const MEMORIA_GRUPOS: GrupoMemoria[] = [
-  { chave: 'decisoes', titulo: 'Decisões', filtro: (m) => m.category === 'DECISAO_APROVADA' },
-  { chave: 'combinados', titulo: 'Combinados e próximos passos', filtro: (m) => m.category === 'PENDENCIA' },
-  { chave: 'preferencias', titulo: 'Preferências e regras', filtro: (m) => m.category === 'ARQUITETURA_RESTRICOES' },
-  { chave: 'sobre', titulo: 'Sobre o projeto', filtro: (m) => m.category === 'ESPECIFICACAO' },
-  { chave: 'concluidos', titulo: 'Trabalhos concluídos', filtro: (m) => m.category === 'EVIDENCIA' },
-  { chave: 'licoes', titulo: 'Lições', filtro: () => false },
-  { chave: 'anotacoes', titulo: 'Anotações de trabalho da IA', filtro: () => false, recolhido: true },
+  { chave: 'decisoes', titulo: 'Decisões', categorias: ['DECISAO_APROVADA'] },
+  { chave: 'preferencias', titulo: 'Preferências e regras', categorias: ['ARQUITETURA_RESTRICOES'] },
+  { chave: 'sobre', titulo: 'Sobre o projeto', categorias: ['ESPECIFICACAO'] },
+  { chave: 'pendencias', titulo: 'Pendências', categorias: ['PENDENCIA'] },
+  { chave: 'evidencias', titulo: 'Evidências', categorias: ['EVIDENCIA'] },
 ];
 
-/** Em qual grupo o item entra (origem vem antes da categoria: nota da IA nunca aparece como "resultado"). */
-function grupoDaMemoria(m: any): string {
-  if (m.references?.origem === 'notas-do-agente') return 'anotacoes';
-  if (m.references?.origem === 'licao-automatica') return 'licoes';
-  return MEMORIA_GRUPOS.find((g) => g.filtro(m))?.chave ?? 'sobre';
+function tipoInterno(m: any): string {
+  if (m.references?.origem === 'licao-automatica') return 'Lição de falha';
+  if (m.references?.origem === 'notas-do-agente') return 'Nota da IA';
+  if (m.category === 'EVIDENCIA') return 'Trabalho concluído';
+  return 'Processo';
 }
 
-/** Texto do item: resultado conferido pelo sistema mostra a data; o resto, o conteúdo. */
-function textoDaMemoria(m: any): string {
-  if (grupoDaMemoria(m) === 'concluidos' && m.references?.gitCommit) {
-    return `Concluído e conferido em ${new Date(m.createdAt).toLocaleDateString('pt-BR')}.`;
-  }
-  return m.content;
+/** Memória interna do processo: só leitura, recolhida, carregada ao abrir. */
+function MemoriaInterna({ projetoId, versao }: { projetoId: string; versao: number }) {
+  const [aberta, setAberta] = useState(false);
+  const [itens, setItens] = useState<any[] | null>(null);
+  useEffect(() => {
+    if (aberta) api<any[]>(`/projects/${projetoId}/memory?camada=INTERNA`).then(setItens).catch(() => setItens([]));
+  }, [aberta, projetoId, versao]);
+  return (
+    <div className="mem-grupo mem-interna">
+      <button className="mem-cabeca" onClick={() => setAberta(!aberta)}>
+        <h3>Memória interna do processo</h3>
+        <Icone nome={aberta ? 'acima' : 'abaixo'} />
+      </button>
+      {!aberta ? (
+        <p className="muted small mem-dica">Notas das sessões da IA, lições de falhas e registro de trabalhos. A IA usa; não faz parte do que foi combinado.</p>
+      ) : (
+        <>
+          {itens === null && <p className="muted small">Carregando…</p>}
+          {itens?.length === 0 && <p className="muted small">Vazia.</p>}
+          {itens?.slice(0, 200).map((m) => (
+            <div key={m.id} className="mem-item interna">
+              <div className="mem-corpo">
+                <b>{m.title}</b>
+                <span className="small muted">{tipoInterno(m)} · {new Date(m.createdAt).toLocaleString('pt-BR')}</span>
+                <span className="small">{String(m.content).slice(0, 400)}</span>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
 }
 
 const MOTIVO: Record<string, string> = {
@@ -624,7 +648,6 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
   const projetoId = projeto.id;
   const [aba, setAba] = useState<'memoria' | 'arquivos' | 'git' | 'ajustes'>('memoria');
   const [memoria, setMemoria] = useState<any[] | null>(null);
-  const [abertos, setAbertos] = useState<string[]>([]); // grupos recolhidos que o usuário abriu
   const [arquivos, setArquivos] = useState<any[] | null>(null);
   const [aberto, setAberto] = useState<{ path: string; conteudo: string } | null>(null);
   const carregar = useCallback(async () => {
@@ -658,24 +681,20 @@ function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: num
           {memoria && memoria.length === 0 && <p className="muted small">Ainda nada. Conforme vocês conversam, decisões e informações importantes aparecem aqui.</p>}
           {memoria &&
             MEMORIA_GRUPOS.map((g) => {
-              const itens = memoria.filter((m) => grupoDaMemoria(m) === g.chave).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+              const itens = memoria.filter((m) => g.categorias.includes(m.category)).sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
               if (!itens.length) return null;
-              const fechado = g.recolhido && !abertos.includes(g.chave);
               return (
                 <div key={g.chave} className="mem-grupo">
-                  <button className="mem-cabeca" onClick={() => setAbertos(abertos.includes(g.chave) ? abertos.filter((x) => x !== g.chave) : [...abertos, g.chave])} disabled={!g.recolhido}>
+                  <div className="mem-cabeca">
                     <h3>{g.titulo}</h3>
                     <span className="mem-conta">{itens.length}</span>
-                    {g.recolhido && <Icone nome={fechado ? 'abaixo' : 'acima'} />}
-                  </button>
-                  {fechado ? (
-                    <p className="muted small mem-dica">Progresso que a IA anota enquanto trabalha (para continuar de onde parou). Clique para ver.</p>
-                  ) : (
-                    itens.map((m) => <ItemDaMemoria key={m.id} m={m} texto={textoDaMemoria(m)} onEsquecer={() => esquecer(m)} />)
-                  )}
+                  </div>
+                  {itens.map((m) => <ItemDaMemoria key={m.id} m={m} texto={m.content} onEsquecer={() => esquecer(m)} />)}
                 </div>
               );
             })}
+          <p className="muted small mem-dica">Uma entrada por assunto: quando algo muda, o item é atualizado (a versão anterior fica no histórico). Também em <code>memoria/MEMORIA.md</code>, na pasta do projeto.</p>
+          <MemoriaInterna projetoId={projetoId} versao={versao} />
         </div>
       )}
       {aba === 'arquivos' && (

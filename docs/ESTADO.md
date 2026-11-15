@@ -177,6 +177,27 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Memória em camadas (2026-11-15)
+
+* **Problema real**: a memória era uma pilha. Tudo caía na mesma tabela e no mesmo painel: notas de progresso de cada
+  sessão da IA (dezenas por trabalho), lições de falhas, registro de trabalhos concluídos e as decisões de verdade; e
+  o mesmo assunto, ao mudar, virava um item novo.
+* **Camadas**: *base* (regras e materiais do modelo — o "organismo"; a IA lê, não altera), **memória do projeto**
+  (`camada = PROJETO`: decisões, preferências, fatos e pendências que o usuário disse ou confirmou) e **memória
+  interna do processo** (`camada = INTERNA`: notas das sessões, lições, registro de trabalhos — a IA usa, o painel
+  mostra só recolhido em "Memória interna do processo").
+* **Um item por assunto** (`chave` = título normalizado): o mesmo assunto com conteúdo novo atualiza o item (versão +1,
+  a anterior fica no histórico, `?all=1`); conteúdo igual não grava. Vale para a conversa, a API, as respostas às
+  perguntas da revisão e as pendências do sistema (envio ao Git, conflito).
+* **Onde fica**: o banco é onde se grava (API e worker escrevem ao mesmo tempo, com transação); a cada mudança o
+  Nivoo regrava `<projeto>/memoria/MEMORIA.md` (memória do projeto, por seção) e `memoria/interna.md`, na pasta
+  definitiva do projeto.
+* **O que a IA da conversa guarda**: só decisões concretas, preferências, fatos e pendências combinadas; nunca
+  andamento, resumo de trabalho, planos ou suposições; para mudar algo, usa o mesmo título. As sessões de trabalho
+  recebem a memória do projeto + as lições + as notas do próprio trabalho (não as de outros trabalhos).
+* Migração `20261115140000_camadas_da_memoria`: move notas, lições e registros existentes para a interna e junta
+  assuntos repetidos (fica o mais recente; os outros viram histórico). Teste `30-memoria-em-camadas`.
+
 ## Resultados do trabalho visíveis e na pasta do projeto (2026-11-15)
 
 * **Bug real (ConnectChat)**: a auditoria gerou relatório, inventário e plano de limpeza em `out/` (resultados do

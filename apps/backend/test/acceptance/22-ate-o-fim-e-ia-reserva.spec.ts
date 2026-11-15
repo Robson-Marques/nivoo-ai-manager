@@ -95,7 +95,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(r.statusDetail).toMatch(/usa "programa-que-nao-existe-xyz", que não existe no servidor/);
     expect(r.attempts).toHaveLength(1);
     // Programa faltando no servidor não é aprendizado: nenhuma "lição" na memória.
-    const mem = (await h.http().get(`/api/projects/${p.id}/memory`)).body;
+    const mem = (await h.http().get(`/api/projects/${p.id}/memory?camada=INTERNA`)).body;
     expect(mem.filter((m: any) => m.references?.origem === 'licao-automatica')).toHaveLength(0);
   });
 
@@ -113,7 +113,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     // Tentar de novo e repetir a mesma falha não cria uma segunda lição.
     await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'Robson' }).expect(201);
     await fim(p.id, j.id);
-    const licoes = async () => (await h.http().get(`/api/projects/${p.id}/memory`)).body.filter((m: any) => m.references?.origem === 'licao-automatica');
+    const licoes = async () => (await h.http().get(`/api/projects/${p.id}/memory?camada=INTERNA`)).body.filter((m: any) => m.references?.origem === 'licao-automatica');
     expect(await licoes()).toHaveLength(1);
     expect((await licoes())[0].title).toMatch(/a IA ficou repetindo sem avançar/);
     // Resolvido o problema, o trabalho conclui e a lição dele some.
@@ -346,7 +346,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('resposta-usuario-1'));
     expect(b.steps.some((s: any) => s.key.startsWith('correcao-criterios-'))).toBe(false);
     const mem = (await h.http().get(`/api/projects/${p.id}/memory`)).body;
-    expect(mem.some((m: any) => /SECOES-ORIGINAIS/.test(m.content) && m.category === 'ESPECIFICACAO')).toBe(true);
+    expect(mem.some((m: any) => /SECOES-ORIGINAIS/.test(m.content) && m.category === 'DECISAO_APROVADA')).toBe(true);
     // Ainda com dúvida: aceitar assim mesmo conclui.
     await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/aceitar-revisao`).send({ por: 'Robson' }).expect(201);
     const y = await waitFor(async () => {
