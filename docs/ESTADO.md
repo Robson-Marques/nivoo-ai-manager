@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Bug real: vídeos e imagens baixados pela tela vinham corrompidos (2026-11-15)
+
+A rota que entrega um arquivo da pasta principal (`GET /projects/:pid/files/content`, usada pelo player, pelo
+"baixar" e pelos arquivos da entrega) lia a saída do `git show` como texto UTF-8: todo arquivo binário (vídeo,
+imagem) chegava estragado ("formato incomum" no WhatsApp, VLC sem tocar) e o limite era 20 MB. Agora lê os bytes
+exatos (`git cat-file blob`, até 1 GB) e manda o tipo certo (`video/mp4`, `image/png`…). O arquivo no servidor
+sempre esteve certo. Teste em `26` (baixado pela API = idêntico ao do projeto).
+
 ## Vídeo: Veo desligado pelo Google → Gemini Omni Flash (2026-11-15)
 
 O Google desligou o Veo da API do Gemini (o 3.1 "preview" em 22/10/2026; no servidor real, todos os Veo —

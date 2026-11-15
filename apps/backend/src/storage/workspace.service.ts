@@ -4,6 +4,10 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { sha256 } from '../common/hash';
 
 export interface ProjectDirs {
@@ -459,8 +463,15 @@ export class WorkspaceService {
   async readMainFile(dirKey: string, file: string): Promise<Buffer | null> {
     if (file.includes('..') || file.startsWith('/')) return null;
     const repo = this.projectDirs(dirKey).repo;
-    const r = await runProcess('git', ['show', `main:${file}`], { cwd: repo, env: minimalEnv({ GIT_TERMINAL_PROMPT: '0' }), timeoutMs: 30000, maxBuffer: 20 * 1024 * 1024 });
-    return r.exitCode === 0 ? Buffer.from(r.stdout, 'utf8') : null;
+    // Bytes exatos (vídeo, imagem): ler a saída do git como texto corrompia todo arquivo binário.
+    try {
+      const { stdout } = await execFileAsync('git', ['cat-file', 'blob', `main:${file}`], {
+        cwd: repo, env: minimalEnv({ GIT_TERMINAL_PROMPT: '0' }), timeout: 120_000, maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer',
+      });
+      return stdout as Buffer;
+    } catch {
+      return null;
+    }
   }
 
   async headCommit(worktree: string): Promise<string | null> {

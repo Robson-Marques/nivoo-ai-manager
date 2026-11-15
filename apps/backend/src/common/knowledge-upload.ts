@@ -47,7 +47,9 @@ export function parseKnowledgeUpload(body: any): { files: Array<{ path: string; 
 export function sendKnowledgeFile(res: { setHeader(k: string, v: string): void; type(t: string): void; send(b: Buffer): void }, rel: string, content: Buffer): void {
   res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.type(/\.(md|txt|csv|json|py|ts|tsx|js|jsx|html|css|svg|yml|yaml|sql|sh)$/i.test(rel) ? 'text/plain; charset=utf-8' : 'application/octet-stream');
+  const midia: Record<string, string> = { mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', mp3: 'audio/mpeg', wav: 'audio/wav' };
+  const ext = (/\.([a-z0-9]+)$/i.exec(rel)?.[1] ?? '').toLowerCase();
+  res.type(/^(md|txt|csv|json|py|ts|tsx|js|jsx|html|css|svg|yml|yaml|sql|sh)$/.test(ext) ? 'text/plain; charset=utf-8' : midia[ext] ?? 'application/octet-stream');
   res.send(content);
 }
 

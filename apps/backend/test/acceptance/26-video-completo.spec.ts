@@ -74,6 +74,14 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect(ffprobe(final, '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x')).toBe('1280x720');
     expect(ffprobe(final, '-select_streams', 'a', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0')).toBe('aac');
     expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(5, 0);
+    // A tela baixa o vídeo pela API: bytes idênticos (antes vinham corrompidos como texto) e tipo de vídeo.
+    const pelaApi = await h.http().get(`/api/projects/${p.id}/files/content`).query({ path: 'videos/pizzaria/pizzaria-completo.mp4' }).buffer(true).parse((res, cb) => {
+      const partes: Buffer[] = [];
+      res.on('data', (c: Buffer) => partes.push(c));
+      res.on('end', () => cb(null, Buffer.concat(partes)));
+    }).expect(200);
+    expect(pelaApi.headers['content-type']).toMatch(/^video\/mp4/);
+    expect(Buffer.compare(pelaApi.body as Buffer, fs.readFileSync(final))).toBe(0);
     // As cenas continuam na pasta (dá para trocar uma e juntar de novo).
     const arquivos = execFileSync('git', ['ls-tree', '-r', '--name-only', 'main', 'videos'], { cwd: repo }).toString().trim().split('\n');
     expect(arquivos.sort()).toEqual(['videos/pizzaria/cena-01.mp4', 'videos/pizzaria/cena-02.mp4', 'videos/pizzaria/pizzaria-completo.mp4']);
