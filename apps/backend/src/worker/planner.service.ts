@@ -363,6 +363,10 @@ export class PlannerService {
             '  As cenas são unidas com meio segundo de fusão. Para o som não "pular" entre elas: descreva o MESMO ambiente sonoro e a',
             '  mesma trilha em todas as cenas (ex.: "trilha acústica suave e constante, som ambiente de cozinha"), e termine falas e',
             '  efeitos fortes antes do último segundo da cena (o fim de cada cena se mistura com o começo da seguinte).',
+            '  Para JUNTAR DE NOVO cenas que já existem no projeto (sem gerar e sem pagar de novo; ex.: "junte as cenas de novo",',
+            '  "refaça a montagem", ou depois de refazer só uma cena), use uma etapa do sistema:',
+            '  {"key":"juntar","title":"Juntar as cenas no vídeo completo","provider":"juntar-videos","instructions":"junta as cenas na ordem",',
+            '   "providerOptions":{"cenas":["videos/<nome>/cena-01.mp4","videos/<nome>/cena-02.mp4"],"arquivo":"videos/<nome>/<nome>-completo.mp4"}}',
           ]
         : []),
       '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',
