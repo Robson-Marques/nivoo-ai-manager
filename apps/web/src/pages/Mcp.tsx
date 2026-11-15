@@ -3,7 +3,7 @@ import { api } from '../api';
 import { BotaoIcone, Estado, Icone, Linha } from './Contas';
 
 /**
- * Ferramentas MCP das IAs (navegador, documentação, GitHub, banco…): cada uma é um programa no servidor ou um
+ * Ferramentas MCP das IAs (GitHub, documentação, banco…): cada uma é um programa no servidor ou um
  * endereço. Tokens e senhas ficam guardados no servidor e não voltam para a tela. Cada ferramenta vale para
  * todos os projetos ou só para os escolhidos.
  */
@@ -28,7 +28,7 @@ export function FerramentasMcp() {
         </button>
       </div>
       <p className="muted small">
-        Dão às IAs dos projetos acesso a mais coisas: abrir páginas no navegador, consultar documentação, GitHub, banco de dados… Cada ferramenta roda no
+        Dão às IAs dos projetos acesso a mais coisas: GitHub, documentação de bibliotecas, banco de dados… Cada ferramenta roda no
         servidor com o que você liberar; use só as que você confia. Tokens e senhas ficam guardados no servidor e nunca vão para o texto da IA.
       </p>
       {dados === null && <p className="muted small">Carregando…</p>}
@@ -176,7 +176,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
             </div>
           </>
         )}
-        <label>Nome<input value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={60} placeholder="Ex.: Navegador" /></label>
+        <label>Nome<input value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={60} placeholder="Ex.: GitHub da empresa" /></label>
         <div className="row small">
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><input type="radio" style={{ width: 'auto' }} checked={tipo === 'comando'} onChange={() => setTipo('comando')} /> Programa no servidor</label>
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><input type="radio" style={{ width: 'auto' }} checked={tipo === 'http'} onChange={() => setTipo('http')} /> Endereço na internet</label>
@@ -184,7 +184,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
         {tipo === 'comando' ? (
           <label>
             Comando
-            <input value={comando} onChange={(e) => setComando(e.target.value)} required placeholder="npx -y @playwright/mcp@latest --headless" />
+            <input value={comando} onChange={(e) => setComando(e.target.value)} required placeholder="npx -y nome-do-pacote-mcp" />
             <span className="muted small">O programa é instalado e roda no servidor (ex.: npx baixa na primeira vez).</span>
           </label>
         ) : (

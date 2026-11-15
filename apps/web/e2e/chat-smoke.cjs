@@ -123,7 +123,7 @@ const plano = {
     const mcpStub = path.join(__dirname, '..', '..', 'backend', 'test', 'support', 'stubs', 'mcp-stub.cjs');
     const mcpSaida = path.join(os.tmpdir(), `mcp-smoke-${stamp}.json`);
     await page.getByRole('button', { name: 'Nova ferramenta' }).click();
-    await page.locator('.modal .tipo-conexao', { hasText: 'Navegador' }).waitFor(); // modelos prontos
+    await page.locator('.modal .tipo-conexao', { hasText: 'GitHub' }).waitFor(); // modelos prontos
     await page.locator('.modal').getByLabel('Nome', { exact: true }).fill(`Eco ${stamp}`);
     await page.getByLabel('Comando').fill(`node ${mcpStub} ${mcpSaida}`);
     await page.getByRole('button', { name: '+ adicionar' }).click();

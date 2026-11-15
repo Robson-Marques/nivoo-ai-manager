@@ -9,7 +9,7 @@ import { minimalEnv } from '../common/exec';
 import { appConfig } from '../config';
 
 /**
- * Ferramentas MCP (Model Context Protocol) que as IAs dos projetos podem usar: navegador, documentação, GitHub,
+ * Ferramentas MCP (Model Context Protocol) que as IAs dos projetos podem usar: GitHub, documentação,
  * banco de dados… Cada uma é um programa que roda no servidor (comando local, via stdio) ou um endereço
  * (HTTP). Ficam em `mcp.json` (600) ao lado das conexões; valores secretos (tokens, senhas) ficam em
  * `segredos.json` sob `mcp--<id>/<NOME>` e nunca voltam pela API nem entram no texto da IA. Cada uma vale para
@@ -73,7 +73,7 @@ export function acharMcp(id: string): Mcp {
   return m;
 }
 
-/** Nome que a IA vê (ex.: "navegador"): minúsculas, números e hífen; único. */
+/** Nome que a IA vê (ex.: "github"): minúsculas, números e hífen; único. */
 function nomeTecnico(nome: string, existentes: Mcp[], proprio?: string): string {
   const base = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'mcp';
   let n = base;
@@ -97,7 +97,7 @@ export function salvarMcp(body: any, id?: string): Mcp {
   const atual = id ? lista.find((m) => m.id === id) : undefined;
   if (id && !atual) throw new NotFoundException('Ferramenta MCP não encontrada');
   const nome = String(body?.nome ?? atual?.nome ?? '').trim().slice(0, 60);
-  if (!nome) throw new BadRequestException('Dê um nome à ferramenta (ex.: Navegador)');
+  if (!nome) throw new BadRequestException('Dê um nome à ferramenta (ex.: GitHub da empresa)');
   const tipo = (body?.tipo ?? atual?.tipo) === 'http' ? 'http' : 'comando';
   const m: Mcp = { id: atual?.id ?? randomBytes(4).toString('hex'), nome, tipo, projetos: 'todos', ativo: body?.ativo ?? atual?.ativo ?? true, criadaEm: atual?.criadaEm ?? new Date().toISOString() };
   const segredosNovos: Record<string, string | null> = {};
@@ -173,7 +173,7 @@ function resolver(m: Mcp, todas: Mcp[] = listarMcp()): McpResolvido {
   return r;
 }
 
-/** "npx -y @playwright/mcp@latest --headless" → ['-y', '@playwright/mcp@latest', '--headless'] (aspas respeitadas). */
+/** "npx -y pacote-mcp --modo leitura" → ["-y", "pacote-mcp", "--modo", "leitura"] (aspas respeitadas). */
 export function partirArgumentos(texto: string): string[] {
   const out: string[] = [];
   for (const m of texto.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) out.push(m[1] ?? m[2] ?? m[3]);
@@ -273,7 +273,6 @@ async function testarHttp(r: McpResolvido, timeoutMs: number): Promise<Array<{ n
 
 /** Modelos prontos para a tela (o usuário completa o token, quando houver). */
 export const MCP_PRONTOS = [
-  { chave: 'navegador', nome: 'Navegador', descricao: 'Abre páginas, clica, preenche e tira print (Playwright).', tipo: 'comando', comando: 'npx', args: ['-y', '@playwright/mcp@latest', '--headless', '--isolated'] },
   { chave: 'context7', nome: 'Documentação (Context7)', descricao: 'Documentação atualizada de bibliotecas e frameworks.', tipo: 'http', url: 'https://mcp.context7.com/mcp', cabecalhos: ['CONTEXT7_API_KEY'] },
   { chave: 'github', nome: 'GitHub', descricao: 'Issues, pull requests e repositórios do GitHub (token pessoal).', tipo: 'http', url: 'https://api.githubcopilot.com/mcp/', cabecalhos: ['Authorization'], dica: 'Authorization = "Bearer <seu token do GitHub>"' },
 ];

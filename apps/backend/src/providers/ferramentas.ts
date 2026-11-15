@@ -6,7 +6,7 @@ import { tipoDe } from '../accounts/connections';
  * lê arquivos com comandos e, obedecendo à regra ao pé da letra, ficava sem ler nada.
  */
 export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[] {
-  const extras = mcp.length ? [`- Ferramentas MCP liberadas para este projeto: ${mcp.join(', ')}. Use-as quando ajudarem (ex.: navegador para ver uma página, documentação de uma biblioteca).`] : [];
+  const extras = mcp.length ? [`- Ferramentas MCP liberadas para este projeto: ${mcp.join(', ')}. Use-as quando ajudarem (ex.: GitHub, documentação de uma biblioteca).`] : [];
   const tipo = tipoDe(providerId);
   const titulo = '## Suas ferramentas nesta sessão (vale sobre qualquer regra do perfil ou instrução da etapa que proíba "terminal" ou "comandos")';
   if (tipo === 'codex-cli' || tipo === 'codex-api') {

@@ -30,7 +30,7 @@ describe('Ferramentas MCP', () => {
     const p1 = (await h.http().post('/api/projects').send({ name: 'Com MCP', provider: 'claude-code-cli' }).expect(201)).body;
     const p2 = (await h.http().post('/api/projects').send({ name: 'Sem MCP', provider: 'claude-code-cli' }).expect(201)).body;
     const lista = (await h.http().get('/api/mcp').expect(200)).body;
-    expect(lista.prontos.map((x: any) => x.chave)).toEqual(['navegador', 'context7', 'github']);
+    expect(lista.prontos.map((x: any) => x.chave)).toEqual(['context7', 'github']);
 
     // Inválidos: comando com espaços/argumentos no lugar errado; token dentro do endereço.
     await h.http().post('/api/mcp').send({ nome: 'x', tipo: 'comando', comando: 'rm -rf /' }).expect(400);
