@@ -174,6 +174,12 @@ ok "backend e interface compilados"
 # -----------------------------------------------------------------------------
 step "7/9 Migrações do banco e modelo padrão"
 set -a; . "$ENV_FILE"; set +a
+# Serviço antigo parado antes de mudar o banco: o código velho não entende os dados novos (ex.: 0 = sem
+# limite de gasto) e bloquearia trabalhos no meio da atualização. Voltam no passo 9; o que estava rodando
+# continua de onde parou.
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files nivoo-worker.service >/dev/null 2>&1; then
+  systemctl stop nivoo-worker nivoo-api >/dev/null 2>&1 || true
+fi
 (cd apps/backend && npx prisma migrate deploy >/dev/null)
 # O seed mexe nas pastas (git) de data/: roda como o usuário do serviço, dono de tudo em data/, nunca root.
 chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"

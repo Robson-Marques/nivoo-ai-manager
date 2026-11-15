@@ -34,15 +34,17 @@ export function GitDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () =
       setMsg(ok);
       await carregar();
       onMudou();
+      return true;
     } catch (e: any) {
       setErro(e.message);
+      return false;
     } finally {
       setOcupado(null);
     }
   };
   if (!st) return <div className="lista"><p className="muted small">Carregando…</p></div>;
   const criarRepo = (mudar: boolean) =>
-    acao('criar', () => api(`/projects/${projeto.id}/git/create`, 'POST', novo), mudar ? 'Projeto mudou para o repositório novo, com todo o histórico. O repositório antigo não foi alterado.' : 'Repositório criado e projeto enviado. O envio automático está ligado.').then(() => setModo(null));
+    acao('criar', () => api(`/projects/${projeto.id}/git/create`, 'POST', novo), mudar ? 'Projeto mudou para o repositório novo, com todo o histórico. O repositório antigo não foi alterado.' : 'Repositório criado e projeto enviado. O envio automático está ligado.').then((ok) => ok && setModo(null)); // erro: o formulário fica, com o que foi digitado
   const formCriar = (mudar: boolean) => (
     <form className="campo" onSubmit={(e) => { e.preventDefault(); criarRepo(mudar); }}>
       <b>{mudar ? 'Mudar para um repositório novo' : 'Criar repositório novo'}</b>
@@ -82,7 +84,7 @@ export function GitDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () =
             </div>
             <div className="row">
               <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Versão/tag (opcional, ex.: v1.2.3)" style={{ maxWidth: 220 }} />
-              <button disabled={!!ocupado} onClick={() => acao('push', () => api(`/projects/${projeto.id}/git/push`, 'POST', tag ? { tag } : {}), tag ? `Enviado ao Git com a tag ${tag}.` : 'Enviado ao Git.').then(() => setTag(''))}>
+              <button disabled={!!ocupado} onClick={() => acao('push', () => api(`/projects/${projeto.id}/git/push`, 'POST', tag ? { tag } : {}), tag ? `Enviado ao Git com a tag ${tag}.` : 'Enviado ao Git.').then((ok) => ok && setTag(''))}>
                 {ocupado === 'push' ? 'Enviando…' : 'Enviar para o Git'}
               </button>
             </div>

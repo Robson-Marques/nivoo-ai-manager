@@ -1,3 +1,4 @@
+import { caminhoDoProjeto } from '../common/path-guard';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
@@ -44,6 +45,16 @@ export class PlannerService {
     });
     if (!msg || msg.status !== 'PENDENTE') {
       await this.queue.complete(task.id, workerId);
+      return;
+    }
+    // Uma resposta por vez em cada conversa: a mais antiga primeiro (ex.: a entrega de um trabalho chega
+    // enquanto a IA ainda responde ao usuário).
+    const antes = await this.prisma.conversationMessage.findFirst({
+      where: { conversationId: msg.conversationId, status: 'PENDENTE', id: { not: msg.id }, createdAt: { lte: msg.createdAt } },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (antes && (antes.createdAt < msg.createdAt || antes.id < msg.id)) {
+      await this.queue.requeue(task.id, workerId, new Date(Date.now() + 5_000), 'espera a resposta anterior da conversa');
       return;
     }
     const project = msg.conversation.project;
@@ -132,6 +143,7 @@ export class PlannerService {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;
       }
+      this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
       // Sem crédito/limite no meio da resposta: se houver IA reserva, a mesma pergunta vai para ela.
       if (result.resourceUnavailable) {
         const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
@@ -143,7 +155,6 @@ export class PlannerService {
           return;
         }
       }
-      this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error ?? result.output.slice(-500));
       const parsed = extractJson(result.output);
       let kind = 'resposta';
       let content = result.output.trim();
@@ -163,8 +174,8 @@ export class PlannerService {
           // Anexos que o plano coloca no projeto (o sistema copia ao aprovar; só anexos desta conversa).
           const noProjeto = Array.isArray(parsed.job?.anexosNoProjeto)
             ? parsed.job.anexosNoProjeto
-                .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && typeof x?.para === 'string' && x.para.trim())
-                .map((x: any) => ({ anexo: String(x.anexo), para: String(x.para).trim() }))
+                .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && caminhoDoProjeto(x?.para))
+                .map((x: any) => ({ anexo: String(x.anexo), para: caminhoDoProjeto(x.para) as string }))
             : [];
           plan = { ...validado, ...(noProjeto.length ? { anexosNoProjeto: noProjeto } : {}) } as unknown as Prisma.InputJsonValue;
           kind = 'plano';

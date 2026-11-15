@@ -1,7 +1,45 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
-> Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
+> Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
+
+## Revisão antes da atualização do servidor (2026-11-15)
+
+Revisão independente de tudo o que mudou desde as Conexões (4 revisores, por área) e simulação do
+`nivoo update` num banco no estado antigo (conexão "Gemini (conta)", trabalho travado no Gemini, trava de
+US$ 5, lições de infraestrutura, projeto ligado ao Git sem versionamento). Corrigido:
+
+* **Git**: nome de tag validado (letras, números, `.`, `-`, `_`; nunca nome de branch — `--force` ou `main`
+  criavam uma tag `main` que travava a pasta principal); branch e tag vão juntas (`push --atomic`; falhou →
+  a tag local sai); a versão é recalculada se outro trabalho pegou o mesmo número; envio e `fetch` fora da
+  trava da pasta principal (só o merge fica sob ela); branch protegida não é mais confundida com "repositório
+  à frente"; conta do GitLab com endereço público diferente (external_url) continua valendo depois de criar;
+  instruções do repositório (CLAUDE.md…) sempre restauradas, mesmo com a `main` à frente; nomes com acento
+  na lista de arquivos do trabalho.
+* **Arquivos**: `./.`, `././.git` e parecidos eram aceitos e podiam apagar a pasta do trabalho; agora todo
+  caminho é normalizado e conferido de novo já resolvido (apagar/mover, vídeo e anexos colocados no projeto).
+* **Conversa**: dois cliques em "Fazer" criavam dois trabalhos (o plano agora é reservado antes); Enter duas
+  vezes mandava a mensagem duas vezes (tela e servidor); uma resposta por vez em cada conversa (a entrega
+  espera a resposta em andamento).
+* **IA reserva**: duas reservas sem crédito trocavam uma pela outra sem parar; quem ficou sem crédito/limite
+  fica 30 min fora da escolha. Aprovação de ação destrutiva continua valendo quando a IA troca.
+* **Vídeo (Veo)**: falha depois do pedido aceito (demora, 503 ao consultar, download) não registrava custo e
+  a nova tentativa pagava outra geração; agora o custo conta na tentativa que pediu e a seguinte retoma a
+  mesma geração. 429/5xx ao consultar o andamento não derruba a etapa.
+* **Sem limites**: sessões que só anotam progresso, sem mexer em nenhum arquivo, param depois de 8 seguidas;
+  limites do trabalho aceitam 0 também na edição.
+* **Login do Claude**: o token só é lido com a linha completa (um pedaço da saída podia cortar o token);
+  cancelar/desconectar durante a conferência não é desfeito por ela; `401` solto no código ou nos logs do
+  projeto não marca mais a conta como "login recusado" (só o canal de erro do CLI conta).
+* **Entrada**: chave da Cloudflare já conhecida continua valendo se a busca das chaves falhar; busca única;
+  JWT com partes `null` dá 401 (não 500). Login feito enquanto um pedido estava no ar não pede o token de novo;
+  página de erro HTML (502 da Cloudflare) vira mensagem legível.
+* **Telas**: chave de API recusada não cria conexão duplicada; erro ao criar repositório não fecha o
+  formulário; miniaturas e vídeos liberam a memória ao sair.
+* **Atualização**: API e worker param antes das migrações (o código velho bloqueava trabalhos com a trava 0);
+  a limpeza de lições não apaga mais a lição verdadeira de um passo que também tinha uma de infraestrutura;
+  ajuste antigo do Gemini pela conta sai do banco. `nivoo dominio status` sem domínio e túnel existente sem
+  credencial no servidor tratados. OCR ausente não recusa PDF que tem algum texto.
 
 ## Modelo pronto "Vídeo com IA (Veo)" (2026-11-15)
 

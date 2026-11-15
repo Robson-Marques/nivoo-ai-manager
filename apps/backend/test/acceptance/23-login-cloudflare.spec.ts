@@ -69,6 +69,7 @@ describe('Entrada: token do Nivoo ou login da Cloudflare (Access)', () => {
     const alterado = Buffer.from(JSON.stringify({ ...valido, email: 'intruso@x.com' })).toString('base64url');
     await pedir({ 'cf-access-jwt-assertion': `${a}.${alterado}.${c}` }).expect(401); // corpo alterado
     await pedir({ 'cf-access-jwt-assertion': 'lixo' }).expect(401);
+    await pedir({ 'cf-access-jwt-assertion': 'bnVsbA.bnVsbA.x' }).expect(401); // partes "null": 401, nunca erro 500
 
     // Sem a configuração da Cloudflare no servidor, o cabeçalho não vale nada (só o token).
     delete process.env.NIVOO_CF_ACCESS_AUD;

@@ -273,7 +273,13 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(prompt).toContain('ESCOPO-LP-4');
     expect(prompt).toMatch(/fora do escopo/);
     expect(lido('args.txt')).toContain('--append-system-prompt');
-    const c2 = (await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages/${r1.id}/approve`).send({ decidedBy: 'Robson' }).expect(201)).body;
+    // Dois cliques em "Fazer" ao mesmo tempo: um trabalho só.
+    const aprovar = () => h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages/${r1.id}/approve`).send({ decidedBy: 'Robson' });
+    const jobsAntes = await h.prisma.job.count({ where: { projectId: p.id } });
+    const duas = await Promise.all([aprovar(), aprovar()]);
+    expect(duas.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(await h.prisma.job.count({ where: { projectId: p.id } })).toBe(jobsAntes + 1);
+    const c2 = duas.find((r) => r.status === 201)!.body;
     const jobId = c2.messages.find((m: any) => m.id === r1.id).jobId;
     const j = (await h.http().get(`/api/projects/${p.id}/jobs/${jobId}`)).body;
     expect(j.steps.map((s: any) => s.key)).toEqual(['html', 'conferencia-regras']);

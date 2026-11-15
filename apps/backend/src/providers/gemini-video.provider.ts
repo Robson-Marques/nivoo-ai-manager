@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -52,6 +53,9 @@ function versao(id: string): number {
   const m = /veo-(\d+)(?:\.(\d+))?/.exec(id);
   return m ? Number(m[1]) * 100 + Number(m[2] ?? 0) : 0;
 }
+
+/** Gerações pedidas e ainda não baixadas (pedido → operação do Google), para retomar sem pagar de novo. */
+const OPERACOES = new Map<string, { nome: string; em: number }>();
 
 @Injectable()
 export class GeminiVideoProvider implements AiProvider {
@@ -162,60 +166,85 @@ export class GeminiVideoProvider implements AiProvider {
     if (o.resolucao) parameters.resolution = o.resolucao;
     if (o.negativo) parameters.negativePrompt = o.negativo;
 
-    req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
-    let r: { status: number; json: any };
-    try {
-      r = await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
-    } catch (e: any) {
-      return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };
+    const segundos = Number(parameters.durationSeconds ?? 8);
+    // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
+    // geração em vez de pagar outra.
+    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, modelo, destino, instancia, parameters])).digest('hex');
+    const anterior = OPERACOES.get(pedido);
+    let operacao: string;
+    let op: any;
+    // Custo da geração: cobrado na tentativa que fez o pedido, mesmo se ela falhar depois.
+    let custo = 0;
+    if (anterior && Date.now() - anterior.em < 24 * 3_600_000) {
+      operacao = anterior.nome;
+      op = { done: false };
+      req.onLog(`Veo: retomando a geração já pedida (operação ${operacao}); nada é cobrado de novo`);
+    } else {
+      req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
+      let r: { status: number; json: any };
+      try {
+        r = await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
+      } catch (e: any) {
+        return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };
+      }
+      const falha = this.falhaHttp(r);
+      if (falha) return falha;
+      operacao = String(r.json.name ?? '');
+      if (!operacao) return { exitCode: 1, output: '', error: `resposta inesperada do Google: ${JSON.stringify(r.json).slice(0, 300)}` };
+      OPERACOES.set(pedido, { nome: operacao, em: Date.now() });
+      custo = precoPorSegundo(modelo) * segundos;
+      op = r.json;
+      req.onLog(`Veo: gerando (operação ${operacao}); costuma levar de 1 a 6 minutos`);
     }
-    const falha = this.falhaHttp(r);
-    if (falha) return falha;
-    const operacao = String(r.json.name ?? '');
-    if (!operacao) return { exitCode: 1, output: '', error: `resposta inesperada do Google: ${JSON.stringify(r.json).slice(0, 300)}` };
-    req.onLog(`Veo: gerando (operação ${operacao}); costuma levar de 1 a 6 minutos`);
+    const cobrado = { costUsd: custo, costEstimated: true };
 
     // Acompanha a geração até terminar (ou até o tempo da etapa / interrupção).
     const fim = Date.now() + req.timeoutMs;
     const intervalo = Number(process.env.NIVOO_VEO_INTERVALO_MS ?? 10_000);
-    let op = r.json;
     while (!op.done) {
-      if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
-      if (Date.now() > fim) return { exitCode: 1, output: '', error: `o Google não terminou o vídeo dentro do tempo da etapa (operação ${operacao})` };
+      if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true, ...cobrado };
+      if (Date.now() > fim) return { exitCode: 1, output: '', error: `o Google não terminou o vídeo dentro do tempo da etapa (operação ${operacao}); a próxima tentativa continua a mesma geração`, ...cobrado };
       await new Promise((ok) => setTimeout(ok, intervalo));
       try {
         const p = await this.chamar(k.chave, 'GET', `${base()}/v1beta/${operacao}`, undefined, req.signal);
+        if (p.status === 429 || p.status >= 500) {
+          req.onLog(`Veo: o Google respondeu ${p.status} ao consultar o andamento; tentando de novo`, 'WARN');
+          continue; // passageiro: a geração continua lá
+        }
         const f = this.falhaHttp(p);
-        if (f) return f;
+        if (f) {
+          OPERACOES.delete(pedido);
+          return { ...f, ...cobrado };
+        }
         op = p.json;
       } catch (e: any) {
-        if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
+        if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true, ...cobrado };
         req.onLog(`Veo: falha ao consultar o andamento (${e?.message}); tentando de novo`, 'WARN');
       }
     }
-    if (op.error) return { exitCode: 1, output: '', error: `o Google não gerou o vídeo: ${op.error.message ?? JSON.stringify(op.error)}` };
+    if (op.error || !(op.response?.generateVideoResponse?.generatedSamples ?? [])[0]?.video) OPERACOES.delete(pedido); // terminou sem vídeo: um novo pedido é outra geração
+    if (op.error) return { exitCode: 1, output: '', error: `o Google não gerou o vídeo: ${op.error.message ?? JSON.stringify(op.error)}`, ...cobrado };
     const resp = op.response?.generateVideoResponse ?? {};
     const amostra = (resp.generatedSamples ?? [])[0]?.video;
     if (!amostra) {
       const motivos = (resp.raiMediaFilteredReasons ?? []).join('; ');
-      return { exitCode: 1, output: '', error: `o Google recusou gerar este vídeo pelas regras de segurança dele${motivos ? `: ${motivos}` : ''}. Ajuste a descrição e tente de novo.` };
+      return { exitCode: 1, output: '', error: `o Google recusou gerar este vídeo pelas regras de segurança dele${motivos ? `: ${motivos}` : ''}. Ajuste a descrição e tente de novo.`, ...cobrado };
     }
     let bytes: Buffer;
     try {
       if (amostra.encodedVideo) bytes = Buffer.from(amostra.encodedVideo, 'base64');
       else {
         const res = await fetch(String(amostra.uri), { headers: { 'x-goog-api-key': k.chave }, signal: AbortSignal.any([req.signal, AbortSignal.timeout(300_000)]) });
-        if (!res.ok) return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo (${res.status})` };
+        if (!res.ok) return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo (${res.status}); a próxima tentativa baixa de novo, sem gerar outro`, ...cobrado };
         bytes = Buffer.from(await res.arrayBuffer());
       }
     } catch (e: any) {
-      return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo: ${e?.message}`, interrupted: req.signal.aborted };
+      return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo: ${e?.message}; a próxima tentativa baixa de novo, sem gerar outro`, interrupted: req.signal.aborted, ...cobrado };
     }
     fs.mkdirSync(path.dirname(destino), { recursive: true });
     fs.writeFileSync(destino, bytes);
-    const segundos = Number(parameters.durationSeconds ?? 8);
-    const custo = precoPorSegundo(modelo) * segundos;
-    req.onLog(`Veo: vídeo salvo em ${arquivo} (${(bytes.length / 1024 / 1024).toFixed(1)} MB); custo estimado US$ ${custo.toFixed(2)}`);
+    OPERACOES.delete(pedido);
+    req.onLog(`Veo: vídeo salvo em ${arquivo} (${(bytes.length / 1024 / 1024).toFixed(1)} MB); custo estimado US$ ${custo.toFixed(2)}${anterior ? ' (já contado na tentativa anterior)' : ''}`);
     return {
       exitCode: 0,
       output: `Vídeo gerado: ${arquivo} (${segundos} s, modelo ${modelo}, ${(bytes.length / 1024 / 1024).toFixed(1)} MB)`,

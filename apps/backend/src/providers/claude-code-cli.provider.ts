@@ -218,7 +218,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
         /* linha não-JSON */
       }
     }
-    const text = parsed?.result ?? (parsed ? '' : r.stdout);
+    // Sem o evento final, o stdout é a transcrição inteira (arquivos lidos, código do projeto): para erro,
+    // vale só o que o CLI escreveu fora do JSON (ex.: "Invalid API key · Please run /login").
+    const text = parsed?.result ?? (parsed ? '' : r.stdout.split('\n').filter((l) => l.trim() && !l.trimStart().startsWith('{')).slice(-20).join('\n'));
     const stopReason: string | undefined = parsed?.terminal_reason ?? parsed?.subtype;
     // Fim de sessão por limite de turnos: o agente trabalhou, mas a sessão acabou. Não é falha.
     const sessionEnded = parsed?.subtype === 'error_max_turns' || parsed?.terminal_reason === 'max_turns';

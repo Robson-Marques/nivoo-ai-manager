@@ -1,3 +1,4 @@
+import { tipoDe } from '../accounts/connections';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
@@ -33,7 +34,11 @@ export function projectModel(project: { aiModels: unknown }, providerId: string)
 
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
 export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
-  return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, step.provider ?? null]));
+  // Trocar de uma IA para outra (IA reserva) não muda o que a etapa faz: a aprovação continua valendo.
+  // Trocar para um executor do sistema (comandos, arquivos) muda, e pede aprovação de novo.
+  const p = step.provider ?? null;
+  const quem = p === null || tipoDe(p) ? 'ia' : p;
+  return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, quem]));
 }
 
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
@@ -255,7 +260,7 @@ export class StepExecutorService {
     }
     await logChain;
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
-    if (isAi) this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error ?? result.output.slice(-500));
+    if (isAi) this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
 
     // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
@@ -443,6 +448,13 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
         `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
     }
+    // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
+    // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
+    const janelaLonga = Math.max(8, job.repetitionWindow * 4);
+    if (sessions.length >= janelaLonga && sessions.slice(0, janelaLonga).every((a) => a.treeBefore === a.treeAfter)) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `as últimas ${janelaLonga} sessões só anotaram progresso, sem alterar nenhum arquivo do trabalho`);
+    }
     if (job.maxSessionsPerStep > 0 && sessions.length >= job.maxSessionsPerStep) {
       return this.failStep(task, workerId, job, step, `limite de ${job.maxSessionsPerStep} sessões sem concluir a etapa`, BlockedReason.LIMITE_SESSOES);
     }
@@ -450,7 +462,7 @@ export class StepExecutorService {
       where: { id: step.id },
       data: { status: 'PENDENTE', statusDetail: `sessão ${number} encerrada sem concluir; continuação automática agendada` },
     });
-    await this.logs.log(job.id, `Continuação automática: nova sessão para "${step.key}" (${sessions.length}/${job.maxSessionsPerStep} sessões usadas)`, {
+    await this.logs.log(job.id, `Continuação automática: nova sessão para "${step.key}" (${sessions.length}${job.maxSessionsPerStep > 0 ? `/${job.maxSessionsPerStep}` : ''} sessões usadas)`, {
       stepId: step.id, source: 'worker',
     });
     await this.queue.requeue(task.id, workerId, new Date(), 'continuação em nova sessão');

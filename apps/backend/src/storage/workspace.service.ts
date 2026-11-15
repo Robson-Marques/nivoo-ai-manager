@@ -220,7 +220,8 @@ export class WorkspaceService {
    * (main). Um arquivo desses criado por uma etapa do trabalho NÃO conta — é plantio e é removido.
    */
   async trackedHarnessFiles(worktree: string): Promise<string[]> {
-    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'main']);
+    // Versionados na main e no commit da própria pasta de trabalho (o que a sessão encontra em disco).
+    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'refs/heads/main']);
     if (r.exitCode !== 0) return [];
     return r.stdout.split('\0').filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
   }
@@ -228,7 +229,12 @@ export class WorkspaceService {
   /** Devolve à pasta de trabalho as instruções de agente versionadas, exatamente como estão no git. */
   async restoreRepoHarness(worktree: string, files: string[]): Promise<void> {
     if (!files.length) return;
-    await this.gitOk(worktree, ['checkout', 'HEAD', '--', ...files]);
+    // Só os que existem no commit da pasta de trabalho (a lista vem da main, que pode ter andado): um
+    // arquivo ausente faria o checkout inteiro falhar e nada voltaria.
+    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...files]);
+    const noHead = new Set(r.exitCode === 0 ? r.stdout.split('\0').filter(Boolean) : []);
+    const voltar = files.filter((f) => noHead.has(f));
+    if (voltar.length) await this.gitOk(worktree, ['checkout', 'HEAD', '--', ...voltar]);
   }
 
   private isLink(p: string): boolean {
@@ -383,23 +389,28 @@ export class WorkspaceService {
   /** Arquivos que um commit da pasta principal criou (A), alterou (M), apagou (D) ou renomeou (R). */
   async arquivosDoCommit(dirKey: string, commit: string): Promise<Array<{ status: string; path: string; de?: string }>> {
     if (!/^[0-9a-f]{7,40}$/.test(commit)) return [];
-    const r = await this.git(this.projectDirs(dirKey).repo, ['diff-tree', '--no-commit-id', '--name-status', '-r', '-M', '--root', commit]);
+    // -z: nomes com acento ou espaço vêm como são (sem aspas nem \303\263).
+    const r = await this.git(this.projectDirs(dirKey).repo, ['diff-tree', '-z', '--no-commit-id', '--name-status', '-r', '-M', '--root', commit]);
     if (r.exitCode !== 0) return [];
-    return r.stdout
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => {
-        const [st, a, b] = l.split('\t');
-        return st.startsWith('R') ? { status: 'R', path: b, de: a } : { status: st[0], path: a };
-      })
-      .filter((f) => !f.path.startsWith('.nivoo/'));
+    const campos = r.stdout.split('\0');
+    const out: Array<{ status: string; path: string; de?: string }> = [];
+    for (let i = 0; i < campos.length; ) {
+      const st = campos[i++];
+      if (!st) continue;
+      if (st.startsWith('R') || st.startsWith('C')) {
+        const de = campos[i++];
+        const para = campos[i++];
+        out.push(st.startsWith('R') ? { status: 'R', path: para, de } : { status: 'A', path: para });
+      } else out.push({ status: st[0], path: campos[i++] });
+    }
+    return out.filter((f) => f.path && !f.path.startsWith('.nivoo/'));
   }
 
   async listMainFiles(dirKey: string): Promise<Array<{ path: string; size: number }>> {
     const repo = this.projectDirs(dirKey).repo;
-    const r = await this.git(repo, ['ls-tree', '-r', '-l', 'main']);
+    const r = await this.git(repo, ['ls-tree', '-r', '-l', '-z', 'refs/heads/main']);
     return r.stdout
-      .split('\n')
+      .split('\0')
       .filter(Boolean)
       .map((l) => {
         const [meta, file] = l.split('\t');

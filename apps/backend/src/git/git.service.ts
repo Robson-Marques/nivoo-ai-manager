@@ -92,7 +92,7 @@ export class GitService {
 
   private static erro(r: RunResult, conta: GitAccount | null): string {
     const msg = `${r.stderr}\n${r.stdout}`.replace(/https?:\/\/[^@\s]*@/g, 'https://').trim();
-    if (/Authentication failed|could not read Username|403|401|Invalid username or password|access denied/i.test(msg)) {
+    if (/Authentication failed|could not read Username|returned error: 40[13]|\b40[13]\b(?! *[a-f0-9])|Invalid username or password|access denied/i.test(msg)) {
       return conta ? `O servidor recusou a conta Git "${conta.nome}" (token inválido ou sem permissão neste repositório).` : 'O repositório exige login: cadastre uma conta Git para este servidor em Contas.';
     }
     if (/not found|does not exist|Repository not found/i.test(msg)) return 'Repositório não encontrado (confira o endereço e se a conta tem acesso).';
@@ -148,7 +148,7 @@ export class GitService {
   private async linked(projectId: string) {
     const p = await this.project(projectId);
     if (!p.gitUrl || !p.gitBranch) throw new BadRequestException('Este projeto não está ligado a um repositório Git');
-    return { p, repo: this.workspace.projectDirs(p.dirKey).repo, conta: this.accountFor(p.gitUrl, p.gitAccountId), branch: p.gitBranch };
+    return { p, repo: this.workspace.projectDirs(p.dirKey).repo, conta: this.accountFor(p.gitUrl, p.gitAccountId, true), branch: p.gitBranch };
   }
 
   /** Mudanças na pasta principal sob a mesma trava da incorporação de trabalhos. */
@@ -225,7 +225,8 @@ export class GitService {
         return { commit, autor, data, mensagem };
       });
     if (!p.gitUrl || !p.gitBranch) return { ligado: false, commits: log };
-    const conta = this.accountFor(p.gitUrl, p.gitAccountId);
+    // Endereço e conta gravados juntos no vínculo (já conferidos ali, ou repositório criado pela própria conta).
+    const conta = this.accountFor(p.gitUrl, p.gitAccountId, true);
     const f = await this.git(repo, ['fetch', '--quiet', 'origin', `+refs/heads/${p.gitBranch}:refs/remotes/origin/${p.gitBranch}`], conta);
     let enviar: number | null = null;
     let receber: number | null = null;
@@ -256,12 +257,11 @@ export class GitService {
   /** Traz as mudanças do repositório para a pasta principal (avanço direto ou merge; conflito → nada muda). */
   async pull(projectId: string) {
     const { p, repo, conta, branch } = await this.linked(projectId);
-    return this.comTrava(projectId, async () => {
-      await this.ok(repo, ['fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], conta);
-      const remoto = `refs/remotes/origin/${branch}`;
-      if ((await this.git(repo, ['merge-base', '--is-ancestor', remoto, 'main'], null)).exitCode === 0) {
-        return { resultado: 'ja-atualizado', ...(await this.status(projectId)) };
-      }
+    // A rede (fetch) fica fora da trava: sob ela só o merge local, rápido.
+    await this.ok(repo, ['fetch', '--quiet', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], conta);
+    const remoto = `refs/remotes/origin/${branch}`;
+    const resultado = await this.comTrava(projectId, async () => {
+      if ((await this.git(repo, ['merge-base', '--is-ancestor', remoto, 'refs/heads/main'], null)).exitCode === 0) return 'ja-atualizado';
       const ff = await this.git(repo, ['merge', '--ff-only', '-q', remoto], null);
       if (ff.exitCode !== 0) {
         const m = await this.git(repo, ['merge', '--no-edit', '-q', '-m', `Atualiza do repositório (${branch})`, remoto], null);
@@ -270,32 +270,48 @@ export class GitService {
           throw new ConflictException('As mudanças do repositório conflitam com as daqui (mesmos arquivos alterados dos dois lados). Nada foi alterado. Resolva no repositório e tente de novo.');
         }
       }
-      await this.prisma.project.update({ where: { id: p.id }, data: { gitLastSyncAt: new Date() } });
-      return { resultado: 'atualizado', ...(await this.status(projectId)) };
+      return 'atualizado';
     });
+    if (resultado === 'atualizado') await this.prisma.project.update({ where: { id: p.id }, data: { gitLastSyncAt: new Date() } });
+    return { resultado, ...(await this.status(projectId)) };
   }
 
-  /** Envia a pasta principal para a branch do repositório; com `tag`, cria e envia a tag também. */
+  /** Nome de tag aceito: letras, números, ponto, hífen e sublinhado; nunca o nome de uma branch. */
+  private async tagValida(repo: string, tag: string): Promise<void> {
+    const ok = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(tag) && !/\.\.|\.lock$|\.$/.test(tag) && tag !== 'HEAD';
+    if (!ok || (await this.git(repo, ['check-ref-format', `refs/tags/${tag}`], null)).exitCode !== 0) throw new BadRequestException('Nome de tag inválido');
+    if ((await this.git(repo, ['show-ref', '--verify', '--quiet', `refs/heads/${tag}`], null)).exitCode === 0) throw new BadRequestException(`"${tag}" é nome de branch; escolha outro nome de tag`);
+  }
+
+  /**
+   * Envia a pasta principal para a branch do repositório; com `tag`, cria a tag e envia as duas juntas
+   * (atômico: ou vão branch e tag, ou nada). Não usa a trava: só lê a pasta principal, não a altera.
+   */
   async push(projectId: string, body: any = {}) {
     const { p, repo, conta, branch } = await this.linked(projectId);
     const tag = body?.tag ? String(body.tag).trim() : '';
-    if (tag && (await this.git(repo, ['check-ref-format', `refs/tags/${tag}`], null)).exitCode !== 0) throw new BadRequestException('Nome de tag inválido');
-    return this.comTrava(projectId, async () => {
-      const r = await this.git(repo, ['push', '--quiet', 'origin', `main:refs/heads/${branch}`], conta, 15 * 60_000);
-      if (r.exitCode !== 0) {
-        if (/rejected|non-fast-forward|fetch first/i.test(r.stderr)) {
-          throw new ConflictException('O repositório tem mudanças que ainda não estão aqui. Use "Atualizar do Git" primeiro e envie de novo.');
-        }
-        throw new BadRequestException(`Não foi possível enviar: ${GitService.erro(r, conta)}`);
+    if (tag) await this.tagValida(repo, tag);
+    const commit = (await this.ok(repo, ['rev-parse', '--verify', 'refs/heads/main^{commit}'], null)).stdout.trim();
+    if (tag) {
+      const t = await this.git(repo, ['tag', '-a', '-m', String(body?.mensagem ?? `Versão ${tag}`).slice(0, 500), '--', tag, commit], null);
+      if (t.exitCode !== 0) throw new ConflictException(/already exists/i.test(t.stderr) ? `A tag ${tag} já existe` : GitService.erro(t, null));
+    }
+    const refs = [`${commit}:refs/heads/${branch}`, ...(tag ? [`refs/tags/${tag}`] : [])];
+    const r = await this.git(repo, ['push', '--quiet', ...(tag ? ['--atomic'] : []), 'origin', ...refs], conta, 15 * 60_000);
+    if (r.exitCode !== 0) {
+      if (tag) await this.git(repo, ['tag', '-d', '--', tag], null); // nada foi enviado: a tag local sai também
+      const txt = `${r.stderr}\n${r.stdout}`;
+      if (/\(fetch first\)|non-fast-forward/i.test(txt)) {
+        throw new ConflictException('O repositório tem mudanças que ainda não estão aqui. Use "Atualizar do Git" primeiro e envie de novo.');
       }
-      if (tag) {
-        const t = await this.git(repo, ['tag', '-a', tag, '-m', String(body?.mensagem ?? `Versão ${tag}`).slice(0, 500), 'main'], null);
-        if (t.exitCode !== 0) throw new ConflictException(/already exists/i.test(t.stderr) ? `A tag ${tag} já existe` : GitService.erro(t, null));
-        await this.ok(repo, ['push', '--quiet', 'origin', `refs/tags/${tag}`], conta);
+      if (/remote rejected|declined|protected branch/i.test(txt)) {
+        throw new BadRequestException(`O servidor Git recusou o envio (branch protegida ou regra do repositório): ${txt.replace(/https?:\/\/[^@\s]*@/g, 'https://').trim().split('\n').slice(-2).join(' ').slice(0, 300)}`);
       }
-      await this.prisma.project.update({ where: { id: p.id }, data: { gitLastSyncAt: new Date() } });
-      return { resultado: 'enviado', tag: tag || null, ...(await this.status(projectId)) };
-    });
+      if (tag && /already exists/i.test(txt)) throw new ConflictException(`A tag ${tag} já existe no repositório`);
+      throw new BadRequestException(`Não foi possível enviar: ${GitService.erro(r, conta)}`);
+    }
+    await this.prisma.project.update({ where: { id: p.id }, data: { gitLastSyncAt: new Date() } });
+    return { resultado: 'enviado', tag: tag || null, ...(await this.status(projectId)) };
   }
 
   /** Próxima versão: segue as tags X.Y.Z do repositório (remoto incluído) e sobe o último número; sem nenhuma, v0.1.0. */
@@ -327,16 +343,20 @@ export class GitService {
    * cria a tag da próxima versão e envia (push). Se o repositório andou, atualiza (pull) e envia de novo.
    */
   async versionar(projectId: string, mensagem: string): Promise<{ tag: string; atualizou: boolean }> {
-    const tag = await this.proximaVersao(projectId);
-    try {
-      await this.push(projectId, { tag, mensagem });
-      return { tag, atualizou: false };
-    } catch (e: any) {
-      if (!(e instanceof ConflictException) || !/mudanças que ainda não estão aqui/.test(String(e.message))) throw e;
-      await this.pull(projectId);
-      const nova = await this.proximaVersao(projectId);
-      await this.push(projectId, { tag: nova, mensagem });
-      return { tag: nova, atualizou: true };
+    let atualizou = false;
+    for (let tentativa = 0; ; tentativa++) {
+      const tag = await this.proximaVersao(projectId);
+      try {
+        await this.push(projectId, { tag, mensagem });
+        return { tag, atualizou };
+      } catch (e: any) {
+        const msg = String(e?.message ?? '');
+        if (!(e instanceof ConflictException) || tentativa >= 3) throw e;
+        if (/já existe/.test(msg)) continue; // outro trabalho pegou esse número ao mesmo tempo: o próximo
+        if (!/mudanças que ainda não estão aqui/.test(msg) || atualizou) throw e;
+        await this.pull(projectId);
+        atualizou = true;
+      }
     }
   }
 }

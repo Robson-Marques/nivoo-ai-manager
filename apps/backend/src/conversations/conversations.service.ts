@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveInside } from '../common/path-guard';
+import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
 import { WorkspaceService } from '../storage/workspace.service';
 import { Anexo, gravarAnexos, lerAnexo, prepararAnexos } from './attachments';
 
@@ -112,10 +112,12 @@ export class ConversationsService {
     // Anexos (imagens, documentos, texto) podem ir sozinhos, sem texto.
     const anexos = await prepararAnexos(body?.anexos);
     const content = anexos.length ? (optString(body, 'content', 20000) ?? '').trim() : reqString(body, 'content', 20000);
-    const pendente = await this.prisma.conversationMessage.findFirst({ where: { conversationId, status: 'PENDENTE' } });
-    if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
     const raiz = anexos.length ? await this.raizDoProjeto(projectId) : '';
     await this.prisma.$transaction(async (tx) => {
+      // Trava a conversa: duas mensagens enviadas juntas (Enter duas vezes) não passam as duas.
+      await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${conversationId} FOR UPDATE`;
+      const pendente = await tx.conversationMessage.findFirst({ where: { conversationId, status: 'PENDENTE' } });
+      if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
       const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content } });
       if (anexos.length) {
         const gravados = gravarAnexos(raiz, conversationId, minha.id, anexos);
@@ -147,8 +149,9 @@ export class ConversationsService {
       const [mensagem, nome] = String(p.anexo ?? '').replace(/^contexto\/anexos\//, '').split('/');
       const msg = mensagem ? await this.prisma.conversationMessage.findFirst({ where: { id: mensagem, conversationId } }) : null;
       const conteudo = msg && nome ? lerAnexo(raiz, conversationId, msg.id, nome) : null;
-      if (!conteudo) continue;
-      const destino = resolveInside(worktree, String(p.para ?? ''));
+      const para = caminhoDoProjeto(p.para);
+      if (!conteudo || !para) continue; // caminho vazio, fora do projeto ou protegido: não copia
+      const destino = resolveInside(worktree, para);
       fs.mkdirSync(path.dirname(destino), { recursive: true });
       fs.writeFileSync(destino, conteudo);
       copiados.push(path.relative(worktree, destino));
@@ -173,12 +176,21 @@ export class ConversationsService {
     const msg = await this.prisma.conversationMessage.findFirst({ where: { id: messageId, conversationId } });
     if (!msg) throw new NotFoundException('Mensagem não encontrada');
     if (msg.kind !== 'plano' || msg.status !== 'PRONTA' || !msg.plan) throw new BadRequestException('Esta mensagem não contém um plano para aprovar');
-    if (msg.jobId) throw new ConflictException('Este plano já foi aprovado');
+    if (msg.jobId || msg.approvedAt) throw new ConflictException('Este plano já foi aprovado');
     const plan = this.jobs.validatePlan(msg.plan);
-    // O plano aprovado na conversa trabalha até terminar (limites do plano da IA não se aplicam).
-    const job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy });
+    // Reserva o plano antes de criar o job: dois cliques em "Fazer" nunca criam dois trabalhos.
+    const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt: new Date(), approvedBy: decidedBy } });
+    if (!reserva.count) throw new ConflictException('Este plano já foi aprovado');
+    let job: Awaited<ReturnType<JobsService['create']>>;
+    try {
+      // O plano aprovado na conversa trabalha até terminar (limites do plano da IA não se aplicam).
+      job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy });
+    } catch (e) {
+      await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { approvedAt: null, approvedBy: null } });
+      throw e;
+    }
+    await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { jobId: job.id } });
     await this.copiarAnexosParaOProjeto(projectId, conversationId, job.id, (msg.plan as any)?.anexosNoProjeto);
-    await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { jobId: job.id, approvedBy: decidedBy, approvedAt: new Date() } });
     if (body?.start !== false) await this.jobs.start(projectId, job.id);
     await this.prisma.conversationMessage.create({
       data: { conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `Plano aprovado por ${decidedBy}. Job "${plan.title}" criado${body?.start !== false ? ' e iniciado' : ''}.`, jobId: job.id },

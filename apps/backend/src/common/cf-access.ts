@@ -22,24 +22,36 @@ export function acessoCloudflareConfigurado(): boolean {
   return !!equipe() && !!process.env.NIVOO_CF_ACCESS_AUD;
 }
 
-async function chave(kid: string): Promise<KeyObject | null> {
-  const e = equipe()!;
-  const valido = cache && cache.url === e.certs && Date.now() - cache.at < 3_600_000;
-  if (valido && cache!.chaves.has(kid)) return cache!.chaves.get(kid)!;
-  // Chave nova (a Cloudflare troca as chaves de tempos em tempos): busca de novo, no máximo 1x por minuto.
-  if (valido && Date.now() - ultimaBusca < 60_000) return null;
-  ultimaBusca = Date.now();
+let buscando: Promise<void> | null = null;
+
+async function buscarChaves(url: string): Promise<void> {
   try {
-    const res = await fetch(e.certs, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) return null;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) return;
     const j: any = await res.json();
     const chaves = new Map<string, KeyObject>();
     for (const k of j.keys ?? []) if (k.kid && k.kty === 'RSA') chaves.set(k.kid, createPublicKey({ key: k, format: 'jwk' }));
-    cache = { url: e.certs, at: Date.now(), chaves };
-    return chaves.get(kid) ?? null;
+    if (chaves.size) cache = { url, at: Date.now(), chaves };
   } catch {
-    return null;
+    /* fora do ar: segue com as chaves que já temos */
   }
+}
+
+async function chave(kid: string): Promise<KeyObject | null> {
+  const e = equipe()!;
+  const mesma = cache && cache.url === e.certs ? cache : null;
+  const fresco = mesma && Date.now() - mesma.at < 3_600_000;
+  if (fresco && mesma!.chaves.has(kid)) return mesma!.chaves.get(kid)!;
+  // Chave nova ou lista velha (a Cloudflare troca as chaves de tempos em tempos): busca de novo, no máximo
+  // 1x por minuto e uma busca por vez, venha o pedido de quem vier.
+  if (Date.now() - ultimaBusca >= 60_000) {
+    ultimaBusca = Date.now();
+    buscando ??= buscarChaves(e.certs).finally(() => (buscando = null));
+  }
+  if (buscando) await buscando;
+  // Se a busca falhou, uma chave já conhecida continua valendo (a Cloudflare a publica por semanas).
+  const atual = cache && cache.url === e.certs ? cache : null;
+  return atual?.chaves.get(kid) ?? null;
 }
 
 const b64 = (s: string) => Buffer.from(s, 'base64url');
@@ -58,6 +70,7 @@ export async function acessoCloudflareValido(jwt: string | undefined): Promise<b
   } catch {
     return false;
   }
+  if (!cab || typeof cab !== 'object' || !corpo || typeof corpo !== 'object') return false;
   if (cab.alg !== 'RS256' || typeof cab.kid !== 'string') return false;
   if (corpo.iss !== e.iss) return false;
   const auds = Array.isArray(corpo.aud) ? corpo.aud : [corpo.aud];

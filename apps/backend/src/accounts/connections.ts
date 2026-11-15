@@ -83,7 +83,7 @@ export function novoId(tipo: TipoIa, existentes: Conexao[]): string {
   return id;
 }
 
-const FALHA_LOGIN = /\b401\b|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
+const FALHA_LOGIN = /(?:API Error|status(?: code)?|HTTP|error)[:= "]*\(?401\b|\b401 Unauthori[sz]ed|unauthori[sz]ed|authentication_error|failed to authenticate|invalid (?:x-)?api[ _-]?key|api key not valid|api_key_invalid|access token is invalid|token (?:has )?expired|not logged in|please run .*login|invalid_grant|refresh token/i;
 
 /** O erro de uma sessão é de login recusado (não de limite de uso ou rede)? */
 export function ehFalhaDeLogin(texto: string | undefined | null): boolean {

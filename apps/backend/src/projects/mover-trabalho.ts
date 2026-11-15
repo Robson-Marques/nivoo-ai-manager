@@ -29,6 +29,25 @@ export async function moverTrabalhoParaIa(prisma: PrismaService, projectId: stri
 
 
 /**
+ * IAs que acabaram de ficar sem crédito/limite/login (id → até quando). A conexão só mostra o login; sem esta
+ * memória, duas reservas sem crédito trocariam uma pela outra sem parar. Depois do prazo, voltam a valer.
+ */
+const ESPERA_SEM_CREDITO_MS = 30 * 60_000;
+const semCredito = new Map<string, number>();
+
+export function marcarSemCredito(id: string, agora = Date.now()): void {
+  semCredito.set(id, agora + ESPERA_SEM_CREDITO_MS);
+}
+
+export function estaSemCredito(id: string, agora = Date.now()): boolean {
+  const ate = semCredito.get(id);
+  if (ate === undefined) return false;
+  if (ate > agora) return true;
+  semCredito.delete(id);
+  return false;
+}
+
+/**
  * IA reserva: se a IA do projeto ficou sem crédito/limite/login, escolhe a próxima da lista de reserva do
  * projeto que esteja conectada AGORA, passa o projeto e o trabalho em andamento para ela e devolve o id.
  * Sem reserva disponível: null (o trabalho espera a IA voltar e a tela oferece trocar).
@@ -39,9 +58,10 @@ export async function trocarParaReserva(
   projectId: string,
   indisponivel: string,
 ): Promise<{ id: string; nome: string; anterior: string } | null> {
+  marcarSemCredito(indisponivel);
   const p = await prisma.project.findUnique({ where: { id: projectId }, select: { provider: true, aiReserva: true } });
   if (!p || p.provider !== indisponivel) return null;
-  const reserva = (Array.isArray(p.aiReserva) ? p.aiReserva : []).map(String).filter((id) => id !== indisponivel && registry.has(id));
+  const reserva = (Array.isArray(p.aiReserva) ? p.aiReserva : []).map(String).filter((id) => id !== indisponivel && registry.has(id) && !estaSemCredito(id));
   for (const id of reserva) {
     const st = await registry.status(id, 0);
     if (!st.available) continue;

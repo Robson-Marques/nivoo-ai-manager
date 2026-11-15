@@ -149,6 +149,11 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     expect(git(dev, 'ls-remote', '--tags', 'origin')).toContain('refs/tags/v1.0.0');
     await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v1.0.0' }).expect(409); // tag repetida
     await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'nome inválido' }).expect(400);
+    // Nome de tag que vira opção do git ou que é nome de branch: recusado (uma tag "main" travaria a pasta principal).
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: '--force' }).expect(400);
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'main' }).expect(400);
+    const repoP = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: pid } })).workspacePath, 'repo');
+    expect(git(repoP, 'tag', '-l').split('\n')).not.toContain('main');
 
     // Alguém envia direto ao repositório; aqui também sai um trabalho novo (arquivo diferente).
     fs.writeFileSync(path.join(dev, 'LEIAME.md'), 'feito fora do Nivoo\n');
@@ -158,6 +163,10 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     await job(pid, { title: 'Novo arquivo', steps: [{ key: 's', instructions: 'echo novo > novo.txt' }] });
     expect((await h.http().get(`/api/projects/${pid}/git`)).body).toMatchObject({ enviar: 1, receber: 1 });
     await h.http().post(`/api/projects/${pid}/git/push`).expect(409); // remoto à frente
+    // Com tag: ou vão branch e tag, ou nada (sem tag solta só aqui nem branch sem versão lá).
+    await h.http().post(`/api/projects/${pid}/git/push`).send({ tag: 'v9.9.9' }).expect(409);
+    expect(git(repoP, 'tag', '-l')).not.toContain('v9.9.9');
+    expect(git(dev, 'ls-remote', '--tags', 'origin')).not.toContain('v9.9.9');
     const pull = (await h.http().post(`/api/projects/${pid}/git/pull`).expect(201)).body;
     expect(pull.resultado).toBe('atualizado');
     await h.http().post(`/api/projects/${pid}/git/push`).expect(201);

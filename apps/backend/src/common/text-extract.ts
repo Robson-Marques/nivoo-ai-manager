@@ -157,7 +157,13 @@ export async function extractText(name: string, content: Buffer): Promise<string
       // texto exato do pdftotext — OCR só "adivinha" letras e não pode substituir texto real.
       const paginas = Math.max(1, (r.stdout.match(/\f/g) ?? []).length);
       if (texto.replace(/\s/g, '').length >= 5 * paginas) return texto;
-      const ocr = limpar(await ocrPdf(file, dir));
+      let ocr = '';
+      try {
+        ocr = limpar(await ocrPdf(file, dir));
+      } catch (e) {
+        if (texto.trim()) return texto; // sem OCR no servidor: fica o pouco texto real que o PDF tem
+        throw e;
+      }
       return ocr.replace(/\s/g, '').length > texto.replace(/\s/g, '').length ? ocr : texto;
     }
     const r = await runProcess('python3', ['-I', '-c', OFFICE_TO_TEXT, file, ext], { cwd: dir, env: minimalEnv(), timeoutMs: 120_000 });

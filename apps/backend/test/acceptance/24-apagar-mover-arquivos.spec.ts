@@ -40,7 +40,7 @@ describe('Apagar e mover arquivos com confirmação', () => {
       steps: [{ key: 'limpar', title: 'Apagar arquivos mortos', provider: 'arquivos-projeto', instructions: 'sem uso, conforme a auditoria', providerOptions: ops }],
       criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'test -f src/app.ts' } }],
     });
-    for (const ruim of [{ remover: ['.git'] }, { remover: ['../fora'] }, { remover: ['contexto/base'] }, { remover: [] }, { mover: [{ de: 'a', para: '/etc/x' }] }]) {
+    for (const ruim of [{ remover: ['.git'] }, { remover: ['../fora'] }, { remover: ['contexto/base'] }, { remover: [] }, { mover: [{ de: 'a', para: '/etc/x' }] }, { remover: ['./.'] }, { remover: ['././.git'] }, { remover: ['a/../.git'] }, { mover: [{ de: '././.git', para: 'x' }] }]) {
       await h.http().post(`/api/projects/${p.id}/jobs`).send(corpo(ruim)).expect(400);
     }
     const j = (await h.http().post(`/api/projects/${p.id}/jobs`).send(corpo({ remover: ['lixo.txt', 'velho'], mover: [{ de: 'notas.md', para: 'docs/notas.md' }] })).expect(201)).body;

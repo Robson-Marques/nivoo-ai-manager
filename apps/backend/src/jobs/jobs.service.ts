@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
+import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
 import { oneOf, optNumber, optString, reqString } from '../common/validate';
@@ -292,11 +293,12 @@ export class JobsService {
     await this.get(projectId, jobId);
     const data = {
       maxAttemptsPerStep: optNumber(body, 'maxAttemptsPerStep', 1, 100),
-      maxDurationSec: optNumber(body, 'maxDurationSec', 10, 7 * 24 * 3600),
+      // 0 = sem limite (como na criação).
+      maxDurationSec: body?.maxDurationSec === 0 ? 0 : optNumber(body, 'maxDurationSec', 10, 7 * 24 * 3600),
       maxCostUsd: optNumber(body, 'maxCostUsd', 0, 10000),
       stepTimeoutSec: optNumber(body, 'stepTimeoutSec', 1, 24 * 3600),
       repetitionWindow: optNumber(body, 'repetitionWindow', 2, 20),
-      maxSessionsPerStep: optNumber(body, 'maxSessionsPerStep', 1, 100),
+      maxSessionsPerStep: body?.maxSessionsPerStep === 0 ? 0 : optNumber(body, 'maxSessionsPerStep', 1, 100),
     };
     await this.prisma.job.update({ where: { id: jobId }, data });
     await this.logs.log(jobId, `Limites atualizados: ${JSON.stringify(data)}`);
@@ -416,8 +418,8 @@ const CAMINHO_SEGURO = /^(?!\/)(?!.*\.\.)[\w\-./ ]{1,200}$/;
 /** Opções de uma etapa de vídeo vindas do plano, validadas (nada de caminho fora do projeto). */
 export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const arquivo = String(o.arquivo ?? `videos/${key}.mp4`).trim();
-  if (!CAMINHO_SEGURO.test(arquivo) || !/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
+  const arquivo = caminhoDoProjeto(o.arquivo ?? `videos/${key}.mp4`) ?? '';
+  if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
   out.arquivo = arquivo;
   if (o.duracaoSeg !== undefined) {
     const n = Number(o.duracaoSeg);
@@ -445,8 +447,8 @@ export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
 /** Lista de apagar/mover de uma etapa "arquivos-projeto", validada (só caminhos do projeto, nada protegido). */
 export function operacoesDeArquivos(key: string, o: any): { remover: string[]; mover: Array<{ de: string; para: string }> } {
   const ok = (p: unknown) => {
-    const r = String(p ?? '').trim().replace(/\/+$/, '');
-    if (!CAMINHO_SEGURO.test(r) || /^(\.git|contexto|\.nivoo)(\/|$)/.test(r) || r === '.') throw new BadRequestException(`Etapa ${key}: caminho inválido ou protegido: ${String(p)}`);
+    const r = caminhoDoProjeto(p);
+    if (!r) throw new BadRequestException(`Etapa ${key}: caminho inválido ou protegido: ${String(p)}`);
     return r;
   };
   const remover = Array.isArray(o.remover) ? o.remover.map(ok) : [];

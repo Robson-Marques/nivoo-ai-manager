@@ -32,3 +32,15 @@ export function assertInside(root: string, candidate: string): void {
     throw new ForbiddenException(`Acesso fora do diretório autorizado: ${candidate}`);
   }
 }
+
+/**
+ * Caminho de arquivo do projeto, normalizado ("./a/./b/" → "a/b"). null se for a própria pasta, sair dela ou
+ * cair em área protegida (.git, contexto/, .nivoo/).
+ */
+export function caminhoDoProjeto(p: unknown): string | null {
+  const bruto = String(p ?? '').trim().replace(/\\/g, '/');
+  if (!/^(?!\/)[\w\-./ ]{1,200}$/.test(bruto)) return null;
+  const r = path.posix.normalize(bruto).replace(/^(\.\/)+/, '').replace(/\/+$/, '');
+  if (!r || r === '.' || r.startsWith('/') || r.split('/').includes('..') || /^(\.git|contexto|\.nivoo)(\/|$)/.test(r)) return null;
+  return r;
+}

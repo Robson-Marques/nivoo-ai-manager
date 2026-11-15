@@ -7,7 +7,7 @@ import { convertStoredDocuments } from './common/knowledge-upload';
 import { removerGeminiConta } from './accounts/remover-gemini-conta';
 import { PrismaService } from './prisma/prisma.service';
 import { WorkspaceService } from './storage/workspace.service';
-import { ehProblemaDeInfra } from './worker/step-executor.service';
+import { limparLicoes } from './worker/limpar-licoes';
 
 /**
  * Roda na instalação e em cada atualização (idempotente): garante o modelo padrão ("Geral") e converte em
@@ -34,21 +34,8 @@ async function main() {
   const removidas = await removerGeminiConta(prisma);
   if (removidas.length) console.log(`Conexão(ões) "Gemini (conta)" removida(s): ${removidas.join(', ')}.`);
 
-  // Lições que eram, na verdade, problemas de infraestrutura (programa faltando, IA sem acesso, limite do
-  // sistema): nunca foram aprendizado. Também as repetidas (uma por etapa e motivo).
-  const licoes = await prisma.memoryEntry.findMany({ where: { references: { path: ['origem'], equals: 'licao-automatica' } }, orderBy: { createdAt: 'asc' } });
-  const vistas = new Set<string>();
-  const apagar: string[] = [];
-  for (const l of licoes) {
-    const r = (l.references ?? {}) as Record<string, unknown>;
-    const chave = `${l.projectId}|${r.stepId}|${r.motivo}`;
-    if (ehProblemaDeInfra(l.content) || vistas.has(chave)) apagar.push(l.id);
-    vistas.add(chave);
-  }
-  if (apagar.length) {
-    await prisma.memoryEntry.deleteMany({ where: { id: { in: apagar } } });
-    console.log(`${apagar.length} lição(ões) que eram erro de infraestrutura ou repetidas foram removidas.`);
-  }
+  const apagadas = await limparLicoes(prisma);
+  if (apagadas) console.log(`${apagadas} lição(ões) que eram erro de infraestrutura ou repetidas foram removidas.`);
   await app.close();
 }
 main();

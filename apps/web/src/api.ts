@@ -56,6 +56,16 @@ export async function entrarComToken(t: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * 401: se o token mudou enquanto o pedido ia (o usuário acabou de entrar), tenta de novo com o novo, sem
+ * pedir outra vez; só pede quando o token recusado é o atual.
+ */
+async function renovar(usado: string | null): Promise<boolean> {
+  const atual = getToken();
+  if (atual && atual !== usado) return true;
+  return pedirToken();
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -66,13 +76,28 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   const token = getToken();
   if (token) headers.authorization = `Bearer ${token}`;
-  let res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (res.status === 401 && (await pedirToken())) {
+  const ir = async () => {
+    try {
+      return await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch {
+      // Sem resposta (servidor fora do ar, ou o acesso da Cloudflare expirou e redirecionou para o login dela).
+      throw new ApiError(0, 'Sem resposta do servidor. Se você entra pela Cloudflare, recarregue a página para entrar de novo.');
+    }
+  };
+  let res = await ir();
+  if (res.status === 401 && (await renovar(token))) {
     headers.authorization = `Bearer ${getToken()}`;
-    res = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await ir();
   }
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    // Página de erro em HTML (ex.: 502 da Cloudflare com o servidor parado).
+    if (!res.ok) throw new ApiError(res.status, `O servidor respondeu ${res.status} ${res.statusText || ''}`.trim() + (res.status >= 500 ? ' (o Nivoo pode estar reiniciando; tente de novo em instantes).' : '.'));
+    throw new ApiError(res.status, 'Resposta inesperada do servidor.');
+  }
   if (!res.ok) {
     const msg = Array.isArray(data?.message) ? data.message.join('; ') : data?.message ?? res.statusText;
     throw new ApiError(res.status, msg);
@@ -155,7 +180,7 @@ export function nomeUsuario(): string {
 export async function lerArquivo(url: string): Promise<string> {
   const token = getToken();
   let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (res.status === 401 && (await pedirToken())) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
+  if (res.status === 401 && (await renovar(token))) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   return res.ok ? res.text() : 'Não foi possível abrir este arquivo.';
 }
 
@@ -163,7 +188,7 @@ export async function lerArquivo(url: string): Promise<string> {
 export async function urlDoArquivo(url: string, tipo?: string): Promise<string | null> {
   const token = getToken();
   let res = await fetch(`/api${url}`, { headers: token ? { authorization: `Bearer ${token}` } : {} });
-  if (res.status === 401 && (await pedirToken())) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
+  if (res.status === 401 && (await renovar(token))) res = await fetch(`/api${url}`, { headers: { authorization: `Bearer ${getToken()}` } });
   if (!res.ok) return null;
   return URL.createObjectURL(tipo ? new Blob([await res.arrayBuffer()], { type: tipo }) : await res.blob());
 }

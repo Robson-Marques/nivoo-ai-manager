@@ -126,7 +126,8 @@ case "$cmd" in
         ;;
       status)
         systemctl --no-pager --lines=0 status cloudflared || true
-        host="$(sed -n 's/^ *- hostname: *//p' "$CF_DIR/config.yml" 2>/dev/null | head -1)"
+        host=""
+        [ -f "$CF_DIR/config.yml" ] && host="$(sed -n 's/^ *- hostname: *//p' "$CF_DIR/config.yml" | head -1 || true)"
         if [ -n "$host" ]; then
           code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://$host/api/health" || true)"
           echo "endereço: https://$host  (resposta: ${code:-sem resposta}; 200 = aberto só com o token, 302/403 = protegido pelo Cloudflare Access)"
@@ -195,7 +196,15 @@ case "$cmd" in
         fi
         [ -n "$id" ] || { echo "não consegui criar/achar o túnel $TUNEL" >&2; exit 1; }
         install -d -m 0755 "$CF_DIR"
-        install -m 0600 "/root/.cloudflared/$id.json" "$CF_DIR/$id.json"
+        if [ ! -f "/root/.cloudflared/$id.json" ] && [ ! -f "$CF_DIR/$id.json" ]; then
+          # Túnel já existia (servidor reinstalado, arquivo apagado): pede de novo a credencial dele.
+          cloudflared tunnel token --cred-file "/root/.cloudflared/$id.json" "$TUNEL" >/dev/null 2>&1 || {
+            echo "o túnel $TUNEL existe na Cloudflare, mas a credencial dele não está neste servidor." >&2
+            echo "apague o túnel (cloudflared tunnel delete $TUNEL) ou atualize o cloudflared e rode de novo." >&2
+            exit 1
+          }
+        fi
+        [ -f "/root/.cloudflared/$id.json" ] && install -m 0600 "/root/.cloudflared/$id.json" "$CF_DIR/$id.json"
         cat > "$CF_DIR/config.yml" <<CFG
 # Gerado por "nivoo dominio". O Nivoo só ouve em 127.0.0.1; a Cloudflare entrega o HTTPS.
 tunnel: $id

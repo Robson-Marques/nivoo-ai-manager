@@ -1,3 +1,4 @@
+import { tipoDe } from '../accounts/connections';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { runProcess } from '../common/exec';
 import { GeminiVideoProvider } from './gemini-video.provider';
@@ -46,6 +47,7 @@ export class ModelCatalogService {
       }
     }
     if (providerId.startsWith('claude')) return { opcoes: CLAUDE };
+    if (!tipoDe(providerId)) return { opcoes: [] }; // executores do sistema (arquivos, comandos) não têm modelo
     const hit = this.cache.get(providerId);
     if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };
     const env = (this.registry.get(providerId) as unknown as { env(): NodeJS.ProcessEnv }).env();

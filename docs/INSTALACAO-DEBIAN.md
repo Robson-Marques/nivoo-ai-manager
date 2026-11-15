@@ -146,7 +146,7 @@ nivoo logs             # logs ao vivo (Ctrl+C sai)
 nivoo check            # API, workers e conectores
 nivoo verificar        # job de teste de ponta a ponta (sem IA): deve imprimir OK; exclui o projeto de teste no fim
 nivoo backup           # banco + dados + configuração em /var/backups/nivoo
-nivoo update           # backup + git pull + reinstala + migra (sem perder dados)
+nivoo update           # backup + git pull + reinstala + migra (sem perder dados; API e worker param durante as migrações e voltam sozinhos; trabalhos em andamento continuam de onde pararam)
 nivoo restart
 nivoo help
 ```

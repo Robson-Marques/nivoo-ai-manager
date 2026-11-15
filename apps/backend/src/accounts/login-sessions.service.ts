@@ -60,6 +60,8 @@ export interface LoginSession {
 
 const TIMEOUT_MS = 15 * 60 * 1000;
 
+type Sessao = { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number; conferindo?: boolean; scratch?: string };
+
 function clean(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, ' ').replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').replace(/\r/g, '');
@@ -67,7 +69,7 @@ function clean(s: string): string {
 
 @Injectable()
 export class LoginSessionsService implements OnModuleDestroy {
-  private readonly sessions = new Map<string, { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number; conferindo?: boolean }>();
+  private readonly sessions = new Map<string, Sessao>();
 
   constructor(private readonly registry: ProviderRegistry) {}
 
@@ -92,7 +94,7 @@ export class LoginSessionsService implements OnModuleDestroy {
     });
     const info: LoginSession = { provider, state: 'iniciando', message: 'Preparando o login…', startedAt: new Date().toISOString() };
     const timer = setTimeout(() => this.finish(provider, 'erro', 'O login expirou (15 minutos). Tente de novo.'), TIMEOUT_MS);
-    const entry: { info: LoginSession; child: ChildProcess; raw: string; output: string; timer: NodeJS.Timeout; marca?: number; conferindo?: boolean } = { info, child, raw: '', output: '', timer };
+    const entry: Sessao = { info, child, raw: '', output: '', timer, scratch: cmd.cwd };
     this.sessions.set(provider, entry);
     const onData = (d: Buffer) => {
       entry.raw = (entry.raw + d.toString('utf8')).slice(-100_000);
@@ -103,9 +105,18 @@ export class LoginSessionsService implements OnModuleDestroy {
     };
     child.stdout!.on('data', onData);
     child.stderr!.on('data', onData);
+    child.stdin!.on('error', () => undefined); // código enviado quando o CLI já saiu (EPIPE)
+    child.on('error', (e) => {
+      if (this.sessions.get(provider) === entry && !entry.conferindo) this.finish(provider, 'erro', `Não consegui iniciar o login: ${e.message}`);
+    });
     child.on('exit', (code) => {
+      if (entry.scratch) fs.rmSync(entry.scratch, { recursive: true, force: true });
+      if (this.sessions.get(provider) !== entry) return;
       if (!['iniciando', 'aguardando_codigo', 'aguardando_site'].includes(entry.info.state)) return;
       if (entry.conferindo) return; // o token já foi lido e está sendo conferido
+      // Saída completa: o token pode ter sido a última coisa impressa, sem quebra de linha.
+      const tokenFinal = tipoDe(provider) === 'claude-code-cli' ? /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})\s*$/.exec(clean(entry.raw)) : null;
+      if (tokenFinal) return this.conferir(provider, entry, tokenFinal[1]);
       if (tipoDe(provider) === 'codex-cli' && code === 0) return this.finish(provider, 'conectado', 'ChatGPT conectado.');
       this.finish(provider, 'erro', `O login não foi concluído. ${entry.output.trim().split('\n').slice(-3).join(' ').slice(0, 300)}`);
     });
@@ -143,8 +154,8 @@ export class LoginSessionsService implements OnModuleDestroy {
     const tipo = tipoDe(provider);
     // Conexão adicional: o login fica na pasta própria dela, sem tocar nas outras contas do mesmo serviço.
     const propria = ehAdicional(provider) ? isolatedHome(provider) : null;
-    if (tipo === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: propria ? { CLAUDE_CONFIG_DIR: propria } : {} };
-    if (tipo === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: propria ? { CODEX_HOME: propria } : {} };
+    if (tipo === 'claude-code-cli') return { args: [process.env.NIVOO_CLAUDE_BIN ?? 'claude', 'setup-token'], cwd: scratch, env: propria ? { CLAUDE_CONFIG_DIR: propria } : process.env.CLAUDE_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR } : {} };
+    if (tipo === 'codex-cli') return { args: [process.env.NIVOO_CODEX_BIN ?? 'codex', 'login', '--device-auth'], cwd: scratch, env: propria ? { CODEX_HOME: propria } : process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {} };
     throw new BadRequestException('Esta IA não tem login pela tela');
   }
 
@@ -155,13 +166,9 @@ export class LoginSessionsService implements OnModuleDestroy {
     if (tipo === 'claude-code-cli') {
       // O token vem sozinho numa linha e logo abaixo vem "Store this token securely...": nunca juntar as
       // linhas (isso grudava o começo da frase no token e a Anthropic recusava com 401).
-      const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})(?![A-Za-z0-9_-])/.exec(clean(s.raw));
-      if (token && !s.conferindo) {
-        s.conferindo = true;
-        s.info = { ...s.info, state: 'iniciando', message: 'Conferindo o token com a Anthropic…' };
-        void this.conferirTokenClaude(provider, token[1]);
-        return;
-      }
+      // Só com a quebra de linha depois: a saída chega em pedaços e um pedaço pode cortar o token no meio.
+      const token = /(sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,})[ \t]*\n/.exec(clean(s.raw));
+      if (token && !s.conferindo) return this.conferir(provider, s, token[1]);
       if (s.conferindo) return;
       const url = /(https:\/\/claude\.(?:com|ai)\/[^\s'"<>\x07]*oauth\/authorize\?[^\s'"<>\x07]+)/.exec(out);
       if (url && s.info.state === 'iniciando' && !s.info.url) {
@@ -193,7 +200,15 @@ export class LoginSessionsService implements OnModuleDestroy {
    * só confere que existe um token. Recusado (401) = erro na tela; outro problema (rede, limite) não
    * impede salvar.
    */
-  private async conferirTokenClaude(provider: string, token: string): Promise<void> {
+  private conferir(provider: string, s: Sessao, token: string): void {
+    s.conferindo = true;
+    s.info = { ...s.info, state: 'iniciando', message: 'Conferindo o token com a Anthropic…' };
+    void this.conferirTokenClaude(provider, s, token).catch((e) => {
+      if (this.sessions.get(provider) === s && s.info.state === 'iniciando') this.finish(provider, 'erro', `Não consegui conferir o token: ${e?.message ?? e}`);
+    });
+  }
+
+  private async conferirTokenClaude(provider: string, s: Sessao, token: string): Promise<void> {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-conferir-'));
     try {
       const r = await runProcess(
@@ -201,7 +216,15 @@ export class LoginSessionsService implements OnModuleDestroy {
         ['-p', '--output-format', 'json', '--max-turns', '1', '--disallowedTools', 'Bash,Edit,Write,Read,WebFetch,WebSearch'],
         { cwd: dir, env: minimalEnv({ CLAUDE_CODE_OAUTH_TOKEN: token, CLAUDE_CONFIG_DIR: dir }), input: 'Responda apenas: OK', timeoutMs: 90_000 },
       );
-      if (ehFalhaDeLogin(`${r.stdout}\n${r.stderr}`)) {
+      // Enquanto conferia, o usuário pode ter cancelado, desconectado, removido ou começado outro login.
+      if (this.sessions.get(provider) !== s || s.info.state !== 'iniciando') return;
+      let erroNaResposta = r.exitCode !== 0;
+      try {
+        erroNaResposta ||= JSON.parse(r.stdout)?.is_error === true;
+      } catch {
+        /* saída não-JSON: vale o código de saída */
+      }
+      if (erroNaResposta && ehFalhaDeLogin(`${r.stdout}\n${r.stderr}`)) {
         return this.finish(provider, 'erro', 'A Anthropic recusou o token gerado (401). Clique em Conectar de novo e use o link novo; se repetir, confira se a assinatura do Claude está ativa nessa conta.');
       }
       gravarSegredoDaConexao(ehAdicional(provider) ? provider : null, 'CLAUDE_CODE_OAUTH_TOKEN', token);

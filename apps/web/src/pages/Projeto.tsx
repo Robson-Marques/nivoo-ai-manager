@@ -196,9 +196,12 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
       anexar(imagens);
     }
   };
+  const enviando = useRef(false);
   const enviar = async (e?: FormEvent) => {
     e?.preventDefault();
-    if ((!texto.trim() && !anexos.length) || !conv) return;
+    // Enter duas vezes (ou Enter + clique) enquanto envia: só um envio.
+    if ((!texto.trim() && !anexos.length) || !conv || enviando.current || pensando) return;
+    enviando.current = true;
     setOcupado(true);
     setErro(null);
     try {
@@ -210,6 +213,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
     } catch (err: any) {
       setErro(err.message);
     } finally {
+      enviando.current = false;
       setOcupado(false);
     }
   };
@@ -348,7 +352,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
   );
 }
 
-function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => void; onMudou: () => void; onReenviar?: () => Promise<void> }) {
+function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void> }) {
+  const [indo, setIndo] = useState(false);
   if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}</div>;
   if (m.role === 'USUARIO') {
     return (
@@ -387,7 +392,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
             <Progresso projetoId={projetoId} jobId={m.jobId} onMudou={onMudou} />
           ) : podeFazer ? (
             <div className="row">
-              <button onClick={onFazer}>Fazer</button>
+              <button disabled={indo} onClick={() => { setIndo(true); onFazer().finally(() => setIndo(false)); }}>{indo ? 'Começando…' : 'Fazer'}</button>
               <span className="muted small">ou responda abaixo para ajustar o plano</span>
             </div>
           ) : (
@@ -586,17 +591,26 @@ function AnexoDaMensagem({ a, url }: { a: any; url: string }) {
   useEffect(() => {
     if (a.tipo !== 'imagem') return;
     let u: string | null = null;
+    let saiu = false;
     urlDoArquivo(url).then((x) => {
+      if (saiu) {
+        if (x) URL.revokeObjectURL(x); // a tela já fechou: não guarda o arquivo na memória
+        return;
+      }
       u = x;
       setSrc(x);
     });
     return () => {
+      saiu = true;
       if (u) URL.revokeObjectURL(u);
     };
   }, [a.tipo, url]);
   const abrir = async () => {
-    const u = src ?? (await urlDoArquivo(url));
-    if (u) window.open(u, '_blank', 'noopener');
+    if (src) return void window.open(src, '_blank', 'noopener');
+    const u = await urlDoArquivo(url);
+    if (!u) return;
+    window.open(u, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(u), 60_000);
   };
   if (a.tipo === 'imagem') {
     return (
@@ -688,12 +702,18 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
   const [falhou, setFalhou] = useState(false);
   useEffect(() => {
     let u: string | null = null;
+    let saiu = false;
     urlDoArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`, 'video/mp4').then((x) => {
+      if (saiu) {
+        if (x) URL.revokeObjectURL(x);
+        return;
+      }
       u = x;
       if (x) setSrc(x);
       else setFalhou(true);
     });
     return () => {
+      saiu = true;
       if (u) URL.revokeObjectURL(u);
     };
   }, [projetoId, caminho]);

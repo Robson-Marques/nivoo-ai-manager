@@ -51,7 +51,16 @@ export class AccountsService {
    * Primeira vez: as contas que já estavam conectadas (ou em uso por algum projeto) viram conexões, com
    * os nomes de antes; nada precisa ser reconectado.
    */
-  private async migrar(): Promise<void> {
+  private migrando: Promise<void> | null = null;
+
+  /** Uma migração por vez (a tela abre várias chamadas juntas na primeira vez). */
+  private migrar(): Promise<void> {
+    if (existeArquivoConexoes()) return Promise.resolve();
+    this.migrando ??= this.migrarAgora().finally(() => (this.migrando = null));
+    return this.migrando;
+  }
+
+  private async migrarAgora(): Promise<void> {
     if (existeArquivoConexoes()) return;
     const usados = new Set((await this.prisma.project.findMany({ select: { provider: true } })).map((p) => p.provider));
     const lista: Conexao[] = [];
@@ -60,6 +69,7 @@ export class AccountsService {
       if (st.available || usados.has(t)) lista.push({ id: t, tipo: t, nome: NOME_ANTIGO[t], padrao: false, criadaEm: new Date().toISOString() });
     }
     if (lista.length) lista[0].padrao = true;
+    if (existeArquivoConexoes()) return; // outro processo gravou enquanto conferíamos: vale o dele
     gravarConexoes(lista);
   }
 
@@ -230,7 +240,7 @@ export class AccountsService {
     this.logins.cancel(id);
     if (c.tipo === 'claude-code-cli') {
       gravarSegredoDaConexao(propria, 'CLAUDE_CODE_OAUTH_TOKEN', null);
-      if (!propria) await runProcess(process.env.NIVOO_CLAUDE_BIN ?? 'claude', ['auth', 'logout'], { cwd: process.cwd(), env: minimalEnv(), timeoutMs: 30_000 });
+      if (!propria) await runProcess(process.env.NIVOO_CLAUDE_BIN ?? 'claude', ['auth', 'logout'], { cwd: process.cwd(), env: minimalEnv(process.env.CLAUDE_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR } : {}), timeoutMs: 30_000 });
     } else if (c.tipo === 'codex-cli' || c.tipo === 'codex-api') {
       await runProcess(process.env.NIVOO_CODEX_BIN ?? 'codex', ['logout'], { cwd: process.cwd(), env: this.env(id), timeoutMs: 30_000 });
     } else {

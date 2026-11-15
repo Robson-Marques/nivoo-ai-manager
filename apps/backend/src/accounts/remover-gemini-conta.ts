@@ -40,5 +40,6 @@ export async function removerGeminiConta(prisma: PrismaService): Promise<string[
   const passos = await prisma.step.findMany({ where: { provider: { startsWith: 'gemini-cli' }, status: { not: 'CONCLUIDO' } }, select: { id: true, job: { select: { project: { select: { provider: true } } } } } });
   for (const st of passos) await prisma.step.update({ where: { id: st.id }, data: { provider: st.job.project.provider } });
   await prisma.job.updateMany({ where: { defaultProvider: { startsWith: 'gemini-cli' }, status: { not: 'CONCLUIDO' } }, data: { defaultProvider: nova } });
+  await prisma.providerConfig.deleteMany({ where: { id: { startsWith: 'gemini-cli' } } }); // ajuste antigo da tela de conectores
   return sairam.map((c) => c.nome);
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { resolveInside } from '../common/path-guard';
+import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
@@ -37,9 +37,13 @@ export class ArquivosProjetoProvider implements AiProvider {
     const feitos: string[] = [];
     const avisos: string[] = [];
     const alvo = (rel: string) => {
-      const r = String(rel).replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/\/+$/, '');
-      if (!r || PROTEGIDOS.test(r)) throw new Error(`caminho protegido ou vazio: ${rel}`);
-      return resolveInside(req.cwd, r);
+      const r = caminhoDoProjeto(rel);
+      if (!r) throw new Error(`caminho protegido ou vazio: ${rel}`);
+      const abs = resolveInside(req.cwd, r);
+      // Conferência final no caminho já resolvido: nunca a própria pasta do trabalho nem área protegida.
+      const relFinal = path.relative(fs.realpathSync(req.cwd), abs).split(path.sep).join('/');
+      if (!relFinal || PROTEGIDOS.test(relFinal)) throw new Error(`caminho protegido ou vazio: ${rel}`);
+      return abs;
     };
     try {
       for (const m of o.mover ?? []) {

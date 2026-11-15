@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
 /**
@@ -347,6 +347,7 @@ function NovaConexao({ ias, onFechar, onCriada }: { ias: any[]; onFechar: () => 
     for (let i = 2; usados.has(n.toLowerCase()); i++) n = `${t.nomePadrao} ${i}`;
     setNome(n);
   };
+  const criada = useRef<{ tipo: string; id: string } | null>(null);
   const criar = async (e: FormEvent) => {
     e.preventDefault();
     setErro(null);
@@ -363,9 +364,12 @@ function NovaConexao({ ias, onFechar, onCriada }: { ias: any[]; onFechar: () => 
         });
         onCriada(g.id);
       } else {
-        const c = await api('/accounts', 'POST', { tipo: tipo.tipo, nome });
-        if (tipo.modo === 'api' && token.trim()) await api(`/accounts/${c.id}/key`, 'POST', { key: token.trim() });
-        onCriada(c.id);
+        // Chave recusada depois de criar: a nova tentativa usa a mesma conexão, sem criar outra.
+        const ja = criada.current;
+        const id = ja && ja.tipo === tipo.tipo ? ja.id : (await api('/accounts', 'POST', { tipo: tipo.tipo, nome })).id;
+        criada.current = { tipo: tipo.tipo, id };
+        if (tipo.modo === 'api' && token.trim()) await api(`/accounts/${id}/key`, 'POST', { key: token.trim() });
+        onCriada(id);
       }
     } catch (err: any) {
       setErro(err.message);
