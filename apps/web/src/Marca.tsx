@@ -1,20 +1,13 @@
-/** Marca do sistema: o "N" com os blocos (azul e verde) e o nome. */
+/** Marca do sistema: o arquivo original do logo (public/logo.png, sem alteração) e o nome. */
 export const NOME_SISTEMA = 'Nivoo Dev AI';
 
 export function Logo({ tamanho = 28 }: { tamanho?: number }) {
-  return (
-    <svg viewBox="100 192 824 668" width={tamanho} height={(tamanho * 668) / 824} aria-hidden="true" className="logo">
-      <path fill="#7CFA06" d="M624 272Q624 222 674 222L816 222Q866 222 866 272L866 413Q866 463 816 463L682 463Q648 463 648 497L648 600L548 497L610 437Q624 423 624 405Z" />
-      <path fill="#055DFE" d="M181 380Q181 323 238 323L352 323Q380 323 400 345L648 597L648 772Q648 815 608 815Q590 815 578 803L322 545Q300 525 280 540Q272 548 268 568Q258 605 228 605Q181 605 181 555Z" />
-      <rect fill="#055DFE" x="120" y="632" width="222" height="218" rx="46" />
-      <rect fill="#055DFE" x="682" y="631" width="222" height="219" rx="46" />
-    </svg>
-  );
+  return <img src="/logo.png" alt="" width={tamanho} height={tamanho} className="logo" />;
 }
 
 export function Marca({ tamanho = 28 }: { tamanho?: number }) {
   return (
-    <span className="marca">
+    <span className="marca-sistema">
       <Logo tamanho={tamanho} />
       <span>{NOME_SISTEMA}</span>
     </span>

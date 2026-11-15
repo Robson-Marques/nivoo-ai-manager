@@ -3,6 +3,11 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Marca "Nivoo Dev AI" (2026-11-15)
+
+Nome do sistema na barra lateral, tela de entrada, tela inicial e título da aba; logo = o arquivo original
+enviado pelo responsável (`apps/web/public/logo.png`, sem alteração), também como ícone do navegador.
+
 ## Revisão antes da atualização do servidor (2026-11-15)
 
 Revisão independente de tudo o que mudou desde as Conexões (4 revisores, por área) e simulação do

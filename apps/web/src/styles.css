@@ -286,9 +286,9 @@ textarea { resize: vertical; line-height: 1.5; }
 .msg.ia.entrega { border-left: 3px solid var(--ok); }
 .selo-entrega { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ok); margin-bottom: 4px; }
 
-/* Marca (logo + nome) */
-.marca { display: inline-flex; align-items: center; gap: 10px; }
-.marca .logo { flex: none; }
-.chat-side .brand .marca { font-size: 17px; letter-spacing: .01em; }
-.entrada-caixa h1 .marca { gap: 12px; }
+/* Marca do sistema (logo + nome) */
+.marca-sistema { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; color: inherit; }
+.marca-sistema .logo { flex: none; background: #fff; border-radius: 22%; }
+.chat-side .brand .marca-sistema { font-size: 17px; letter-spacing: .01em; color: #fff; }
+.entrada-caixa h1 .marca-sistema { gap: 12px; }
 .chat-vazio .logo { margin-bottom: 8px; }
