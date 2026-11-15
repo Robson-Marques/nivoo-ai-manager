@@ -188,6 +188,16 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   (também de `out/perguntas-ao-usuario.md`), com o botão "Aceitar assim mesmo" (`POST .../aceitar-revisao`,
   `GET .../revisao`): fica registrado no relatório quem aceitou e o que estava apontado, os critérios são
   conferidos de novo e o trabalho conclui. Teste em `22`.
+* **Responder ali mesmo**: caixa "Sua resposta" + "Responder e continuar" (`POST .../responder-revisao`): a
+  resposta vai para `out/respostas-do-usuario.md` e para a memória do projeto (ESPECIFICACAO), a IA do trabalho
+  aplica numa etapa nova (`resposta-usuario-N`) e a revisão confere de novo.
+* **Perguntas com respostas sugeridas**: a revisão grava `perguntas: [{pergunta, opcoes}]` (2 a 4 opções, a mais
+  provável primeiro); na tela cada opção é um botão que preenche a resposta.
+* **Memória do pedido**: as sessões recebiam só o resumo do objetivo, então a IA perguntava ao usuário o que ele
+  já tinha dito na conversa ("as 16 seções"). Agora cada sessão de um trabalho vindo do chat recebe a conversa
+  inteira em `contexto/conversa-do-pedido.md` (mensagens do usuário completas), e revisora e correção são
+  instruídas a procurar ali, na memória e em `out/respostas-do-usuario.md` antes de perguntar. Testes em `22` e
+  tela (`chat-smoke`, foto `7b-perguntas-da-revisao`).
 
 ## CLAUDE.md novo criado pelo trabalho (2026-11-15)
 

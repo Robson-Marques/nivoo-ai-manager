@@ -76,6 +76,11 @@ export class JobsController {
     return this.jobs.aceitarRevisao(pid, jid, body?.por);
   }
 
+  @Post('jobs/:jid/responder-revisao')
+  responderRevisao(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
+    return this.jobs.responderRevisao(pid, jid, body);
+  }
+
   @Post('jobs/:jid/objective')
   objective(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
     return this.jobs.newObjectiveVersion(pid, jid, body);

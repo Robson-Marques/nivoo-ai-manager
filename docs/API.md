@@ -134,8 +134,9 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 | POST | `/projects/:pid/jobs/:jid/interrupt` | `{ "by"? }` — interrompe (BLOQUEADO/INTERROMPIDO), preservando o estado. |
 | POST | `/projects/:pid/jobs/:jid/resume` | `{ "by"? }` — retoma do último checkpoint. |
 | POST | `/projects/:pid/jobs/:jid/evaluate` | Pede nova verificação dos critérios (nunca conclui diretamente). |
-| GET | `/projects/:pid/jobs/:jid/revisao` | O que a revisão independente apontou: `conforme`, `violacoes`, `perguntas` (incluindo `out/perguntas-ao-usuario.md`), `observacoes`. |
+| GET | `/projects/:pid/jobs/:jid/revisao` | O que a revisão independente apontou: `conforme`, `violacoes`, `perguntas` (`[{pergunta, opcoes}]`, incluindo `out/perguntas-ao-usuario.md`), `observacoes`. |
 | POST | `/projects/:pid/jobs/:jid/aceitar-revisao` | `{ por }`: trabalho parado pela conferência final é aceito como está (registrado no relatório); os critérios são conferidos de novo. 409 se o trabalho não está parado na conferência final. |
+| POST | `/projects/:pid/jobs/:jid/responder-revisao` | `{ resposta, por }`: responde às perguntas da revisão; a resposta vai para a memória do projeto e para `out/respostas-do-usuario.md`, a IA aplica numa etapa nova e a revisão confere de novo. 409 se o trabalho não está parado na conferência final. |
 | POST | `/projects/:pid/jobs/:jid/objective` | `{ "text", "reason" }` — nova versão do objetivo (a anterior é preservada). |
 | POST | `/projects/:pid/jobs/:jid/steps` | `{ "steps": [...] }` — adiciona etapas (a conferência das regras passa a cobri-las). |
 | POST | `/projects/:pid/jobs/:jid/criteria` | `{ "criteria": [...] }` — adiciona critérios. |

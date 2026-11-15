@@ -169,10 +169,10 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('mode', 'texto');
     ctl('resposta.txt', '```json\n' + JSON.stringify({
       tipo: 'plano', texto: 'Vou auditar.',
-      job: { title: 'Auditoria', objective: 'docs/auditoria.md com as decisões pendentes', steps: [{ key: 'doc', instructions: "mkdir -p docs && printf '# Auditoria\\nC5: apagar a POC?\\n' > docs/auditoria.md", verifyCommand: 'test -s docs/auditoria.md' }], criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'docs/auditoria.md' } }] },
+      job: { title: 'Auditoria', objective: 'docs/auditoria.md com as decisões pendentes', steps: [{ key: 'doc', instructions: "mkdir -p docs && printf '# Auditoria\\nC5: apagar a POC?\\n' > docs/auditoria.md && cp contexto/conversa-do-pedido.md out/conversa-vista.md", verifyCommand: 'test -s docs/auditoria.md' }], criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'docs/auditoria.md' } }] },
       memoria: [],
     }) + '\n```');
-    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'audite' }).expect(201);
+    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'audite com as 16 seções: SEC-ORIGINAL-1 … SEC-ORIGINAL-16' }).expect(201);
     const plano = await resposta(p.id, c.id, 1);
     ctl('resposta.txt', '```json\n{"tipo":"resposta","texto":"Pronto: docs/auditoria.md. 1. C5 — apagar a POC? Recomendo apagar.","memoria":[]}\n```');  // a entrega (lida pela IA ao terminar)
     ctl('mode', 'bash'); // a "IA" executa a etapa e grava o documento
@@ -187,6 +187,11 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     }, 30_000);
     expect(entrega.content).toMatch(/1\. C5 — apagar a POC\? Recomendo apagar/);
     expect(entrega.jobId).toBe(jobId);
+    // A sessão do trabalho recebeu a conversa inteira do pedido (não só o resumo do objetivo).
+    const wt = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: p.id } })).workspacePath, 'worktrees', jobId);
+    const vista = fs.readFileSync(path.join(wt, 'out', 'conversa-vista.md'), 'utf8');
+    expect(vista).toMatch(/## Usuário — [\s\S]*audite com as 16 seções: SEC-ORIGINAL-1 … SEC-ORIGINAL-16/);
+    expect(vista).toMatch(/## IA — [\s\S]*Vou auditar/);
     const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
     expect(prompt).toContain('apresente a ENTREGA do trabalho que acabou de terminar');
     expect(prompt).toContain('docs/auditoria.md (novo)');
@@ -291,7 +296,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(prompt).toMatch(/REVISÃO INDEPENDENTE apontou estas violações[\s\S]*regra X descumprida \(stub\)/);
     expect(prompt).toMatch(/out\/perguntas-ao-usuario\.md/);
   });
-  it('revisão "não conforme" só por dúvida do usuário: não roda correções à toa; mostra a pergunta e "aceitar assim mesmo" conclui', async () => {
+  it('revisão "não conforme" só por dúvida do usuário: não roda correções à toa; responder ali mesmo continua o trabalho; "aceitar assim mesmo" conclui', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Revisão com dúvida', provider: 'claude-code-cli' }).expect(201)).body;
     ctl('mode', 'bash');
     ctl('conforme', 'duvida');
@@ -309,14 +314,36 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'CRITERIOS_NAO_ATENDIDOS' });
     expect(x.steps.some((s: any) => s.key.startsWith('correcao-criterios-'))).toBe(false);
     const r = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/revisao`).expect(200)).body;
-    expect(r).toMatchObject({ conforme: false, violacoes: [], perguntas: ['Qual é a lista original dos títulos das 16 seções?'] });
-    expect(fs.readFileSync(path.join(CTL, 'prompt-revisor.txt'), 'utf8')).toMatch(/SÓ O USUÁRIO responde[\s\S]*NÃO é violação/);
+    expect(r).toMatchObject({ conforme: false, violacoes: [], perguntas: [{ pergunta: 'Qual é a lista original dos títulos das 16 seções?', opcoes: ['Os títulos do documento X', 'Os títulos atuais do relatório'] }] });
+    const promptRevisor = fs.readFileSync(path.join(CTL, 'prompt-revisor.txt'), 'utf8');
+    expect(promptRevisor).toMatch(/SÓ O USUÁRIO responde[\s\S]*NÃO é violação[\s\S]*respostas possíveis em "opcoes"/);
+    // A IA recebe a conversa inteira do pedido (não só o resumo do objetivo).
+    expect(promptRevisor).toMatch(/contexto\/conversa-do-pedido\.md/);
+    // Responder ali mesmo: a IA aplica a resposta (etapa nova) e a revisão confere de novo; a resposta vai para a memória.
+    ctl('mode', 'bash');
+    ctl('conforme', 'duvida'); // a revisora ainda tem dúvida: para de novo, sem correções à toa
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/responder-revisao`).send({ por: 'Robson' }).expect(400);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/responder-revisao`).send({ resposta: 'Os títulos são os do arquivo SECOES-ORIGINAIS.', por: 'Robson' }).expect(201);
+    const b = await fim(p.id, j.id);
+    ctl('mode', null);
+    ctl('conforme', null);
+    expect(b.status).toBe('BLOQUEADO');
+    const etapa = b.steps.find((s: any) => s.key === 'resposta-usuario-1');
+    expect(etapa.instructions).toMatch(/Qual é a lista original[\s\S]*Resposta do usuário \(Robson\):\nOs títulos são os do arquivo SECOES-ORIGINAIS\./);
+    expect(etapa.status).toBe('CONCLUIDO');
+    const ordem = b.attempts.map((a: any) => b.steps.find((s: any) => s.id === a.stepId)?.key);
+    expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('resposta-usuario-1'));
+    expect(b.steps.some((s: any) => s.key.startsWith('correcao-criterios-'))).toBe(false);
+    const mem = (await h.http().get(`/api/projects/${p.id}/memory`)).body;
+    expect(mem.some((m: any) => /SECOES-ORIGINAIS/.test(m.content) && m.category === 'ESPECIFICACAO')).toBe(true);
+    // Ainda com dúvida: aceitar assim mesmo conclui.
     await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/aceitar-revisao`).send({ por: 'Robson' }).expect(201);
     const y = await waitFor(async () => {
       const z = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
       return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(z.status) ? z : null;
     }, 30_000);
     expect(y.status).toBe('CONCLUIDO');
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/responder-revisao`).send({ resposta: 'x', por: 'Robson' }).expect(409);
     const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/logs`)).body.map((l: any) => l.message).join('\n');
     expect(logs).toMatch(/Revisão aceita assim mesmo por Robson/);
     // Trabalho que não está parado na conferência final não aceita o atalho.

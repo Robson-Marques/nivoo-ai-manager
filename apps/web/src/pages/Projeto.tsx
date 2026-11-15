@@ -105,12 +105,14 @@ function conferenciaFalhou(job: any): boolean {
 
 /**
  * A revisão independente disse "não conforme": mostra o que ela apontou e as perguntas que só o usuário responde,
- * com "Aceitar assim mesmo" (fica registrado quem aceitou) — o trabalho nunca fica preso numa dúvida.
+ * com a caixa de resposta (a IA aplica e a revisão confere de novo) e "Aceitar assim mesmo" (fica registrado quem
+ * aceitou) — o trabalho nunca fica preso numa dúvida.
  */
 function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId: string; onMudou: () => void }) {
   const [r, setR] = useState<any | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
+  const [resposta, setResposta] = useState('');
   useEffect(() => {
     api(`/projects/${projetoId}/jobs/${jobId}/revisao`).then(setR).catch(() => setR(null));
   }, [projetoId, jobId]);
@@ -126,13 +128,62 @@ function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId
       {r.perguntas?.length > 0 && (
         <>
           <b>Perguntas para você</b>
-          <ul>{r.perguntas.map((v: string, i: number) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{v}</li>)}</ul>
-          <span className="muted">Responda na conversa (vira um novo pedido) ou aceite o trabalho como está.</span>
+          <ol>
+            {r.perguntas.map((q: any, i: number) => (
+              <li key={i}>
+                <span style={{ whiteSpace: 'pre-wrap' }}>{q.pergunta}</span>
+                {q.opcoes?.length > 0 && (
+                  <div className="opcoes-resposta">
+                    {q.opcoes.map((o: string, k: number) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className="secondary"
+                        title="Usar esta resposta"
+                        onClick={() => setResposta((atual) => `${atual ? `${atual.trimEnd()}\n` : ''}${r.perguntas.length > 1 ? `${i + 1}. ` : ''}${o}`)}
+                      >
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+          <span className="muted">Clique numa resposta sugerida (ou escreva a sua) e em "Responder e continuar".</span>
         </>
       )}
       {!r.violacoes?.length && !r.perguntas?.length && r.observacoes && <p>{r.observacoes}</p>}
+      <label className="resposta-revisao">
+        <b>Sua resposta</b>
+        <textarea
+          value={resposta}
+          onChange={(e) => setResposta(e.target.value)}
+          rows={4}
+          placeholder="Responda aqui (pode responder só uma parte). A IA aplica a sua resposta no trabalho e a revisão confere de novo."
+        />
+      </label>
       <div className="row">
         <button
+          disabled={ocupado || !resposta.trim()}
+          onClick={async () => {
+            setOcupado(true);
+            setErro(null);
+            try {
+              await api(`/projects/${projetoId}/jobs/${jobId}/responder-revisao`, 'POST', { resposta, por: nomeUsuario() });
+              setResposta('');
+              onMudou();
+            } catch (e: any) {
+              setErro(e.message);
+            } finally {
+              setOcupado(false);
+            }
+          }}
+        >
+          Responder e continuar
+        </button>
+        <button
+          className="secondary"
           disabled={ocupado}
           onClick={async () => {
             if (!window.confirm('Aceitar o trabalho como está, mesmo com a revisão dizendo "não conforme"? Fica registrado que foi você.')) return;
@@ -554,7 +605,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       )}
       {['BLOQUEADO', 'FALHOU'].includes(job.status) && (
         <span>
-          Parei: {conferenciaFalhou(job) ? 'a conferência encontrou algo fora das regras do projeto' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
+          Parei: {conferenciaFalhou(job) ? 'a revisão final precisa de você (veja abaixo)' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
           <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
           <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
           {conferenciaFalhou(job) && job.status === 'BLOQUEADO' && <RevisaoParada projetoId={projetoId} jobId={jobId} onMudou={carregar} />}

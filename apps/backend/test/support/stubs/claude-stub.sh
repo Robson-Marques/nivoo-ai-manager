@@ -27,7 +27,7 @@ if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   mkdir -p out
   if [ "$CONFORME" = duvida ]; then
     # "Não conforme" só por uma dúvida que só o usuário responde (o caso real do ConnectChat).
-    echo '{"conforme": false, "violacoes": [], "perguntas": ["Qual é a lista original dos títulos das 16 seções?"], "corrigido": []}' > out/conferencia-regras.json
+    echo '{"conforme": false, "violacoes": [], "perguntas": [{"pergunta": "Qual é a lista original dos títulos das 16 seções?", "opcoes": ["Os títulos do documento X", "Os títulos atuais do relatório"]}], "corrigido": []}' > out/conferencia-regras.json
   elif [ "$CONFORME" = true ]; then
     echo '{"conforme": true, "violacoes": [], "corrigido": [], "observacoes": "stub"}' > out/conferencia-regras.json
   else

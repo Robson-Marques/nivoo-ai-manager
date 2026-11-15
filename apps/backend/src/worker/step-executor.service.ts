@@ -25,7 +25,7 @@ import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES, evaluatePolicy } from '../security/policy';
 import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } from './context-builder';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
-import { WorkspaceService } from '../storage/workspace.service';
+import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 
@@ -225,6 +225,14 @@ export class StepExecutorService {
         });
         const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(job.project.dirKey).root, worktree, comAnexos);
         if (anexos.length) await L(`Anexos da conversa disponíveis para a IA: ${anexos.map((a) => a.caminho).join(', ')}`);
+        // A conversa inteira que gerou o trabalho: o pedido do usuário (ex.: "as 16 seções") fica disponível em
+        // cada sessão — antes só o resumo do objetivo chegava e a IA perguntava ao usuário o que ele já tinha dito.
+        const conversa = await this.prisma.conversationMessage.findMany({
+          where: { conversationId: origem.conversationId },
+          orderBy: { createdAt: 'asc' },
+          select: { role: true, content: true, kind: true, createdAt: true, attachments: true },
+        });
+        fs.writeFileSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'), conversaComoTexto(conversa));
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
@@ -744,6 +752,14 @@ export class StepExecutorService {
     if (step.key === RULE_REVIEW_STEP && worktree) {
       add('mudancas', ['## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```']);
     }
+    if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'))) {
+      add('conversa', [
+        '## O pedido do usuário, por inteiro',
+        `A conversa que gerou este trabalho (mensagens do usuário completas, com listas, seções e exemplos que ele deu) está em ${SESSION_CONTEXT_DIR}/conversa-do-pedido.md.`,
+        'O objetivo abaixo é um RESUMO: na dúvida sobre o que foi pedido, leia a conversa. Antes de perguntar algo ao usuário,',
+        `procure a resposta na conversa, na memória do projeto (.nivoo/memoria.md), em out/respostas-do-usuario.md e nos entregáveis anteriores.`,
+      ]);
+    }
     add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
     add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
@@ -789,4 +805,24 @@ export class StepExecutorService {
     }
     return result;
   }
+}
+
+/** Conversa do chat em Markdown (usuário por inteiro; respostas longas da IA resumidas no começo e no fim). */
+export function conversaComoTexto(msgs: Array<{ role: string; content: string; kind: string | null; createdAt: Date; attachments?: unknown }>): string {
+  const partes = ['# Conversa que gerou este trabalho', ''];
+  let total = 0;
+  for (const m of msgs) {
+    const quem = m.role === 'USUARIO' ? 'Usuário' : m.kind === 'sistema' ? 'Sistema' : 'IA';
+    const limite = m.role === 'USUARIO' ? 40_000 : 6_000;
+    const c = m.content.length > limite ? `${m.content.slice(0, limite / 2)}\n… (cortado) …\n${m.content.slice(-limite / 2)}` : m.content;
+    const anexos = Array.isArray(m.attachments) && m.attachments.length ? `\n(anexos: ${m.attachments.map((a: any) => a?.nome).filter(Boolean).join(', ')} — em contexto/anexos/)` : '';
+    const bloco = `## ${quem} — ${m.createdAt.toISOString()}\n\n${c}${anexos}\n`;
+    total += bloco.length;
+    if (total > 600_000) {
+      partes.push('… (conversa longa demais: o restante foi omitido) …');
+      break;
+    }
+    partes.push(bloco);
+  }
+  return partes.join('\n');
 }

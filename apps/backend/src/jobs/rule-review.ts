@@ -31,10 +31,13 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho.',
-      `5. Grave ${RULE_REVIEW_REPORT} assim: {"conforme": true|false, "violacoes": ["o que ainda viola e por quê"], "perguntas": ["dúvida que só o usuário responde"], "corrigido": ["o que você corrigiu"], "observacoes": "..."}`,
+      `5. Grave ${RULE_REVIEW_REPORT} assim: {"conforme": true|false, "violacoes": ["o que ainda viola e por quê"], "perguntas": [{"pergunta": "...", "opcoes": ["resposta possível 1", "resposta possível 2"]}], "corrigido": ["o que você corrigiu"], "observacoes": "..."}`,
       '   "conforme" só pode ser true se não restar NENHUMA violação. Violação é algo que a IA consegue corrigir no trabalho.',
-      '   Uma dúvida que SÓ O USUÁRIO responde (confirmar um nome, uma lista ou decisão que não está em nenhuma fonte)',
-      '   NÃO é violação: vai em "perguntas" (o usuário recebe na entrega) e não impede "conforme": true.',
+      '   Uma dúvida que SÓ O USUÁRIO responde (uma decisão dele que não está em nenhuma fonte) NÃO é violação: vai em',
+      '   "perguntas" e não impede "conforme": true. ANTES de perguntar, procure a resposta: a conversa do pedido',
+      '   (contexto/conversa-do-pedido.md), a memória (.nivoo/memoria.md), out/respostas-do-usuario.md e os entregáveis.',
+      '   O que está lá não é pergunta. Cada pergunta vem com 2 a 4 respostas possíveis em "opcoes" (a mais provável primeiro),',
+      '   curtas e concretas, para o usuário só escolher.',
     ].join('\n'),
     verifyCommand: RULE_REVIEW_STEP_CHECK,
   };
@@ -47,10 +50,15 @@ export const RULE_REVIEW_CRITERION = {
   config: { command: CHECK },
 };
 
+export interface PerguntaDaRevisao {
+  pergunta: string;
+  opcoes: string[];
+}
+
 export interface RevisaoLida {
   conforme: boolean | null;
   violacoes: string[];
-  perguntas: string[];
+  perguntas: PerguntaDaRevisao[];
   observacoes: string;
   aceitaPor?: string;
 }
@@ -65,10 +73,13 @@ export function lerRevisao(worktree: string): RevisaoLida | null {
   } catch {
     return null;
   }
-  const perguntas = lista(r?.perguntas);
+  const perguntas: PerguntaDaRevisao[] = (Array.isArray(r?.perguntas) ? r.perguntas : typeof r?.perguntas === 'string' ? [r.perguntas] : [])
+    .map((p: any) => (typeof p === 'string' ? { pergunta: p, opcoes: [] } : { pergunta: String(p?.pergunta ?? p?.texto ?? JSON.stringify(p)), opcoes: lista(p?.opcoes) }))
+    .filter((p: PerguntaDaRevisao) => p.pergunta.trim())
+    .map((p: PerguntaDaRevisao) => ({ pergunta: p.pergunta.slice(0, 3000), opcoes: p.opcoes.map((o) => o.slice(0, 500)).slice(0, 6) }));
   try {
     const md = fs.readFileSync(path.join(worktree, 'out', 'perguntas-ao-usuario.md'), 'utf8').trim();
-    if (md) perguntas.push(md.slice(0, 6000));
+    if (md) perguntas.push({ pergunta: md.slice(0, 6000), opcoes: [] });
   } catch {
     /* sem arquivo de perguntas */
   }
@@ -94,7 +105,7 @@ export function aceitarRevisao(worktree: string, por: string): void {
     ...r,
     conforme: true,
     violacoes: [],
-    aceitoPeloUsuario: { por, em: new Date().toISOString(), conformeAntes: r?.conforme ?? null, violacoesAceitas: lista(r?.violacoes), perguntasAbertas: lista(r?.perguntas) },
+    aceitoPeloUsuario: { por, em: new Date().toISOString(), conformeAntes: r?.conforme ?? null, violacoesAceitas: lista(r?.violacoes), perguntasAbertas: Array.isArray(r?.perguntas) ? r.perguntas : [] },
   };
   fs.mkdirSync(path.dirname(arq), { recursive: true });
   fs.writeFileSync(arq, JSON.stringify(novo, null, 2));

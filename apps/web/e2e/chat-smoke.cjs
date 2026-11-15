@@ -238,6 +238,26 @@ const plano = {
     if ((await page.locator('.mem-item', { hasText: 'Tom das peças' }).count()) !== 1) throw new Error('item repetido em mais de um grupo');
     await page.getByRole('button', { name: /^Memória$/ }).waitFor();
     passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível, abre e copia');
+
+    // 4b. Revisão com dúvida que só o usuário responde: perguntas com respostas sugeridas; responder ali mesmo continua.
+    const prontosAntes = await page.locator('.progresso.p-CONCLUIDO').count();
+    fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
+    fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify({ ...plano, texto: 'Vou montar as bebidas.', memoria: [], job: { ...plano.job, title: 'Bebidas', objective: 'Criar bebidas.md', steps: [{ key: 'b', title: 'Escrever as bebidas', instructions: "printf '# Bebidas\\n' > bebidas.md", verifyCommand: 'test -f bebidas.md' }], criteria: [{ key: 'b', description: 'bebidas existe', kind: 'FILE_EXISTS', config: { path: 'bebidas.md' } }] } }) + '\n```');
+    await page.getByPlaceholder(/Escreva sua mensagem/).fill('Agora as bebidas');
+    await page.keyboard.press('Enter');
+    await page.getByText('Vou montar as bebidas.').waitFor({ timeout: 60000 });
+    fs.writeFileSync(path.join(ctl, 'mode'), 'bash');
+    fs.writeFileSync(path.join(ctl, 'conforme'), 'duvida');
+    await page.getByRole('button', { name: 'Fazer', exact: true }).last().click();
+    await page.getByText('Perguntas para você').waitFor({ timeout: 90000 });
+    await page.getByRole('button', { name: 'Os títulos do documento X' }).click();
+    if ((await page.locator('.resposta-revisao textarea').inputValue()) !== 'Os títulos do documento X') throw new Error('a resposta sugerida não preencheu a caixa');
+    await shot(page, '7b-perguntas-da-revisao');
+    fs.writeFileSync(path.join(ctl, 'conforme'), 'true');
+    await page.getByRole('button', { name: 'Responder e continuar' }).click();
+    await page.waitForFunction((n) => document.querySelectorAll('.progresso.p-CONCLUIDO').length > n, prontosAntes, { timeout: 90000 });
+    fs.rmSync(path.join(ctl, 'conforme'), { force: true });
+    passo('revisão com dúvida: perguntas com respostas sugeridas; responder ali mesmo e o trabalho conclui');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md', exact: true }).click();
     await page.getByText('Margherita').last().waitFor();

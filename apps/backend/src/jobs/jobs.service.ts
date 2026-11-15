@@ -432,6 +432,69 @@ export class JobsService {
     return this.requestEvaluation(projectId, jobId);
   }
 
+  /**
+   * O usuário responde às perguntas da revisão ali mesmo: a resposta fica guardada (out/respostas-do-usuario.md e
+   * memória do projeto), a IA do trabalho aplica a resposta numa etapa nova e a revisão independente confere de novo.
+   */
+  async responderRevisao(projectId: string, jobId: string, body: any) {
+    const job = await this.get(projectId, jobId);
+    if (job.status !== 'BLOQUEADO' || job.blockedReason !== BlockedReason.CRITERIOS_NAO_ATENDIDOS) {
+      throw new ConflictException('Só dá para responder à revisão de um trabalho parado pela conferência final');
+    }
+    const revisao = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
+    if (!revisao) throw new ConflictException('Este trabalho não tem revisão independente');
+    if (job.steps.some((s) => s.status !== 'CONCLUIDO')) throw new ConflictException('Há etapas não concluídas; use "Tentar de novo"');
+    const resposta = reqString(body, 'resposta', 20000).trim();
+    if (!resposta) throw new BadRequestException('Escreva a resposta');
+    const por = (optString(body, 'por', 80) ?? 'usuário').trim() || 'usuário';
+    const wt = await this.pastaDoTrabalho(projectId, jobId);
+    if (!wt) throw new ConflictException('A pasta do trabalho não existe mais');
+    const r = lerRevisao(wt) ?? { violacoes: [], perguntas: [], observacoes: '' };
+    const quando = new Date().toISOString();
+    fs.mkdirSync(path.join(wt, 'out'), { recursive: true });
+    fs.appendFileSync(path.join(wt, 'out', 'respostas-do-usuario.md'), `## Resposta de ${por} (${quando})\n\n${resposta}\n\n`);
+    fs.rmSync(path.join(wt, 'out', 'conferencia-regras.json'), { force: true }); // o veredito antigo sai; a revisão roda de novo
+    const n = job.steps.filter((s) => s.key.startsWith('resposta-usuario-')).length + 1;
+    const key = `resposta-usuario-${n}`;
+    const outras = job.steps.filter((s) => s.key !== RULE_REVIEW_STEP);
+    const provider = [...outras].reverse().find((s) => s.provider)?.provider ?? job.defaultProvider;
+    const base = Math.max(...job.steps.map((s) => s.order)) + 1;
+    const lista = (t: string, xs: string[]) => (xs.length ? [t, ...xs.map((x) => `- ${x}`), ''] : []);
+    await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, jobId);
+      await tx.step.create({
+        data: {
+          jobId, key, order: base, provider, dependsOn: outras.map((s) => s.key),
+          title: 'Aplicar a resposta do usuário',
+          instructions: [
+            'A revisão independente deixou perguntas que só o usuário podia responder. Ele RESPONDEU. Aplique a resposta ao trabalho.',
+            '',
+            ...lista('O que a revisão apontou:', r.violacoes),
+            ...lista('Perguntas:', r.perguntas.map((q) => q.pergunta)),
+            `Resposta do usuário (${por}):`,
+            resposta,
+            '',
+            'Ajuste os entregáveis de acordo com a resposta (ela também está em out/respostas-do-usuario.md), mantendo o que já foi feito e as regras do projeto.',
+            'Atualize out/perguntas-ao-usuario.md: tire o que foi respondido; deixe só o que continuar realmente em aberto.',
+          ].join('\n'),
+          verifyCommand: 'true',
+        },
+      });
+      await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
+      await tx.job.update({ where: { id: jobId }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `aplicando a resposta de ${por}`, finishedAt: null } });
+      await tx.memoryEntry.create({
+        data: {
+          projectId, category: 'ESPECIFICACAO', author: por, references: { jobId },
+          title: `Resposta do usuário: ${resposta.replace(/\s+/g, ' ').slice(0, 120)}`,
+          content: [...lista('Perguntas:', r.perguntas.map((q) => q.pergunta)), 'Resposta:', resposta].join('\n').slice(0, 50000),
+        },
+      });
+    });
+    await this.logs.log(jobId, `Resposta de ${por} às perguntas da revisão: a IA aplica e a revisão confere de novo`, { level: 'INFO' });
+    await this.orchestrator.scheduleReady(jobId);
+    return this.get(projectId, jobId);
+  }
+
   /** Estado real do job: o que está pronto, o que falta. */
   async report(projectId: string, jobId: string) {
     const job = await this.get(projectId, jobId);
