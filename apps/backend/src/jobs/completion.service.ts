@@ -13,7 +13,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
-import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
+import { lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { tipoDe } from '../accounts/connections';
 
 export interface CriterionResult {
@@ -88,9 +88,15 @@ export class CompletionService {
     const revisao: string[] = [];
     if (falhas.some((f) => f.key === RULE_REVIEW_STEP)) {
       const arq = path.join(worktree, RULE_REVIEW_REPORT);
+      const v = lerRevisao(worktree)?.violacoes ?? [];
+      // "Não conforme" sem nenhuma violação apontada = só dúvidas para o usuário: corrigir não resolve (rodaria 3
+      // vezes à toa). Se é a única falha, para e mostra as perguntas (o usuário responde ou aceita assim mesmo).
+      if (!v.length && falhas.every((f) => f.key === RULE_REVIEW_STEP)) {
+        await this.logs.log(job.id, 'A revisão não apontou nada para corrigir, só dúvidas: o trabalho espera a sua decisão (responder ou aceitar assim mesmo)', { source: 'evaluator', level: 'WARN' });
+        return false;
+      }
       try {
         const r = JSON.parse(fs.readFileSync(arq, 'utf8'));
-        const v: string[] = Array.isArray(r.violacoes) ? r.violacoes.map((x: unknown) => String(x)) : [];
         revisao.push('', 'A REVISÃO INDEPENDENTE apontou estas violações (corrija cada uma no trabalho):', ...v.slice(0, 40).map((x) => `- ${x.slice(0, 800)}`));
         if (r.observacoes) revisao.push(`Observações da revisão: ${String(r.observacoes).slice(0, 1500)}`);
       } catch {

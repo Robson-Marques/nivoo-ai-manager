@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
@@ -11,7 +12,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
-import { RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
+import { aceitarRevisao, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
 
 const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_THRESHOLD', 'MANUAL_APPROVAL'] as const;
@@ -396,6 +397,39 @@ export class JobsService {
     await this.queue.enqueue(this.prisma, 'EVALUATE_JOB', jobId, null);
     await this.logs.log(jobId, 'Reavaliação de critérios solicitada');
     return this.get(projectId, jobId);
+  }
+
+  private async pastaDoTrabalho(projectId: string, jobId: string): Promise<string | null> {
+    const p = await this.prisma.project.findUnique({ where: { id: projectId }, select: { workspacePath: true } });
+    const wt = p ? path.join(p.workspacePath, 'worktrees', jobId) : null;
+    return wt && fs.existsSync(wt) ? wt : null;
+  }
+
+  /** O que a revisão independente disse (violações e perguntas para o usuário). */
+  async revisao(projectId: string, jobId: string) {
+    await this.get(projectId, jobId);
+    const wt = await this.pastaDoTrabalho(projectId, jobId);
+    return (wt && lerRevisao(wt)) ?? { conforme: null, violacoes: [], perguntas: [], observacoes: '' };
+  }
+
+  /**
+   * "Aceitar assim mesmo": a revisão disse "não conforme" (ex.: por uma dúvida que só o usuário responde) e o
+   * usuário aceita o trabalho como está. Fica registrado no relatório quem aceitou e o que estava apontado; os
+   * critérios são conferidos de novo e, passando, o trabalho conclui normalmente. Um trabalho nunca fica preso.
+   */
+  async aceitarRevisao(projectId: string, jobId: string, por = 'usuário') {
+    const job = await this.get(projectId, jobId);
+    if (job.status !== 'BLOQUEADO' || job.blockedReason !== BlockedReason.CRITERIOS_NAO_ATENDIDOS) {
+      throw new ConflictException('Só dá para aceitar assim mesmo um trabalho parado pela conferência final');
+    }
+    if (!job.criteria.some((c) => c.key === RULE_REVIEW_STEP)) throw new ConflictException('Este trabalho não tem revisão independente');
+    if (job.steps.some((s) => s.status !== 'CONCLUIDO')) throw new ConflictException('Há etapas não concluídas; use "Tentar de novo"');
+    const wt = await this.pastaDoTrabalho(projectId, jobId);
+    if (!wt) throw new ConflictException('A pasta do trabalho não existe mais');
+    const nome = String(por).slice(0, 80) || 'usuário';
+    aceitarRevisao(wt, nome);
+    await this.logs.log(jobId, `Revisão aceita assim mesmo por ${nome}: os critérios são conferidos de novo`, { level: 'WARN' });
+    return this.requestEvaluation(projectId, jobId);
   }
 
   /** Estado real do job: o que está pronto, o que falta. */

@@ -66,6 +66,16 @@ export class JobsController {
     return this.jobs.requestEvaluation(pid, jid);
   }
 
+  @Get('jobs/:jid/revisao')
+  revisao(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string) {
+    return this.jobs.revisao(pid, jid);
+  }
+
+  @Post('jobs/:jid/aceitar-revisao')
+  aceitarRevisao(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
+    return this.jobs.aceitarRevisao(pid, jid, body?.por);
+  }
+
   @Post('jobs/:jid/objective')
   objective(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
     return this.jobs.newObjectiveVersion(pid, jid, body);

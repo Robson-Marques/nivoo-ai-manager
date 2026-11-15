@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 /**
  * Conferência das regras ("a trava"): todo trabalho feito por IA termina com uma sessão SEPARADA, sem a
  * memória da sessão que fez o trabalho, que compara as mudanças com o perfil do projeto (regras da base,
@@ -29,8 +31,10 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho.',
-      `5. Grave ${RULE_REVIEW_REPORT} assim: {"conforme": true|false, "violacoes": ["o que ainda viola e por quê"], "corrigido": ["o que você corrigiu"], "observacoes": "..."}`,
-      '   "conforme" só pode ser true se não restar NENHUMA violação. Na dúvida, false e explique.',
+      `5. Grave ${RULE_REVIEW_REPORT} assim: {"conforme": true|false, "violacoes": ["o que ainda viola e por quê"], "perguntas": ["dúvida que só o usuário responde"], "corrigido": ["o que você corrigiu"], "observacoes": "..."}`,
+      '   "conforme" só pode ser true se não restar NENHUMA violação. Violação é algo que a IA consegue corrigir no trabalho.',
+      '   Uma dúvida que SÓ O USUÁRIO responde (confirmar um nome, uma lista ou decisão que não está em nenhuma fonte)',
+      '   NÃO é violação: vai em "perguntas" (o usuário recebe na entrega) e não impede "conforme": true.',
     ].join('\n'),
     verifyCommand: RULE_REVIEW_STEP_CHECK,
   };
@@ -42,3 +46,56 @@ export const RULE_REVIEW_CRITERION = {
   kind: 'COMMAND' as const,
   config: { command: CHECK },
 };
+
+export interface RevisaoLida {
+  conforme: boolean | null;
+  violacoes: string[];
+  perguntas: string[];
+  observacoes: string;
+  aceitaPor?: string;
+}
+
+const lista = (x: unknown): string[] => (Array.isArray(x) ? x.map((y) => (typeof y === 'string' ? y : JSON.stringify(y))).filter(Boolean) : typeof x === 'string' && x.trim() ? [x] : []);
+
+/** Relatório da revisão (out/conferencia-regras.json) + perguntas de out/perguntas-ao-usuario.md; null se não houver. */
+export function lerRevisao(worktree: string): RevisaoLida | null {
+  let r: any;
+  try {
+    r = JSON.parse(fs.readFileSync(path.join(worktree, RULE_REVIEW_REPORT), 'utf8'));
+  } catch {
+    return null;
+  }
+  const perguntas = lista(r?.perguntas);
+  try {
+    const md = fs.readFileSync(path.join(worktree, 'out', 'perguntas-ao-usuario.md'), 'utf8').trim();
+    if (md) perguntas.push(md.slice(0, 6000));
+  } catch {
+    /* sem arquivo de perguntas */
+  }
+  return {
+    conforme: typeof r?.conforme === 'boolean' ? r.conforme : null,
+    violacoes: lista(r?.violacoes).map((v) => v.slice(0, 1500)).slice(0, 40),
+    perguntas: perguntas.slice(0, 40),
+    observacoes: String(r?.observacoes ?? '').slice(0, 3000),
+    ...(r?.aceitoPeloUsuario?.por ? { aceitaPor: String(r.aceitoPeloUsuario.por) } : {}),
+  };
+}
+
+/** O usuário aceita o trabalho mesmo com a revisão dizendo "não conforme": fica registrado quem aceitou e o quê. */
+export function aceitarRevisao(worktree: string, por: string): void {
+  const arq = path.join(worktree, RULE_REVIEW_REPORT);
+  let r: any = {};
+  try {
+    r = JSON.parse(fs.readFileSync(arq, 'utf8'));
+  } catch {
+    /* sem relatório: registra só a aceitação */
+  }
+  const novo = {
+    ...r,
+    conforme: true,
+    violacoes: [],
+    aceitoPeloUsuario: { por, em: new Date().toISOString(), conformeAntes: r?.conforme ?? null, violacoesAceitas: lista(r?.violacoes), perguntasAbertas: lista(r?.perguntas) },
+  };
+  fs.mkdirSync(path.dirname(arq), { recursive: true });
+  fs.writeFileSync(arq, JSON.stringify(novo, null, 2));
+}

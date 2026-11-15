@@ -291,4 +291,35 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(prompt).toMatch(/REVISÃO INDEPENDENTE apontou estas violações[\s\S]*regra X descumprida \(stub\)/);
     expect(prompt).toMatch(/out\/perguntas-ao-usuario\.md/);
   });
+  it('revisão "não conforme" só por dúvida do usuário: não roda correções à toa; mostra a pergunta e "aceitar assim mesmo" conclui', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Revisão com dúvida', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    ctl('conforme', 'duvida');
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'auditoria', objective: 'auditoria', defaultProvider: 'claude-code-cli',
+        steps: [{ key: 'aud', instructions: 'echo relatorio > auditoria.md', verifyCommand: 'test -s auditoria.md' }],
+        criteria: [{ key: 'r', description: 'relatório', kind: 'FILE_EXISTS', config: { path: 'auditoria.md' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await fim(p.id, j.id);
+    ctl('mode', null);
+    ctl('conforme', null);
+    expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'CRITERIOS_NAO_ATENDIDOS' });
+    expect(x.steps.some((s: any) => s.key.startsWith('correcao-criterios-'))).toBe(false);
+    const r = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/revisao`).expect(200)).body;
+    expect(r).toMatchObject({ conforme: false, violacoes: [], perguntas: ['Qual é a lista original dos títulos das 16 seções?'] });
+    expect(fs.readFileSync(path.join(CTL, 'prompt-revisor.txt'), 'utf8')).toMatch(/SÓ O USUÁRIO responde[\s\S]*NÃO é violação/);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/aceitar-revisao`).send({ por: 'Robson' }).expect(201);
+    const y = await waitFor(async () => {
+      const z = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(z.status) ? z : null;
+    }, 30_000);
+    expect(y.status).toBe('CONCLUIDO');
+    const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/logs`)).body.map((l: any) => l.message).join('\n');
+    expect(logs).toMatch(/Revisão aceita assim mesmo por Robson/);
+    // Trabalho que não está parado na conferência final não aceita o atalho.
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/aceitar-revisao`).send({ por: 'Robson' }).expect(409);
+  });
 });

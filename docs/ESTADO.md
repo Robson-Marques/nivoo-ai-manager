@@ -177,6 +177,18 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Revisão "não conforme" por dúvida do usuário não trava o trabalho (2026-11-15)
+
+* **Bug real (ConnectChat)**: a auditoria ficou pronta (critérios aprovados), mas a revisora marcava "não conforme"
+  só porque faltava o usuário confirmar a lista original de títulos; três correções rodaram sem ter como resolver e
+  o trabalho parou. Agora a revisora separa **violações** (o que a IA corrige) de **perguntas** (o que só o
+  usuário responde, campo `perguntas`, que não impede `conforme: true`). "Não conforme" sem violação nenhuma não
+  gera correções à toa: o trabalho para e mostra as perguntas.
+* **Aceitar assim mesmo**: trabalho parado pela conferência final mostra o que a revisão apontou e as perguntas
+  (também de `out/perguntas-ao-usuario.md`), com o botão "Aceitar assim mesmo" (`POST .../aceitar-revisao`,
+  `GET .../revisao`): fica registrado no relatório quem aceitou e o que estava apontado, os critérios são
+  conferidos de novo e o trabalho conclui. Teste em `22`.
+
 ## CLAUDE.md novo criado pelo trabalho (2026-11-15)
 
 * **Bug real (ctrl-leads)**: o plano pedia para *criar* o `CLAUDE.md` num repositório que não tinha um; o sistema

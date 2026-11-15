@@ -125,6 +125,8 @@ textarea { resize: vertical; line-height: 1.5; }
 .mem-conta { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
 .mem-dica { margin: 0 0 6px; }
 .detalhes-parada { margin-top: 6px; }
+.revisao-parada { display: block; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.revisao-parada ul { margin: 4px 0 8px; padding-left: 18px; }
 .detalhes-parada pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-height: 280px; overflow: auto; user-select: text; }
 .arquivo { display: block; width: 100%; text-align: left; background: none; color: var(--accent); padding: 5px 2px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .modal-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }

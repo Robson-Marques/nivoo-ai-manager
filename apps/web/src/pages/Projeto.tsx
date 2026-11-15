@@ -97,7 +97,63 @@ function TrocarIa({ depois }: { depois?: () => Promise<unknown> }) {
 function conferenciaFalhou(job: any): boolean {
   if (job.blockedReason && job.blockedReason !== 'CRITERIOS_NAO_ATENDIDOS') return false;
   const etapa = job.steps.find((s: any) => s.key === 'conferencia-regras');
-  return !!etapa && etapa.status !== 'CONCLUIDO' && job.steps.filter((s: any) => s.key !== 'conferencia-regras').every((s: any) => s.status === 'CONCLUIDO');
+  const outras = job.steps.filter((s: any) => s.key !== 'conferencia-regras').every((s: any) => s.status === 'CONCLUIDO');
+  if (!etapa || !outras) return false;
+  // A revisão terminou e disse "não conforme" (critério final reprovado) — ou a etapa dela não chegou ao fim.
+  return etapa.status !== 'CONCLUIDO' || (job.criteria ?? []).some((c: any) => c.key === 'conferencia-regras' && c.status === 'REPROVADO');
+}
+
+/**
+ * A revisão independente disse "não conforme": mostra o que ela apontou e as perguntas que só o usuário responde,
+ * com "Aceitar assim mesmo" (fica registrado quem aceitou) — o trabalho nunca fica preso numa dúvida.
+ */
+function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId: string; onMudou: () => void }) {
+  const [r, setR] = useState<any | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  useEffect(() => {
+    api(`/projects/${projetoId}/jobs/${jobId}/revisao`).then(setR).catch(() => setR(null));
+  }, [projetoId, jobId]);
+  if (!r) return null;
+  return (
+    <div className="revisao-parada small">
+      {r.violacoes?.length > 0 && (
+        <>
+          <b>O que a revisão apontou</b>
+          <ul>{r.violacoes.map((v: string, i: number) => <li key={i}>{v}</li>)}</ul>
+        </>
+      )}
+      {r.perguntas?.length > 0 && (
+        <>
+          <b>Perguntas para você</b>
+          <ul>{r.perguntas.map((v: string, i: number) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{v}</li>)}</ul>
+          <span className="muted">Responda na conversa (vira um novo pedido) ou aceite o trabalho como está.</span>
+        </>
+      )}
+      {!r.violacoes?.length && !r.perguntas?.length && r.observacoes && <p>{r.observacoes}</p>}
+      <div className="row">
+        <button
+          disabled={ocupado}
+          onClick={async () => {
+            if (!window.confirm('Aceitar o trabalho como está, mesmo com a revisão dizendo "não conforme"? Fica registrado que foi você.')) return;
+            setOcupado(true);
+            setErro(null);
+            try {
+              await api(`/projects/${projetoId}/jobs/${jobId}/aceitar-revisao`, 'POST', { por: nomeUsuario() });
+              onMudou();
+            } catch (e: any) {
+              setErro(e.message);
+            } finally {
+              setOcupado(false);
+            }
+          }}
+        >
+          Aceitar assim mesmo
+        </button>
+      </div>
+      {erro && <div className="error">{erro}</div>}
+    </div>
+  );
 }
 
 export function Projeto() {
@@ -501,6 +557,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
           Parei: {conferenciaFalhou(job) ? 'a conferência encontrou algo fora das regras do projeto' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
           <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
           <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
+          {conferenciaFalhou(job) && job.status === 'BLOQUEADO' && <RevisaoParada projetoId={projetoId} jobId={jobId} onMudou={carregar} />}
           <DetalhesDaParada job={job} />
         </span>
       )}
