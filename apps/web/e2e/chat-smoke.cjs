@@ -285,6 +285,23 @@ const plano = {
     await page.locator('.perguntas-ia.respondida').last().waitFor();
     fs.writeFileSync(path.join(ctl, 'mode'), 'bash');
     passo('a IA pergunta com cartões de opções; clicar (ou "Outra") e enviar vira a resposta na conversa');
+
+    // 4d. Painéis recolhíveis: a lista de projetos recolhe para a esquerda; o painel da direita recolhe e as abas
+    // ficam na barra de cima (abrem o painel direto nelas). Lembrado ao recarregar.
+    await page.getByRole('button', { name: 'Recolher a lista de projetos' }).click();
+    await page.locator('.chat-app.lado-recolhido').waitFor();
+    await page.getByRole('button', { name: /Recolher painel/ }).click();
+    await page.locator('.abas-topo').waitFor();
+    if (await page.locator('aside.painel').count()) throw new Error('o painel não recolheu');
+    await shot(page, '7d-paineis-recolhidos');
+    await page.reload();
+    await page.locator('.chat-app.lado-recolhido').waitFor();
+    await page.locator('.abas-topo').getByRole('button', { name: 'Arquivos' }).click();
+    await page.locator('.painel .tab.active', { hasText: 'Arquivos' }).waitFor();
+    await page.getByRole('button', { name: 'Mostrar os projetos' }).click();
+    await page.locator('.chat-app:not(.lado-recolhido)').waitFor();
+    await page.locator('.painel').getByRole('button', { name: 'Memória', exact: true }).click();
+    passo('painéis recolhíveis: projetos para a esquerda, painel vira abas na barra de cima; lembrado ao recarregar');
     await page.getByRole('button', { name: 'Arquivos', exact: true }).click();
     await page.getByRole('button', { name: 'cardapio.md', exact: true }).click();
     await page.getByText('Margherita').last().waitFor();

@@ -237,7 +237,18 @@ export function Projeto() {
   const nav = useNavigate();
   const { recarregar, recarregarConversas } = useProjetos();
   const [projeto, setProjeto] = useState<any>(null);
-  const [painel, setPainel] = useState(true);
+  // Painel da direita (Memória, Arquivos, Git, Ajustes): aberto/fechado e a aba ficam lembrados neste navegador.
+  const [painel, setPainelBruto] = useState(() => lerPreferencia('nivoo_painel', '1') === '1');
+  const [aba, setAbaBruta] = useState<AbaPainel>(() => (lerPreferencia('nivoo_aba', 'memoria') as AbaPainel));
+  const setPainel = (v: boolean) => {
+    setPainelBruto(v);
+    gravarPreferencia('nivoo_painel', v ? '1' : '0');
+  };
+  const abrirAba = (a: AbaPainel) => {
+    setAbaBruta(a);
+    gravarPreferencia('nivoo_aba', a);
+    setPainel(true);
+  };
   const carregar = useCallback(async () => setProjeto(await api(`/projects/${pid}`)), [pid]);
   useEffect(() => {
     setProjeto(null);
@@ -258,10 +269,10 @@ export function Projeto() {
     recarregar().catch(() => undefined);
   }, [carregar, recarregar]);
   if (!projeto || !cid) return null;
-  return <Conversa key={cid} projeto={projeto} conversaId={cid} painel={painel} onPainel={() => setPainel(!painel)} onProjetoMudou={mudou} />;
+  return <Conversa key={cid} projeto={projeto} conversaId={cid} painel={painel} onPainel={() => setPainel(!painel)} aba={aba} onAba={abrirAba} onProjetoMudou={mudou} />;
 }
 
-function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { projeto: any; conversaId: string; painel: boolean; onPainel: () => void; onProjetoMudou: () => void }) {
+function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjetoMudou }: { projeto: any; conversaId: string; painel: boolean; onPainel: () => void; aba: AbaPainel; onAba: (a: AbaPainel) => void; onProjetoMudou: () => void }) {
   const { recarregarConversas } = useProjetos();
   const [conv, setConv] = useState<any>(null);
   const [texto, setTexto] = useState('');
@@ -409,7 +420,17 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             {projeto.archivedAt && <span className="tag">projeto arquivado</span>}
             {conv && <div className="muted small titulo-conversa">{conv.title}</div>}
           </div>
-          <button className="secondary" onClick={onPainel}>{painel ? 'Ocultar painel' : 'Memória, arquivos e ajustes'}</button>
+          <div className="acoes-topo">
+            {/* Painel recolhido: as abas ficam aqui em cima e abrem o painel direto nelas. */}
+            {!painel && (
+              <div className="abas-topo">
+                {ABAS_PAINEL.map((a) => (
+                  <button key={a.chave} className="link" onClick={() => onAba(a.chave)}>{a.titulo}</button>
+                ))}
+              </div>
+            )}
+            <button className="secondary" onClick={onPainel} title={painel ? 'Recolher o painel (as abas ficam aqui em cima)' : 'Abrir o painel'}>{painel ? 'Recolher painel ›' : '‹ Painel'}</button>
+          </div>
         </header>
 
         <div className="mensagens">
@@ -508,7 +529,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
         </>
         )}
       </div>
-      {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} />}
+      {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} aba={aba} onAba={onAba} />}
     </div>
     </IaContexto.Provider>
   );
@@ -737,9 +758,33 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   );
 }
 
-function Painel({ projeto, versao, onProjetoMudou }: { projeto: any; versao: number; onProjetoMudou: () => void }) {
+type AbaPainel = 'memoria' | 'arquivos' | 'git' | 'ajustes';
+const ABAS_PAINEL: Array<{ chave: AbaPainel; titulo: string }> = [
+  { chave: 'memoria', titulo: 'Memória' },
+  { chave: 'arquivos', titulo: 'Arquivos' },
+  { chave: 'git', titulo: 'Git' },
+  { chave: 'ajustes', titulo: 'Ajustes' },
+];
+
+/** Preferência de tela guardada neste navegador (falha calada: modo privado, armazenamento bloqueado). */
+export function lerPreferencia(chave: string, padrao: string): string {
+  try {
+    return localStorage.getItem(chave) ?? padrao;
+  } catch {
+    return padrao;
+  }
+}
+export function gravarPreferencia(chave: string, valor: string): void {
+  try {
+    localStorage.setItem(chave, valor);
+  } catch {
+    /* sem armazenamento: vale só nesta tela */
+  }
+}
+
+function Painel({ projeto, versao, onProjetoMudou, aba, onAba }: { projeto: any; versao: number; onProjetoMudou: () => void; aba: AbaPainel; onAba: (a: AbaPainel) => void }) {
   const projetoId = projeto.id;
-  const [aba, setAba] = useState<'memoria' | 'arquivos' | 'git' | 'ajustes'>('memoria');
+  const setAba = onAba;
   const [memoria, setMemoria] = useState<any[] | null>(null);
   const [arquivos, setArquivos] = useState<any[] | null>(null);
   const [aberto, setAberto] = useState<{ path: string; conteudo: string } | null>(null);

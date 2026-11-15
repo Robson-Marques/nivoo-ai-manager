@@ -37,6 +37,22 @@ export function Layout() {
   const [conversas, setConversas] = useState<any[] | null>(null);
   const [conversasArquivadas, setConversasArquivadas] = useState<any[] | null>(null);
   const [novo, setNovo] = useState(false);
+  // Lista de projetos recolhida para a esquerda (lembrado neste navegador).
+  const [recolhido, setRecolhidoBruto] = useState(() => {
+    try {
+      return localStorage.getItem('nivoo_lado') === 'recolhido';
+    } catch {
+      return false;
+    }
+  });
+  const setRecolhido = (v: boolean) => {
+    setRecolhidoBruto(v);
+    try {
+      localStorage.setItem('nivoo_lado', v ? 'recolhido' : 'aberto');
+    } catch {
+      /* só nesta tela */
+    }
+  };
 
   // Listas de arquivados são buscadas só quando abertas.
   const recarregar = useCallback(async () => setProjetos(await api<any[]>('/projects')), []);
@@ -112,9 +128,18 @@ export function Layout() {
 
   return (
     <ProjetosCtx.Provider value={{ projetos, recarregar, novoProjeto: () => setNovo(true), conversas, recarregarConversas }}>
-      <div className="chat-app">
+      <div className={recolhido ? 'chat-app lado-recolhido' : 'chat-app'}>
+        {recolhido ? (
+          <aside className="chat-side recolhida">
+            <button className="lado-botao" title="Mostrar os projetos" aria-label="Mostrar os projetos" onClick={() => setRecolhido(false)}>☰</button>
+            <button className="lado-botao" title="Novo projeto" aria-label="Novo projeto" onClick={() => setNovo(true)}>+</button>
+          </aside>
+        ) : (
         <aside className="chat-side">
-          <Link to="/" className="brand"><Marca tamanho={30} /></Link>
+          <div className="lado-topo">
+            <Link to="/" className="brand"><Marca tamanho={30} /></Link>
+            <button className="lado-botao" title="Recolher para a esquerda" aria-label="Recolher a lista de projetos" onClick={() => setRecolhido(true)}>‹</button>
+          </div>
           <button className="novo" onClick={() => setNovo(true)}>+ Novo projeto</button>
           <nav className="proj-list">
             {[...grupos.entries()].map(([g, ps]) => (
@@ -143,6 +168,7 @@ export function Layout() {
             <NavLink to="/diagnostico">Diagnóstico</NavLink>
           </div>
         </aside>
+        )}
         <main className="chat-main">
           {semWorker && (
             <div className="aviso-worker">

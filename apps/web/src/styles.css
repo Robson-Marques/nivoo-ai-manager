@@ -153,6 +153,8 @@ textarea { resize: vertical; line-height: 1.5; }
   .side-foot { flex-direction: row; border: 0; padding: 0; }
   .conversa.com-painel { grid-template-columns: 1fr; grid-template-rows: 1fr 40vh; }
   .painel { border-left: 0; border-top: 1px solid var(--line); }
+  .chat-app.lado-recolhido { grid-template-columns: 1fr; }
+  .chat-side.recolhida { flex-direction: row; justify-content: flex-start; }
 }
 
 /* ---------- Páginas simples (Modelos, Conexões) ---------- */
@@ -343,3 +345,11 @@ textarea { resize: vertical; line-height: 1.5; }
 .opcao-ia .rotulo { font-weight: 600; font-size: 13px; }
 .opcao-ia .descricao { font-size: 12px; color: var(--muted); }
 .outra-ia { font-size: 13px; }
+/* Painéis recolhíveis */
+.chat-app.lado-recolhido { grid-template-columns: 44px 1fr; }
+.chat-side.recolhida { padding: 10px 4px; align-items: center; }
+.lado-topo { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.lado-botao { all: unset; cursor: pointer; color: #e6e9ef; font-size: 18px; line-height: 1; padding: 6px 8px; border-radius: 6px; text-align: center; }
+.lado-botao:hover { background: rgba(255, 255, 255, 0.08); }
+.acoes-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.abas-topo { display: flex; gap: 10px; font-size: 13px; }
