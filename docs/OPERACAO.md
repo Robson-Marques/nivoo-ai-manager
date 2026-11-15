@@ -51,7 +51,7 @@
 14. **Trabalho até o fim e IA reserva** — trabalhos aprovados na conversa não têm limite de sessões nem de
     tempo. Em Ajustes → "Se a IA parar…", marque as IAs reserva (em ordem): sem crédito/limite, o trabalho
     continua sozinho na próxima, e a conversa avisa. Defina um limite de gasto se usar chaves de API.
-15. **Acesso pela internet** — `sudo nivoo dominio nivoo.suaempresa.com.br` publica o Nivoo num domínio
+15. **Acesso pela internet** — `nivoo dominio nivoo.suaempresa.com.br` (como root) publica o Nivoo num domínio
     seu pela Cloudflare (túnel, HTTPS, sem abrir portas) e liga o token; depois ligue o Cloudflare Access
     (login por e-mail) no painel da Cloudflare. Ver `docs/INSTALACAO-DEBIAN.md`, seção 3b.
 16. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token

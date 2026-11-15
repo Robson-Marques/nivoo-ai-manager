@@ -5,7 +5,7 @@
 
 ## Etapa 19 — publicar num domínio pela Cloudflare (2026-11-15)
 
-`sudo nivoo dominio <endereço>`: instala o `cloudflared`, autoriza o servidor na conta da Cloudflare (link no
+`nivoo dominio <endereço>` (como root): instala o `cloudflared`, autoriza o servidor na conta da Cloudflare (link no
 navegador), cria o túnel e o registro DNS, sobe o serviço e liga o token do Nivoo; mostra o passo a passo do
 Cloudflare Access. `status` e `remover`. Validado por simulação (cloudflared/systemctl/curl falsos): fluxo
 completo, segunda execução reaproveitando túnel e token, endereço inválido recusado. Não testado com a

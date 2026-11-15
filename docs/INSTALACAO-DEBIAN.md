@@ -82,10 +82,10 @@ Deixe esse terminal aberto e acesse **http://localhost:3000** no navegador.
 
 ### 3b. Publicar num domínio seu (Cloudflare) — recomendado para o dia a dia
 
-Com o domínio já na sua conta da Cloudflare, no servidor:
+Com o domínio já na sua conta da Cloudflare, no servidor (como root, sem sudo):
 
 ```bash
-sudo nivoo dominio nivoo.suaempresa.com.br
+nivoo dominio nivoo.suaempresa.com.br
 ```
 
 O comando instala o `cloudflared` (programa oficial da Cloudflare), mostra um link para você autorizar o
