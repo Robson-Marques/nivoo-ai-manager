@@ -67,10 +67,39 @@ export class JuntarVideosProvider implements AiProvider {
         partes.push(parte);
         req.onLog(`cena ${i + 1}/${cenas.length} pronta: ${cenas[i]}`);
       }
-      const lista = path.join(tmp, 'lista.txt');
-      fs.writeFileSync(lista, partes.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
       const saida = path.join(tmp, 'final.mp4');
-      const r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
+      // Transição suave entre as cenas (fusão de imagem e de som), em vez do corte seco que deixava trancos e
+      // micro-pausas no áudio. Cena curta demais para a fusão: emenda simples.
+      const duracoes: number[] = [];
+      for (const p of partes) duracoes.push(Number((await probe(p, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0);
+      const T = Number(process.env.NIVOO_VIDEO_TRANSICAO_SEG ?? 0.5);
+      let r: Awaited<ReturnType<typeof ff>> | null = null;
+      if (partes.length > 1 && T > 0 && duracoes.every((d) => d > T * 2)) {
+        const filtros: string[] = [];
+        let v = '0:v';
+        let a = '0:a';
+        let acumulado = duracoes[0];
+        for (let i = 1; i < partes.length; i++) {
+          const offset = (acumulado - T).toFixed(3);
+          filtros.push(`[${v}][${i}:v]xfade=transition=fade:duration=${T}:offset=${offset}[v${i}]`);
+          filtros.push(`[${a}][${i}:a]acrossfade=d=${T}:c1=tri:c2=tri[a${i}]`);
+          v = `v${i}`;
+          a = `a${i}`;
+          acumulado += duracoes[i] - T;
+        }
+        r = await ff([
+          ...partes.flatMap((p) => ['-i', p]),
+          '-filter_complex', filtros.join(';'),
+          '-map', `[${v}]`, '-map', `[${a}]`,
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', saida,
+        ], 1_800_000);
+        if (r.exitCode !== 0) req.onLog(`transição suave não deu certo (${r.stderr.trim().slice(-200)}); emendando sem transição`, 'WARN');
+      }
+      if (!r || r.exitCode !== 0) {
+        const lista = path.join(tmp, 'lista.txt');
+        fs.writeFileSync(lista, partes.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
+        r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
+      }
       if (r.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui juntar as cenas: ${r.stderr.trim().slice(-300)}`, interrupted: req.signal.aborted };
       const destino = resolveInside(req.cwd, o.arquivo);
       fs.mkdirSync(path.dirname(destino), { recursive: true });

@@ -360,6 +360,9 @@ export class PlannerService {
             '  com "anexosNoProjeto" e use o mesmo caminho em "imagem". Não precisa de verifyCommand: o sistema confere o arquivo.',
             '  O Google gera de 3 a 15 s por vez (duracaoSeg de 3 a 15): para um vídeo maior, uma etapa por cena (videos/<nome>/cena-01.mp4, cena-02.mp4…) e o',
             '  SISTEMA acrescenta sozinho a etapa final que junta as cenas, na ordem, em videos/<nome>/<nome>-completo.mp4 (não crie essa etapa).',
+            '  As cenas são unidas com meio segundo de fusão. Para o som não "pular" entre elas: descreva o MESMO ambiente sonoro e a',
+            '  mesma trilha em todas as cenas (ex.: "trilha acústica suave e constante, som ambiente de cozinha"), e termine falas e',
+            '  efeitos fortes antes do último segundo da cena (o fim de cada cena se mistura com o começo da seguinte).',
           ]
         : []),
       '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',

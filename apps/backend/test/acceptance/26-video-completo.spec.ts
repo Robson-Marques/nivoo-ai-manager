@@ -66,14 +66,15 @@ describe('Vídeo completo (cenas juntadas)', () => {
       return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
     }, 90_000);
     expect(fim.status).toBe('CONCLUIDO');
-    expect(fim.attempts[0].output).toMatch(/Vídeo completo: videos\/pizzaria\/pizzaria-completo\.mp4 \(2 cenas, 5 s/);
+    expect(fim.attempts[0].output).toMatch(/Vídeo completo: videos\/pizzaria\/pizzaria-completo\.mp4 \(2 cenas, [45] s/);
 
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'video-final-'));
     const final = path.join(tmp, 'final.mp4');
     fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/pizzaria/pizzaria-completo.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
     expect(ffprobe(final, '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x')).toBe('1280x720');
     expect(ffprobe(final, '-select_streams', 'a', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0')).toBe('aac');
-    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(5, 0);
+    // 2 s + 3 s com meio segundo de fusão entre as cenas (imagem e som), sem corte seco.
+    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(4.5, 1);
     // A tela baixa o vídeo pela API: bytes idênticos (antes vinham corrompidos como texto) e tipo de vídeo.
     const pelaApi = await h.http().get(`/api/projects/${p.id}/files/content`).query({ path: 'videos/pizzaria/pizzaria-completo.mp4' }).buffer(true).parse((res, cb) => {
       const partes: Buffer[] = [];

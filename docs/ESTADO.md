@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Vídeo completo com transição suave (2026-11-15)
+
+Caso real: o vídeo juntado tinha trancos e micro-pausas no áudio entre as cenas (corte seco; cada cena tem o
+próprio som). Agora a junção faz meio segundo de fusão entre as cenas, na imagem (`xfade`) e no som
+(`acrossfade`), reencodando o vídeo final (`NIVOO_VIDEO_TRANSICAO_SEG`, padrão 0.5; 0 = corte seco). Se a fusão
+falhar, emenda como antes. O vídeo fica 0,5 s mais curto por emenda. A IA que planeja é orientada a descrever o
+mesmo ambiente sonoro em todas as cenas e a terminar falas antes do último segundo. Teste em `26`.
+
 ## Conferência que falha calada agora explica (2026-11-15)
 
 Caso real: "a conferência da etapa falhou 6 vezes seguidas do mesmo jeito: (exit 1):" — sem dizer o quê (ex.:
