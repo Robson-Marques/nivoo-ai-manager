@@ -11,4 +11,11 @@ export function applyTestEnv(): void {
   process.env.NIVOO_ARTIFACTS_ROOT = path.join(TEST_ROOT, 'artifacts');
   process.env.NIVOO_LEASE_MS = process.env.NIVOO_LEASE_MS ?? '3000';
   process.env.NIVOO_POLL_MS = '200';
+  // Os testes NUNCA mexem nos logins reais desta máquina: remover a conexão do ChatGPT roda "codex logout" e o do
+  // Claude "claude auth logout". Fora do ensaio real (NIVOO_RUN_CLI_INTEGRATION=1), cada CLI usa uma pasta de teste.
+  if (process.env.NIVOO_RUN_CLI_INTEGRATION !== '1') {
+    process.env.CODEX_HOME = path.join(TEST_ROOT, 'home-codex');
+    process.env.CLAUDE_CONFIG_DIR = path.join(TEST_ROOT, 'home-claude');
+    process.env.GEMINI_CLI_HOME = path.join(TEST_ROOT, 'home-gemini');
+  }
 }
