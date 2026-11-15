@@ -236,9 +236,11 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('conforme', 'false');
     try {
       const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
-      const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 40000);
+      const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d.status).not.toBe('CONCLUIDO');
-      expect(d.steps.find((s: any) => s.key === 'conferencia-regras').status).not.toBe('CONCLUIDO');
+      // A revisão reprovou sempre: o trabalho voltou para correção (até 3 rodadas) e parou sem ficar pronto.
+      expect(d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(3);
+      expect(d.blockedReason).toBe('CRITERIOS_NAO_ATENDIDOS');
       expect(d.mergeStatus).toBeNull(); // nada entrou na pasta principal
     } finally {
       ctl('conforme', null);

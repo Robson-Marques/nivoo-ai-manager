@@ -31,7 +31,7 @@ export class DiagnosticoService {
   private versao(): string {
     try {
       const raiz = path.resolve(__dirname, '..', '..', '..', '..');
-      return execFileSync('git', ['-C', raiz, 'log', '-1', '--format=%h (%cI) %s'], { encoding: 'utf8', timeout: 5000 }).trim();
+      return execFileSync('git', ['-c', 'safe.directory=*', '-C', raiz, 'log', '-1', '--format=%h (%cI) %s'], { encoding: 'utf8', timeout: 5000 }).trim();
     } catch {
       return 'desconhecida';
     }

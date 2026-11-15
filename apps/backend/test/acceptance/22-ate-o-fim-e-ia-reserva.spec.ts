@@ -240,4 +240,30 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const ordem = x.attempts.map((a: any) => x.steps.find((s: any) => s.id === a.stepId)?.key);
     expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('correcao-criterios-1'));
   });
+
+  it('revisão diz "não conforme": a etapa dela termina (não fica em loop); a IA corrige com as violações apontadas e a revisão aprova', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Revisão devolve', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    ctl('conforme', 'false'); // a revisora (stub) reprova com "regra X descumprida (stub)"
+    ctl('correcao.sh', `echo true > '${path.join(CTL, 'conforme')}'; echo corrigido > inventario.tsv`);
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'auditoria', objective: 'inventário', defaultProvider: 'claude-code-cli',
+        steps: [{ key: 'inv', instructions: 'echo cabecalho > inventario.tsv', verifyCommand: 'test -s inventario.tsv' }],
+        criteria: [{ key: 'i', description: 'inventário', kind: 'FILE_EXISTS', config: { path: 'inventario.tsv' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await fim(p.id, j.id);
+    ctl('mode', null);
+    ctl('conforme', null);
+    ctl('correcao.sh', null);
+    expect(x.status).toBe('CONCLUIDO');
+    const revisao = x.steps.find((s: any) => s.key === 'conferencia-regras');
+    const tentativasRevisao = x.attempts.filter((a: any) => a.stepId === revisao.id);
+    expect(tentativasRevisao.map((a: any) => a.status)).toEqual(['SUCESSO', 'SUCESSO']); // uma por rodada, sem loop
+    const prompt = fs.readFileSync(path.join(CTL, 'prompt-correcao.txt'), 'utf8');
+    expect(prompt).toMatch(/REVISÃO INDEPENDENTE apontou estas violações[\s\S]*regra X descumprida \(stub\)/);
+    expect(prompt).toMatch(/out\/perguntas-ao-usuario\.md/);
+  });
 });

@@ -9,6 +9,13 @@ export const RULE_REVIEW_REPORT = 'out/conferencia-regras.json';
 
 const CHECK = `python3 -c "import json,sys; d=json.load(open('${RULE_REVIEW_REPORT}')); sys.exit(0 if d.get('conforme') is True and not d.get('violacoes') else 1)"`;
 
+/**
+ * Conferência da ETAPA de revisão: o relatório existe e diz conforme true ou false. Revisar é o papel dela; se ela
+ * aponta violações, quem corrige é a IA do projeto (etapa de correção criada pelo critério final), não outra rodada
+ * da revisora — antes, "não conforme" fazia a revisora repetir sessão após sessão até parar o trabalho.
+ */
+export const RULE_REVIEW_STEP_CHECK = `python3 -c "import json,sys; d=json.load(open('${RULE_REVIEW_REPORT}')); sys.exit(0 if isinstance(d.get('conforme'), bool) else 1)"`;
+
 export function ruleReviewStep(dependsOn: string[], provider: string) {
   return {
     key: RULE_REVIEW_STEP,
@@ -25,7 +32,7 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       `5. Grave ${RULE_REVIEW_REPORT} assim: {"conforme": true|false, "violacoes": ["o que ainda viola e por quê"], "corrigido": ["o que você corrigiu"], "observacoes": "..."}`,
       '   "conforme" só pode ser true se não restar NENHUMA violação. Na dúvida, false e explique.',
     ].join('\n'),
-    verifyCommand: CHECK,
+    verifyCommand: RULE_REVIEW_STEP_CHECK,
   };
 }
 

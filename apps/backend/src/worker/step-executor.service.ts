@@ -27,7 +27,7 @@ import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } fro
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
-import { RULE_REVIEW_STEP } from '../jobs/rule-review';
+import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
 export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
@@ -301,10 +301,12 @@ export class StepExecutorService {
     // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
-    let verified = !step.verifyCommand;
+    // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
+    const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
+    let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
-    if (result.exitCode === 0 && !result.interrupted && step.verifyCommand) {
-      const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', step.verifyCommand], {
+    if (result.exitCode === 0 && !result.interrupted && verifyCommand) {
+      const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
         cwd: worktree,
         env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
         timeoutMs: 120_000,
@@ -312,7 +314,7 @@ export class StepExecutorService {
       });
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
-      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(step.verifyCommand, worktree) : '')).slice(-800);
+      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-800);
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
       verified = v.exitCode === 0;
       // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.
@@ -745,7 +747,16 @@ export class StepExecutorService {
     add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
     add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
-    if (step.verifyCommand) add('verificacao', ['## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', step.verifyCommand, '```']);
+    const conferencia = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
+    if (conferencia) add('verificacao', ['## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', conferencia, '```']);
+    if (step.key === RULE_REVIEW_STEP) {
+      add('revisao', [
+        '## Como esta revisão termina',
+        `- A etapa termina quando ${RULE_REVIEW_REPORT} existe com "conforme" true ou false. NÃO é preciso deixar conforme=true:`,
+        '  se houver violação que você não consegue corrigir (ex.: falta fazer parte do trabalho), grave conforme=false com as violações',
+        '  concretas — o sistema devolve o trabalho à IA do projeto para corrigir e depois revisa de novo.',
+      ]);
+    }
     const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
     if (attempts.length) {
       history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');

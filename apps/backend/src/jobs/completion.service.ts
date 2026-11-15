@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { sha256, sha256File } from '../common/hash';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
@@ -12,7 +13,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
-import { RULE_REVIEW_STEP } from './rule-review';
+import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { tipoDe } from '../accounts/connections';
 
 export interface CriterionResult {
@@ -68,7 +69,7 @@ export class CompletionService {
    * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. Até
    * 3 rodadas; depois disso o trabalho para e explica. Devolve true se criou a correção.
    */
-  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[]): Promise<boolean> {
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
@@ -83,8 +84,23 @@ export class CompletionService {
       const c = criterios.find((x) => x.key === f.key);
       return `- ${f.key} — ${c?.description ?? ''}\n  evidência: ${JSON.stringify(f.evidence).slice(0, 600)}`;
     });
+    // A revisão independente apontou violações: elas são o que corrigir (o relatório antigo sai; a revisão roda de novo).
+    const revisao: string[] = [];
+    if (falhas.some((f) => f.key === RULE_REVIEW_STEP)) {
+      const arq = path.join(worktree, RULE_REVIEW_REPORT);
+      try {
+        const r = JSON.parse(fs.readFileSync(arq, 'utf8'));
+        const v: string[] = Array.isArray(r.violacoes) ? r.violacoes.map((x: unknown) => String(x)) : [];
+        revisao.push('', 'A REVISÃO INDEPENDENTE apontou estas violações (corrija cada uma no trabalho):', ...v.slice(0, 40).map((x) => `- ${x.slice(0, 800)}`));
+        if (r.observacoes) revisao.push(`Observações da revisão: ${String(r.observacoes).slice(0, 1500)}`);
+      } catch {
+        /* sem relatório legível: segue só com o critério */
+      }
+      fs.rmSync(arq, { force: true });
+    }
     // A etapa só termina quando os mesmos critérios passam (comandos e arquivos verificáveis aqui mesmo).
     const confere = falhas
+      .filter((f) => f.key !== RULE_REVIEW_STEP) // a conformidade é dada pela revisão, que roda de novo depois
       .map((f) => criterios.find((x) => x.key === f.key))
       .map((c) => {
         const cfg = (c?.config ?? {}) as Record<string, unknown>;
@@ -105,9 +121,12 @@ export class CompletionService {
           instructions: [
             'O trabalho terminou as etapas, mas a conferência final do sistema NÃO passou nestes critérios:',
             ...linhas,
+            ...revisao,
             '',
             'Corrija o trabalho (arquivos do projeto) para que esses critérios passem, mantendo o que já foi feito e as regras do projeto.',
-            'Não altere os critérios nem contorne a conferência. Se algum critério não puder ser atendido, explique o motivo exato na resposta.',
+            'Faça o trabalho de verdade (ex.: se um inventário ou relatório ficou vazio, preencha com o conteúdo real, lendo os arquivos).',
+            'Não altere os critérios nem contorne a conferência. Se faltar uma informação que só o usuário tem, faça a melhor versão possível,',
+            'registre a dúvida em out/perguntas-ao-usuario.md (ela vai para o usuário na entrega) e siga — não pare o trabalho por isso.',
           ].join('\n'),
           verifyCommand: confere,
         },
@@ -184,7 +203,7 @@ export class CompletionService {
         status = 'CONCLUIDO';
       }
       if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && waiting.length === 0) {
-        if (await this.corrigirCriterios(job as never, failed, job.criteria)) {
+        if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree)) {
           report.finalStatus = 'EXECUTANDO';
           return report;
         }

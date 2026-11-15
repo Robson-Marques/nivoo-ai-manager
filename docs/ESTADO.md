@@ -3,6 +3,17 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Revisão "não conforme" volta para correção, sem loop (2026-11-15)
+
+Caso real (diagnóstico do ConnectChat): a etapa de auditoria foi dada como concluída com o inventário vazio (o ChatGPT
+ainda não conseguia ler), e a conferência das regras, corretamente, reprovou — mas a etapa da revisora só terminava
+com "conforme=true", então ela repetia a revisão até o trabalho parar. Agora: a etapa de revisão termina quando o
+relatório existe (conforme true OU false; vale também para trabalhos antigos); o critério final continua exigindo
+conforme=true, e quando ele falha a etapa de correção leva para a IA do projeto as **violações apontadas pela
+revisora** (o relatório antigo é apagado; a revisão roda de novo), até 3 rodadas. Informação que só o usuário tem não
+trava mais: a IA faz a melhor versão e registra em `out/perguntas-ao-usuario.md` (vai na entrega). O diagnóstico
+mostra a versão mesmo com a pasta do código de outro dono (`safe.directory`). Testes em `22` e `13`.
+
 ## Diagnóstico para o suporte e registro de erros (2026-11-15)
 
 Para corrigir sem tentativa e erro:
