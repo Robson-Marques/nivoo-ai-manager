@@ -99,6 +99,14 @@ case "$cmd" in
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
     echo "ok: restaurado"
     ;;
+  instalar-navegador)
+    # Navegador para a ferramenta MCP "Navegador" (Playwright): bibliotecas do sistema (root) e o Chromium na
+    # pasta do usuário do serviço (é ele quem roda as IAs).
+    export PATH="$NODE_DIR/bin:$PATH"
+    npx -y playwright@latest install-deps chromium
+    runuser -u "$NIVOO_USER" -- env HOME="$NIVOO_HOME" PATH="$NODE_DIR/bin:/usr/local/bin:/usr/bin:/bin" npx -y playwright@latest install chromium
+    echo "ok: navegador instalado para a ferramenta MCP \"Navegador\" (Conexões → Ferramentas → Testar)"
+    ;;
   verificar)
     # Job de ponta a ponta (sem IA) para confirmar que API, worker, banco e workspaces funcionam.
     bash "$APP_DIR/deploy/verificar-instalacao.sh" "$API"
@@ -264,6 +272,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo start|stop|restart  controlar os serviços
   nivoo check               conferir API, workers e conectores de IA
   nivoo verificar           roda um job de teste de ponta a ponta (sem IA)
+  nivoo instalar-navegador  instala o navegador usado pela ferramenta MCP "Navegador" (Playwright)
   nivoo login-claude        login oficial do Claude Code para o worker
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)

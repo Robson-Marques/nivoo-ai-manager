@@ -1,3 +1,4 @@
+import type { McpResolvido } from '../mcp/mcp';
 export type ProviderKind = 'cli' | 'api' | 'executor' | 'test';
 
 export interface ProviderStatus {
@@ -42,6 +43,8 @@ export interface ExecutionRequest {
   /** images: arquivos de imagem anexados (para IAs que recebem imagem pela linha de comando). */
   /** Etapa de vídeo: arquivo, duracaoSeg, proporcao, resolucao, negativo, imagem, conexao. */
   options?: { model?: string; maxTurns?: number; images?: string[]; [k: string]: unknown };
+  /** Ferramentas MCP liberadas para o projeto (já com os segredos; nunca vão para o texto da IA). */
+  mcp?: McpResolvido[];
 }
 
 export interface ExecutionResult {

@@ -49,6 +49,7 @@ export async function truncateAll(prisma: PrismaService): Promise<void> {
   const fs = await import('node:fs');
   const path = await import('node:path');
   fs.rmSync(path.join(path.dirname(process.env.NIVOO_WORKSPACES_ROOT!), 'conexoes.json'), { force: true });
+  fs.rmSync(path.join(path.dirname(process.env.NIVOO_WORKSPACES_ROOT!), 'mcp.json'), { force: true });
   // A base padrão ("Geral") é recriada como na inicialização da API.
   const { AreasService } = await import('../../src/areas/areas.service');
   const svc = new AreasService(prisma, new (await import('../../src/storage/workspace.service')).WorkspaceService());

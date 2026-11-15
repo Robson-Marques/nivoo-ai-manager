@@ -99,7 +99,7 @@ const plano = {
     await page.getByRole('heading', { name: 'Conexões', exact: true }).waitFor();
     await page.locator('.conexao', { hasText: 'Claude (conta)' }).getByText('Conectado', { exact: true }).waitFor();
     for (const [n, chave] of [[`Claude API 1 ${stamp}`, 'sk-ant-api03-SMOKE-UM-0123456789'], [`Claude API 2 ${stamp}`, null]]) {
-      await page.getByRole('button', { name: 'Nova' }).click();
+      await page.getByRole('button', { name: 'Nova', exact: true }).click();
       await page.locator('.tipo-conexao', { hasText: 'Claude — chave de API' }).click();
       await page.getByLabel('Nome da conexão').fill(n);
       if (chave) await page.getByLabel('Chave de API').fill(chave);
@@ -119,6 +119,29 @@ const plano = {
     await renomeada.getByRole('button', { name: 'Usar como padrão nos projetos novos' }).click();
     await renomeada.locator('.selo-padrao').waitFor();
     await shot(page, '1-conexoes');
+    // Ferramenta MCP pela tela: cria (com token secreto), testa (liga e lista as ferramentas) e exclui.
+    const mcpStub = path.join(__dirname, '..', '..', 'backend', 'test', 'support', 'stubs', 'mcp-stub.cjs');
+    const mcpSaida = path.join(os.tmpdir(), `mcp-smoke-${stamp}.json`);
+    await page.getByRole('button', { name: 'Nova ferramenta' }).click();
+    await page.locator('.modal .tipo-conexao', { hasText: 'Navegador' }).waitFor(); // modelos prontos
+    await page.locator('.modal').getByLabel('Nome', { exact: true }).fill(`Eco ${stamp}`);
+    await page.getByLabel('Comando').fill(`node ${mcpStub} ${mcpSaida}`);
+    await page.getByRole('button', { name: '+ adicionar' }).click();
+    await page.getByPlaceholder('API_KEY').fill('TOKEN_X');
+    await page.getByPlaceholder('valor').fill('segredo-smoke');
+    await shot(page, '1b-nova-ferramenta-mcp');
+    await page.getByRole('button', { name: 'Criar ferramenta' }).click();
+    const linhaMcp = page.locator('.conexao', { hasText: `Eco ${stamp}` });
+    await linhaMcp.waitFor();
+    await linhaMcp.getByRole('button', { name: 'Testar (liga e lista as ferramentas)' }).click();
+    await linhaMcp.getByText(/Funcionando\. 1 ferramenta\(s\): eco/).waitFor({ timeout: 30000 });
+    if (JSON.parse(fs.readFileSync(mcpSaida, 'utf8')).TOKEN_X !== 'segredo-smoke') throw new Error('o token não chegou à ferramenta MCP');
+    if ((await page.content()).includes('segredo-smoke')) throw new Error('o token apareceu na tela');
+    await shot(page, '1c-ferramenta-mcp-testada');
+    page.once('dialog', (d) => d.accept());
+    await linhaMcp.getByRole('button', { name: 'Excluir' }).click();
+    await linhaMcp.waitFor({ state: 'detached' });
+    passo('ferramenta MCP criada pela tela, testada (token chega ao programa, nunca à tela) e excluída');
     await page.locator('.conexao', { hasText: 'Claude (conta)' }).getByRole('button', { name: 'Usar como padrão nos projetos novos' }).click();
     for (const n of [`Claude API 1 ${stamp}`, `Claude do cliente ${stamp}`]) {
       page.once('dialog', (d) => d.accept());
@@ -325,7 +348,7 @@ with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:d
     await new Promise((ok) => api.listen(0, '127.0.0.1', ok));
     try {
       await page.goto(`${base}/contas`);
-      await page.getByRole('button', { name: 'Nova' }).click();
+      await page.getByRole('button', { name: 'Nova', exact: true }).click();
       await page.locator('.tipo-conexao', { hasText: 'GitLab' }).click();
       await page.getByLabel('Nome da conexão').fill('GitLab Empresa');
       await page.getByLabel('Endereço do GitLab').fill(`http://127.0.0.1:${api.address().port}`);

@@ -1,5 +1,6 @@
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
+import { mcpDoProjeto } from '../mcp/mcp';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
@@ -277,6 +278,8 @@ export class StepExecutorService {
         signal,
         // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
         options: { model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }) },
+        // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
+        ...(isAi ? { mcp: mcpDoProjeto(job.projectId) } : {}),
         onSpawn: (pid) => {
           logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },
@@ -732,7 +735,7 @@ export class StepExecutorService {
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
-    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider);
+    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
     if (ferramentas.length) add('ferramentas', ferramentas);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       add('mudancas', ['## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```']);

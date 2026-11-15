@@ -1,3 +1,7 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { configClaude, permissoesClaude } from '../mcp/para-ia';
 import { Injectable } from '@nestjs/common';
 import { isolatedHome, segredoDaConexao, secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -173,6 +177,16 @@ export class ClaudeCodeCliProvider implements AiProvider {
       '--permission-mode', 'acceptEdits', '--disallowedTools', ...ClaudeCodeCliProvider.DENIED,
     ];
     const extra = ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
+    // Ferramentas MCP do projeto: arquivo só desta sessão (fora da pasta do trabalho, 600) e permissão só a elas.
+    let pastaMcp: string | null = null;
+    if (req.mcp?.length) {
+      pastaMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
+      const arq = path.join(pastaMcp, 'mcp.json');
+      fs.writeFileSync(arq, JSON.stringify(configClaude(req.mcp)), { mode: 0o600 });
+      args.push('--mcp-config', arq);
+      extra.push(...permissoesClaude(req.mcp));
+      req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
+    }
     if (extra.length) args.push('--allowedTools', ...extra);
     const model = req.options?.model ?? process.env.NIVOO_CLAUDE_MODEL;
     if (model) args.push('--model', model);
@@ -198,6 +212,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       },
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
+    if (pastaMcp) fs.rmSync(pastaMcp, { recursive: true, force: true });
     // Sessão encerrada à força: o CLI não emite o custo final. Estima pelos tokens já informados no stream,
     // para que o orçamento do job e do projeto continue valendo.
     if (r.aborted || r.timedOut) {

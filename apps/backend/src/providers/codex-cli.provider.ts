@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { argsCodex } from '../mcp/para-ia';
 import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
@@ -99,8 +100,10 @@ export class CodexCliProvider implements AiProvider {
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
     for (const img of req.options?.images ?? []) args.push('--image', img);
+    req.onLog(`codex ${args.join(' ')} -${req.mcp?.length ? ` + ferramentas MCP: ${req.mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
+    // Ferramentas MCP do projeto: só para esta execução (o config.toml da conta não muda).
+    if (req.mcp?.length) args.push(...argsCodex(req.mcp));
     args.push('-');
-    req.onLog(`codex ${args.join(' ')}`);
     let pendente = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,

@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { FerramentasMcp } from './Mcp';
 
 /**
  * Conexões: as IAs que trabalham nos projetos (Claude, ChatGPT, Gemini — pela conta ou por chave de API)
@@ -70,6 +71,7 @@ export function Contas() {
         {!!gits?.length && <div className="conexoes-grupo">Git</div>}
         {gits?.map((g) => <ConexaoGit key={g.id} g={g} onMudou={() => carregar()} />)}
       </div>
+      <FerramentasMcp />
       {nova && (
         <NovaConexao
           ias={ias ?? []}
@@ -86,7 +88,7 @@ export function Contas() {
 }
 
 /** Linha de uma conexão: ícone, nome, selos, estado e ações (como uma lista de integrações). */
-function Linha({ icone, nome, selos, detalhe, estado, acoes, children }: { icone: ReactNode; nome: string; selos: ReactNode; detalhe: ReactNode; estado: ReactNode; acoes: ReactNode; children?: ReactNode }) {
+export function Linha({ icone, nome, selos, detalhe, estado, acoes, children }: { icone: ReactNode; nome: string; selos: ReactNode; detalhe: ReactNode; estado: ReactNode; acoes: ReactNode; children?: ReactNode }) {
   return (
     <div className="conexao">
       <div className="conexao-linha">
@@ -106,7 +108,7 @@ function Linha({ icone, nome, selos, detalhe, estado, acoes, children }: { icone
   );
 }
 
-function BotaoIcone({ nome, titulo, onClick, perigo, disabled }: { nome: string; titulo: string; onClick: () => void; perigo?: boolean; disabled?: boolean }) {
+export function BotaoIcone({ nome, titulo, onClick, perigo, disabled }: { nome: string; titulo: string; onClick: () => void; perigo?: boolean; disabled?: boolean }) {
   return (
     <button className={perigo ? 'icone-botao perigo' : 'icone-botao'} title={titulo} aria-label={titulo} onClick={onClick} disabled={disabled}>
       <Icone nome={nome} />
@@ -114,7 +116,7 @@ function BotaoIcone({ nome, titulo, onClick, perigo, disabled }: { nome: string;
   );
 }
 
-function Estado({ ok, texto }: { ok: boolean | 'andamento'; texto: string }) {
+export function Estado({ ok, texto }: { ok: boolean | 'andamento'; texto: string }) {
   return <span className={ok === true ? 'estado ok' : ok === 'andamento' ? 'estado andamento' : 'estado'}><Icone nome={ok === true ? 'sinal' : ok === 'andamento' ? 'relogio' : 'aviso'} /> {texto}</span>;
 }
 

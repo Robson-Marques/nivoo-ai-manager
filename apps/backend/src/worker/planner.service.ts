@@ -1,5 +1,6 @@
 import { caminhoDoProjeto } from '../common/path-guard';
 import { ferramentasDaIa } from '../providers/ferramentas';
+import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Anexo, copiarAnexosParaSessao, descreverAnexo } from '../conversations/attachments';
@@ -145,6 +146,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
+        mcp: mcpDoProjeto(project.id),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
@@ -311,7 +313,7 @@ export class PlannerService {
       '',
       profileText,
       '',
-      ...ferramentasDaIa(providerId),
+      ...ferramentasDaIa(providerId, mcpDoProjeto(project.id).map((m) => m.nome)),
       '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
       '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
       '',

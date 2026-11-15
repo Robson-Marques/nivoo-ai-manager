@@ -13,6 +13,9 @@ esac
 prompt=$(cat)
 echo "$prompt" > "$CTL/prompt.txt"
 echo "$@" > "$CTL/args.txt"
+# Ferramentas MCP desta sessão: guarda a configuração recebida (o arquivo some quando a sessão acaba).
+rm -f "$CTL/mcp.json"
+prev=""; for a in "$@"; do [ "$prev" = "--mcp-config" ] && cp "$a" "$CTL/mcp.json"; prev="$a"; done
 # Qual credencial/pasta chegou a esta sessão (conexões múltiplas não podem se misturar).
 echo "${ANTHROPIC_API_KEY:-}|${CLAUDE_CONFIG_DIR:-}|${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$CTL/env.txt"
 # Anexos do chat que chegaram à sessão (com o tamanho de cada um).

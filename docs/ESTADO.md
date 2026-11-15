@@ -3,6 +3,25 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Ferramentas das IAs (MCP) (2026-11-15)
+
+Tela **Conexões → Ferramentas das IAs (MCP)**: cadastrar servidores MCP — programa no servidor (stdio; ex.: `npx -y
+@playwright/mcp@latest --headless --isolated`) ou endereço (HTTP streamable; ex.: Context7, GitHub) —, com variáveis,
+tokens/senhas (variáveis ou cabeçalhos secretos: guardados em `segredos.json` como `mcp--<id>/<NOME>`, nunca devolvidos
+pela API nem postos no texto da IA), liga/desliga e **quais projetos usam** (todos ou escolhidos). Botão **Testar**:
+liga a ferramenta, faz `initialize` + `tools/list` e mostra as ferramentas (ou o erro). Modelos prontos: Navegador
+(Playwright), Documentação (Context7), GitHub. Lista em `mcp.json` (600) ao lado de `conexoes.json`.
+
+Em cada sessão de IA do projeto (etapas, conferência das regras e conversa), as ferramentas liberadas vão no formato
+de cada IA: Claude `--mcp-config` (arquivo só da sessão, 600, fora da pasta do trabalho; `--strict-mcp-config`
+continua: só essas valem) + `--allowedTools mcp__<nome>`; ChatGPT/Codex `-c mcp_servers.<nome>.…` só para a execução
+(o log não mostra segredos); Gemini `mcpServers` num HOME só da sessão. O prompt avisa quais ferramentas existem.
+`nivoo instalar-navegador` instala o Chromium (e dependências) para o "Navegador". Rotas `GET/POST /mcp`,
+`PATCH/DELETE /mcp/:id`, `POST /mcp/:id/testar`. Testes: `27-ferramentas-mcp` (servidor MCP de teste por stdio,
+segredo chega ao programa e nunca à API/prompt, só nos projetos escolhidos; formatos Codex/Gemini) e tela
+(`chat-smoke`: criar, testar, excluir). Limitação: no Codex, valores secretos de ferramentas por comando vão em
+argumentos da execução (visíveis a quem tiver acesso de root ao servidor durante a sessão).
+
 ## ChatGPT "sem leitor local": cada IA é avisada das próprias ferramentas (2026-11-15)
 
 Caso real: auditoria com o ChatGPT (Codex) parando sessão após sessão — "terminal é proibido pelo perfil;

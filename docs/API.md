@@ -176,3 +176,13 @@ dispensá-la, só pela API: `"conferencia": false` no corpo.
 
 Regras de validação na criação: etapas de IA exigem `verifyCommand`; a chave `conferencia-regras` é
 reservada; dependências precisam existir e não formar ciclo; ações destrutivas passam a exigir aprovação.
+
+## Ferramentas MCP
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET | `/mcp` | `{ ferramentas, prontos }`: ferramentas cadastradas (segredos só como `{nome, definido}`) e modelos prontos. |
+| POST | `/mcp` | Cria: `{ nome, tipo: 'comando'|'http', comando, args, url, variaveis {K:v}, segredos {K:valor}, cabecalhos {Nome:valor}, projetos: 'todos'|[ids], ativo }`. |
+| PATCH | `/mcp/:id` | Edita (segredo vazio = mantém; `null` = apaga). |
+| DELETE | `/mcp/:id` | Exclui (e os segredos dela). |
+| POST | `/mcp/:id/testar` | Liga e lista as ferramentas: `{ ok, ferramentas: [{nome, descricao}], erro? }`. |

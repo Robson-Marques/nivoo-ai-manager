@@ -1,3 +1,4 @@
+import { McpController } from './mcp/mcp.controller';
 import { Module, OnModuleInit } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ApiTokenGuard } from './common/auth.guard';
@@ -16,7 +17,7 @@ import { SystemController } from './system/system.controller';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController],
+  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController],
   providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService],
 })
 export class AppModule implements OnModuleInit {

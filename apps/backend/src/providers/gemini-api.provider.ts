@@ -1,8 +1,10 @@
+import * as os from 'node:os';
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
+import { serversGemini } from '../mcp/para-ia';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
 /**
@@ -94,11 +96,21 @@ export class GeminiApiProvider implements AiProvider {
     const model = req.options?.model ?? process.env.NIVOO_GEMINI_MODEL;
     if (model) args.push('--model', model);
     req.onLog(`gemini ${args.join(' ')} (cwd=${req.cwd})`);
+    // Ferramentas MCP do projeto: num HOME só desta sessão (o da conexão é compartilhado entre projetos).
+    let homeMcp: string | null = null;
+    if (req.mcp?.length) {
+      homeMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-gemini-'));
+      GeminiApiProvider.ensureUserSettings(homeMcp);
+      const arq = path.join(homeMcp, '.gemini', 'settings.json');
+      const s = JSON.parse(fs.readFileSync(arq, 'utf8'));
+      fs.writeFileSync(arq, JSON.stringify({ ...s, mcpServers: serversGemini(req.mcp) }, null, 2), { mode: 0o600 });
+      req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
+    }
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
+      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId, ...(homeMcp ? { HOME: homeMcp } : {}) }),
       input: buildPrompt(req),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
@@ -111,6 +123,7 @@ export class GeminiApiProvider implements AiProvider {
         for (const l of linhas) GeminiApiProvider.logEvento(l, req.onLog);
       },
     });
+    if (homeMcp) fs.rmSync(homeMcp, { recursive: true, force: true });
     if (pendente.trim()) GeminiApiProvider.logEvento(pendente, req.onLog);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) {
