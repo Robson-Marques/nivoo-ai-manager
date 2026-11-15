@@ -3,7 +3,7 @@ import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sha256, sha256File } from '../common/hash';
-import { ambienteDaConferencia, minimalEnv, runProcess } from '../common/exec';
+import { ambienteDaConferencia, minimalEnv, portaLivre, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { BlockedReason } from '../common/status';
 import { PrismaService } from '../prisma/prisma.service';
@@ -376,8 +376,10 @@ export class CompletionService {
             env: ambienteDaConferencia({
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
+              NIVOO_PORTA_TESTE: String(await portaLivre().catch(() => 0)),
               ...((await prepararBancoDeTeste(job.id).catch(() => null))?.env ?? {}),
             }),
+            encerrarGrupoAoSair: true,
             // Critério pode rodar testes e build (como a conferência das etapas): mesmo limite, 30 min por padrão.
             timeoutMs: (cfg.timeoutSec ?? Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800)) * 1000,
             maxBuffer: 20 * 1024 * 1024,

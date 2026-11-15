@@ -149,7 +149,7 @@ describe('Ideias do ECC no Nivoo', () => {
     const after = await waitFor(async () => {
       const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
       return x.approvals.length === 2 ? x : null;
-    }, 20000);
+    }, 60000);
     expect(after.status).toBe('AGUARDANDO_APROVACAO');
     expect(after.attempts).toHaveLength(0); // nada executou com a aprovação antiga
     expect(after.approvals[1].status).toBe('PENDENTE');

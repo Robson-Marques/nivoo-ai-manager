@@ -177,6 +177,14 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Ver o sistema rodando na conferência (2026-11-15)
+
+* A conferência pode ligar o sistema do projeto numa porta livre (`NIVOO_PORTA_TESTE`), esperar responder e conferir
+  com `curl` (página, API, /health) — sem navegador. O plano e as sessões recebem o exemplo.
+* **Bug corrigido**: uma conferência que ligava um servidor em segundo plano ficava parada até esgotar o tempo (o
+  servidor segurava a saída). Agora, quando o comando principal termina, o sistema desliga tudo o que ele ligou
+  (`encerrarGrupoAoSair`) e segue. Vale para conferências das etapas e critérios. Teste em `32` (2,7 s; antes 30 min).
+
 ## Banco de teste descartável por trabalho (2026-11-15)
 
 * Testes de integração dos projetos (ex.: os 28 do ConnectChat com PostgreSQL) eram pulados: o servidor não oferecia

@@ -1,3 +1,4 @@
+import * as net from 'node:net';
 import { spawn } from 'node:child_process';
 
 export interface RunOptions {
@@ -10,6 +11,12 @@ export interface RunOptions {
   onStderr?: (chunk: string) => void;
   onSpawn?: (pid: number) => void;
   maxBuffer?: number;
+  /**
+   * Quando o comando principal termina, encerra tudo o que ele deixou rodando (ex.: um servidor ligado em segundo
+   * plano para conferir) e não espera esses processos soltarem a saída — senão a conferência ficava parada até o tempo
+   * esgotar.
+   */
+  encerrarGrupoAoSair?: boolean;
 }
 
 export interface RunResult {
@@ -106,6 +113,26 @@ export function runProcess(cmd: string, args: string[], opts: RunOptions): Promi
     };
     child.on('error', (err) => finish(null, err.message));
     child.on('close', (code) => finish(code));
+    if (opts.encerrarGrupoAoSair) {
+      child.on('exit', (code) => {
+        // Pequena folga para a saída que ainda está a caminho; depois desliga o que sobrou e termina.
+        setTimeout(() => {
+          try {
+            if (child.pid) process.kill(-child.pid, 'SIGTERM');
+          } catch {
+            /* nada sobrou */
+          }
+          setTimeout(() => {
+            try {
+              if (child.pid) process.kill(-child.pid, 'SIGKILL');
+            } catch {
+              /* já terminou */
+            }
+            finish(code);
+          }, 1500).unref();
+        }, 300).unref();
+      });
+    }
     child.stdin.on('error', () => undefined);
     if (opts.input !== undefined) child.stdin.end(opts.input);
     else child.stdin.end();
@@ -126,6 +153,26 @@ export function killProcessGroup(pid: number): boolean {
  * Ambiente das conferências (testes, build, instalação de dependências dos projetos): sem perguntas interativas,
  * sem modo "watch" e sem trocar de gerenciador de pacotes no meio (pnpm 10 tenta baixar a versão do packageManager).
  */
+/** Uma porta TCP livre agora, para a conferência ligar o sistema do projeto e conferir com curl. */
+export function portaLivre(): Promise<number> {
+  return new Promise((ok, falha) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', falha);
+    srv.listen(0, '127.0.0.1', () => {
+      const porta = (srv.address() as net.AddressInfo).port;
+      srv.close(() => ok(porta));
+    });
+  });
+}
+
+export const TEXTO_SISTEMA_RODANDO = [
+  '- VER O SISTEMA RODANDO (sem navegador): a conferência pode ligar o sistema numa porta livre, $NIVOO_PORTA_TESTE, esperar',
+  '  responder e conferir com curl (página, API, /health). Ex.: PORT=$NIVOO_PORTA_TESTE npm start > out/servidor.log 2>&1 &',
+  '  for i in $(seq 1 60); do curl -fsS http://127.0.0.1:$NIVOO_PORTA_TESTE/health >/dev/null && break; sleep 1; done;',
+  '  curl -fsS http://127.0.0.1:$NIVOO_PORTA_TESTE/api/... | grep -q "esperado". O sistema desliga tudo que a conferência ligou.',
+];
+
 export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return minimalEnv({
     CI: 'true',

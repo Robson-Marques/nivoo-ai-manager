@@ -187,4 +187,32 @@ describe('Auditoria preventiva', () => {
     expect(prompt).toMatch(/BANCO DE TESTE: o servidor dá a cada trabalho um PostgreSQL vazio e descartável/);
     delete process.env.NIVOO_TESTES_PG_URL;
   });
+  it('ver o sistema rodando: a conferência liga o servidor numa porta livre, confere com curl, e o sistema desliga tudo no fim', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Rodando', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const servidor = "require('http').createServer((q, r) => r.end(q.url === '/health' ? 'ok' : 'pedidos:3')).listen(process.env.PORT, () => console.log('no ar'))";
+    const inicio = Date.now();
+    const x = await rodar(p.id, {
+      title: 'rodando',
+      steps: [{
+        key: 'r', instructions: `echo "${servidor}" > servidor.js`,
+        // Sem redirecionar a saída (o caso que deixava a conferência parada até esgotar o tempo).
+        verifyCommand: 'echo $NIVOO_PORTA_TESTE > out/porta.txt; PORT=$NIVOO_PORTA_TESTE node servidor.js & for i in $(seq 1 50); do curl -fsS http://127.0.0.1:$NIVOO_PORTA_TESTE/health >/dev/null && break; sleep 0.2; done; curl -fsS http://127.0.0.1:$NIVOO_PORTA_TESTE/api | grep -q "pedidos:3"',
+      }],
+      criteria: [{ key: 's', description: 's', kind: 'FILE_EXISTS', config: { path: 'servidor.js' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    expect(Date.now() - inicio).toBeLessThan(30_000);
+    const porta = Number(fs.readFileSync(path.join(p.workspacePath, 'worktrees', x.id, 'out', 'porta.txt'), 'utf8'));
+    expect(porta).toBeGreaterThan(0);
+    // O servidor ligado pela conferência foi desligado.
+    const livre = await new Promise<boolean>((ok) => {
+      const srv = require('node:net').createServer();
+      srv.once('error', () => ok(false));
+      srv.listen(porta, '127.0.0.1', () => srv.close(() => ok(true)));
+    });
+    expect(livre).toBe(true);
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/VER O SISTEMA RODANDO \(sem navegador\)/);
+  });
 });

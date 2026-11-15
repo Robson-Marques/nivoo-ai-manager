@@ -11,7 +11,7 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
-import { ambienteDaConferencia, killProcessGroup, minimalEnv, problemaDoAmbiente, runProcess } from '../common/exec';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -352,10 +352,12 @@ export class StepExecutorService {
         await L(`Banco de teste indisponível: ${e?.message ?? e}`, 'WARN', attempt.id);
         return null;
       });
+      const porta = await portaLivre().catch(() => 0);
       const conferir = () =>
         runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, ...(banco?.env ?? {}) }),
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...(banco?.env ?? {}) }),
+          encerrarGrupoAoSair: true,
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
           maxBuffer: 20 * 1024 * 1024,
@@ -850,7 +852,7 @@ export class StepExecutorService {
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
-    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : [])]);
+    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
       const emOut = fs.existsSync(path.join(worktree, 'out'))
