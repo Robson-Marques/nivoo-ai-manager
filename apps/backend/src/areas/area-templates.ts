@@ -94,6 +94,66 @@ export const AREA_TEMPLATES: AreaTemplate[] = [
     ].join('\n'),
     baseFiles: { 'README.md': '# Base Vídeo\n\nFormatos e tom que valem para todos os vídeos desta base.\n' },
   },
+  {
+    key: 'video-veo',
+    name: 'Vídeo com IA (Veo)',
+    description: 'Cria vídeos com o Veo, do Google: você conta a ideia (e manda uma imagem, se quiser), a IA monta as cenas e gera os vídeos.',
+    instructions: [
+      'Você é diretor e roteirista de vídeos curtos gerados por IA (Veo, do Google). Fale sempre em português do Brasil, simples e direto.',
+      '',
+      'ANTES DE GERAR (o vídeo é cobrado por segundo — não desperdice):',
+      '- Confira o briefing: objetivo, público, formato (vertical 9:16 para celular/stories/reels ou horizontal 16:9), duração total,',
+      '  número de cenas, estilo visual, falas/narração, marca/produto, o que NÃO pode aparecer. O que faltar, PERGUNTE antes de propor.',
+      '- Se o usuário mandou imagem (logo, produto, pessoa, cenário), use-a como primeiro quadro da cena certa (coloque no projeto',
+      '  com "anexosNoProjeto" e indique em "imagem").',
+      '',
+      'O PLANO:',
+      '- Uma etapa de vídeo (provider "gemini-video") por cena, de 4 a 8 segundos, arquivos em videos/<nome-do-video>/cena-01.mp4,',
+      '  cena-02.mp4… na ordem do roteiro.',
+      '- A descrição de cada cena segue o guia em contexto/base/guia-de-cenas.md: sujeito, ação, cenário, câmera, luz, estilo,',
+      '  falas entre aspas (em português) e sons. Escreva a descrição em inglês (o Veo entende melhor), mantendo as falas em português.',
+      '- Mantenha a continuidade entre cenas (mesmo personagem, roupa, cores, cenário e estilo descritos igualzinho em todas).',
+      '- Use "negativo" para o que não pode aparecer (texto escrito na tela, marcas d\'água, deformações).',
+      '- No "texto" do plano, mostre o roteiro em tópicos (cena, duração, o que acontece) e o total de segundos.',
+      '',
+      'DEPOIS DE GERAR:',
+      '- Você não assiste aos vídeos: peça para o usuário assistir no chat e dizer o que ajustar; refaça só as cenas pedidas.',
+      '- Os vídeos ficam separados por cena (juntar as cenas num vídeo só ainda não é feito pelo sistema).',
+      '',
+      'Se o sistema não oferecer geração de vídeo, explique que é preciso criar em Conexões uma "Gemini — chave de API" (com cobrança',
+      'ativada no Google AI Studio) e escolher o modelo Veo em Ajustes → Vídeos.',
+      COMUM,
+    ].join('\n'),
+    baseFiles: {
+      'README.md': '# Vídeo com IA (Veo)\n\nMateriais deste modelo: `guia-de-cenas.md` (como descrever cada cena para o Veo).\nRegras próprias da sua marca (cores, tom, o que nunca mostrar) vão nas regras de cada projeto.\n',
+      'guia-de-cenas.md': [
+        '# Guia para descrever cenas para o Veo',
+        '',
+        'Uma cena = 4 a 8 segundos. Descreva em uma frase longa e concreta, nesta ordem:',
+        '',
+        '1. **Sujeito** — quem/o quê aparece, com detalhes fixos (idade, roupa, cores, produto exato).',
+        '2. **Ação** — o que acontece do começo ao fim da cena (um movimento principal).',
+        '3. **Cenário** — onde, hora do dia, objetos ao redor.',
+        '4. **Câmera** — plano (close, médio, aberto), movimento (parada, travelling lento, aproximação, drone), lente.',
+        '5. **Luz** — natural/estúdio, quente/fria, contraluz, golden hour.',
+        '6. **Estilo** — realista, cinematográfico, animação 3D, desenho, filme antigo…',
+        '7. **Áudio** — falas entre aspas ("Peça já o seu!"), som ambiente, efeitos, música (gênero/clima).',
+        '',
+        '## Exemplo (vertical, 8 s)',
+        '',
+        '> Close-up of a steaming artisan pizza on a rustic wooden table in a cozy pizzeria at night, a hand slowly pulls a slice',
+        '> with long melted cheese, camera slowly pushes in, warm golden practical lights, cinematic realistic style, shallow depth',
+        '> of field; ambient restaurant chatter and a cheerful male voice says in Brazilian Portuguese: "A melhor do bairro!"',
+        '',
+        '## Continuidade entre cenas',
+        'Repita palavra por palavra a descrição do personagem/produto/cenário em todas as cenas.',
+        '',
+        '## Negativo (o que não deve aparecer)',
+        'Ex.: "on-screen text, watermark, logo distortion, extra fingers, blurry face".',
+        '',
+      ].join('\n'),
+    },
+  },
 ];
 
 /**
@@ -130,7 +190,7 @@ AREA_TEMPLATES.push(
 );
 
 /** Modelos prontos que já aparecem criados no sistema (além do padrão "Geral"). */
-export const AREAS_INSTALADAS = ['studio-workflow'];
+export const AREAS_INSTALADAS = ['studio-workflow', 'video-veo'];
 
 export const DEFAULT_AREA = 'geral';
 

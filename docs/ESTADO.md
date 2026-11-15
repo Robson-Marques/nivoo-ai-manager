@@ -3,6 +3,15 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Modelo pronto "Vídeo com IA (Veo)" (2026-11-15)
+
+Já vem instalado. Regras: confere o briefing (objetivo, formato 9:16/16:9, duração, cenas, estilo, falas,
+marca) e pergunta o que faltar; uma etapa de vídeo por cena (4–8 s, `videos/<nome>/cena-NN.mp4`),
+descrição seguindo o guia (sujeito, ação, cenário, câmera, luz, estilo, falas em português, sons), com
+continuidade entre cenas e "negativo"; imagem anexada vira o primeiro quadro; roteiro e total de segundos no
+plano. Material: `guia-de-cenas.md`. As cenas ficam em arquivos separados (juntar ainda não é feito).
+Teste em `17`.
+
 ## Correção — sessões cortadas em 1 segundo (2026-11-15)
 
 Com "sem limite de tempo" (0) no trabalho, o tempo da sessão era calculado como "limite − gasto", que dava
