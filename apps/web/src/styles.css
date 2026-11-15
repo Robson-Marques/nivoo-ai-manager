@@ -312,3 +312,10 @@ textarea { resize: vertical; line-height: 1.5; }
 .fases li.agora { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 .escolha-projetos { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; max-height: 180px; overflow: auto; padding-left: 22px; }
+
+/* Servidores SSH e pedidos de comando */
+.chave-ssh { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.chave-ssh pre { white-space: pre-wrap; word-break: break-all; }
+.pedidos-ssh { display: flex; flex-direction: column; gap: 8px; margin: 0 auto 8px; width: 100%; max-width: 760px; }
+.pedido-ssh { border: 2px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.pedido-ssh pre { margin: 0; white-space: pre-wrap; word-break: break-word; background: var(--panel); }

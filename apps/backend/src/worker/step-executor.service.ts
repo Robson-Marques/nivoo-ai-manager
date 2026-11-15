@@ -279,7 +279,7 @@ export class StepExecutorService {
         // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
         options: { model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }) },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
-        ...(isAi ? { mcp: mcpDoProjeto(job.projectId) } : {}),
+        ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
         onSpawn: (pid) => {
           logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },

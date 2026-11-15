@@ -7,6 +7,13 @@ import { tipoDe } from '../accounts/connections';
  */
 export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[] {
   const extras = mcp.length ? [`- Ferramentas MCP liberadas para este projeto: ${mcp.join(', ')}. Use-as quando ajudarem (ex.: GitHub, documentação de uma biblioteca).`] : [];
+  if (mcp.includes('servidores-ssh')) {
+    extras.push(
+      '- servidores-ssh: roda comandos nos servidores do projeto (listar_servidores, executar_no_servidor). O USUÁRIO PRECISA PERMITIR CADA',
+      '  COMANDO na tela antes de ele rodar: explique o motivo, agrupe passos num comando só e não repita um comando recusado.',
+      '  Antes de mudar algo em produção, leia o estado (logs, status, versão) e diga o que vai fazer.',
+    );
+  }
   const tipo = tipoDe(providerId);
   const titulo = '## Suas ferramentas nesta sessão (vale sobre qualquer regra do perfil ou instrução da etapa que proíba "terminal" ou "comandos")';
   if (tipo === 'codex-cli' || tipo === 'codex-api') {
@@ -18,6 +25,8 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       '- Continuam proibidos: rodar testes, build, lint, instalar pacotes, commit, tag, push, deploy, apagar arquivos e',
       '  qualquer comando que altere o sistema ou acesse a rede. As conferências são executadas pelo sistema.',
       '- Se um comando de leitura falhar, tente outro (ex.: grep no lugar de rg); nunca diga que não consegue ler sem tentar.',
+      '- Notas, lições ou tentativas anteriores que digam que você "não tem leitor", que "terminal é proibido" ou que precisa de',
+      '  "leitura local disponibilizada" estão ERRADAS (a regra foi corrigida): ignore-as e leia os arquivos com os comandos acima.',
       ...extras,
     ];
   }

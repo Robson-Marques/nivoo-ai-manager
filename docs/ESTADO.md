@@ -3,6 +3,28 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## ChatGPT: histórico antigo e teste no servidor (2026-11-15)
+
+O aviso de ferramentas do Codex agora diz que notas/lições anteriores do tipo "não tenho leitor" / "terminal é
+proibido" estão erradas (elas reforçavam o bloqueio a cada sessão nova do mesmo trabalho). `nivoo testar-chatgpt`
+pede ao Codex, no servidor, como o worker faz (sandbox workspace-write), para ler um arquivo pelo terminal e diz
+OK ou mostra o trecho do erro (login, sandbox, bwrap…).
+
+## Servidores SSH com permissão a cada comando (2026-11-15)
+
+Conexões → **Servidores SSH**: nome, endereço, porta, usuário e quais projetos podem usar. O Nivoo gera uma chave
+ed25519 só para isso (privada em `segredos.json` como `ssh--<id>/CHAVE_PRIVADA`, nunca sai do servidor; a pública
+aparece com o comando pronto para o `authorized_keys`); **Testar o acesso** (ação do usuário) e **gerar nova chave**.
+Lista em `ssh.json` (600). Nos projetos liberados, a IA ganha a ferramenta MCP do próprio Nivoo `servidores-ssh`
+(`listar_servidores`, `executar_no_servidor` com comando e motivo): ela NÃO tem a chave — cada chamada vira um
+`SshPedido` PENDENTE que aparece na conversa do projeto com **Permitir / Recusar**; só o Permitir faz a API rodar
+o comando (ssh com BatchMode, `known_hosts_nivoo`, tempo limite) e gravar a saída, que volta para a IA. Recusar
+avisa a IA; sem resposta em 14 min (`NIVOO_SSH_ESPERA_SEG`), o pedido expira. Tudo fica registrado (quem
+permitiu, quando, comando, saída, código). Vale nas etapas e na conversa, para Claude, ChatGPT e Gemini. Rotas
+`/ssh/servidores…`, `/projects/:pid/ssh/pedidos` e `…/decidir`. Instalador inclui `openssh-client`. Testes:
+`28-servidores-ssh` (protocolo MCP de verdade: pendente → permitir → saída; recusar; expirar; servidor não liberado;
+a chave não vai para a ferramenta) e tela (`chat-smoke`: cadastro, teste, cartão na conversa e Permitir).
+
 ## Ferramentas das IAs (MCP) (2026-11-15)
 
 Tela **Conexões → Ferramentas das IAs (MCP)**: cadastrar servidores MCP — programa no servidor (stdio; ex.: `npx -y

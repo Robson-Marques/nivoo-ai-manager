@@ -99,6 +99,24 @@ case "$cmd" in
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
     echo "ok: restaurado"
     ;;
+  testar-chatgpt)
+    # Teste real do ChatGPT (Codex) como o worker usa: lê um arquivo pelo terminal dentro do isolamento dele.
+    # Mostra se o login, o isolamento (sandbox) e a leitura funcionam neste servidor. Custa uma resposta curta.
+    dir="$(runuser -u "$NIVOO_USER" -- mktemp -d)"
+    palavra="nivoo-$(date +%s)"
+    runuser -u "$NIVOO_USER" -- sh -c "echo '$palavra' > '$dir/teste.txt'"
+    echo "== pedindo ao ChatGPT para ler $dir/teste.txt com o terminal (sandbox workspace-write)…"
+    saida="$(cd "$dir" && runuser -u "$NIVOO_USER" -- env HOME="$NIVOO_HOME" PATH="$NODE_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
+      codex exec --json --sandbox workspace-write --skip-git-repo-check -C "$dir" \
+      "Rode no terminal: cat teste.txt — e responda só com o conteúdo do arquivo." 2>&1 || true)"
+    rm -rf "$dir"
+    if printf '%s' "$saida" | grep -q "\"type\":\"agent_message\".*$palavra"; then
+      echo "OK: o ChatGPT leu o arquivo pelo terminal. Ele consegue trabalhar nos projetos."
+    else
+      echo "FALHOU: o ChatGPT não conseguiu ler o arquivo. Trecho da resposta (mande para o suporte):"
+      printf '%s\n' "$saida" | grep -E 'command_execution|agent_message|error|bwrap|sandbox|denied|login' | tail -15 | cut -c1-400
+    fi
+    ;;
   verificar)
     # Job de ponta a ponta (sem IA) para confirmar que API, worker, banco e workspaces funcionam.
     bash "$APP_DIR/deploy/verificar-instalacao.sh" "$API"
@@ -264,6 +282,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo start|stop|restart  controlar os serviços
   nivoo check               conferir API, workers e conectores de IA
   nivoo verificar           roda um job de teste de ponta a ponta (sem IA)
+  nivoo testar-chatgpt      confere se o ChatGPT (Codex) consegue ler arquivos neste servidor
   nivoo login-claude        login oficial do Claude Code para o worker
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)

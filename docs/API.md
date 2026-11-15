@@ -186,3 +186,14 @@ reservada; dependências precisam existir e não formar ciclo; ações destrutiv
 | PATCH | `/mcp/:id` | Edita (segredo vazio = mantém; `null` = apaga). |
 | DELETE | `/mcp/:id` | Exclui (e os segredos dela). |
 | POST | `/mcp/:id/testar` | Liga e lista as ferramentas: `{ ok, ferramentas: [{nome, descricao}], erro? }`. |
+
+## Servidores SSH e pedidos de comando
+
+| Método | Rota | O que faz |
+|---|---|---|
+| GET/POST | `/ssh/servidores` | Lista / cria `{ nome, host, porta, usuario, projetos }` (gera a chave; devolve `chavePublica`). |
+| PATCH/DELETE | `/ssh/servidores/:id` | Edita / exclui (apaga a chave). |
+| POST | `/ssh/servidores/:id/testar` | Teste do usuário: `{ ok, saida, dica? }`. |
+| POST | `/ssh/servidores/:id/nova-chave` | Gera outra chave (troque no servidor). |
+| GET | `/projects/:pid/ssh/pedidos?status=PENDENTE` | Pedidos de comando da IA. |
+| POST | `/projects/:pid/ssh/pedidos/:id/decidir` | `{ permitir: true|false, por }`: permitir roda o comando (em segundo plano). |

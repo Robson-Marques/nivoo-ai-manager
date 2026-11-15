@@ -278,6 +278,44 @@ with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:d
     for (const f of ['mode', 'resposta.txt']) fs.rmSync(path.join(ctl, f), { force: true });
     passo('anexos no chat: imagem com miniatura e Word lido como texto pela IA');
 
+    // 5b. Servidor SSH: cadastro pela tela (chave gerada pelo Nivoo), teste, e a IA pedindo um comando que só roda
+    // depois do "Permitir" na conversa.
+    const urlProjeto = page.url();
+    const pid = new URL(urlProjeto).pathname.split('/')[2];
+    await page.goto(`${base}/contas`);
+    await page.getByRole('button', { name: 'Novo servidor' }).click();
+    await page.locator('.modal').getByLabel('Nome', { exact: true }).fill(`Produção ${stamp}`);
+    await page.locator('.modal').getByLabel('Endereço').fill('servidor.teste');
+    await page.locator('.modal').getByLabel('Usuário').fill('deploy');
+    await page.locator('.modal').getByText('Todos os projetos').click();
+    await page.getByRole('button', { name: 'Criar e gerar a chave' }).click();
+    const linhaSsh = page.locator('.conexao', { hasText: `Produção ${stamp}` });
+    await linhaSsh.locator('.chave-ssh pre', { hasText: 'ssh-ed25519' }).waitFor();
+    await linhaSsh.getByRole('button', { name: 'Testar o acesso' }).click();
+    await linhaSsh.getByText('Acesso funcionando').waitFor({ timeout: 30000 });
+    await shot(page, '9b-servidor-ssh');
+    const servidores = await (await fetch(`${base}/api/ssh/servidores`)).json();
+    const srv = servidores.find((x) => x.nome === `Produção ${stamp}`);
+    const { spawn } = require('node:child_process');
+    const mcp = spawn(process.execPath, [path.join(__dirname, '..', '..', 'backend', 'dist', 'mcp', 'ssh-mcp.js')], {
+      env: { ...process.env, NIVOO_PROJETO_ID: pid, NIVOO_SSH_SERVIDORES: JSON.stringify([{ id: srv.id, nome: srv.nome, host: srv.host, usuario: srv.usuario }]), NIVOO_SSH_INTERVALO_MS: '300' },
+    });
+    let saidaMcp = '';
+    mcp.stdout.on('data', (d) => (saidaMcp += d));
+    mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n');
+    mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'executar_no_servidor', arguments: { servidor: srv.nome, comando: 'echo ola-smoke', motivo: 'conferir o servidor' } } }) + '\n');
+    await page.goto(urlProjeto);
+    const cartao = page.locator('.pedido-ssh', { hasText: 'echo ola-smoke' });
+    await cartao.waitFor({ timeout: 30000 });
+    await shot(page, '9c-pedido-ssh');
+    await cartao.getByRole('button', { name: 'Permitir' }).click();
+    await cartao.waitFor({ state: 'detached', timeout: 15000 });
+    for (let i = 0; i < 50 && !saidaMcp.includes('"id":2'); i++) await new Promise((ok) => setTimeout(ok, 200));
+    mcp.kill();
+    if (!/Permitido por .* e executado em Produção .*ola-smoke/.test(saidaMcp)) throw new Error(`a IA não recebeu a saída do comando permitido: ${saidaMcp.slice(-300)}`);
+    await fetch(`${base}/api/ssh/servidores/${srv.id}`, { method: 'DELETE' });
+    passo('servidor SSH cadastrado (chave do Nivoo), testado; comando da IA só rodou depois do "Permitir" na conversa');
+
     // 6. Excluir o projeto
     page.once('dialog', (d) => d.accept(nome));
     await page.getByRole('button', { name: 'Ajustes', exact: true }).click();

@@ -5,6 +5,7 @@ import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
 import { Icone } from './Contas';
+import { PedidosSsh } from './Ssh';
 import { SeletorModelo } from '../Pecas';
 
 /**
@@ -293,6 +294,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
             </button>
           </div>
         ) : (
+        <>
+        <PedidosSsh projetoId={projeto.id} />
         <form
           className={arrastando ? 'entrada arrastando' : 'entrada'}
           onSubmit={enviar}
@@ -344,6 +347,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, onProjetoMudou }: { p
           />
           <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length)}>{ocupado && anexos.length ? 'Enviando…' : 'Enviar'}</button>
         </form>
+        </>
         )}
       </div>
       {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} />}
@@ -724,6 +728,7 @@ function atividadeLegivel(msg: string): string {
   return msg
     .replace(/\S*\/worktrees\/[^/\s]+\//g, '') // caminho completo da pasta do trabalho → só o do projeto
     .replace(/\S*\/conversa-[^/\s]+\//g, '')
+    .replace(/^.*executar_no_servidor.*$/s, 'esperando a SUA permissão para rodar um comando no servidor (veja o pedido acima da caixa de mensagem)')
     .replace(/^\[ferramenta\] (Read|read_file|ReadFile)\b/i, 'lendo')
     .replace(/^\[ferramenta\] (Grep|Glob|search_file_content|glob)\b/i, 'procurando')
     .replace(/^\[ferramenta\] (Edit|Write|MultiEdit|write_file|replace)\b/i, 'escrevendo')

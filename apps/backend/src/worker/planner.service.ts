@@ -146,7 +146,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: mcpDoProjeto(project.id),
+        mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {

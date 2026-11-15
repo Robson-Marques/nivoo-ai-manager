@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { FerramentasMcp } from './Mcp';
+import { ServidoresSsh } from './Ssh';
 
 /**
  * Conexões: as IAs que trabalham nos projetos (Claude, ChatGPT, Gemini — pela conta ou por chave de API)
@@ -71,6 +72,7 @@ export function Contas() {
         {!!gits?.length && <div className="conexoes-grupo">Git</div>}
         {gits?.map((g) => <ConexaoGit key={g.id} g={g} onMudou={() => carregar()} />)}
       </div>
+      <ServidoresSsh />
       <FerramentasMcp />
       {nova && (
         <NovaConexao

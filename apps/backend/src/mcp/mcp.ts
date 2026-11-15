@@ -7,6 +7,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { apagarSegredosDaConexao, gravarSegredoDaConexao, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv } from '../common/exec';
 import { appConfig } from '../config';
+import { servidoresDoProjeto, ServidorSsh } from '../ssh/servidores';
 
 /**
  * Ferramentas MCP (Model Context Protocol) que as IAs dos projetos podem usar: GitHub, documentação,
@@ -152,11 +153,34 @@ export function removerMcp(id: string): void {
 }
 
 /** Ferramentas ativas deste projeto, com segredos preenchidos (para a sessão de IA). */
-export function mcpDoProjeto(projectId: string): McpResolvido[] {
+export function mcpDoProjeto(projectId: string, origem: { jobId?: string; mensagemId?: string } = {}): McpResolvido[] {
   const todas = listarMcp();
-  return todas
-    .filter((m) => m.ativo && (m.projetos === 'todos' || m.projetos.includes(projectId)))
-    .map((m) => resolver(m, todas));
+  const lista = todas.filter((m) => m.ativo && (m.projetos === 'todos' || m.projetos.includes(projectId))).map((m) => resolver(m, todas));
+  // Servidores SSH do projeto: a ferramenta do próprio Nivoo, em que cada comando espera a permissão do usuário.
+  const ssh = servidoresDoProjeto(projectId);
+  if (ssh.length) lista.push(ferramentaSsh(projectId, ssh, origem));
+  return lista;
+}
+
+/** A ferramenta "servidores-ssh" (sem chave: quem roda o comando, depois do Permitir, é a API). */
+function ferramentaSsh(projectId: string, ssh: ServidorSsh[], origem: { jobId?: string; mensagemId?: string }): McpResolvido {
+  const js = path.join(__dirname, 'ssh-mcp.js');
+  const args = fs.existsSync(js) ? [js] : ['-r', 'ts-node/register/transpile-only', path.join(__dirname, 'ssh-mcp.ts')];
+  return {
+    nome: 'servidores-ssh',
+    tipo: 'comando',
+    comando: process.execPath,
+    args,
+    env: {
+      DATABASE_URL: process.env.DATABASE_URL ?? '',
+      NIVOO_PROJETO_ID: projectId,
+      ...(origem.jobId ? { NIVOO_JOB_ID: origem.jobId } : {}),
+      ...(origem.mensagemId ? { NIVOO_MENSAGEM_ID: origem.mensagemId } : {}),
+      NIVOO_SSH_SERVIDORES: JSON.stringify(ssh.map((s) => ({ id: s.id, nome: s.nome, host: s.host, usuario: s.usuario }))),
+      ...(process.env.NIVOO_SSH_ESPERA_SEG ? { NIVOO_SSH_ESPERA_SEG: process.env.NIVOO_SSH_ESPERA_SEG } : {}),
+      ...(process.env.NIVOO_SSH_INTERVALO_MS ? { NIVOO_SSH_INTERVALO_MS: process.env.NIVOO_SSH_INTERVALO_MS } : {}),
+    },
+  };
 }
 
 function resolver(m: Mcp, todas: Mcp[] = listarMcp()): McpResolvido {

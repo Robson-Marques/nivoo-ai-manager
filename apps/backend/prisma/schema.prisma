@@ -206,6 +206,7 @@ model Project {
   jobs          Job[]
   memory        MemoryEntry[]
   artifacts     Artifact[]
+  sshPedidos    SshPedido[]
 }
 
 model Job {
@@ -464,4 +465,27 @@ model WorkerHeartbeat {
   startedAt  DateTime @default(now())
   lastSeenAt DateTime @default(now())
   providers  Json     @default("{}") // status de cada conector visto por este worker
+}
+
+/// Comando que a IA pediu para rodar num servidor SSH: só roda depois que o usuário permite (cada comando).
+model SshPedido {
+  id           String    @id @default(uuid())
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  servidorId   String
+  servidorNome String
+  comando      String
+  motivo       String    @default("")
+  /// PENDENTE → APROVADO → EXECUTADO | FALHOU; ou RECUSADO; ou EXPIRADO (ninguém respondeu a tempo).
+  status       String    @default("PENDENTE")
+  jobId        String?
+  mensagemId   String?
+  decididoPor  String?
+  decididoEm   DateTime?
+  saida        String?
+  exitCode     Int?
+  createdAt    DateTime  @default(now())
+  terminadoEm  DateTime?
+
+  @@index([projectId, status])
 }
