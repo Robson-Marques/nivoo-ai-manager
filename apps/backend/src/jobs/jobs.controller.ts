@@ -155,6 +155,16 @@ export class JobsController {
     });
   }
 
+  /** Resultados do trabalho (out/: relatórios, inventários, planos), a versão mais recente de cada um. */
+  @Get('jobs/:jid/resultados')
+  async resultados(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string) {
+    const r = await this.artifacts.resultadosDosTrabalhos(pid, [jid]);
+    // Trabalho concluído antes de os resultados irem para a pasta do projeto: guarda agora (uma vez).
+    const job = await this.prisma.job.findFirst({ where: { id: jid, projectId: pid, status: 'CONCLUIDO' }, include: { project: { select: { dirKey: true } } } });
+    if (job && r.length) await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(() => null);
+    return r.map((a) => ({ id: a.id, nome: a.name, bytes: a.sizeBytes, sha256: a.sha256, criadoEm: a.createdAt }));
+  }
+
   @Get('artifacts')
   async listArtifacts(@Param('pid', ParseUUIDPipe) pid: string, @Query('jobId') jobId?: string) {
     return this.prisma.artifact.findMany({ where: { projectId: pid, ...(jobId ? { jobId } : {}) }, orderBy: { createdAt: 'desc' }, take: 500 });

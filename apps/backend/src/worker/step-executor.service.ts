@@ -26,6 +26,7 @@ import { AGENT_RULES, evaluatePolicy } from '../security/policy';
 import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } from './context-builder';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 
@@ -233,6 +234,10 @@ export class StepExecutorService {
           select: { role: true, content: true, kind: true, createdAt: true, attachments: true },
         });
         fs.writeFileSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'), conversaComoTexto(conversa));
+        // Resultados dos OUTROS trabalhos desta conversa (ex.: o plano de limpeza que este trabalho vai executar).
+        const outros = (await jobsDaConversa(this.prisma, origem.conversationId)).filter((id) => id !== job.id);
+        const resultados = await this.artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
+        if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
@@ -758,6 +763,9 @@ export class StepExecutorService {
         `A conversa que gerou este trabalho (mensagens do usuário completas, com listas, seções e exemplos que ele deu) está em ${SESSION_CONTEXT_DIR}/conversa-do-pedido.md.`,
         'O objetivo abaixo é um RESUMO: na dúvida sobre o que foi pedido, leia a conversa. Antes de perguntar algo ao usuário,',
         `procure a resposta na conversa, na memória do projeto (.nivoo/memoria.md), em out/respostas-do-usuario.md e nos entregáveis anteriores.`,
+        ...(fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'))
+          ? [`Resultados de trabalhos ANTERIORES desta conversa (relatórios, inventários, planos) estão em ${SESSION_CONTEXT_DIR}/resultados/<id do trabalho>/: use-os como base.`]
+          : []),
       ]);
     }
     add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);

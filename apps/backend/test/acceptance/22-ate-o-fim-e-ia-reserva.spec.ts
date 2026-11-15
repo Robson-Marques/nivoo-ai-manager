@@ -169,7 +169,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('mode', 'texto');
     ctl('resposta.txt', '```json\n' + JSON.stringify({
       tipo: 'plano', texto: 'Vou auditar.',
-      job: { title: 'Auditoria', objective: 'docs/auditoria.md com as decisões pendentes', steps: [{ key: 'doc', instructions: "mkdir -p docs && printf '# Auditoria\\nC5: apagar a POC?\\n' > docs/auditoria.md && cp contexto/conversa-do-pedido.md out/conversa-vista.md", verifyCommand: 'test -s docs/auditoria.md' }], criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'docs/auditoria.md' } }] },
+      job: { title: 'Auditoria', objective: 'docs/auditoria.md com as decisões pendentes', steps: [{ key: 'doc', instructions: "mkdir -p docs && printf '# Auditoria\\nC5: apagar a POC?\\n' > docs/auditoria.md && cp contexto/conversa-do-pedido.md out/conversa-vista.md && echo RELATORIO-ACHADOS-18 > out/relatorio-auditoria.md", verifyCommand: 'test -s docs/auditoria.md' }], criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'docs/auditoria.md' } }] },
       memoria: [],
     }) + '\n```');
     await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'audite com as 16 seções: SEC-ORIGINAL-1 … SEC-ORIGINAL-16' }).expect(201);
@@ -192,10 +192,21 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const vista = fs.readFileSync(path.join(wt, 'out', 'conversa-vista.md'), 'utf8');
     expect(vista).toMatch(/## Usuário — [\s\S]*audite com as 16 seções: SEC-ORIGINAL-1 … SEC-ORIGINAL-16/);
     expect(vista).toMatch(/## IA — [\s\S]*Vou auditar/);
+    // Resultados em out/ (relatórios): aparecem no trabalho, ficam na pasta definitiva do projeto e a IA da entrega os lê.
+    const resultados = (await h.http().get(`/api/projects/${p.id}/jobs/${jobId}/resultados`).expect(200)).body;
+    const rel = resultados.find((r: any) => r.nome === 'relatorio-auditoria.md');
+    expect(rel).toBeTruthy();
+    expect((await h.http().get(`/api/projects/${p.id}/artifacts/${rel.id}`).expect(200)).text).toContain('RELATORIO-ACHADOS-18');
+    const raiz = (await h.prisma.project.findUniqueOrThrow({ where: { id: p.id } })).workspacePath;
+    const pastas = fs.readdirSync(path.join(raiz, 'resultados'));
+    expect(pastas).toEqual([expect.stringMatching(new RegExp(`^\\d{4}-\\d{2}-\\d{2}-auditoria-${jobId.slice(0, 8)}$`))]);
+    expect(fs.readFileSync(path.join(raiz, 'resultados', pastas[0], 'relatorio-auditoria.md'), 'utf8')).toContain('RELATORIO-ACHADOS-18');
     const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
     expect(prompt).toContain('apresente a ENTREGA do trabalho que acabou de terminar');
     expect(prompt).toContain('docs/auditoria.md (novo)');
     expect(prompt).toContain('LISTE TODAS como perguntas numeradas');
+    expect(prompt).toMatch(/Resultados gravados pela IA[^\n]*relatorio-auditoria\.md/);
+    expect(prompt).toContain(`contexto/resultados/${jobId.slice(0, 8)}/relatorio-auditoria.md`);
     ctl('mode', null);
   });
 

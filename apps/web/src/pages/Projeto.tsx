@@ -866,11 +866,16 @@ function motivoLegivel(erro: string): string {
 function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: any }) {
   const total = job.steps.length || 1;
   const pct = Math.round((feitas / total) * 100);
-  const tentativas = atual ? job.attempts.filter((a: any) => a.stepId === atual.id) : [];
+  // Só a rodada atual da etapa: uma etapa que já concluiu antes e voltou a rodar (ex.: a revisão depois de uma
+  // correção) não herda o tempo nem os erros das rodadas passadas — antes aparecia um erro de horas atrás.
+  const todas = atual ? [...job.attempts.filter((a: any) => a.stepId === atual.id)].sort((a: any, b: any) => a.number - b.number) : [];
+  const ultimoSucesso = todas.map((a: any) => a.status).lastIndexOf('SUCESSO');
+  const tentativas = todas.slice(ultimoSucesso + 1);
   const inicio = tentativas[0]?.startedAt;
   const ult = job.ultimaAtividade;
-  // Por que a sessão anterior desta etapa terminou (ex.: a conferência cobrou um arquivo que não existe).
-  const anterior = tentativas.length > 1 ? [...tentativas].reverse().find((a: any) => a.endedAt && a.error) : null;
+  // Por que a sessão IMEDIATAMENTE anterior desta rodada terminou (ex.: a conferência cobrou um arquivo que não existe).
+  const previa = tentativas.length > 1 ? tentativas[tentativas.length - 2] : null;
+  const anterior = previa?.endedAt && previa.error ? previa : null;
   const parado = ult && Date.now() - new Date(ult.em).getTime() > 10 * 60_000;
   return (
     <div className="andamento">
@@ -891,7 +896,7 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
       </div>
       {anterior?.error && (
         <div className="muted small" title={anterior.error}>
-          A sessão {tentativas.length - 1} terminou sem concluir: {motivoLegivel(anterior.error)}
+          A sessão anterior terminou sem concluir: {motivoLegivel(anterior.error)}
         </div>
       )}
       {ult && (
@@ -959,15 +964,35 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
 /** Arquivos que o trabalho criou/alterou/apagou: clique abre para ler (texto) ou assistir (vídeo). */
 function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: string }) {
   const [lista, setLista] = useState<any[] | null>(null);
+  const [resultados, setResultados] = useState<any[]>([]);
   const [aberto, setAberto] = useState<string | null>(null);
+  const [resultadoAberto, setResultadoAberto] = useState<any | null>(null);
   useEffect(() => {
     api<any[]>(`/projects/${projetoId}/jobs/${jobId}/arquivos`).then(setLista).catch(() => setLista([]));
+    api<any[]>(`/projects/${projetoId}/jobs/${jobId}/resultados`)
+      .then((r) => setResultados(r.filter((x) => !/^conferencia-regras\.json$|^respostas-do-usuario\.md$/.test(x.nome))))
+      .catch(() => setResultados([]));
   }, [projetoId, jobId]);
-  if (!lista?.length) return null;
+  if (!lista?.length && !resultados.length) return null;
   const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
-  const visiveis = lista.slice(0, 40);
+  const visiveis = (lista ?? []).slice(0, 40);
+  const tamanho = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
   return (
     <div className="arquivos-trabalho">
+      {resultados.length > 0 && (
+        <>
+          <span className="small"><b>Resultados do trabalho ({resultados.length})</b> — relatórios e documentos que a IA entregou:</span>
+          <div className="arquivos-chips">
+            {resultados.map((r) => (
+              <button key={r.id} className="arquivo-chip resultado" onClick={() => setResultadoAberto(r)} title={`${tamanho(r.bytes)} · sha256 ${String(r.sha256).slice(0, 12)}`}>
+                {r.nome} <span className="muted">· {tamanho(r.bytes)}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      {resultadoAberto && <ResultadoAberto projetoId={projetoId} r={resultadoAberto} onFechar={() => setResultadoAberto(null)} />}
+      {!lista?.length ? null : <>
       <span className="small">Arquivos deste trabalho ({lista.length}):</span>
       <div className="arquivos-chips">
         {visiveis.map((f) =>
@@ -981,7 +1006,50 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
         )}
         {lista.length > visiveis.length && <span className="muted small">… e mais {lista.length - visiveis.length} (veja na aba Arquivos)</span>}
       </div>
+      </>}
       {aberto && <ArquivoAberto projetoId={projetoId} caminho={aberto} onFechar={() => setAberto(null)} />}
+    </div>
+  );
+}
+
+/** Um resultado do trabalho (relatório, inventário…): ler, copiar e baixar. */
+function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any; onFechar: () => void }) {
+  const [texto, setTexto] = useState<string | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const url = `/projects/${projetoId}/artifacts/${r.id}`;
+  useEffect(() => {
+    lerArquivo(url).then(setTexto);
+  }, [url]);
+  return (
+    <div className="modal-fundo" onClick={onFechar}>
+      <div className="modal largo" onClick={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <h2>{r.nome}</h2>
+          <span className="row">
+            {texto !== null && (
+              <button className="secondary" onClick={async () => { await copiarTexto(texto); setCopiado(true); setTimeout(() => setCopiado(false), 2000); }}>
+                {copiado ? 'Copiado' : 'Copiar'}
+              </button>
+            )}
+            <button
+              className="secondary"
+              onClick={async () => {
+                const u = await urlDoArquivo(url);
+                if (!u) return;
+                const a = document.createElement('a');
+                a.href = u;
+                a.download = String(r.nome).split('/').pop() ?? 'resultado';
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(u), 10_000);
+              }}
+            >
+              Baixar
+            </button>
+            <button className="secondary" onClick={onFechar}>Fechar</button>
+          </span>
+        </div>
+        <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>
+      </div>
     </div>
   );
 }

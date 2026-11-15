@@ -14,7 +14,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES } from '../security/policy';
-import { WorkspaceService } from '../storage/workspace.service';
+import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+import { ArtifactStoreService } from '../storage/artifact-store.service';
+import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -38,6 +40,7 @@ export class PlannerService {
     private readonly workspace: WorkspaceService,
     private readonly jobs: JobsService,
     private readonly profiles: ProjectProfileService,
+    private readonly artifacts: ArtifactStoreService,
   ) {}
 
   async handle(task: ClaimedTask, workerId: string, signal: AbortSignal): Promise<void> {
@@ -118,10 +121,13 @@ export class PlannerService {
         select: { id: true, conversationId: true, attachments: true },
       });
       const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
+      // Resultados dos trabalhos desta conversa (relatórios, inventários, planos em out/): ficam fora do repositório,
+      // mas a IA precisa lê-los para apresentar a entrega e para seguir ("pode fazer a limpeza").
+      const resultados = await this.artifacts.copiarResultados(project.id, await jobsDaConversa(this.prisma, msg.conversationId), path.join(tmp, SESSION_CONTEXT_DIR, 'resultados'));
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega, providerId);
+      const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega, providerId, resultados);
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -279,10 +285,14 @@ export class PlannerService {
       `Trabalho concluído e conferido: "${job.title}".`,
       `Objetivo: ${job.objectives[0]?.text ?? ''}`,
       `Arquivos (${arquivos.length}): ${arquivos.slice(0, 80).map((f) => `${f.path} (${nome[f.status] ?? f.status}${f.de ? ` de ${f.de}` : ''})`).join('; ') || 'nenhum arquivo mudou'}`,
+      `Resultados gravados pela IA (out/, fora da pasta do projeto; o usuário abre na tela, em "Resultados"; você lê em contexto/resultados/${jobId.slice(0, 8)}/): ${
+        (await this.artifacts.resultadosDosTrabalhos(job.projectId, [jobId])).filter((a) => a.name !== 'conferencia-regras.json').map((a) => `${a.name} (${a.sizeBytes} bytes)`).join('; ') || 'nenhum'
+      }`,
+      'Os resultados são o produto do trabalho tanto quanto os arquivos: apresente-os (o que contêm, os achados e as decisões pendentes).',
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '') {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null } }),
@@ -389,6 +399,15 @@ export class PlannerService {
             '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"volumeCenas":1}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
+          ]
+        : []),
+      ...(resultados.length
+        ? [
+            '- RESULTADOS dos trabalhos desta conversa (relatórios, inventários, planos que a IA gravou em out/; ficam fora da pasta',
+            '  do projeto) estão para leitura em contexto/resultados/<id do trabalho>/. LEIA-OS quando o assunto for o resultado:',
+            ...resultados.slice(0, 60).map((r) => `  - ${SESSION_CONTEXT_DIR}/resultados/${r}`),
+            '  Num plano que continua um trabalho anterior (ex.: executar a limpeza proposta), as etapas também recebem esses arquivos',
+            '  em contexto/resultados/ — cite o caminho na instrução da etapa.',
           ]
         : []),
       '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',

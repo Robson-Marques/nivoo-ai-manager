@@ -177,6 +177,20 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Resultados do trabalho visíveis e na pasta do projeto (2026-11-15)
+
+* **Bug real (ConnectChat)**: a auditoria gerou relatório, inventário e plano de limpeza em `out/` (resultados do
+  trabalho, fora do repositório). Eles ficavam guardados, mas invisíveis: a tela mostrava só os arquivos do
+  repositório (`CHANGELOG.md`) e a IA da entrega não conseguia relê-los.
+* Agora: o trabalho mostra **"Resultados do trabalho"** (abrir, copiar, baixar; `GET .../jobs/:jid/resultados`);
+  ao concluir, os resultados são copiados para a pasta definitiva do projeto,
+  `<projeto>/resultados/<data>-<trabalho>-<id>/` (apagada só com o projeto; trabalhos antigos ganham a pasta ao abrir
+  os resultados); a IA da conversa recebe os resultados dos trabalhos da conversa em `contexto/resultados/` (entrega e
+  pedidos seguintes, ex.: "pode fazer a limpeza") e as etapas de um trabalho novo recebem os dos trabalhos anteriores
+  da mesma conversa.
+* A barra de andamento mostra só a rodada atual da etapa (antes exibia um erro de horas atrás e o tempo desde a
+  primeira sessão de todas as rodadas). Teste em `22`.
+
 ## Revisão "não conforme" por dúvida do usuário não trava o trabalho (2026-11-15)
 
 * **Bug real (ConnectChat)**: a auditoria ficou pronta (critérios aprovados), mas a revisora marcava "não conforme"

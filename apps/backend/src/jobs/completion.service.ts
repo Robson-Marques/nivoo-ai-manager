@@ -261,7 +261,15 @@ export class CompletionService {
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
     // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
     if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
-    if (updated && status === 'CONCLUIDO') await this.pedirEntrega(job.id);
+    if (updated && status === 'CONCLUIDO') {
+      // Resultados (relatórios, inventários, planos de out/) também na pasta DEFINITIVA do projeto.
+      const pasta = await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(async (e) => {
+        await this.logs.log(jobId, `Não consegui guardar os resultados na pasta do projeto: ${e?.message ?? e}`, { source: 'evaluator', level: 'ERROR' });
+        return null;
+      });
+      if (pasta) await this.logs.log(jobId, `Resultados guardados na pasta do projeto: ${pasta}/`, { source: 'evaluator' });
+      await this.pedirEntrega(job.id);
+    }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
@@ -446,3 +454,4 @@ export class CompletionService {
     };
   }
 }
+
