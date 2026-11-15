@@ -121,3 +121,38 @@ export function killProcessGroup(pid: number): boolean {
     return false;
   }
 }
+
+/**
+ * Ambiente das conferências (testes, build, instalação de dependências dos projetos): sem perguntas interativas,
+ * sem modo "watch" e sem trocar de gerenciador de pacotes no meio (pnpm 10 tenta baixar a versão do packageManager).
+ */
+export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  return minimalEnv({
+    CI: 'true',
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
+    COREPACK_ENABLE_STRICT: '0',
+    npm_config_manage_package_manager_versions: 'false',
+    npm_config_yes: 'true',
+    ...extra,
+  });
+}
+
+/**
+ * Falha da conferência que é do SERVIDOR do Nivoo, não do projeto: nenhuma sessão de IA resolve. Devolve a linha que
+ * mostra o problema, ou null.
+ */
+export function problemaDoAmbiente(saida: string): string | null {
+  const padroes = [
+    /Cannot find module '[^']*corepack[^']*'[^\n]*/i,
+    /corepack[^\n]*(ENOENT|EACCES|EPERM|Error when performing the request)/i,
+    /\bENOSPC\b[^\n]*/,
+    /(EAI_AGAIN|ENOTFOUND|ECONNREFUSED|ETIMEDOUT)[^\n]*(registry|npmjs|yarnpkg|pypi)[^\n]*/i,
+    /ERR_PNPM_META_FETCH_FAIL[^\n]*/,
+    /npm (ERR!|error) (network|code E(AI_AGAIN|NOTFOUND|CONNRESET))[^\n]*/i,
+  ];
+  for (const p of padroes) {
+    const m = p.exec(saida);
+    if (m) return m[0].slice(0, 300);
+  }
+  return null;
+}

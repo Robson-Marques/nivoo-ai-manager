@@ -3,7 +3,7 @@ import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sha256, sha256File } from '../common/hash';
-import { minimalEnv, runProcess } from '../common/exec';
+import { ambienteDaConferencia, minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { BlockedReason } from '../common/status';
 import { PrismaService } from '../prisma/prisma.service';
@@ -371,7 +371,7 @@ export class CompletionService {
           if (!pol.allowed) return { ...base, passed: false, evidence: { erro: 'comando bloqueado pela política', motivos: pol.reasons } };
           const r = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
             cwd: worktree,
-            env: minimalEnv({
+            env: ambienteDaConferencia({
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
             }),

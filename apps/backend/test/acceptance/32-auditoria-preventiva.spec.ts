@@ -122,4 +122,37 @@ describe('Auditoria preventiva', () => {
     ctl('resposta.txt', null);
     expect(aviso.content).toMatch(/O trabalho "Impossível" parou: .*programa-que-nao-existe-abc/);
   });
+  it('cache do corepack quebrado no servidor: o sistema refaz e confere de novo, sem gastar sessão da IA', async () => {
+    const cache = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'corepack-'));
+    process.env.COREPACK_HOME = cache;
+    fs.mkdirSync(path.join(cache, 'v1'), { recursive: true });
+    const p = (await h.http().post('/api/projects').send({ name: 'Corepack', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'pnpm',
+      steps: [{ key: 'v', instructions: 'echo ok > feito.txt', verifyCommand: `if [ -d '${cache}' ]; then echo "Error: Cannot find module '${cache}/v1/pnpm/12.21.0/bin/pnpm.cjs'" >&2; exit 1; fi; test -f feito.txt` }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    delete process.env.COREPACK_HOME;
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts).toHaveLength(1);
+    const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/logs`)).body.map((l: any) => l.message).join('\n');
+    expect(logs).toMatch(/cache do corepack quebrado no servidor; refeito/);
+  });
+
+  it('problema do servidor (sem rede para o registro de pacotes): para na hora explicando, sem 6 sessões inúteis', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'SemRede', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'rede',
+      steps: [{ key: 'r', instructions: 'echo ok > feito.txt', verifyCommand: 'echo "npm error code EAI_AGAIN request to https://registry.npmjs.org/x failed" >&2; exit 1' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'VERIFICACAO_IMPOSSIVEL' });
+    expect(x.attempts).toHaveLength(1);
+    expect(x.statusDetail).toMatch(/problema do SERVIDOR do Nivoo, não do projeto \(EAI_AGAIN request to https:\/\/registry\.npmjs\.org/);
+    expect(x.statusDetail).toMatch(/nivoo update/);
+  });
 });

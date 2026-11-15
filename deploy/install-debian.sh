@@ -197,6 +197,14 @@ else
   warn "pulado (NIVOO_INSTALL_CLIS=0)"
 fi
 
+# Ferramentas que as conferências usam para instalar, testar e compilar os projetos (o pnpm e o yarn não vêm com o
+# Node). O cache do corepack é refeito do zero: um download interrompido deixava o pnpm quebrado ("pnpm.cjs" ausente).
+step "Ferramentas de projeto (pnpm, yarn)"
+npm i -g --no-audit --no-fund --loglevel=error pnpm@10 yarn@1
+find "$NODE_DIR" -type l -prune -o -exec chmod go+rX {} +
+rm -rf "$NIVOO_HOME/.cache/node/corepack"
+ok "pnpm $(pnpm --version 2>/dev/null), yarn $(yarn --version 2>/dev/null)"
+
 # Comando de administração
 install -m 755 "$APP_DIR/deploy/nivoo" /usr/local/bin/nivoo
 sed -i "s#^APP_DIR=.*#APP_DIR=$APP_DIR#" /usr/local/bin/nivoo

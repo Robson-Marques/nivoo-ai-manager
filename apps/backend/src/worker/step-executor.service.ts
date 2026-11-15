@@ -11,7 +11,7 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
-import { killProcessGroup, minimalEnv, runProcess } from '../common/exec';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, problemaDoAmbiente, runProcess } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -343,15 +343,27 @@ export class StepExecutorService {
     const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
     let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
+    let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
     if ((result.exitCode === 0 || (isAi && result.sessionEnded)) && !result.interrupted && !result.resourceUnavailable && verifyCommand) {
-      const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
-        cwd: worktree,
-        env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
-        // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
-        timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
-        maxBuffer: 20 * 1024 * 1024,
-        signal,
-      });
+      const conferir = () =>
+        runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
+          cwd: worktree,
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
+          // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
+          timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
+          maxBuffer: 20 * 1024 * 1024,
+          signal,
+        });
+      let v = await conferir();
+      // Cache do corepack quebrado (download interrompido: "pnpm.cjs" ausente): o sistema refaz o cache e confere
+      // de novo, sozinho — não é coisa que a IA conserte.
+      if (v.exitCode !== 0 && /corepack/i.test(`${v.stdout}${v.stderr}`) && problemaDoAmbiente(`${v.stdout}${v.stderr}`)) {
+        const cache = process.env.COREPACK_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.cache', 'node', 'corepack');
+        fs.rmSync(cache, { recursive: true, force: true });
+        await L(`Conferência: cache do corepack quebrado no servidor; refeito (${cache}) e conferindo de novo`, 'WARN', attempt.id);
+        v = await conferir();
+      }
+      if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
       const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
@@ -482,6 +494,12 @@ export class StepExecutorService {
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
       this.registry.invalidate(providerId);
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível');
+    }
+
+    if (ambiente && attemptStatus !== 'SUCESSO') {
+      await this.checkpoint(job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        `a conferência falhou por um problema do SERVIDOR do Nivoo, não do projeto (${ambiente}). O trabalho feito está salvo. Rode "nivoo update" no servidor (instala e arruma as ferramentas) e clique em "Tentar de novo"; se repetir, mande o diagnóstico`);
     }
 
     if (faltaPrograma && attemptStatus !== 'SUCESSO') {

@@ -177,6 +177,19 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Ferramentas de projeto no servidor e falha de ambiente (2026-11-15)
+
+* **Bug real (ConnectChat)**: a etapa de versão parou depois de 6 sessões com "Cannot find module
+  …/corepack/v1/pnpm/…/pnpm.cjs": o servidor não tinha o pnpm (o projeto usa pnpm), o corepack ficou com o cache
+  quebrado, e a IA não tinha como consertar — só anotava a falha, sessão após sessão.
+* O instalador (`nivoo update`) instala `pnpm@10` e `yarn@1` globais e refaz o cache do corepack.
+* As conferências e critérios rodam com `CI=true` (testes sem modo "watch"), sem perguntas do corepack e sem o pnpm
+  trocar de versão sozinho (`npm_config_manage_package_manager_versions=false`).
+* Cache do corepack quebrado: o sistema apaga o cache e confere de novo, sozinho.
+* Falha do SERVIDOR (corepack quebrado, sem espaço, sem rede para o registro de pacotes): o trabalho para na hora
+  (VERIFICACAO_IMPOSSIVEL) dizendo que o problema é do servidor e o que fazer ("nivoo update" e "Tentar de novo"),
+  sem gastar sessões da IA. Testes em `32`.
+
 ## Auditoria preventiva do fluxo de trabalho (2026-11-15)
 
 Varredura do fluxo inteiro (conversa → plano → etapas → conferências → revisão → entrega → tela) atrás das mesmas
