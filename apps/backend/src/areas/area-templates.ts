@@ -11,6 +11,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/** Regra do modelo de vídeo sobre o resultado final (a de antes dizia que juntar ainda não era feito). */
+export const LINHA_VIDEO_ANTIGA = '- Os vídeos ficam separados por cena (juntar as cenas num vídeo só ainda não é feito pelo sistema).';
+export const LINHA_VIDEO_COMPLETO =
+  '- O sistema junta sozinho as cenas, na ordem, no vídeo completo (videos/<nome-do-video>/<nome-do-video>-completo.mp4): é ele que o usuário recebe para baixar. As cenas continuam na pasta para ajustes.';
+
 export interface AreaTemplate {
   key: string;
   name: string;
@@ -118,7 +123,7 @@ export const AREA_TEMPLATES: AreaTemplate[] = [
       '',
       'DEPOIS DE GERAR:',
       '- Você não assiste aos vídeos: peça para o usuário assistir no chat e dizer o que ajustar; refaça só as cenas pedidas.',
-      '- Os vídeos ficam separados por cena (juntar as cenas num vídeo só ainda não é feito pelo sistema).',
+      `${LINHA_VIDEO_COMPLETO}`,
       '',
       'Se o sistema não oferecer geração de vídeo, explique que é preciso criar em Conexões uma "Gemini — chave de API" (com cobrança',
       'ativada no Google AI Studio) e escolher o modelo Veo em Ajustes → Vídeos.',

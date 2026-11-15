@@ -12,6 +12,7 @@ O que fica instalado:
 | Código | `/opt/nivoo/app` |
 | Claude Code, Codex e Gemini CLI | instalados globalmente pelo npm do Node oficial |
 | `poppler-utils` (`pdftotext`) | para transformar PDF em texto |
+| `ffmpeg` | para juntar as cenas de vídeo no vídeo completo |
 | `tesseract-ocr`, `tesseract-ocr-por` | OCR: ler PDF escaneado (só imagem) |
 | Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
 | Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |

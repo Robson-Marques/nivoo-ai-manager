@@ -453,10 +453,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
     <div className={`progresso p-${job.status}`}>
       {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
       {job.status === 'CONCLUIDO' && <ArquivosDoTrabalho projetoId={projetoId} jobId={jobId} />}
-      {job.status === 'CONCLUIDO' &&
-        job.steps
-          .filter((x: any) => x.provider === 'gemini-video' && x.providerOptions?.arquivo)
-          .map((x: any) => <VideoDoProjeto key={x.id} projetoId={projetoId} caminho={x.providerOptions.arquivo} />)}
+      {job.status === 'CONCLUIDO' && <VideosDoTrabalho projetoId={projetoId} steps={job.steps} />}
       {['EXECUTANDO', 'PENDENTE'].includes(job.status) && (
         <span>Trabalhando… {feitas} de {job.steps.length} feito(s){atual ? ` — agora: ${atual.title || atual.key}` : ''}</span>
       )}
@@ -693,6 +690,25 @@ function ItemDaMemoria({ m, texto, onEsquecer }: { m: any; texto: string; onEsqu
         </button>
       </div>
     </div>
+  );
+}
+
+/** Vídeos do trabalho: o vídeo completo (cenas juntadas) primeiro; as cenas soltas ficam recolhidas. */
+function VideosDoTrabalho({ projetoId, steps }: { projetoId: string; steps: any[] }) {
+  const [abertas, setAbertas] = useState(false); // cenas só baixam se abrir
+  const completos = steps.filter((x) => x.provider === 'juntar-videos' && x.status === 'CONCLUIDO' && x.providerOptions?.arquivo);
+  const cenas = steps.filter((x) => x.provider === 'gemini-video' && x.providerOptions?.arquivo);
+  if (!completos.length) return <>{cenas.map((x) => <VideoDoProjeto key={x.id} projetoId={projetoId} caminho={x.providerOptions.arquivo} />)}</>;
+  return (
+    <>
+      {completos.map((x) => <VideoDoProjeto key={x.id} projetoId={projetoId} caminho={x.providerOptions.arquivo} />)}
+      {cenas.length > 0 && (
+        <details className="cenas-soltas" onToggle={(e) => setAbertas((e.target as HTMLDetailsElement).open)}>
+          <summary className="small">Ver as {cenas.length} cenas separadas</summary>
+          {abertas && cenas.map((x) => <VideoDoProjeto key={x.id} projetoId={projetoId} caminho={x.providerOptions.arquivo} />)}
+        </details>
+      )}
+    </>
   );
 }
 

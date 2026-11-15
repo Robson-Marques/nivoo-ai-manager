@@ -48,6 +48,21 @@ export function precoPorSegundo(modelo: string): number {
   return Number(env ?? (rapido ? 0.15 : 0.4));
 }
 
+/** Modelos Veo da API do Gemini, com nome claro. A lista da própria chave manda; esta vale se ela falhar. */
+export const MODELOS_VEO_CONHECIDOS: ModeloVeo[] = [
+  { id: 'veo-3.1-generate-preview', nome: 'Veo 3.1 — melhor qualidade, com som' },
+  { id: 'veo-3.1-fast-generate-preview', nome: 'Veo 3.1 Fast — mais rápido e barato, com som' },
+  { id: 'veo-3.0-generate-001', nome: 'Veo 3 — com som' },
+  { id: 'veo-3.0-fast-generate-001', nome: 'Veo 3 Fast — mais barato, com som' },
+  { id: 'veo-2.0-generate-001', nome: 'Veo 2 — sem som' },
+];
+
+/** Nome para a tela: o conhecido (ou o do Google) + o custo estimado por segundo. */
+export function nomeDoModeloVeo(id: string, nomeDoGoogle?: string): string {
+  const base = MODELOS_VEO_CONHECIDOS.find((m) => m.id === id)?.nome ?? nomeDoGoogle ?? id;
+  return `${base} (~US$ ${precoPorSegundo(id).toFixed(2)}/s)`;
+}
+
 /** Versão do modelo para ordenar: veo-3.1-… > veo-3.0-… > veo-2.0-… */
 function versao(id: string): number {
   const m = /veo-(\d+)(?:\.(\d+))?/.exec(id);
@@ -125,6 +140,23 @@ export class GeminiVideoProvider implements AiProvider {
       .sort((a, b) => versao(b.id) - versao(a.id) || Number(/fast|lite/.test(a.id)) - Number(/fast|lite/.test(b.id)) || a.id.localeCompare(b.id));
     this.cache = { chave: k.chave, at: Date.now(), modelos };
     return modelos;
+  }
+
+  /**
+   * Lista para escolher na tela: os modelos que a chave pode usar, com nome claro e preço. Se o Google não
+   * responder (ou a chave ainda não existir), os modelos conhecidos, com o motivo — a escolha nunca fica vazia.
+   */
+  async modelosParaEscolher(conexao?: string): Promise<{ opcoes: ModeloVeo[]; aviso?: string }> {
+    try {
+      const daChave = await this.modelos(conexao);
+      if (daChave.length) return { opcoes: daChave.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id, m.nome) })) };
+      return {
+        opcoes: MODELOS_VEO_CONHECIDOS.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id) })),
+        aviso: 'A sua chave do Gemini não lista nenhum modelo Veo (o vídeo pode exigir faturamento ativo no Google AI Studio). Mostrando os modelos conhecidos.',
+      };
+    } catch (e: any) {
+      return { opcoes: MODELOS_VEO_CONHECIDOS.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id) })), aviso: `Não consegui ler a lista do Google (${String(e?.message ?? e).slice(0, 200)}). Mostrando os modelos conhecidos.` };
+    }
   }
 
   /** Custo estimado da etapa (para o limite de gasto, ANTES de gerar). */

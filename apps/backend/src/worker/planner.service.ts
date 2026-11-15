@@ -337,6 +337,8 @@ export class PlannerService {
             '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',
             '  diga no "texto" quantos vídeos e quantos segundos serão. Imagem anexada no chat como primeiro quadro: coloque-a no projeto',
             '  com "anexosNoProjeto" e use o mesmo caminho em "imagem". Não precisa de verifyCommand: o sistema confere o arquivo.',
+            '  O Veo gera de 4 a 8 s por vez: para um vídeo maior, uma etapa por cena (videos/<nome>/cena-01.mp4, cena-02.mp4…) e o',
+            '  SISTEMA acrescenta sozinho a etapa final que junta as cenas, na ordem, em videos/<nome>/<nome>-completo.mp4 (não crie essa etapa).',
           ]
         : []),
       '- Anexos do chat ficam em contexto/anexos/ (leitura). Para colocar um anexo DENTRO do projeto (ex.: o logo',
@@ -356,6 +358,7 @@ export class PlannerService {
             'Leia os arquivos novos/alterados acima e responda em linguagem simples:',
             '1) O que foi feito (poucas linhas).',
             '2) Onde está: os caminhos exatos dos arquivos principais (o usuário abre pela tela clicando neles).',
+            '   Vídeo: o resultado é o vídeo COMPLETO (…-completo.mp4, com player e "baixar" na conversa); cite as cenas só como peças.',
             '3) Se o resultado tiver decisões, dúvidas, riscos ou itens que dependem do usuário (ex.: um documento com pendências),',
             '   LISTE TODAS como perguntas numeradas — cada uma com as opções e a SUA recomendação — e peça a resposta',
             '   (ex.: "1. C5 — página de teste de iconografia: (a) apagar (b) manter. Recomendo (a) porque…").',

@@ -8,6 +8,7 @@ import { removerGeminiConta } from './accounts/remover-gemini-conta';
 import { PrismaService } from './prisma/prisma.service';
 import { WorkspaceService } from './storage/workspace.service';
 import { limparLicoes } from './worker/limpar-licoes';
+import { LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO } from './areas/area-templates';
 
 /**
  * Roda na instalação e em cada atualização (idempotente): garante o modelo padrão ("Geral") e converte em
@@ -34,6 +35,13 @@ async function main() {
   const removidas = await removerGeminiConta(prisma);
   if (removidas.length) console.log(`Conexão(ões) "Gemini (conta)" removida(s): ${removidas.join(', ')}.`);
 
+  // Modelo de vídeo já instalado: a regra antiga ("juntar ainda não é feito") vira a nova, numa versão nova.
+  const video = await prisma.area.findUnique({ where: { slug: 'video-veo' } });
+  const regra = video ? await prisma.areaInstruction.findFirst({ where: { areaId: video.id }, orderBy: { version: 'desc' } }) : null;
+  if (video && regra?.text.includes(LINHA_VIDEO_ANTIGA)) {
+    await app.get(AreasService).newInstructions(video.id, { text: regra.text.replace(LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO), author: 'sistema', reason: 'O sistema agora junta as cenas no vídeo completo' });
+    console.log('Modelo "Vídeo com IA (Veo)": regra do vídeo completo atualizada.');
+  }
   const apagadas = await limparLicoes(prisma);
   if (apagadas) console.log(`${apagadas} lição(ões) que eram erro de infraestrutura ou repetidas foram removidas.`);
   await app.close();

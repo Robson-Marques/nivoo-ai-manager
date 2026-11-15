@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
@@ -62,6 +63,11 @@ export class JobsService {
       let verificacao = verifyCommand;
       if ((provider ?? defaultProvider) === 'gemini-video') {
         Object.assign(providerOptions, opcoesDeVideo(key, opts));
+        verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
+      }
+      // Juntar as cenas num vídeo só (etapa do sistema, ffmpeg).
+      if ((provider ?? defaultProvider) === 'juntar-videos') {
+        Object.assign(providerOptions, opcoesDeJuncao(key, opts));
         verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
       }
       // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
@@ -145,12 +151,13 @@ export class JobsService {
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const steps = this.parseSteps(plan.steps, defaultProvider);
+    const brutas = comVideoCompleto(plan.steps, defaultProvider);
+    const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
     const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
-    return { title, objective, defaultProvider, steps: plan.steps, criteria: plan.criteria, limits };
+    return { title, objective, defaultProvider, steps: brutas, criteria: plan.criteria, limits };
   }
 
   async create(projectId: string, body: any) {
@@ -160,7 +167,7 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(body.steps ?? [], defaultProvider);
+    const steps = this.parseSteps(comVideoCompleto(body.steps ?? [], defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.
@@ -456,4 +463,48 @@ export function operacoesDeArquivos(key: string, o: any): { remover: string[]; m
   if (!remover.length && !mover.length) throw new BadRequestException(`Etapa ${key}: informe "remover" e/ou "mover"`);
   if (remover.length + mover.length > 2000) throw new BadRequestException(`Etapa ${key}: no máximo 2000 itens por etapa`);
   return { remover, mover };
+}
+
+/** Opções da etapa que junta as cenas: lista de cenas (na ordem) e o arquivo final, só caminhos do projeto. */
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string } {
+  const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
+  if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
+  if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
+  const arquivo = caminhoDoProjeto(o.arquivo) ?? '';
+  if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
+  if (cenas.includes(arquivo)) throw new BadRequestException(`Etapa ${key}: o vídeo final não pode ter o nome de uma cena`);
+  return { cenas, arquivo };
+}
+
+/**
+ * Plano com duas ou mais cenas de vídeo ganha, sozinho, a etapa final que junta tudo num vídeo só (o Veo
+ * gera de 4 a 8 s por vez; quem pediu o vídeo quer o vídeo inteiro). Se o plano já tem a etapa, nada muda.
+ * Nome do final: `<pasta das cenas>/<pasta>-completo.mp4` (ex.: videos/pizzaria/pizzaria-completo.mp4).
+ */
+export function comVideoCompleto(raw: unknown, defaultProvider: string): unknown {
+  if (!Array.isArray(raw)) return raw;
+  if (raw.some((s: any) => (s?.provider ?? defaultProvider) === 'juntar-videos')) return raw;
+  const cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
+  if (cenas.length < 2) return raw;
+  const arquivos = cenas.map((s: any) => caminhoDoProjeto(s.providerOptions?.arquivo ?? `videos/${s.key}.mp4`));
+  if (arquivos.some((a) => !a)) return raw; // a validação da cena aponta o erro
+  const pastas = [...new Set(arquivos.map((a) => path.posix.dirname(a as string)))];
+  const pasta = pastas.length === 1 && pastas[0] !== '.' ? pastas[0] : 'videos';
+  const nome = pasta === 'videos' ? 'video' : path.posix.basename(pasta);
+  let arquivo = `${pasta}/${nome}-completo.mp4`;
+  for (let n = 2; arquivos.includes(arquivo); n++) arquivo = `${pasta}/${nome}-completo-${n}.mp4`;
+  const chaves = new Set(raw.map((s: any) => String(s?.key)));
+  let key = 'video-completo';
+  for (let n = 2; chaves.has(key); n++) key = `video-completo-${n}`;
+  return [
+    ...raw,
+    {
+      key,
+      title: 'Juntar as cenas no vídeo completo',
+      provider: 'juntar-videos',
+      instructions: `Junta as ${cenas.length} cenas, na ordem, em ${arquivo}.`,
+      dependsOn: cenas.map((s: any) => s.key),
+      providerOptions: { cenas: arquivos, arquivo },
+    },
+  ];
 }

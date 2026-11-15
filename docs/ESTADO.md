@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Vídeo completo e escolha do modelo Veo (2026-11-15)
+
+* **Entrega o vídeo inteiro**: o Veo gera de 4 a 8 s por vez, então o plano com duas ou mais cenas ganha sozinho a
+  etapa final "Juntar as cenas no vídeo completo" (executor do sistema `juntar-videos`, ffmpeg, sem IA e sem
+  custo). Cada cena é padronizada (tamanho da primeira, 24 quadros/s, H.264 + AAC; cena sem som ganha silêncio)
+  e emendada na ordem em `videos/<nome>/<nome>-completo.mp4`. Na conversa aparece primeiro o vídeo completo
+  (player + baixar); as cenas ficam recolhidas em "Ver as N cenas separadas". O modelo pronto de vídeo (também o
+  já instalado, pelo seed, numa versão nova das regras) e a entrega da IA falam do vídeo completo. Instalador
+  inclui `ffmpeg`. Teste `26-video-completo` (ffmpeg real: 1280x720 com som + 640x480 sem som → 5 s 1280x720 AAC).
+* **Modelo do Veo**: a lista nunca fica vazia — modelos da chave com nome claro e custo por segundo
+  (Veo 3.1, 3.1 Fast, 3, 3 Fast, 2); se o Google não responder, os conhecidos, com o motivo escrito embaixo.
+  O seletor do topo da conversa é o modelo de texto (quem conversa e planeja); o do Veo fica em Ajustes → Vídeos.
+
 ## Marca "Nivoo Dev AI" (2026-11-15)
 
 Nome do sistema na barra lateral, tela de entrada, tela inicial e título da aba; logo = o arquivo original

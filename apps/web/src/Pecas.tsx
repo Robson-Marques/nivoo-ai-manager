@@ -137,7 +137,7 @@ export function VerArquivo({ path, conteudo, onFechar }: { path: string; conteud
  * Modelo da IA do projeto (ex.: Claude → Opus; ChatGPT → GPT-6.1-Sol). A lista vem do programa oficial da
  * IA; "Outro…" permite digitar um nome. A escolha fica guardada por IA no projeto.
  */
-export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo = 'Modelo' }: { projeto: any; onMudou: () => void; className?: string; ia?: string; rotulo?: string }) {
+export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo = 'Modelo', mostrarAviso = false }: { projeto: any; onMudou: () => void; className?: string; ia?: string; rotulo?: string; mostrarAviso?: boolean }) {
   const ia = iaFixa ?? projeto.provider;
   const [opcoes, setOpcoes] = useState<Array<{ id: string; nome: string }>>([]);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -162,9 +162,9 @@ export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo 
     onMudou();
   };
   const lista = atual && !opcoes.some((o) => o.id === atual) ? [{ id: atual, nome: atual }, ...opcoes] : opcoes;
-  return (
+  const seletor = (
     <select className={className} value={atual} onChange={(e) => salvar(e.target.value)} title={aviso ?? 'Modelo usado por esta IA neste projeto'}>
-      <option value="">Modelo: padrão da IA</option>
+      <option value="">{ia === 'gemini-video' ? 'Modelo: automático (o melhor que a chave permite)' : 'Modelo: padrão da IA'}</option>
       {lista.map((o) => (
         <option key={o.id} value={o.id}>
           Modelo: {o.nome}
@@ -172,5 +172,12 @@ export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo 
       ))}
       <option value="__outro__">Outro… (digitar o nome)</option>
     </select>
+  );
+  if (!mostrarAviso || !aviso) return seletor;
+  return (
+    <>
+      {seletor}
+      <span className="muted small">{aviso}</span>
+    </>
   );
 }

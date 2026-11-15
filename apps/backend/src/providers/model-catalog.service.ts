@@ -40,11 +40,7 @@ export class ModelCatalogService {
     if (!this.registry.has(providerId)) throw new BadRequestException('IA desconhecida');
     if (providerId === 'gemini-video') {
       // Modelos Veo que a chave do Gemini pode usar (lista do próprio Google).
-      try {
-        return { opcoes: await (this.registry.get(providerId) as GeminiVideoProvider).modelos() };
-      } catch (e: any) {
-        return { opcoes: [], aviso: String(e?.message ?? e) };
-      }
+      return (this.registry.get(providerId) as GeminiVideoProvider).modelosParaEscolher();
     }
     if (providerId.startsWith('claude')) return { opcoes: CLAUDE };
     if (!tipoDe(providerId)) return { opcoes: [] }; // executores do sistema (arquivos, comandos) não têm modelo

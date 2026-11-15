@@ -211,7 +211,7 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         <span className="small">Não disponível: {st.errors?.join('; ')}. <Link to="/contas">Conexões</Link></span>
       ) : (
         <div className="row">
-          <SeletorModelo projeto={projeto} onMudou={onMudou} ia="gemini-video" />
+          <SeletorModelo projeto={projeto} onMudou={onMudou} ia="gemini-video" mostrarAviso />
         </div>
       )}
     </div>
