@@ -63,6 +63,22 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('mode', null);
   });
 
+  it('sem limite de tempo no trabalho, a sessão usa o tempo da etapa (não 1 segundo)', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Tempo', provider: 'claude-code-cli' }).expect(201)).body;
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'demora um pouco', objective: 'x', defaultProvider: 'local-shell', semLimites: true,
+        steps: [{ key: 'a', instructions: 'sleep 3 && echo ok > feito.txt' }],
+        criteria: [{ key: 'c', description: 'c', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+      }).expect(201)
+    ).body;
+    expect((await h.prisma.job.findUniqueOrThrow({ where: { id: j.id } })).maxDurationSec).toBe(0);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const r = await fim(p.id, j.id);
+    expect(r.status).toBe('CONCLUIDO');
+    expect(r.attempts).toHaveLength(1);
+  });
+
   it('conferência com programa inexistente: para na 1ª tentativa e diz qual programa falta', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Sem rg', provider: 'claude-code-cli' }).expect(201)).body;
     const j = (

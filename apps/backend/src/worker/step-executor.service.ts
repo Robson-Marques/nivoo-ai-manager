@@ -42,7 +42,7 @@ export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQU
 
 /** Erros que não são do trabalho da IA: não geram lição. */
 export function ehProblemaDeInfra(texto: string): boolean {
-  return /command not found|comando não encontrado|exit 127|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
+  return /command not found|comando não encontrado|exit 127|timeout após \d+ ms|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
 }
 
 const MOTIVO_LICAO: Record<string, string> = {
@@ -219,7 +219,9 @@ export class StepExecutorService {
     if (contextStats.memoryOmitted || contextStats.overBudget) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) de memória omitidas do prompt (íntegras em .nivoo/memoria.md)`, 'INFO', attempt.id);
     }
-    const remainingSec = Math.max(1, job.maxDurationSec - job.activeSeconds);
+    // Tempo da sessão: o da etapa; com limite de tempo no trabalho (> 0), nunca além do que resta dele.
+    // 0 = sem limite de tempo no trabalho (não pode virar "1 segundo").
+    const remainingSec = job.maxDurationSec > 0 ? Math.max(1, job.maxDurationSec - job.activeSeconds) : Infinity;
     const timeoutMs = Math.min(job.stepTimeoutSec, remainingSec) * 1000;
     const started = Date.now();
     let result: ExecutionResult;

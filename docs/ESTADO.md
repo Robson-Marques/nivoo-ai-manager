@@ -3,6 +3,13 @@
 > Atualizado em 2026-11-14. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correção — sessões cortadas em 1 segundo (2026-11-15)
+
+Com "sem limite de tempo" (0) no trabalho, o tempo da sessão era calculado como "limite − gasto", que dava
+0 e era arredondado para 1 s: toda sessão da IA morria em 1 segundo ("timeout após 1000 ms"). Agora, sem
+limite, vale o tempo da etapa. "timeout" também não vira mais lição. Teste em `22` (falha com o código
+antigo, passa com a correção).
+
 ## Gemini pela conta removido (2026-11-15)
 
 O Google encerrou o Gemini CLI com conta pessoal ("IneligibleTierError… migrate to Antigravity"), então o
