@@ -3,6 +3,20 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Vídeo: Veo desligado pelo Google → Gemini Omni Flash (2026-11-15)
+
+O Google desligou o Veo da API do Gemini (o 3.1 "preview" em 22/10/2026; no servidor real, todos os Veo —
+3.1, 3 e 2 — respondem 404, e a lista da chave não traz nenhum). O substituto é o **Gemini Omni Flash**
+(`gemini-omni-1.2-flash`, `gemini-omni-1.1-flash`), por outro caminho da API: `POST /v1beta/interactions`
+(`model`, `input` [imagem do 1º quadro + texto], `response_format` {type video, delivery uri, aspect_ratio,
+resolution, duration "Ns"}, `background: true`), andamento em `GET /v1beta/interactions/{id}` (`status`
+in_progress/completed/failed/cancelled) e o vídeo em `steps[].content[]` {type video, uri | data}. A leitura do
+resultado é tolerante (procura o item de vídeo onde vier), porque o formato foi tirado de integrações públicas,
+não testado aqui contra o Google real. Lista de modelos só com o Omni (o Veo some, mesmo se a chave o listar);
+"automático" tenta 1.2 e depois 1.1; modelo escolhido desligado vira automático (e o seed limpa a escolha
+antiga). Preço estimado US$ 0,10/s (`NIVOO_OMNI_USD_POR_SEGUNDO`); 402 (sem crédito) = indisponível com o
+motivo. 3 a 15 s por pedido. Testes em `21` (Google simulado no protocolo Interactions).
+
 ## ChatGPT sem conseguir ler o projeto no servidor (2026-11-15)
 
 Caso real: trabalho com o ChatGPT (Codex) na "sessão 43", a IA dizendo "as ferramentas disponíveis não oferecem

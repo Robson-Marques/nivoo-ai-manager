@@ -194,7 +194,7 @@ function IasReserva({ projeto, contas, onSalvar }: { projeto: any; contas: any[]
   );
 }
 
-/** Vídeo com o Veo (Google): conexão usada, modelo escolhido (lista da própria chave) e aviso de custo. */
+/** Vídeo do Google (Gemini Omni): conexão usada, modelo escolhido (lista da própria chave) e aviso de custo. */
 function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
   const [st, setSt] = useState<any>(null);
   useEffect(() => {
@@ -202,7 +202,7 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
   }, []);
   return (
     <div className="campo">
-      <b>Vídeos (Veo, do Google)</b>
+      <b>Vídeos (Google — Gemini Omni)</b>
       <span className="muted small">
         Peça na conversa ("crie um vídeo de 8 segundos de…"): a IA escreve a descrição, você aprova em <b>Fazer</b> e o vídeo vai para a pasta do projeto. Usa a conexão
         "Gemini — chave de API" e é cobrado pelo Google por segundo de vídeo (estimativa no gasto do projeto; o limite de gasto vale).

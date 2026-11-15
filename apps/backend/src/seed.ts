@@ -8,6 +8,7 @@ import { removerGeminiConta } from './accounts/remover-gemini-conta';
 import { PrismaService } from './prisma/prisma.service';
 import { WorkspaceService } from './storage/workspace.service';
 import { limparLicoes } from './worker/limpar-licoes';
+import { MODELO_DESLIGADO } from './providers/gemini-video.provider';
 import { LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO } from './areas/area-templates';
 
 /**
@@ -41,6 +42,14 @@ async function main() {
   if (video && regra?.text.includes(LINHA_VIDEO_ANTIGA)) {
     await app.get(AreasService).newInstructions(video.id, { text: regra.text.replace(LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO), author: 'sistema', reason: 'O sistema agora junta as cenas no vídeo completo' });
     console.log('Modelo "Vídeo com IA (Veo)": regra do vídeo completo atualizada.');
+  }
+  // Modelo de vídeo escolhido que o Google desligou (Veo na API do Gemini): volta para o automático.
+  for (const p of await prisma.project.findMany({ select: { id: true, aiModels: true } })) {
+    const m = { ...((p.aiModels ?? {}) as Record<string, string>) };
+    if (m['gemini-video'] && MODELO_DESLIGADO.test(m['gemini-video'])) {
+      delete m['gemini-video'];
+      await prisma.project.update({ where: { id: p.id }, data: { aiModels: m } });
+    }
   }
   const apagadas = await limparLicoes(prisma);
   if (apagadas) console.log(`${apagadas} lição(ões) que eram erro de infraestrutura ou repetidas foram removidas.`);

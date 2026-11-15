@@ -46,14 +46,32 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
           res.end(JSON.stringify(b));
         };
         if (chave !== CHAVE) return json(400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } });
+        // Gemini Omni Flash (Interactions): cria em segundo plano, consulta o andamento, devolve o vídeo por endereço.
+        if (u.pathname === '/v1beta/interactions' && req.method === 'POST') {
+          const corpo = JSON.parse(d);
+          if (semVeoNaLista && corpo.model === 'gemini-omni-1.2-flash') return json(404, { error: { code: 404, message: 'model not found', status: 'NOT_FOUND' } });
+          consultas = 0;
+          return json(200, { id: `int-${pedidos.length}`, status: 'in_progress' });
+        }
+        if (/^\/v1beta\/interactions\/int-\d+$/.test(u.pathname) && req.method === 'GET') {
+          consultas++;
+          const id = u.pathname.split('/').pop();
+          if (consultas < 2) return json(200, { id, status: 'in_progress' });
+          if (recusar) return json(200, { id, status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'text', text: 'O pedido viola a política de uso.' }] }] });
+          return json(200, {
+            id,
+            status: 'completed',
+            steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', uri: `http://127.0.0.1:${(google.address() as AddressInfo).port}/v1beta/files/abc123:download?alt=media` }] }],
+          });
+        }
         if (u.pathname === '/v1beta/models' && semVeoNaLista) return json(200, { models: [{ name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] }] });
         if (u.pathname === '/v1beta/models') {
           return json(200, {
             models: [
               { name: 'models/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', supportedGenerationMethods: ['generateContent'] },
-              { name: 'models/veo-3.0-generate-001', displayName: 'Veo 3', supportedGenerationMethods: ['predictLongRunning'] },
+              { name: 'models/gemini-omni-1.1-flash', displayName: 'Gemini Omni 1.1 Flash', supportedGenerationMethods: ['generateContent'] },
               { name: 'models/veo-3.1-fast-generate-preview', displayName: 'Veo 3.1 Fast', supportedGenerationMethods: ['predictLongRunning'] },
-              { name: 'models/veo-3.1-generate-preview', displayName: 'Veo 3.1', supportedGenerationMethods: ['predictLongRunning'] },
+              { name: 'models/gemini-omni-1.2-flash', displayName: 'Gemini Omni 1.2 Flash', supportedGenerationMethods: ['generateContent'] },
             ],
           });
         }
@@ -113,10 +131,10 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     const c = (await h.http().post('/api/accounts').send({ tipo: 'gemini-api', nome: 'Gemini vídeos' }).expect(201)).body;
     await h.http().post(`/api/accounts/${c.id}/key`).send({ key: CHAVE }).expect(201);
     const modelos = (await h.http().get('/api/accounts/gemini-video/models').expect(200)).body.opcoes;
+    // O Veo (desligado pelo Google na API do Gemini) não aparece, mesmo que a lista o traga; o Omni atual primeiro.
     expect(modelos).toEqual([
-      { id: 'veo-3.1-generate-preview', nome: 'Veo 3.1 — melhor qualidade, com som (~US$ 0,40/s)' },
-      { id: 'veo-3.1-fast-generate-preview', nome: 'Veo 3.1 Fast — mais rápido e barato, com som (~US$ 0,15/s)' },
-      { id: 'veo-3.0-generate-001', nome: 'Veo 3 — com som (~US$ 0,40/s)' },
+      { id: 'gemini-omni-1.2-flash', nome: 'Gemini Omni 1.2 Flash — o atual do Google, com som (3 a 15 s) (~US$ 0,10/s)' },
+      { id: 'gemini-omni-1.1-flash', nome: 'Gemini Omni 1.1 Flash — versão anterior, com som (~US$ 0,10/s)' },
     ]);
 
     const p = (await h.http().post('/api/projects').send({ name: 'Campanha', provider: 'claude-code-cli' }).expect(201)).body;
@@ -167,22 +185,29 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     expect(job.status).toBe('CONCLUIDO');
     expect(job.steps.map((s: any) => s.key)).toEqual(['video']); // etapa do sistema: sem conferência por IA
 
-    // Pedido feito ao Google como a biblioteca oficial faz.
-    const gerar = pedidos.find((x) => x.url.startsWith('POST /v1beta/models/'))!;
-    expect(gerar.url).toBe('POST /v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning');
+    // O modelo escolhido (Veo 3.1, desligado pelo Google) vira o automático: Gemini Omni pelo Interactions.
+    expect(pedidos.some((x) => x.url.includes('predictLongRunning'))).toBe(false);
+    const gerar = pedidos.find((x) => x.url === 'POST /v1beta/interactions')!;
     expect(gerar.chave).toBe(CHAVE);
-    expect(gerar.corpo.instances[0].prompt).toBe('O logo gira devagar sobre fundo laranja, câmera se aproxima, som de whoosh.');
-    expect(gerar.corpo.instances[0].image).toEqual({ bytesBase64Encoded: PNG.toString('base64'), mimeType: 'image/png' });
-    expect(gerar.corpo.parameters).toEqual({ sampleCount: 1, durationSeconds: 8, aspectRatio: '9:16', negativePrompt: 'texto borrado' });
+    expect(gerar.corpo).toEqual({
+      model: 'gemini-omni-1.2-flash',
+      input: [
+        { type: 'image', data: PNG.toString('base64'), mime_type: 'image/png' },
+        { type: 'text', text: 'O logo gira devagar sobre fundo laranja, câmera se aproxima, som de whoosh.\n\nNão mostrar: texto borrado' },
+      ],
+      response_format: { type: 'video', delivery: 'uri', aspect_ratio: '9:16', duration: '8s' },
+      background: true,
+    });
+    expect(pedidos.some((x) => /^GET \/v1beta\/interactions\/int-\d+$/.test(x.url))).toBe(true);
 
-    // O vídeo está na pasta principal do projeto; custo estimado registrado (modelo rápido: 8 s x US$ 0,15).
+    // O vídeo está na pasta principal do projeto; custo estimado registrado (8 s x US$ 0,10).
     const noProjeto = execFileSync('git', ['show', 'main:videos/abertura.mp4'], { cwd: path.join(p.workspacePath, 'repo') });
     expect(Buffer.compare(noProjeto, VIDEO)).toBe(0);
-    expect(Number(job.costSpentUsd)).toBeCloseTo(1.2, 2);
-    expect(job.attempts[0].output).toMatch(/Vídeo gerado: videos\/abertura\.mp4 \(8 s, modelo veo-3\.1-fast-generate-preview/);
+    expect(Number(job.costSpentUsd)).toBeCloseTo(0.8, 2);
+    expect(job.attempts[0].output).toMatch(/Vídeo gerado: videos\/abertura\.mp4 \(8 s, modelo gemini-omni-1\.2-flash/);
 
     // Limite de gasto do projeto: o próximo vídeo é barrado ANTES de chamar o Google.
-    await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 2 }).expect(200);
+    await h.http().patch(`/api/projects/${p.id}`).send({ maxCostUsd: 1 }).expect(200);
     const antes = pedidos.length;
     const j2 = (
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
@@ -194,7 +219,7 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     await h.http().post(`/api/projects/${p.id}/jobs/${j2.id}/start`).expect(201);
     const barrado = await fim(p.id, j2.id);
     expect(barrado.blockedReason).toBe('LIMITE_ORCAMENTO_PROJETO');
-    expect(barrado.statusDetail).toMatch(/custaria cerca de US\$ 1\.20 e passaria o limite do projeto/);
+    expect(barrado.statusDetail).toMatch(/custaria cerca de US\$ 0\.80 e passaria o limite do projeto/);
     expect(pedidos.length).toBe(antes);
 
     // Opções inválidas são recusadas no plano.
@@ -216,12 +241,12 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
     const r = await fim(p.id, j.id);
     expect(r.status).not.toBe('CONCLUIDO');
-    expect(r.attempts[0].error).toMatch(/recusou gerar este vídeo pelas regras de segurança dele: O pedido viola a política de uso/);
+    expect(r.attempts[0].error).toMatch(/terminou sem devolver vídeo \(pode ter recusado pelas regras de segurança dele\).*O pedido viola a política de uso/);
     expect(fs.existsSync(path.join(p.workspacePath, 'worktrees', j.id, 'videos', 'x.mp4'))).toBe(false);
     recusar = false;
   });
 
-  it('automático com a lista da chave sem nenhum Veo: tenta os modelos conhecidos (do mais barato) até um aceitar', async () => {
+  it('automático com a lista da chave sem modelos de vídeo: tenta os conhecidos (o Omni mais novo primeiro) até um aceitar', async () => {
     semVeoNaLista = true;
     (h.app.get(GeminiVideoProvider) as any).cache = null;
     const p = (await h.http().post('/api/projects').send({ name: 'Sem lista', provider: 'claude-code-cli' }).expect(201)).body;
@@ -237,11 +262,11 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     const x = await fim(p.id, j.id);
     semVeoNaLista = false;
     expect(x.status).toBe('CONCLUIDO');
-    const posts = pedidos.slice(antes).filter((r) => r.url.startsWith('POST')).map((r) => r.url);
-    expect(posts).toEqual(['POST /v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning', 'POST /v1beta/models/veo-3.0-fast-generate-001:predictLongRunning']);
+    const posts = pedidos.slice(antes).filter((r) => r.url.startsWith('POST')).map((r) => `${r.url} ${r.corpo?.model}`);
+    expect(posts).toEqual(['POST /v1beta/interactions gemini-omni-1.2-flash', 'POST /v1beta/interactions gemini-omni-1.1-flash']);
     // E a tela de escolha não fica vazia: mostra os conhecidos, com o motivo.
     const lista = (await h.http().get('/api/accounts/gemini-video/models').expect(200)).body;
-    expect(lista.opcoes.length).toBe(5);
-    expect(lista.aviso).toMatch(/não lista nenhum modelo Veo/);
+    expect(lista.opcoes.map((o: any) => o.id)).toEqual(['gemini-omni-1.2-flash', 'gemini-omni-1.1-flash']);
+    expect(lista.aviso).toMatch(/não traz modelos de vídeo/);
   });
 });

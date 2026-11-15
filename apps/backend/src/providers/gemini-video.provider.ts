@@ -8,12 +8,18 @@ import { resolveInside } from '../common/path-guard';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
- * Vídeo com o Veo, do Google, pela API do Gemini (chave de API — cobrança por uso, separada da
- * assinatura). É uma etapa executada pelo SISTEMA, não por uma IA de texto: a descrição do vídeo vem
+ * Vídeo do Google pela API do Gemini (chave de API — cobrança por uso, separada da assinatura): Gemini Omni
+ * Flash (o atual; o Google desligou o Veo da API do Gemini; o 3.1 "preview" em 22/10/2026). O caminho do Veo
+ * (predictLongRunning) fica para um modelo Veo que a própria chave ainda liste. É uma etapa executada pelo SISTEMA, não por uma IA de texto: a descrição do vídeo vem
  * do plano aprovado; o sistema pede o vídeo, acompanha a geração, baixa o .mp4 para a pasta do projeto
  * e registra o custo estimado.
  *
- * REST (o mesmo que a biblioteca oficial @google/genai usa):
+ * Gemini Omni (Interactions):
+ *   POST {base}/v1beta/interactions  { model, input:[{type:'image',data,mime_type}?, {type:'text',text}],
+ *        response_format:{type:'video', delivery:'uri', aspect_ratio?, resolution?, duration?:'8s'}, background:true }
+ *   GET  {base}/v1beta/interactions/{id} → status in_progress | completed | failed | cancelled;
+ *        vídeo em steps[].content[] {type:'video', uri | data(base64)}
+ * Veo (o mesmo que a biblioteca oficial @google/genai usa):
  *   POST {base}/v1beta/models/{modelo}:predictLongRunning  { instances:[{prompt, image?}], parameters:{...} }
  *   GET  {base}/v1beta/{operação}  → done, error, response.generateVideoResponse.generatedSamples[].video
  *   vídeo: video.uri (…/files/{id}:download?alt=media, com a chave) ou video.encodedVideo (base64)
@@ -43,22 +49,28 @@ function base(): string {
 
 /** Custo ESTIMADO por segundo de vídeo (US$). Ajustável; confira a tabela de preços do Google. */
 export function precoPorSegundo(modelo: string): number {
+  if (/omni/i.test(modelo)) return Number(process.env.NIVOO_OMNI_USD_POR_SEGUNDO ?? 0.1);
   const rapido = /fast|lite/i.test(modelo);
   const env = rapido ? process.env.NIVOO_VEO_USD_POR_SEGUNDO_RAPIDO : process.env.NIVOO_VEO_USD_POR_SEGUNDO;
   return Number(env ?? (rapido ? 0.15 : 0.4));
 }
 
-/** Modelos Veo da API do Gemini, com nome claro. A lista da própria chave manda; esta vale se ela falhar. */
+/**
+ * Modelos de vídeo da API do Gemini, com nome claro. O Google desligou o Veo da API do Gemini (o 3.1 "preview"
+ * em 22/10/2026; nas chaves testadas o 3 e o 2 também respondem 404): o atual é o Gemini Omni Flash.
+ */
 export const MODELOS_VEO_CONHECIDOS: ModeloVeo[] = [
-  { id: 'veo-3.1-generate-preview', nome: 'Veo 3.1 — melhor qualidade, com som' },
-  { id: 'veo-3.1-fast-generate-preview', nome: 'Veo 3.1 Fast — mais rápido e barato, com som' },
-  { id: 'veo-3.0-generate-001', nome: 'Veo 3 — com som' },
-  { id: 'veo-3.0-fast-generate-001', nome: 'Veo 3 Fast — mais barato, com som' },
-  { id: 'veo-2.0-generate-001', nome: 'Veo 2 — sem som' },
+  { id: 'gemini-omni-1.2-flash', nome: 'Gemini Omni 1.2 Flash — o atual do Google, com som (3 a 15 s)' },
+  { id: 'gemini-omni-1.1-flash', nome: 'Gemini Omni 1.1 Flash — versão anterior, com som' },
 ];
 
-/** Ordem do "automático" quando a lista da chave não traz o Veo: do mais barato ao mais caro. */
-const ORDEM_AUTOMATICA = ['veo-3.1-fast-generate-preview', 'veo-3.0-fast-generate-001', 'veo-3.1-generate-preview', 'veo-3.0-generate-001', 'veo-2.0-generate-001'];
+/** Ordem do "automático": o mais novo primeiro. */
+const ORDEM_AUTOMATICA = MODELOS_VEO_CONHECIDOS.map((m) => m.id);
+
+/** Modelos desligados pelo Google (todo o Veo na API do Gemini): escolhidos antes, viram "automático". */
+export const MODELO_DESLIGADO = /^veo-/;
+
+const ehOmni = (m: string) => /omni/i.test(m);
 
 /** Nome para a tela: o conhecido (ou o do Google) + o custo estimado por segundo. */
 export function nomeDoModeloVeo(id: string, nomeDoGoogle?: string): string {
@@ -68,17 +80,17 @@ export function nomeDoModeloVeo(id: string, nomeDoGoogle?: string): string {
 
 /** Versão do modelo para ordenar: veo-3.1-… > veo-3.0-… > veo-2.0-… */
 function versao(id: string): number {
-  const m = /veo-(\d+)(?:\.(\d+))?/.exec(id);
+  const m = /(?:veo|omni)-(\d+)(?:\.(\d+))?/.exec(id);
   return m ? Number(m[1]) * 100 + Number(m[2] ?? 0) : 0;
 }
 
 /** Gerações pedidas e ainda não baixadas (pedido → operação do Google), para retomar sem pagar de novo. */
-const OPERACOES = new Map<string, { nome: string; em: number }>();
+const OPERACOES = new Map<string, { nome: string; em: number; modelo: string }>();
 
 @Injectable()
 export class GeminiVideoProvider implements AiProvider {
   readonly id = 'gemini-video';
-  readonly label = 'Vídeo (Gemini Veo)';
+  readonly label = 'Vídeo (Google: Gemini Omni / Veo)';
   readonly kind = 'executor' as const;
   private cache: { chave: string; at: number; modelos: ModeloVeo[] } | null = null;
 
@@ -138,9 +150,9 @@ export class GeminiVideoProvider implements AiProvider {
       if (!pagina) break;
     }
     const modelos = todos
-      .filter((m) => String(m.name ?? '').startsWith('models/veo') && (m.supportedGenerationMethods ?? ['predictLongRunning']).includes('predictLongRunning'))
+      .filter((m) => /^models\/(veo|gemini-omni)/.test(String(m.name ?? '')) && !MODELO_DESLIGADO.test(String(m.name).replace(/^models\//, '')))
       .map((m) => ({ id: String(m.name).replace(/^models\//, ''), nome: String(m.displayName ?? m.name).trim() }))
-      .sort((a, b) => versao(b.id) - versao(a.id) || Number(/fast|lite/.test(a.id)) - Number(/fast|lite/.test(b.id)) || a.id.localeCompare(b.id));
+      .sort((a, b) => Number(ehOmni(b.id)) - Number(ehOmni(a.id)) || versao(b.id) - versao(a.id) || Number(/fast|lite/.test(a.id)) - Number(/fast|lite/.test(b.id)) || a.id.localeCompare(b.id));
     this.cache = { chave: k.chave, at: Date.now(), modelos };
     return modelos;
   }
@@ -155,7 +167,7 @@ export class GeminiVideoProvider implements AiProvider {
       if (daChave.length) return { opcoes: daChave.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id, m.nome) })) };
       return {
         opcoes: MODELOS_VEO_CONHECIDOS.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id) })),
-        aviso: 'A sua chave do Gemini não lista nenhum modelo Veo (o vídeo pode exigir faturamento ativo no Google AI Studio). Mostrando os modelos conhecidos.',
+        aviso: 'A lista do Google para a sua chave não traz modelos de vídeo; mostrando os conhecidos (o Gemini Omni Flash é o atual). Vídeo exige cobrança ativa no Google AI Studio.',
       };
     } catch (e: any) {
       return { opcoes: MODELOS_VEO_CONHECIDOS.map((m) => ({ id: m.id, nome: nomeDoModeloVeo(m.id) })), aviso: `Não consegui ler a lista do Google (${String(e?.message ?? e).slice(0, 200)}). Mostrando os modelos conhecidos.` };
@@ -164,7 +176,7 @@ export class GeminiVideoProvider implements AiProvider {
 
   /** Custo estimado da etapa (para o limite de gasto, ANTES de gerar). */
   estimarCusto(o: OpcoesVideo): number {
-    return precoPorSegundo(o.model ?? '') * (Number(o.duracaoSeg) || 8);
+    return precoPorSegundo(o.model && !MODELO_DESLIGADO.test(o.model) ? o.model : ORDEM_AUTOMATICA[0]) * (Number(o.duracaoSeg) || 8);
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
@@ -180,12 +192,12 @@ export class GeminiVideoProvider implements AiProvider {
     }
     // Modelo escolhido no projeto; em "automático", os da lista da chave e, se a lista do Google não trouxer
     // nenhum Veo (acontece mesmo com cobrança ativa), os conhecidos, do mais barato ao mais caro.
-    let candidatos: string[];
-    if (o.model) candidatos = [o.model];
-    else {
-      const daChave = await this.modelos(k.conexao).catch(() => [] as ModeloVeo[]);
-      candidatos = daChave.length ? daChave.map((m) => m.id) : ORDEM_AUTOMATICA;
-    }
+    // Modelo escolhido que a chave não tem (ou que o Google desligou) cai para os outros, avisando.
+    const daChave = (await this.modelos(k.conexao).catch(() => [] as ModeloVeo[])).map((m) => m.id);
+    const automatico = [...new Set([...daChave, ...ORDEM_AUTOMATICA])];
+    const escolhido = o.model && !MODELO_DESLIGADO.test(o.model) ? o.model : undefined;
+    if (o.model && !escolhido) req.onLog(`Vídeo: o modelo escolhido (${o.model}) foi desligado pelo Google; usando o automático`, 'WARN');
+    const candidatos = escolhido ? [escolhido, ...automatico.filter((m) => m !== escolhido)] : automatico;
     let modelo = candidatos[0];
 
     const instancia: Record<string, unknown> = { prompt: req.instructions };
@@ -206,7 +218,7 @@ export class GeminiVideoProvider implements AiProvider {
     const segundos = Number(parameters.durationSeconds ?? 8);
     // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
     // geração em vez de pagar outra.
-    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, o.model ?? 'automatico', destino, instancia, parameters])).digest('hex');
+    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, escolhido ?? 'automatico', destino, req.instructions, o.imagem ?? null, parameters])).digest('hex');
     const anterior = OPERACOES.get(pedido);
     let operacao: string;
     let op: any;
@@ -214,6 +226,7 @@ export class GeminiVideoProvider implements AiProvider {
     let custo = 0;
     if (anterior && Date.now() - anterior.em < 24 * 3_600_000) {
       operacao = anterior.nome;
+      modelo = anterior.modelo;
       op = { done: false };
       req.onLog(`Veo: retomando a geração já pedida (operação ${operacao}); nada é cobrado de novo`);
     } else {
@@ -223,7 +236,9 @@ export class GeminiVideoProvider implements AiProvider {
         modelo = m;
         req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
         try {
-          r = await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
+          r = ehOmni(modelo)
+            ? await this.chamar(k.chave, 'POST', `${base()}/v1beta/interactions`, this.pedidoOmni(modelo, req.instructions, instancia, o), req.signal)
+            : await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
         } catch (e: any) {
           return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };
         }
@@ -237,15 +252,15 @@ export class GeminiVideoProvider implements AiProvider {
         break;
       }
       if (!r || recusados.length === candidatos.length) {
-        return { exitCode: 1, output: '', error: `nenhum modelo Veo aceitou o pedido com esta chave (${recusados.join(', ')}). Confira no Google AI Studio se a cobrança está ativa no projeto DESTA chave e se o Veo está liberado na sua região.` };
+        return { exitCode: 1, output: '', error: `nenhum modelo de vídeo aceitou o pedido com esta chave (${recusados.join(', ')}). Confira no Google AI Studio se a cobrança está ativa no projeto DESTA chave.` };
       }
       const falha = this.falhaHttp(r);
       if (falha) return falha;
-      operacao = String(r.json.name ?? '');
+      operacao = String((ehOmni(modelo) ? r.json.id : r.json.name) ?? '');
       if (!operacao) return { exitCode: 1, output: '', error: `resposta inesperada do Google: ${JSON.stringify(r.json).slice(0, 300)}` };
-      OPERACOES.set(pedido, { nome: operacao, em: Date.now() });
+      OPERACOES.set(pedido, { nome: operacao, em: Date.now(), modelo });
       custo = precoPorSegundo(modelo) * segundos;
-      op = r.json;
+      op = ehOmni(modelo) ? { ...r.json, done: terminouOmni(r.json) } : r.json;
       req.onLog(`Veo: gerando (operação ${operacao}); costuma levar de 1 a 6 minutos`);
     }
     const cobrado = { costUsd: custo, costEstimated: true };
@@ -258,7 +273,7 @@ export class GeminiVideoProvider implements AiProvider {
       if (Date.now() > fim) return { exitCode: 1, output: '', error: `o Google não terminou o vídeo dentro do tempo da etapa (operação ${operacao}); a próxima tentativa continua a mesma geração`, ...cobrado };
       await new Promise((ok) => setTimeout(ok, intervalo));
       try {
-        const p = await this.chamar(k.chave, 'GET', `${base()}/v1beta/${operacao}`, undefined, req.signal);
+        const p = await this.chamar(k.chave, 'GET', ehOmni(modelo) ? `${base()}/v1beta/interactions/${encodeURIComponent(operacao)}` : `${base()}/v1beta/${operacao}`, undefined, req.signal);
         if (p.status === 429 || p.status >= 500) {
           req.onLog(`Veo: o Google respondeu ${p.status} ao consultar o andamento; tentando de novo`, 'WARN');
           continue; // passageiro: a geração continua lá
@@ -268,28 +283,38 @@ export class GeminiVideoProvider implements AiProvider {
           OPERACOES.delete(pedido);
           return { ...f, ...cobrado };
         }
-        op = p.json;
+        op = ehOmni(modelo) ? { ...p.json, done: terminouOmni(p.json) } : p.json;
       } catch (e: any) {
         if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true, ...cobrado };
         req.onLog(`Veo: falha ao consultar o andamento (${e?.message}); tentando de novo`, 'WARN');
       }
     }
-    if (op.error || !(op.response?.generateVideoResponse?.generatedSamples ?? [])[0]?.video) OPERACOES.delete(pedido); // terminou sem vídeo: um novo pedido é outra geração
-    if (op.error) return { exitCode: 1, output: '', error: `o Google não gerou o vídeo: ${op.error.message ?? JSON.stringify(op.error)}`, ...cobrado };
-    const resp = op.response?.generateVideoResponse ?? {};
-    const amostra = (resp.generatedSamples ?? [])[0]?.video;
-    if (!amostra) {
-      const motivos = (resp.raiMediaFilteredReasons ?? []).join('; ');
-      return { exitCode: 1, output: '', error: `o Google recusou gerar este vídeo pelas regras de segurança dele${motivos ? `: ${motivos}` : ''}. Ajuste a descrição e tente de novo.`, ...cobrado };
+    let amostra: { data?: string; uri?: string } | null;
+    if (ehOmni(modelo)) {
+      if (op.status === 'failed' || op.status === 'cancelled') {
+        OPERACOES.delete(pedido);
+        return { exitCode: 1, output: '', error: `o Google não gerou o vídeo (${op.status}): ${op.error?.message ?? JSON.stringify(op.error ?? {}).slice(0, 300)}`, ...cobrado };
+      }
+      amostra = acharVideo(op);
+      if (!amostra) {
+        OPERACOES.delete(pedido);
+        return { exitCode: 1, output: '', error: `o Google terminou sem devolver vídeo (pode ter recusado pelas regras de segurança dele). Ajuste a descrição e tente de novo. Resposta: ${JSON.stringify(op).slice(0, 300)}`, ...cobrado };
+      }
+    } else {
+      if (op.error || !(op.response?.generateVideoResponse?.generatedSamples ?? [])[0]?.video) OPERACOES.delete(pedido); // terminou sem vídeo: um novo pedido é outra geração
+      if (op.error) return { exitCode: 1, output: '', error: `o Google não gerou o vídeo: ${op.error.message ?? JSON.stringify(op.error)}`, ...cobrado };
+      const resp = op.response?.generateVideoResponse ?? {};
+      const v = (resp.generatedSamples ?? [])[0]?.video;
+      if (!v) {
+        const motivos = (resp.raiMediaFilteredReasons ?? []).join('; ');
+        return { exitCode: 1, output: '', error: `o Google recusou gerar este vídeo pelas regras de segurança dele${motivos ? `: ${motivos}` : ''}. Ajuste a descrição e tente de novo.`, ...cobrado };
+      }
+      amostra = { data: v.encodedVideo, uri: v.uri };
     }
     let bytes: Buffer;
     try {
-      if (amostra.encodedVideo) bytes = Buffer.from(amostra.encodedVideo, 'base64');
-      else {
-        const res = await fetch(String(amostra.uri), { headers: { 'x-goog-api-key': k.chave }, signal: AbortSignal.any([req.signal, AbortSignal.timeout(300_000)]) });
-        if (!res.ok) return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo (${res.status}); a próxima tentativa baixa de novo, sem gerar outro`, ...cobrado };
-        bytes = Buffer.from(await res.arrayBuffer());
-      }
+      if (amostra.data) bytes = Buffer.from(amostra.data, 'base64');
+      else bytes = await this.baixar(String(amostra.uri), k.chave, req.signal);
     } catch (e: any) {
       return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo: ${e?.message}; a próxima tentativa baixa de novo, sem gerar outro`, interrupted: req.signal.aborted, ...cobrado };
     }
@@ -307,13 +332,57 @@ export class GeminiVideoProvider implements AiProvider {
     };
   }
 
+  /** Pedido do Gemini Omni Flash (Interactions): a imagem (primeiro quadro) vai antes do texto. */
+  private pedidoOmni(modelo: string, descricao: string, instancia: Record<string, unknown>, o: OpcoesVideo) {
+    const img = instancia.image as { bytesBase64Encoded: string; mimeType: string } | undefined;
+    const texto = o.negativo ? `${descricao}\n\nNão mostrar: ${o.negativo}` : descricao;
+    const formato: Record<string, unknown> = { type: 'video', delivery: 'uri' };
+    if (o.proporcao === '16:9' || o.proporcao === '9:16') formato.aspect_ratio = o.proporcao;
+    if (o.resolucao) formato.resolution = String(o.resolucao).toLowerCase();
+    const seg = Number(o.duracaoSeg);
+    if (seg >= 3 && seg <= 15) formato.duration = `${seg}s`;
+    return {
+      model: modelo,
+      input: [...(img ? [{ type: 'image', data: img.bytesBase64Encoded, mime_type: img.mimeType }] : []), { type: 'text', text: texto }],
+      response_format: formato,
+      background: true,
+    };
+  }
+
+  /** Baixa o vídeo pelo endereço do Google (com a chave; se vier a ficha do arquivo, pede o conteúdo). */
+  private async baixar(uri: string, chave: string, signal: AbortSignal): Promise<Buffer> {
+    const pedir = (u: string) => fetch(u, { headers: { 'x-goog-api-key': chave }, signal: AbortSignal.any([signal, AbortSignal.timeout(300_000)]) });
+    let res = await pedir(uri);
+    if (res.ok && /json/i.test(res.headers.get('content-type') ?? '') && !/alt=media/.test(uri)) res = await pedir(`${uri}${uri.includes('?') ? '&' : '?'}alt=media`);
+    if (!res.ok) throw new Error(`o Google respondeu ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
   /** Erro HTTP do Google em resultado da etapa: chave recusada / limite = recurso indisponível. */
   private falhaHttp(r: { status: number; json: any }): ExecutionResult | null {
     if (r.status >= 200 && r.status < 300) return null;
     const msg = String(r.json?.error?.message ?? JSON.stringify(r.json)).slice(0, 400);
     if (r.status === 401 || r.status === 403 || /api key not valid|API_KEY_INVALID/i.test(msg)) return { exitCode: 1, output: '', error: `o Google recusou a chave (${r.status}): ${msg}`, resourceUnavailable: true };
+    if (r.status === 402) return { exitCode: 1, output: '', error: `sem crédito na conta do Google (402): ${msg}. Adicione crédito no Google AI Studio`, resourceUnavailable: true };
     if (r.status === 429) return { exitCode: 1, output: '', error: `limite de uso do Google atingido (429): ${msg}`, resourceUnavailable: true };
     if (r.status >= 500) return { exitCode: 1, output: '', error: `o Google está com problema (${r.status}): ${msg}`, resourceUnavailable: true };
     return { exitCode: 1, output: '', error: `o Google recusou o pedido (${r.status}): ${msg}` };
   }
+}
+
+/** Interação do Omni terminada (com ou sem vídeo). Sem status: só se já trouxer o resultado. */
+function terminouOmni(j: any): boolean {
+  if (typeof j?.status === 'string') return ['completed', 'failed', 'cancelled'].includes(j.status);
+  return !!acharVideo(j);
+}
+
+/** O vídeo no resultado do Omni: o primeiro item {type:'video'} com uri ou data (em steps[].content[] ou onde vier). */
+function acharVideo(j: any, fundo = 0): { data?: string; uri?: string } | null {
+  if (!j || typeof j !== 'object' || fundo > 8) return null;
+  if (j.type === 'video' && (typeof j.uri === 'string' || typeof j.data === 'string')) return { uri: j.uri, data: j.data };
+  for (const v of Array.isArray(j) ? j : Object.values(j)) {
+    const achou = acharVideo(v, fundo + 1);
+    if (achou) return achou;
+  }
+  return null;
 }

@@ -350,7 +350,7 @@ export class PlannerService {
       '  No "texto" do plano diga o que vai sair. Depois de apagar, ajuste referências (imports, índices) numa etapa da IA.',
       ...(videoDisponivel
         ? [
-            '- VÍDEO: este projeto pode gerar vídeos com o Veo (Google). Para isso, use uma etapa assim:',
+            '- VÍDEO: este projeto pode gerar vídeos com o Google (Gemini Omni Flash). Para isso, use uma etapa assim:',
             '  {"key":"video1","title":"Gerar o vídeo de abertura","provider":"gemini-video","instructions":"descrição COMPLETA do vídeo',
             '   em uma frase longa: cena, personagens, ação, câmera (ex.: travelling lento), luz, estilo, falas entre aspas e sons",',
             '   "providerOptions":{"arquivo":"videos/abertura.mp4","duracaoSeg":8,"proporcao":"16:9","negativo":"o que NÃO deve aparecer",',
@@ -358,7 +358,7 @@ export class PlannerService {
             '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',
             '  diga no "texto" quantos vídeos e quantos segundos serão. Imagem anexada no chat como primeiro quadro: coloque-a no projeto',
             '  com "anexosNoProjeto" e use o mesmo caminho em "imagem". Não precisa de verifyCommand: o sistema confere o arquivo.',
-            '  O Veo gera de 4 a 8 s por vez: para um vídeo maior, uma etapa por cena (videos/<nome>/cena-01.mp4, cena-02.mp4…) e o',
+            '  O Google gera de 3 a 15 s por vez (duracaoSeg de 3 a 15): para um vídeo maior, uma etapa por cena (videos/<nome>/cena-01.mp4, cena-02.mp4…) e o',
             '  SISTEMA acrescenta sozinho a etapa final que junta as cenas, na ordem, em videos/<nome>/<nome>-completo.mp4 (não crie essa etapa).',
           ]
         : []),
