@@ -18,6 +18,7 @@ import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.serv
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
+import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -374,6 +375,8 @@ export class PlannerService {
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
       memTxt || '(vazia)',
+      '',
+      ...textoDaVersao(await infoDeVersao(this.workspace.projectDirs(project.dirKey).repo).catch(() => null)),
       '',
       '## Conversa até aqui',
       conversa || '(primeira mensagem)',

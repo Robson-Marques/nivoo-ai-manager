@@ -177,6 +177,17 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Versão do projeto: padrão do usuário e etiqueta = arquivo (2026-11-15)
+
+* **Bug real (ConnectChat)**: a IA subiu para 0.11.95 olhando o CHANGELOG (parava em 0.11.94), mas o Git já tinha
+  etiquetas até v0.12.1; o Nivoo publicou v0.12.2 — número dentro do projeto e etiqueta diferentes.
+* Agora o plano e toda sessão recebem "Versão do projeto": a versão nos arquivos (package.json, pyproject.toml ou
+  VERSION), a última etiqueta do Git e a PRÓXIMA exata; a etiqueta publicada é a do arquivo.
+* **Padrão de versão (todos os projetos, definido pelo usuário)**: 0.X.Y, cada casa de 0 a 99, sempre a próxima da
+  sequência a partir da maior entre arquivo e etiqueta: 0.11.99 → 0.12.0; 0.99.99 → 1.0.0. Nunca pular nem voltar.
+  `src/git/versao.ts` (`proximaNoPadrao`, `calcularVersao`), usado no plano, nas sessões e na etiqueta automática.
+  Testes `unit/versao` e `15`.
+
 ## Ensaio real ponta a ponta com Claude e ChatGPT (2026-11-15)
 
 * `test/integration/real-07-ensaio-ponta-a-ponta` (opt-in `NIVOO_RUN_CLI_INTEGRATION=1`, IA em `NIVOO_ENSAIO_IA`):

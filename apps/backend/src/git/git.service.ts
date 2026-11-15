@@ -1,3 +1,4 @@
+import { acima, maiorEtiqueta, proximaNoPadrao, versaoDeclarada } from './versao';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -314,25 +315,6 @@ export class GitService {
     return { resultado: 'enviado', tag: tag || null, ...(await this.status(projectId)) };
   }
 
-  /** Versão X.Y.Z declarada na pasta principal: package.json, pyproject.toml ou VERSION (nessa ordem). */
-  private async versaoDeclarada(repo: string): Promise<number[] | null> {
-    const ler = async (arq: string) => {
-      const r = await this.git(repo, ['show', `main:${arq}`], null);
-      return r.exitCode === 0 ? r.stdout : null;
-    };
-    const candidatos: Array<[string, RegExp]> = [
-      ['package.json', /"version"\s*:\s*"v?(\d+)\.(\d+)\.(\d+)"/],
-      ['pyproject.toml', /^\s*version\s*=\s*"v?(\d+)\.(\d+)\.(\d+)"/m],
-      ['VERSION', /^\s*v?(\d+)\.(\d+)\.(\d+)\s*$/m],
-    ];
-    for (const [arq, re] of candidatos) {
-      const txt = await ler(arq);
-      const m = txt ? re.exec(txt) : null;
-      if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
-    }
-    return null;
-  }
-
   /**
    * Próxima versão: a declarada no projeto (package.json…) quando ainda não tem etiqueta; senão segue as tags X.Y.Z
    * do repositório (remoto incluído) e sobe o último número; sem nenhuma, v0.1.0.
@@ -341,31 +323,20 @@ export class GitService {
     const { repo, conta } = await this.linked(projectId);
     await this.git(repo, ['fetch', '--quiet', '--tags', 'origin'], conta); // repositório vazio: sem tags, segue
     const tags = (await this.git(repo, ['tag', '-l'], null)).stdout.split('\n').map((t) => t.trim()).filter(Boolean);
-    let maior: number[] | null = null;
-    let prefixo = 'v';
-    for (const t of tags) {
-      const m = /^(v?)(\d+)\.(\d+)\.(\d+)$/.exec(t);
-      if (!m) continue;
-      const v = [Number(m[2]), Number(m[3]), Number(m[4])];
-      const acima = (x: number[], y: number[]) => (x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2]);
-      if (!maior || acima(v, maior)) {
-        maior = v;
-        prefixo = m[1];
-      }
-    }
+    const maior = maiorEtiqueta(tags);
+    const prefixo = maior?.prefixo ?? 'v';
     // A versão que o PROJETO declara (package.json, pyproject.toml, VERSION) manda: se o trabalho subiu para 0.4.0, a
     // etiqueta é v0.4.0 — antes saía "v0.1.0" (ou a anterior + 1), diferente do número dentro do projeto.
-    const declarada = await this.versaoDeclarada(repo);
-    const acimaDe = (x: number[], y: number[] | null) => !y || (x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : x[2] > y[2]);
-    if (declarada && acimaDe(declarada, maior)) {
+    const declarada = (await versaoDeclarada(repo))?.versao ?? null;
+    if (declarada && acima(declarada, maior?.versao ?? null)) {
       const t = `${prefixo}${declarada.join('.')}`;
       if (!tags.includes(t)) return t;
     }
     if (!maior) return 'v0.1.0';
-    let patch = maior[2] + 1;
-    let nova = `${prefixo}${maior[0]}.${maior[1]}.${patch}`;
-    while (tags.includes(nova)) nova = `${prefixo}${maior[0]}.${maior[1]}.${++patch}`;
-    return nova;
+    // Padrão de versão do usuário: cada casa de 0 a 99 (0.11.99 → 0.12.0; 0.99.99 → 1.0.0).
+    let nova = proximaNoPadrao(maior.versao);
+    while (tags.includes(`${prefixo}${nova.join('.')}`)) nova = proximaNoPadrao(nova);
+    return `${prefixo}${nova.join('.')}`;
   }
 
   /**
