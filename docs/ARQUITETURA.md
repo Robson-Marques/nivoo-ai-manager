@@ -129,9 +129,10 @@ Interface comum `AiProvider` (`providers/provider.interface.ts`): `checkAvailabi
 | Conector | Comando | Isolamento |
 |---|---|---|
 | `claude-code-cli` | `claude -p --output-format stream-json --verbose --restricted --strict-mcp-config --permission-mode acceptEdits` + `--append-system-prompt <perfil>` | sem Bash/WebFetch/WebSearch, sem regras genéricas, sem configurações de usuário/projeto |
-| `codex-cli` | `codex exec --json --sandbox workspace-write --skip-git-repo-check -c project_doc_max_bytes=0` | sandbox do Codex; ignora `AGENTS.md` |
+| `codex-cli` | `codex exec --json --sandbox workspace-write --skip-git-repo-check -c project_doc_max_bytes=0` | sandbox do Codex (bubblewrap: precisa de namespaces; por isso o serviço `nivoo-worker` tem `RestrictNamespaces=false`); ignora `AGENTS.md`; sandbox bloqueado = IA indisponível com o motivo |
 | `gemini-api` | `gemini -p --output-format stream-json --approval-mode auto_edit` com `GEMINI_API_KEY` | só por chave de API (o Google encerrou o Gemini CLI com conta pessoal; removido); HOME próprio com `~/.gemini/settings.json`: sem shell, sem web; `.gemini/` e `GEMINI.md` do workspace removidos antes de cada sessão |
 | `gemini-video` | API do Gemini (Veo) | etapa do sistema, não é IA de texto |
+| `juntar-videos` | ffmpeg local | etapa do sistema: junta as cenas no vídeo completo |
 | `arquivos-projeto` | apagar/mover arquivos | etapa do sistema |
 | `local-shell` | executor determinístico | **não é IA**; usado em verificações e etapas de comando |
 

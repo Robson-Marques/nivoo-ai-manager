@@ -14,6 +14,9 @@ import {
  * OpenAI Codex CLI (`codex exec`) usando o login oficial existente (`codex login`) no host do worker.
  * Sandbox do próprio Codex: workspace-write (escrita restrita ao diretório de trabalho).
  */
+/** Erro do isolamento do Codex (bubblewrap/landlock/namespaces), não do comando em si. */
+const SANDBOX_QUEBRADO = /bwrap|bubblewrap|landlock|sandbox|uid_?map|unshare|namespace|Operation not permitted|seccomp/i;
+
 @Injectable()
 export class CodexCliProvider implements AiProvider {
   /** Um evento do `codex exec --json` em linha de log legível. */
@@ -123,6 +126,8 @@ export class CodexCliProvider implements AiProvider {
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     const errors: string[] = [];
+    let comandosOk = 0;
+    const bloqueios: string[] = [];
     for (const line of r.stdout.split('\n')) {
       if (!line.trim()) continue;
       try {
@@ -134,9 +139,29 @@ export class CodexCliProvider implements AiProvider {
           outputTokens = ev.usage.output_tokens;
         }
         if (ev.type === 'error' || ev.type === 'turn.failed') errors.push(JSON.stringify(ev.error ?? ev.message ?? ev));
+        if (ev.type === 'item.completed' && ev.item?.type === 'command_execution') {
+          const saida = String(ev.item.aggregated_output ?? ev.item.output ?? '');
+          const falhou = ev.item.status === 'failed' || (typeof ev.item.exit_code === 'number' && ev.item.exit_code !== 0);
+          if (falhou && SANDBOX_QUEBRADO.test(saida)) bloqueios.push(saida.trim().split('\n')[0].slice(0, 200));
+          else if (!falhou) comandosOk++;
+        }
       } catch {
         /* linha não-JSON: já foi para o log durante a sessão */
       }
+    }
+    // Nenhum comando conseguiu rodar porque o isolamento do Codex não funciona neste servidor: nenhuma sessão
+    // nova resolve. Vira "IA indisponível" com o motivo (a reserva assume, se houver), não sessão após sessão.
+    if (bloqueios.length && comandosOk === 0) {
+      return {
+        exitCode: 1,
+        output: lastMessage,
+        error: `o ChatGPT não conseguiu rodar nenhum comando neste servidor: o isolamento dele (sandbox) foi bloqueado (${bloqueios[0]}). No servidor, rode "nivoo update" (libera o isolamento para o worker); enquanto isso, use outra IA no projeto`,
+        resourceUnavailable: true,
+        sessionId,
+        stopReason: 'sandbox',
+        inputTokens,
+        outputTokens,
+      };
     }
     const failed = r.exitCode !== 0 || errors.length > 0;
     const errText = failed ? `${errors.join('; ')} ${r.stderr.slice(0, 500)}`.trim() : undefined;

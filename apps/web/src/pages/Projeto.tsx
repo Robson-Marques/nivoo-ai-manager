@@ -475,8 +475,9 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {['EXECUTANDO', 'PENDENTE'].includes(job.status) && <Andamento job={job} feitas={feitas} atual={atual} />}
       {job.status === 'AGUARDANDO_RECURSO' && (
         <span>
-          A IA está sem limite/crédito ou desconectada. Continua sozinho quando ela voltar, ou troque agora:
+          A IA ficou indisponível. Continua sozinho quando ela voltar, ou troque agora:
           <TrocarIa depois={carregar} />
+          {job.statusDetail && <span className="muted small" style={{ display: 'block' }}>Motivo: {String(job.statusDetail).replace(/^etapa [^:]+:\s*/, '').slice(0, 400)}</span>}
         </span>
       )}
       {job.status === 'AGUARDANDO_APROVACAO' && (

@@ -206,6 +206,9 @@ step "9/9 Serviços systemd"
 if has_systemd; then
   for svc in api worker; do
     if [ "$svc" = api ]; then CMD="dist/main.js"; DESC="API e interface"; else CMD="dist/worker.js"; DESC="worker (execuções duráveis)"; fi
+    # O worker roda as IAs: o ChatGPT (Codex) isola cada comando com namespaces do Linux (bubblewrap); sem eles,
+    # nenhum comando dele funciona ("não tenho terminal"). A API continua sem namespaces.
+    if [ "$svc" = worker ]; then NAMESPACES="RestrictNamespaces=false"; else NAMESPACES="RestrictNamespaces=true"; fi
     cat > "/etc/systemd/system/nivoo-$svc.service" <<EOF
 [Unit]
 Description=Nivoo AI Manager — $DESC
@@ -238,7 +241,7 @@ ProtectClock=true
 ProtectHostname=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
-RestrictNamespaces=true
+$NAMESPACES
 LockPersonality=true
 SystemCallArchitectures=native
 CapabilityBoundingSet=

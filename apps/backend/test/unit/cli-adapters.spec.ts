@@ -99,6 +99,15 @@ describe('Adaptador Codex CLI (stub TEST-ONLY)', () => {
     expect(r).toMatchObject({ exitCode: 0, output: 'resposta final', inputTokens: 7, outputTokens: 3 });
     expect(logs.join('\n')).toContain('[comando] ls');
   });
+
+  it('isolamento do Codex bloqueado no servidor (todo comando falha no bwrap): IA indisponível com o motivo, não sessão após sessão', async () => {
+    const { CodexCliProvider } = await import('../../src/providers/codex-cli.provider');
+    const marca = path.join(os.tmpdir(), 'codex-stub-sandbox-quebrado');
+    fs.writeFileSync(marca, '1');
+    const r = await new CodexCliProvider().execute(req(fs.mkdtempSync(path.join(os.tmpdir(), 'cx-')), [])).finally(() => fs.rmSync(marca, { force: true }));
+    expect(r).toMatchObject({ exitCode: 1, resourceUnavailable: true, stopReason: 'sandbox' });
+    expect(r.error).toMatch(/isolamento dele \(sandbox\) foi bloqueado \(bwrap: setting up uid map/);
+  });
 });
 
 describe('Andamento ao vivo (ChatGPT/Codex)', () => {

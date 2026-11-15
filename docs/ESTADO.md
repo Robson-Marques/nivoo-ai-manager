@@ -3,6 +3,16 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## ChatGPT sem conseguir ler o projeto no servidor (2026-11-15)
+
+Caso real: trabalho com o ChatGPT (Codex) na "sessão 43", a IA dizendo "as ferramentas disponíveis não oferecem
+leitura nem listagem do workspace sem terminal". O Codex roda cada comando num isolamento próprio (bubblewrap,
+com namespaces do Linux), e o serviço `nivoo-worker` tinha `RestrictNamespaces=true`: todo comando dele falhava.
+Agora o worker (onde as IAs rodam) tem `RestrictNamespaces=false` — vale no próximo `nivoo update`; a API continua
+com a restrição. E se o isolamento falhar mesmo assim, a sessão em que nenhum comando roda vira "IA indisponível"
+com o motivo (a reserva assume, se houver) em vez de sessão após sessão; o cartão mostra o motivo. Teste unitário
+com o stub do Codex.
+
 ## Correção automática, ciclo sem fim, andamento da conversa e Veo automático (2026-11-15)
 
 * **Critério final não passou → a IA corrige sozinha**: em vez de parar esperando o usuário, o sistema cria a
