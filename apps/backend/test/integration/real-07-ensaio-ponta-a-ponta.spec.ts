@@ -15,6 +15,8 @@ import { createHarness, Harness, truncateAll, waitFor } from '../support/harness
 import { REAL, requireProvider } from '../support/real';
 
 const d = REAL ? describe : describe.skip;
+// Qual IA ensaiar: NIVOO_ENSAIO_IA=claude-code-cli (padrão) ou codex-cli.
+const IA = process.env.NIVOO_ENSAIO_IA ?? 'claude-code-cli';
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 'R', GIT_AUTHOR_EMAIL: 'r@x', GIT_COMMITTER_NAME: 'R', GIT_COMMITTER_EMAIL: 'r@x' } }).toString().trim();
 
@@ -56,7 +58,7 @@ function criarRepositorio(base: string): string {
   return remoto;
 }
 
-d('ENSAIO REAL ponta a ponta (Claude)', () => {
+d(`ENSAIO REAL ponta a ponta (${IA})`, () => {
   let h: Harness;
   let base: string;
   beforeAll(async () => {
@@ -65,7 +67,7 @@ d('ENSAIO REAL ponta a ponta (Claude)', () => {
     base = fs.mkdtempSync(path.join(os.tmpdir(), 'ensaio-'));
     h = await createHarness();
     await truncateAll(h.prisma);
-    await requireProvider(h, 'claude-code-cli');
+    await requireProvider(h, IA);
     h.worker.start();
   });
   afterAll(async () => {
@@ -75,7 +77,7 @@ d('ENSAIO REAL ponta a ponta (Claude)', () => {
 
   it('pedido em duas partes vai até o fim, testado pelo sistema, sem trabalho empurrado para o usuário', async () => {
     const remoto = criarRepositorio(base);
-    const p = (await h.http().post('/api/projects').send({ name: 'Loja ensaio', provider: 'claude-code-cli', git: { url: remoto, branch: 'main' } }).expect(201)).body;
+    const p = (await h.http().post('/api/projects').send({ name: 'Loja ensaio', provider: IA, git: { url: remoto, branch: 'main' } }).expect(201)).body;
     const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
     const msgs = async () => (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages;
     await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({
