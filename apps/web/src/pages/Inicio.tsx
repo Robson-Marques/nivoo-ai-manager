@@ -1,3 +1,4 @@
+import { Logo, NOME_SISTEMA } from '../Marca';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProjetos } from '../Layout';
@@ -12,7 +13,8 @@ export function Inicio() {
   if (!projetos || projetos.length) return null;
   return (
     <div className="chat-vazio">
-      <h1>Bem-vindo ao Nivoo</h1>
+      <Logo tamanho={72} />
+      <h1>Bem-vindo ao {NOME_SISTEMA}</h1>
       <p>Crie um projeto e converse com a IA. Cada projeto tem as suas regras, o seu conhecimento e a sua memória — a IA fica presa a eles.</p>
       <button onClick={novoProjeto}>Criar meu primeiro projeto</button>
     </div>

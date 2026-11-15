@@ -1,3 +1,4 @@
+import { Marca } from './Marca';
 import { FormEvent, useEffect, useState } from 'react';
 import { entrarComToken, ouvirEntrada } from './api';
 
@@ -27,7 +28,7 @@ export function TelaDeEntrada() {
   return (
     <div className="entrada-fundo">
       <form className="entrada-caixa" onSubmit={entrar}>
-        <h1>Nivoo</h1>
+        <h1><Marca tamanho={40} /></h1>
         <p>Para entrar neste servidor, cole o token de acesso. É pedido uma vez só neste navegador.</p>
         <label>
           Token de acesso

@@ -1,3 +1,4 @@
+import { Marca } from './Marca';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router-dom';
 import { api } from './api';
@@ -113,7 +114,7 @@ export function Layout() {
     <ProjetosCtx.Provider value={{ projetos, recarregar, novoProjeto: () => setNovo(true), conversas, recarregarConversas }}>
       <div className="chat-app">
         <aside className="chat-side">
-          <Link to="/" className="brand">Nivoo</Link>
+          <Link to="/" className="brand"><Marca tamanho={30} /></Link>
           <button className="novo" onClick={() => setNovo(true)}>+ Novo projeto</button>
           <nav className="proj-list">
             {[...grupos.entries()].map(([g, ps]) => (
