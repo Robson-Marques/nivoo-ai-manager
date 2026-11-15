@@ -120,6 +120,21 @@ export class PlannerService {
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
       const prompt = await this.buildPrompt(msg.conversationId, msg.id, project, profile.text, anexos, entrega);
+      // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
+      let ultimaGravacao = 0;
+      let pendenteAndamento: string | null = null;
+      let gravando: Promise<unknown> | null = null;
+      const gravarAndamento = (linha: string) => {
+        pendenteAndamento = linha.slice(0, 300);
+        if (gravando || Date.now() - ultimaGravacao < 3000) return;
+        ultimaGravacao = Date.now();
+        const texto = pendenteAndamento;
+        pendenteAndamento = null;
+        gravando = this.prisma.conversationMessage
+          .updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { andamento: texto } })
+          .catch(() => undefined)
+          .finally(() => (gravando = null));
+      };
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -137,8 +152,9 @@ export class PlannerService {
           // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
         },
-        onLog: () => undefined,
+        onLog: (linha) => gravarAndamento(linha),
       });
+      await gravando;
       if (result.interrupted) {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;

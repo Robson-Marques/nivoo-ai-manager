@@ -12,6 +12,8 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
+import { RULE_REVIEW_STEP } from './rule-review';
+import { tipoDe } from '../accounts/connections';
 
 export interface CriterionResult {
   key: string;
@@ -58,7 +60,65 @@ export class CompletionService {
     private readonly workspace: WorkspaceService,
     private readonly logs: LogService,
     private readonly git: GitService,
+    private readonly orchestrator: OrchestratorService,
   ) {}
+
+  /**
+   * Critério final não passou num trabalho feito por IA: em vez de parar e esperar o usuário, cria uma etapa de
+   * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. Até
+   * 3 rodadas; depois disso o trabalho para e explica. Devolve true se criou a correção.
+   */
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[]): Promise<boolean> {
+    const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
+    // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
+    // subjetivo reprovado pelo usuário volta para ele, não para a IA).
+    const daIa = job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.provider ?? job.defaultProvider).filter(ia);
+    if (!daIa.length) return false;
+    if (falhas.some((f) => criterios.find((c) => c.key === f.key)?.kind === 'MANUAL_APPROVAL')) return false;
+    const quem = daIa.includes(job.project.provider) ? job.project.provider : daIa[daIa.length - 1];
+    const rodadas = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).length;
+    if (rodadas >= 3) return false;
+    const key = `correcao-criterios-${rodadas + 1}`;
+    const linhas = falhas.map((f) => {
+      const c = criterios.find((x) => x.key === f.key);
+      return `- ${f.key} — ${c?.description ?? ''}\n  evidência: ${JSON.stringify(f.evidence).slice(0, 600)}`;
+    });
+    // A etapa só termina quando os mesmos critérios passam (comandos e arquivos verificáveis aqui mesmo).
+    const confere = falhas
+      .map((f) => criterios.find((x) => x.key === f.key))
+      .map((c) => {
+        const cfg = (c?.config ?? {}) as Record<string, unknown>;
+        if (c?.kind === 'COMMAND' && typeof cfg.command === 'string') return `( ${cfg.command} )`;
+        if (c?.kind === 'FILE_EXISTS' && typeof cfg.path === 'string') return `test -e '${String(cfg.path).replace(/'/g, '')}'`;
+        return null;
+      })
+      .filter(Boolean)
+      .join(' && ') || 'true';
+    const review = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
+    const base = Math.max(...job.steps.map((s) => s.order)) + 1;
+    await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, job.id);
+      await tx.step.create({
+        data: {
+          jobId: job.id, key, order: review ? review.order : base, provider: quem, dependsOn: job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.key),
+          title: 'Corrigir o que a conferência final cobrou',
+          instructions: [
+            'O trabalho terminou as etapas, mas a conferência final do sistema NÃO passou nestes critérios:',
+            ...linhas,
+            '',
+            'Corrija o trabalho (arquivos do projeto) para que esses critérios passem, mantendo o que já foi feito e as regras do projeto.',
+            'Não altere os critérios nem contorne a conferência. Se algum critério não puder ser atendido, explique o motivo exato na resposta.',
+          ].join('\n'),
+          verifyCommand: confere,
+        },
+      });
+      if (review) await tx.step.update({ where: { id: review.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...review.dependsOn, key])], statusDetail: 'correção: conferir de novo' } });
+      await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `corrigindo o que a conferência final cobrou (rodada ${rodadas + 1} de 3)` } });
+    });
+    await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${rodadas + 1} de 3)`, { source: 'evaluator', level: 'WARN' });
+    await this.orchestrator.scheduleReady(job.id);
+    return true;
+  }
 
   async evaluate(jobId: string): Promise<EvaluationReport> {
     const job = await this.prisma.job.findUniqueOrThrow({
@@ -122,6 +182,12 @@ export class CompletionService {
         report.pendencias.push(...waiting.map((w) => `aguardando aprovação explícita: ${w.key}`));
       } else {
         status = 'CONCLUIDO';
+      }
+      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && waiting.length === 0) {
+        if (await this.corrigirCriterios(job as never, failed, job.criteria)) {
+          report.finalStatus = 'EXECUTANDO';
+          return report;
+        }
       }
       if (status !== 'CONCLUIDO') break;
 

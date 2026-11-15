@@ -458,6 +458,14 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
         `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
     }
+    // A conferência da etapa falhando sempre igual, sessão após sessão: a IA mexe em arquivos (parece avanço),
+    // mas não resolve o que a conferência cobra. Para e explica, em vez de girar sem fim.
+    const janelaConferencia = Math.max(6, job.repetitionWindow * 3);
+    const conferencias = sessions.slice(0, janelaConferencia).map((a) => a.error ?? '');
+    if (conferencias.length >= janelaConferencia && conferencias[0].startsWith('verificação da etapa falhou') && conferencias.every((e) => e === conferencias[0])) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `a conferência da etapa falhou ${janelaConferencia} vezes seguidas do mesmo jeito: ${conferencias[0].replace(/^verificação da etapa falhou /, '').slice(0, 400)}`);
+    }
     // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
     // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
     const janelaLonga = Math.max(8, job.repetitionWindow * 4);

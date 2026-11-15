@@ -35,6 +35,13 @@ if [ "$MODE" = "texto" ] || { [ -f "$CTL/resposta.txt" ] && printf '%s' "$prompt
   python3 -c 'import json,sys; print(json.dumps({"type":"result","subtype":"success","is_error":False,"terminal_reason":"completed","session_id":"stub-conversa","total_cost_usd":0.02,"result":open(sys.argv[1]).read()}))' "$CTL/resposta.txt"
   exit 0
 fi
+if [ -f "$CTL/correcao.sh" ] && printf '%s' "$prompt" | grep -q "conferência final do sistema NÃO passou"; then
+  # Correção pedida pela conferência final: executa o script de correção do teste.
+  echo "$prompt" > "$CTL/prompt-correcao.txt"
+  bash "$CTL/correcao.sh" > /dev/null 2>&1
+  echo '{"type":"result","subtype":"success","is_error":false,"result":"corrigido","session_id":"stub-correcao","total_cost_usd":0.01,"terminal_reason":"completed"}'
+  exit 0
+fi
 if [ "$MODE" = "bash" ]; then
   # Executa como comando bash o texto da "Tarefa desta etapa" (usado pelo teste de tela do chat).
   tarefa=$(printf '%s' "$prompt" | sed -n '/^## Tarefa desta etapa/,$p' | tail -n +2)

@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as http from 'node:http';
 import { AddressInfo } from 'node:net';
 import * as path from 'node:path';
+import { GeminiVideoProvider } from '../../src/providers/gemini-video.provider';
 import { createHarness, Harness, truncateAll, waitFor } from '../support/harness';
 
 const CTL = path.join(process.env.TMPDIR ?? '/tmp', 'nivoo-cli-stub');
@@ -27,6 +28,7 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
   let google: http.Server;
   const pedidos: Array<{ url: string; chave: string; corpo: any }> = [];
   let recusar = false;
+  let semVeoNaLista = false; // a lista da chave não traz o Veo e o primeiro modelo "automático" não existe
   beforeAll(async () => {
     process.env.NIVOO_CLAUDE_BIN = path.join(__dirname, '..', 'support', 'stubs', 'claude-stub.sh');
     process.env.NIVOO_VEO_INTERVALO_MS = '100';
@@ -44,6 +46,7 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
           res.end(JSON.stringify(b));
         };
         if (chave !== CHAVE) return json(400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } });
+        if (u.pathname === '/v1beta/models' && semVeoNaLista) return json(200, { models: [{ name: 'models/gemini-2.5-pro', supportedGenerationMethods: ['generateContent'] }] });
         if (u.pathname === '/v1beta/models') {
           return json(200, {
             models: [
@@ -55,6 +58,7 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
           });
         }
         const gerar = /^\/v1beta\/models\/([^/:]+):predictLongRunning$/.exec(u.pathname);
+        if (gerar && req.method === 'POST' && semVeoNaLista && gerar[1] === 'veo-3.1-fast-generate-preview') return json(404, { error: { code: 404, message: 'models/veo-3.1-fast-generate-preview is not found for API version v1beta', status: 'NOT_FOUND' } });
         if (gerar && req.method === 'POST') {
           consultas = 0;
           return json(200, { name: `models/${gerar[1]}/operations/op-${pedidos.length}` });
@@ -215,5 +219,29 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     expect(r.attempts[0].error).toMatch(/recusou gerar este vídeo pelas regras de segurança dele: O pedido viola a política de uso/);
     expect(fs.existsSync(path.join(p.workspacePath, 'worktrees', j.id, 'videos', 'x.mp4'))).toBe(false);
     recusar = false;
+  });
+
+  it('automático com a lista da chave sem nenhum Veo: tenta os modelos conhecidos (do mais barato) até um aceitar', async () => {
+    semVeoNaLista = true;
+    (h.app.get(GeminiVideoProvider) as any).cache = null;
+    const p = (await h.http().post('/api/projects').send({ name: 'Sem lista', provider: 'claude-code-cli' }).expect(201)).body;
+    const antes = pedidos.length;
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'cena', objective: 'x', defaultProvider: 'gemini-video',
+        steps: [{ key: 'c1', provider: 'gemini-video', instructions: 'queijo derretido', providerOptions: { arquivo: 'videos/c1.mp4', duracaoSeg: 4 } }],
+        criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/c1.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await fim(p.id, j.id);
+    semVeoNaLista = false;
+    expect(x.status).toBe('CONCLUIDO');
+    const posts = pedidos.slice(antes).filter((r) => r.url.startsWith('POST')).map((r) => r.url);
+    expect(posts).toEqual(['POST /v1beta/models/veo-3.1-fast-generate-preview:predictLongRunning', 'POST /v1beta/models/veo-3.0-fast-generate-001:predictLongRunning']);
+    // E a tela de escolha não fica vazia: mostra os conhecidos, com o motivo.
+    const lista = (await h.http().get('/api/accounts/gemini-video/models').expect(200)).body;
+    expect(lista.opcoes.length).toBe(5);
+    expect(lista.aviso).toMatch(/não lista nenhum modelo Veo/);
   });
 });

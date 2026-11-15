@@ -3,6 +3,23 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Correção automática, ciclo sem fim, andamento da conversa e Veo automático (2026-11-15)
+
+* **Critério final não passou → a IA corrige sozinha**: em vez de parar esperando o usuário, o sistema cria a
+  etapa "Corrigir o que a conferência final cobrou" (`correcao-criterios-N`) para a IA do projeto, com o critério,
+  a descrição e a evidência; a etapa só termina quando os mesmos critérios passam; a conferência das regras roda
+  de novo e os critérios são reavaliados. Até 3 rodadas; só trabalho feito por IA e só critério automático
+  (o de aprovação manual reprovado volta para o usuário). "Tentar de novo" num trabalho parado por critério
+  também passa a corrigir. Teste em `22`.
+* **Ciclo sem fim**: sem limite de sessões, se a conferência da etapa falha 6 vezes seguidas do mesmo jeito (mesmo
+  com a IA mexendo em arquivos), o trabalho para e diz o que a conferência cobra (caso real: "sessão 29" em 23 min).
+  O cartão mostra também por que a sessão anterior terminou. Teste em `22`.
+* **"Pensando…" com fases**: Preparando → Lendo o projeto → Escrevendo a resposta, barra animada, tempo e a
+  última atividade da IA (coluna nova `ConversationMessage.andamento`, gravada no máximo a cada 3 s).
+* **Veo "automático"**: a lista de modelos da chave do Google pode não trazer o Veo mesmo com cobrança ativa (caso
+  real: "esta chave não tem nenhum modelo Veo"). Agora o automático tenta os conhecidos, do mais barato ao mais
+  caro (3.1 Fast, 3 Fast, 3.1, 3, 2), pulando os que a chave recusa (404). Teste em `21`.
+
 ## Andamento ao vivo do trabalho (2026-11-15)
 
 O cartão do trabalho na conversa mostra que está vivo: bolinha pulsando, **barra de porcentagem** (pelas etapas

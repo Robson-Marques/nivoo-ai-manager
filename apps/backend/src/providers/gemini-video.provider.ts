@@ -57,6 +57,9 @@ export const MODELOS_VEO_CONHECIDOS: ModeloVeo[] = [
   { id: 'veo-2.0-generate-001', nome: 'Veo 2 — sem som' },
 ];
 
+/** Ordem do "automático" quando a lista da chave não traz o Veo: do mais barato ao mais caro. */
+const ORDEM_AUTOMATICA = ['veo-3.1-fast-generate-preview', 'veo-3.0-fast-generate-001', 'veo-3.1-generate-preview', 'veo-3.0-generate-001', 'veo-2.0-generate-001'];
+
 /** Nome para a tela: o conhecido (ou o do Google) + o custo estimado por segundo. */
 export function nomeDoModeloVeo(id: string, nomeDoGoogle?: string): string {
   const base = MODELOS_VEO_CONHECIDOS.find((m) => m.id === id)?.nome ?? nomeDoGoogle ?? id;
@@ -175,13 +178,15 @@ export class GeminiVideoProvider implements AiProvider {
     } catch {
       return { exitCode: 1, output: '', error: `caminho inválido para o vídeo: ${arquivo}` };
     }
-    let modelo = o.model;
-    try {
-      if (!modelo) modelo = (await this.modelos(k.conexao))[0]?.id;
-    } catch (e: any) {
-      return { exitCode: 1, output: '', error: String(e?.message ?? e), resourceUnavailable: true };
+    // Modelo escolhido no projeto; em "automático", os da lista da chave e, se a lista do Google não trouxer
+    // nenhum Veo (acontece mesmo com cobrança ativa), os conhecidos, do mais barato ao mais caro.
+    let candidatos: string[];
+    if (o.model) candidatos = [o.model];
+    else {
+      const daChave = await this.modelos(k.conexao).catch(() => [] as ModeloVeo[]);
+      candidatos = daChave.length ? daChave.map((m) => m.id) : ORDEM_AUTOMATICA;
     }
-    if (!modelo) return { exitCode: 1, output: '', error: 'esta chave não tem nenhum modelo Veo disponível (confira se a cobrança está ativada no Google AI Studio)' };
+    let modelo = candidatos[0];
 
     const instancia: Record<string, unknown> = { prompt: req.instructions };
     if (o.imagem) {
@@ -201,7 +206,7 @@ export class GeminiVideoProvider implements AiProvider {
     const segundos = Number(parameters.durationSeconds ?? 8);
     // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
     // geração em vez de pagar outra.
-    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, modelo, destino, instancia, parameters])).digest('hex');
+    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, o.model ?? 'automatico', destino, instancia, parameters])).digest('hex');
     const anterior = OPERACOES.get(pedido);
     let operacao: string;
     let op: any;
@@ -212,12 +217,27 @@ export class GeminiVideoProvider implements AiProvider {
       op = { done: false };
       req.onLog(`Veo: retomando a geração já pedida (operação ${operacao}); nada é cobrado de novo`);
     } else {
-      req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
-      let r: { status: number; json: any };
-      try {
-        r = await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
-      } catch (e: any) {
-        return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };
+      let r: { status: number; json: any } | null = null;
+      const recusados: string[] = [];
+      for (const m of candidatos) {
+        modelo = m;
+        req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
+        try {
+          r = await this.chamar(k.chave, 'POST', `${base()}/v1beta/models/${encodeURIComponent(modelo)}:predictLongRunning`, { instances: [instancia], parameters }, req.signal);
+        } catch (e: any) {
+          return { exitCode: 1, output: '', error: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, resourceUnavailable: true, interrupted: req.signal.aborted };
+        }
+        // Modelo que esta chave não tem (404 / não encontrado / não suportado): tenta o próximo.
+        const msg = String(r.json?.error?.message ?? '');
+        if (r.status === 404 || (r.status === 400 && /not found|not supported|is not available|does not exist/i.test(msg))) {
+          recusados.push(`${modelo} (${r.status})`);
+          req.onLog(`Veo: o modelo ${modelo} não está disponível para esta chave; tentando o próximo`, 'WARN');
+          continue;
+        }
+        break;
+      }
+      if (!r || recusados.length === candidatos.length) {
+        return { exitCode: 1, output: '', error: `nenhum modelo Veo aceitou o pedido com esta chave (${recusados.join(', ')}). Confira no Google AI Studio se a cobrança está ativa no projeto DESTA chave e se o Veo está liberado na sua região.` };
       }
       const falha = this.falhaHttp(r);
       if (falha) return falha;

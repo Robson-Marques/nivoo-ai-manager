@@ -369,7 +369,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
       </div>
     );
   }
-  if (m.status === 'PENDENTE') return <Pensando desde={m.createdAt} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />;
+  if (m.status === 'PENDENTE') return <Pensando desde={m.createdAt} andamento={m.andamento} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />;
   if (m.status === 'ERRO') {
     return (
       <div className="msg ia erro">
@@ -404,20 +404,38 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar }: { m
   );
 }
 
-/** "Pensando…" com o tempo decorrido: a IA lê o projeto antes de responder e isso pode levar minutos. */
-function Pensando({ desde, projetoId, conversaId, onMudou }: { desde: string; projetoId: string; conversaId: string; onMudou: () => void }) {
-  const [agora, setAgora] = useState(Date.now());
+/**
+ * Enquanto a IA responde: fases (preparando → lendo o projeto → escrevendo a resposta), barra animada, tempo e
+ * a última atividade dela. Não há porcentagem real numa resposta; as fases mostram onde ela está.
+ */
+function Pensando({ desde, andamento, projetoId, conversaId, onMudou }: { desde: string; andamento?: string | null; projetoId: string; conversaId: string; onMudou: () => void }) {
+  const [, setAgora] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setAgora(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const seg = Math.max(0, Math.round((agora - new Date(desde).getTime()) / 1000));
-  const tempo = seg < 60 ? `${seg} s` : `${Math.floor(seg / 60)} min ${seg % 60} s`;
+  const a = andamento ?? '';
+  const fase = !a || /^(claude|codex|gemini) /.test(a) ? 0 : /^\[(agente|agent_message)\]/.test(a) ? 2 : 1;
+  const fases = ['Preparando', 'Lendo o projeto', 'Escrevendo a resposta'];
+  const seg = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 1000));
   return (
     <div className="msg ia pensando">
-      Pensando<span className="dots">…</span> <span className="small">({tempo})</span>{' '}
-      <button className="link parar" onClick={async () => { await api(`/projects/${projetoId}/conversations/${conversaId}/cancel`, 'POST'); onMudou(); }}>parar</button>
-      {seg > 120 && <div className="small">A IA está lendo o projeto e pode levar alguns minutos. Se passar de 5 minutos, ela avisa o que aconteceu.</div>}
+      <div className="andamento">
+        <div className="andamento-topo">
+          <span className="pulso" aria-hidden="true" />
+          <b>Pensando</b>
+          <span className="small">há {duracao(desde)}</span>
+          <button className="link parar" onClick={async () => { await api(`/projects/${projetoId}/conversations/${conversaId}/cancel`, 'POST'); onMudou(); }}>parar</button>
+        </div>
+        <ol className="fases">
+          {fases.map((f, i) => (
+            <li key={f} className={i < fase ? 'feita' : i === fase ? 'agora' : ''}>{f}</li>
+          ))}
+        </ol>
+        <div className="barra"><div className="atual" style={{ width: '100%' }} /></div>
+        {a && fase > 0 && <div className="atividade small" title={a}>Agora: {atividadeLegivel(a)}</div>}
+        {seg > 120 && <div className="muted small">Ler o projeto pode levar alguns minutos. Se passar de 15 minutos, ela avisa o que aconteceu.</div>}
+      </div>
     </div>
   );
 }
@@ -703,6 +721,8 @@ function duracao(desde: string | Date): string {
 /** Linha do log em português simples (o que a IA está fazendo agora). */
 function atividadeLegivel(msg: string): string {
   return msg
+    .replace(/\S*\/worktrees\/[^/\s]+\//g, '') // caminho completo da pasta do trabalho → só o do projeto
+    .replace(/\S*\/conversa-[^/\s]+\//g, '')
     .replace(/^\[ferramenta\] (Read|read_file|ReadFile)\b/i, 'lendo')
     .replace(/^\[ferramenta\] (Grep|Glob|search_file_content|glob)\b/i, 'procurando')
     .replace(/^\[ferramenta\] (Edit|Write|MultiEdit|write_file|replace)\b/i, 'escrevendo')
@@ -715,6 +735,14 @@ function atividadeLegivel(msg: string): string {
     .replace(/^\[sessão [^\]]*\] término=.*/, 'sessão encerrada; conferindo o resultado…');
 }
 
+/** Motivo do fim de uma sessão, curto e legível. */
+function motivoLegivel(erro: string): string {
+  return erro
+    .replace(/^verificação da etapa falhou \(exit \d+\):\s*/, 'a conferência da etapa ainda não passou — ')
+    .replace(/^sessão encerrada \(([^)]*)\) sem concluir a etapa/, 'a sessão acabou ($1); continua na próxima')
+    .slice(0, 220);
+}
+
 /** Trabalho rodando: barra pelas etapas (a etapa atual animada), tempo, sessão e a última atividade da IA. */
 function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: any }) {
   const total = job.steps.length || 1;
@@ -722,6 +750,8 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
   const tentativas = atual ? job.attempts.filter((a: any) => a.stepId === atual.id) : [];
   const inicio = tentativas[0]?.startedAt;
   const ult = job.ultimaAtividade;
+  // Por que a sessão anterior desta etapa terminou (ex.: a conferência cobrou um arquivo que não existe).
+  const anterior = tentativas.length > 1 ? [...tentativas].reverse().find((a: any) => a.endedAt && a.error) : null;
   const parado = ult && Date.now() - new Date(ult.em).getTime() > 10 * 60_000;
   return (
     <div className="andamento">
@@ -740,6 +770,11 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
       <div className="muted small">
         {job.status === 'PENDENTE' || !inicio ? 'Na fila para começar…' : `Rodando há ${duracao(inicio)}${tentativas.length > 1 ? ` · sessão ${tentativas.length} (continua de onde parou)` : ''}`}
       </div>
+      {anterior?.error && (
+        <div className="muted small" title={anterior.error}>
+          A sessão {tentativas.length - 1} terminou sem concluir: {motivoLegivel(anterior.error)}
+        </div>
+      )}
       {ult && (
         <div className={parado ? 'atividade parada small' : 'atividade small'} title={ult.mensagem}>
           {parado ? `Sem novidade há ${duracao(ult.em)} (leituras longas podem demorar). Última: ` : `Agora (há ${duracao(ult.em)}): `}

@@ -170,6 +170,8 @@ model ConversationMessage {
   costUsd        Decimal       @default(0) @db.Decimal(12, 4)
   /// Anexos da mensagem do usuário: [{ nome, tipo: imagem|texto, bytes, de? }] (arquivos em <projeto>/anexos/)
   attachments    Json?
+  /// Enquanto a IA responde: a última atividade dela (ex.: "[ferramenta] Read src/app.ts"), para a tela.
+  andamento      String?
   createdAt      DateTime      @default(now())
 
   tasks QueueTask[]

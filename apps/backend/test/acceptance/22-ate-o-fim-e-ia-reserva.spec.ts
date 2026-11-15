@@ -193,4 +193,51 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     expect(prompt).toContain('LISTE TODAS como perguntas numeradas');
     ctl('mode', null);
   });
+
+  it('sem limite de sessões: conferência falhando sempre igual (mesmo com a IA mexendo em arquivos) para em 6 e explica', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Gira sem fim', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'gira', objective: 'x', defaultProvider: 'claude-code-cli', conferencia: false,
+        limits: { maxSessionsPerStep: 0, maxAttemptsPerStep: 10 },
+        steps: [{ key: 's', instructions: 'date +%s%N > tentativa-$RANDOM.txt', verifyCommand: 'test -f relatorio-final.md || { echo "falta relatorio-final.md"; exit 1; }' }],
+        criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await fim(p.id, j.id);
+    ctl('mode', null);
+    expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'REPETICAO_IMPRODUTIVA' });
+    expect(x.statusDetail).toMatch(/conferência da etapa falhou 6 vezes seguidas do mesmo jeito: \(exit 1\): falta relatorio-final\.md/);
+    expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(6);
+  });
+
+  it('critério final não passou: a IA corrige sozinha (com o critério e a evidência), confere as regras de novo e conclui', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Corrige sozinho', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    ctl('correcao.sh', "printf 'Atualize o CHANGELOG\\n' > CLAUDE-regras.md");
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'regra', objective: 'registrar a regra', defaultProvider: 'claude-code-cli',
+        steps: [{ key: 'regra', instructions: 'echo rascunho > notas.md', verifyCommand: 'test -f notas.md' }],
+        criteria: [{ key: 'regra-registrada', description: 'regra do CHANGELOG registrada', kind: 'COMMAND', config: { command: "grep -q CHANGELOG CLAUDE-regras.md" } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const x = await fim(p.id, j.id);
+    ctl('mode', null);
+    ctl('correcao.sh', null);
+    expect(x.status).toBe('CONCLUIDO');
+    const keys = x.steps.map((s: any) => s.key);
+    expect(keys).toEqual(expect.arrayContaining(['regra', 'correcao-criterios-1', 'conferencia-regras']));
+    const correcao = x.steps.find((s: any) => s.key === 'correcao-criterios-1');
+    expect(correcao.verifyCommand).toBe('( grep -q CHANGELOG CLAUDE-regras.md )');
+    const prompt = fs.readFileSync(path.join(process.env.TMPDIR ?? '/tmp', 'nivoo-cli-stub', 'prompt-correcao.txt'), 'utf8');
+    expect(prompt).toMatch(/regra-registrada — regra do CHANGELOG registrada/);
+    expect(prompt).toMatch(/evidência: .*exitCode/);
+    // A conferência das regras rodou depois da correção.
+    const ordem = x.attempts.map((a: any) => x.steps.find((s: any) => s.id === a.stepId)?.key);
+    expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('correcao-criterios-1'));
+  });
 });
