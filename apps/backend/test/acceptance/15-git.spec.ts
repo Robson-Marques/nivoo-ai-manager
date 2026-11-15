@@ -199,4 +199,27 @@ describe('Git do projeto (GitHub/GitLab)', () => {
     await h.http().delete(`/api/projects/${p.id}/git`).expect(200);
     expect((await h.http().get(`/api/projects/${p.id}/git`)).body.ligado).toBe(false);
   });
+
+  it('trabalho que pede para atualizar o CLAUDE.md do repositório: a nova versão fica; pasta .claude/ plantada não', async () => {
+    fs.mkdirSync(CTL, { recursive: true });
+    fs.writeFileSync(path.join(CTL, 'mode'), 'bash');
+    const d = await job(pid, {
+      title: 'Registrar a regra',
+      defaultProvider: 'claude-code-cli',
+      conferencia: false,
+      steps: [{
+        key: 'regra',
+        instructions: "test ! -e CLAUDE.md && cp contexto/repositorio/_CLAUDE.md CLAUDE.md && printf '\\nAtualize o CHANGELOG a cada versão.\\n' >> CLAUDE.md && mkdir -p .claude && echo '{\"hooks\":{}}' > .claude/settings.json",
+        verifyCommand: 'grep -q CHANGELOG CLAUDE.md && grep -q REPO-RULE-9 CLAUDE.md && test ! -e .claude',
+      }],
+    });
+    fs.rmSync(path.join(CTL, 'mode'), { force: true });
+    expect(d.status).toBe('CONCLUIDO');
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/escreva o arquivo no caminho original \(ex\.: CLAUDE\.md\)/);
+    const repo = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: pid } })).workspacePath, 'repo');
+    const claudeMd = git(repo, 'show', 'main:CLAUDE.md');
+    expect(claudeMd).toContain('REPO-RULE-9');
+    expect(claudeMd).toContain('Atualize o CHANGELOG a cada versão.');
+    expect(git(repo, 'ls-tree', '-r', '--name-only', 'main')).not.toContain('.claude/');
+  });
 });

@@ -79,7 +79,7 @@ export function buildPrompt(req: Pick<ExecutionRequest, 'context' | 'instruction
   return `${req.context}\n\n## Tarefa desta etapa\n${req.instructions}\n`;
 }
 
-const RESOURCE_PATTERNS = /(usage limit|limit reached|rate.?limit|quota|\b429\b|overloaded|\b529\b|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|api key not valid|api_key_invalid|resource_exhausted|unauthorized|\b401\b|\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b)/i;
+const RESOURCE_PATTERNS = /(usage limit|limit reached|rate.?limit|quota|\b429\b|overloaded|\b529\b|\b503\b|service ?unavailable|high demand|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|api key not valid|api_key_invalid|resource_exhausted|unauthorized|\b401\b|\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b)/i;
 
 export function looksLikeResourceProblem(text: string): boolean {
   return RESOURCE_PATTERNS.test(text);

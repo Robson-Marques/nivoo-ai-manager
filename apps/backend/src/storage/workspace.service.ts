@@ -275,6 +275,43 @@ export class WorkspaceService {
    */
   static readonly HARNESS_FILES = ['.claude', 'CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'AGENTS.override.md', '.codex', '.mcp.json', '.cursor', 'GEMINI.md', '.gemini'];
 
+  /** Documentos de instrução (texto) que o repositório versiona e a IA pode atualizar como parte do trabalho. */
+  static readonly DOCS_EDITAVEIS = ['CLAUDE.md', 'CLAUDE.local.md', 'AGENTS.md', 'AGENTS.override.md', 'GEMINI.md'];
+
+  /**
+   * Dos arquivos de instrução versionados, os que são documento (ex.: CLAUDE.md na raiz ou numa pasta comum),
+   * nunca os de dentro de pastas de configuração (.claude/, .codex/, .gemini/: hooks, permissões, servidores).
+   */
+  docsEditaveis(versionados: string[]): string[] {
+    return versionados.filter((f) => {
+      const seg = f.split('/');
+      return WorkspaceService.DOCS_EDITAVEIS.includes(seg[seg.length - 1]) && !seg.slice(0, -1).some((s) => WorkspaceService.HARNESS_FILES.includes(s));
+    });
+  }
+
+  /**
+   * Durante a sessão esses documentos ficam fora da pasta (a IA não os carrega como configuração); se a IA
+   * escreveu um deles de novo, é a atualização pedida pelo trabalho: guarda o conteúdo para valer depois da
+   * limpeza (vai para o commit do trabalho e passa pela conferência das regras como qualquer arquivo).
+   */
+  capturarDocsEditados(worktree: string, docs: string[]): Map<string, Buffer> {
+    const editados = new Map<string, Buffer>();
+    for (const rel of docs) {
+      const p = path.join(worktree, rel);
+      if (!fs.existsSync(p) || this.isLink(p) || !fs.lstatSync(p).isFile() || fs.statSync(p).size > 512 * 1024) continue;
+      editados.set(rel, fs.readFileSync(p));
+    }
+    return editados;
+  }
+
+  gravarDocsEditados(worktree: string, editados: Map<string, Buffer>): void {
+    for (const [rel, conteudo] of editados) {
+      const p = resolveInside(worktree, rel);
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, conteudo);
+    }
+  }
+
   sanitizeHarnessFiles(worktree: string): string[] {
     const removed: string[] = [];
     const walk = (dir: string, depth: number) => {

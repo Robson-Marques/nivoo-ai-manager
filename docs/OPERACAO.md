@@ -119,7 +119,7 @@ ganham o critério `conferencia-regras`.
 | `NIVOO_CLAUDE_MODEL` / `NIVOO_CODEX_MODEL` / `NIVOO_GEMINI_MODEL` | — | modelo opcional de cada IA |
 | `NIVOO_CLAUDE_MAX_TURNS` | — | limite de turnos por sessão do Claude (também por etapa em `providerOptions.maxTurns`) |
 | `NIVOO_CLAUDE_ALLOWED_TOOLS` | vazio | regras extras **restritas a caminho** (ex.: `Edit(./src/**)`); regras genéricas são recusadas. Bash/WebFetch/WebSearch sempre negados |
-| `NIVOO_PLANNER_TIMEOUT_SEC` / `NIVOO_PLANNER_MAX_TURNS` | 300 / 25 | limites de cada resposta do chat (a conversa usa a IA escolhida no projeto) |
+| `NIVOO_PLANNER_TIMEOUT_SEC` / `NIVOO_PLANNER_MAX_TURNS` | 900 / 25 | limites de cada resposta do chat (a conversa usa a IA escolhida no projeto) |
 | `NIVOO_CONTEXT_MAX_CHARS` | 60000 | orçamento de contexto por sessão (memória excedente fica em `.nivoo/memoria.md`) |
 | `NIVOO_PRECO_ENTRADA_USD_MTOK` / `NIVOO_PRECO_SAIDA_USD_MTOK` | 3 / 15 | preço por milhão de tokens, só para ESTIMAR o custo de sessões encerradas à força |
 | `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` | — | opcionais; se definidas, têm prioridade sobre o que foi conectado pela tela (a tela mostra "configurado pelo administrador") |

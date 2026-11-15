@@ -214,7 +214,11 @@ export class StepExecutorService {
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
     const profile = await this.profiles.build(job.projectId);
-    const { text: context, stats: contextStats } = await this.buildContext(job, step, profile.text, isAi ? worktree : undefined);
+    const { text: contextBase, stats: contextStats } = await this.buildContext(job, step, profile.text, isAi ? worktree : undefined);
+    const docsDoRepo = isAi ? this.workspace.docsEditaveis(repoHarness) : [];
+    const context = docsDoRepo.length
+      ? `${contextBase}\n\n## Documentos de instrução do repositório\nNesta sessão ${docsDoRepo.join(', ')} ficam fora da pasta (cópia para ler em contexto/repositorio/, com "_" no nome). Se o trabalho pede para alterar um deles, escreva o arquivo no caminho original (ex.: ${docsDoRepo[0]}) com o conteúdo COMPLETO atualizado (parta da cópia): essa versão entra no trabalho.`
+      : contextBase;
     // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).
     const promptArt = await this.artifacts.storeContent(
       { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `prompts/${step.key}/tentativa-${number}.md`, kind: 'PROMPT' },
@@ -313,9 +317,15 @@ export class StepExecutorService {
       }
     }
     if (isAi) {
+      // Documento de instrução do repositório (CLAUDE.md, AGENTS.md…) reescrito pela IA = atualização pedida.
+      const editados = this.workspace.capturarDocsEditados(worktree, this.workspace.docsEditaveis(repoHarness));
       const planted = this.workspace.sanitizeHarnessFiles(worktree);
-      // Os do repositório voltam intactos (a IA não altera nem apaga instruções versionadas do projeto).
+      // Configurações (.claude/, .codex/…) voltam intactas; a IA não mexe em hooks nem permissões.
       await this.workspace.restoreRepoHarness(worktree, repoHarness).catch(async (e) => L(`Falha ao restaurar instruções do repositório: ${e?.message ?? e}`, 'ERROR', attempt.id));
+      if (editados.size) {
+        this.workspace.gravarDocsEditados(worktree, editados);
+        await L(`Documentos de instrução do repositório atualizados pela IA: ${[...editados.keys()].join(', ')}`, 'INFO', attempt.id);
+      }
       const novos = planted.filter((f) => !repoHarness.includes(f));
       if (novos.length) {
         await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);

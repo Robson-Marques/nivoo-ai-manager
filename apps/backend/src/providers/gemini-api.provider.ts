@@ -104,7 +104,14 @@ export class GeminiApiProvider implements AiProvider {
       onSpawn: req.onSpawn,
     });
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
-    if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
+    if (r.timedOut) {
+      // O Gemini CLI repete sozinho, em silêncio, quando o Google responde 503 (sobrecarga): o tempo acaba
+      // sem resposta. Dito com clareza, e tratado como IA indisponível (a reserva assume, se houver).
+      if (/\b503\b|UNAVAILABLE|overloaded|high demand|service unavailable/i.test(`${r.stderr}\n${r.stdout}`)) {
+        return { exitCode: -1, output: '', error: 'o Google está sobrecarregado (503 ServiceUnavailable) e não respondeu a tempo; tente de novo em alguns minutos ou use outra IA', resourceUnavailable: true };
+      }
+      return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
+    }
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
     return GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, req.onLog);
   }

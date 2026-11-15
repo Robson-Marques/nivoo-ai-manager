@@ -134,4 +134,14 @@ describe('Adaptador Gemini CLI (saída stream-json real do CLI)', () => {
     expect(r.resourceUnavailable).toBe(true);
     expect(r.error).toMatch(/API key not valid/);
   });
+
+  it('Google sobrecarregado (503 ServiceUnavailable) também é "recurso indisponível"', () => {
+    const r = GeminiApiProvider.parse(
+      linhas([{ type: 'init', session_id: 's-3' }, { type: 'result', status: 'error', error: { message: '[503 Service Unavailable] The model is overloaded. Please try again later.' } }]),
+      '',
+      1,
+      () => undefined,
+    );
+    expect(r.resourceUnavailable).toBe(true);
+  });
 });

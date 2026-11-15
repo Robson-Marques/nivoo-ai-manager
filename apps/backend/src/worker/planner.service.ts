@@ -129,7 +129,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 300) * 1000,
+        timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
           maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 25),
@@ -163,7 +163,12 @@ export class PlannerService {
       if (result.resourceUnavailable && ehFalhaDeLogin(result.error)) {
         erro = `A ${status.label} recusou o login (o acesso expirou ou foi revogado): ${result.error ?? ''}. Reconecte em "Conexões" ou continue com outra IA.`.trim();
       } else if (result.resourceUnavailable) erro = `IA indisponível no momento (limite ou login): ${result.error ?? ''}`.trim();
-      else if (result.exitCode !== 0 && !result.sessionEnded) erro = `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
+      else if (result.exitCode !== 0 && !result.sessionEnded) {
+        const tempo = /^timeout após (\d+) ms/.exec(result.error ?? '');
+        erro = tempo
+          ? `A IA não respondeu em ${Math.round(Number(tempo[1]) / 60000)} minutos (o servidor dela pode estar lento ou sobrecarregado). Envie a mensagem de novo; se repetir, troque a IA do projeto no topo da conversa.`
+          : `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
+      }
       else if (parsed?.tipo === 'plano' && msg.kind === 'entrega') {
         // A entrega é sempre um relatório (o plano novo vem depois das respostas do usuário).
         content = String(parsed.texto ?? '');

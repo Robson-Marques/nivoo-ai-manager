@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## CLAUDE.md do repositório atualizável e Gemini sobrecarregado (2026-11-15)
+
+* **Bug real**: trabalho que precisava registrar uma regra no `CLAUDE.md` do repositório falhava no critério
+  ("regra-registrada"): por segurança o arquivo fica fora da pasta durante a sessão e volta do git depois, o que
+  também desfazia a atualização pedida. Agora os **documentos** de instrução que o repositório já versiona
+  (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`…, fora de `.claude/`, `.codex/`, `.gemini/`) podem ser reescritos pela
+  IA: a nova versão entra no trabalho (e na conferência das regras). A IA é avisada no prompt de como fazer.
+  Pastas de configuração (hooks, permissões, servidores) continuam sempre removidas/restauradas. Teste em `15`.
+* **Gemini sobrecarregado**: quando o Google responde 503, o Gemini CLI repete em silêncio até acabar o tempo
+  ("timeout após 300000 ms"). Agora isso é dito como "o Google está sobrecarregado (503)" e tratado como IA
+  indisponível (a reserva assume, se houver); a resposta do chat tem até 15 min (`NIVOO_PLANNER_TIMEOUT_SEC`,
+  antes 5) e o aviso de tempo esgotado explica o que fazer.
+
 ## Vídeo completo e escolha do modelo Veo (2026-11-15)
 
 * **Entrega o vídeo inteiro**: o Veo gera de 4 a 8 s por vez, então o plano com duas ou mais cenas ganha sozinho a
