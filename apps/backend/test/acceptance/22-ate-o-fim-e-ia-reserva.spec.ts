@@ -204,7 +204,8 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
     expect(prompt).toContain('apresente a ENTREGA do trabalho que acabou de terminar');
     expect(prompt).toContain('docs/auditoria.md (novo)');
-    expect(prompt).toContain('LISTE TODAS como perguntas numeradas');
+    expect(prompt).toContain('SE FALTA PARTE DO PEDIDO');
+    expect(prompt).toContain('Perguntas: SÓ o que bloqueia');
     expect(prompt).toMatch(/Resultados gravados pela IA[^\n]*relatorio-auditoria\.md/);
     expect(prompt).toContain(`contexto/resultados/${jobId.slice(0, 8)}/relatorio-auditoria.md`);
     ctl('mode', null);

@@ -72,6 +72,19 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         <span className="muted small">Qualquer IA escolhida recebe as mesmas regras, conhecimento e memória. O modelo fica guardado para cada IA. <Link to="/contas">Conexões</Link></span>
       </div>
       <IasReserva projeto={projeto} contas={contas} onSalvar={(reserva, ok) => salvar({ reserva }, ok)} />
+      <div className="campo">
+        <b>Seguir sozinho até terminar</b>
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <input
+            type="checkbox"
+            style={{ width: 'auto' }}
+            checked={projeto.seguirSozinho !== false}
+            onChange={(e) => salvar({ seguirSozinho: e.target.checked }, e.target.checked ? 'A IA segue sozinha com o que falta do pedido.' : 'Cada plano novo vai esperar o seu "Fazer".')}
+          />
+          Depois que você aprova um pedido, a próxima parte dele (ou a continuação depois das suas respostas) começa sem esperar o "Fazer"
+        </label>
+        <span className="muted small">Pedido novo sempre espera a sua aprovação. Depois de 8 planos seguidos sem você falar nada, o próximo espera o "Fazer".</span>
+      </div>
       <VideoDoProjeto projeto={projeto} onMudou={onMudou} />
       <div className="campo">
         <b>Limite de gasto do projeto (US$)</b>

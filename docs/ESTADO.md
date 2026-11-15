@@ -177,6 +177,28 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Ir até o fim: testes pelo sistema, seguir sozinho, menos perguntas, limpeza (2026-11-15)
+
+* **Problema real (ctrl-leads)**: a entrega dizia "não rodei nenhum teste" e pedia ao usuário para rodar `npm run
+  test:upgrade` e `npm run build`, religar processos e atualizar o servidor; terminava a "parte A" e parava, com uma
+  lista de perguntas. Causas, todas do Nivoo: (1) a regra do plano PROIBIA `npm`/`node`/`python` nas conferências;
+  (2) a IA Claude roda sem terminal (segurança), então só a conferência pode testar; (3) a instrução de entrega mandava
+  listar TODAS as decisões como perguntas; (4) a entrega era forçada a ser só relatório.
+* **Testes e build pela conferência**: etapa que muda código confere com os testes e o build reais do projeto
+  (instalando dependências); se falhar, a IA recebe o erro (até 4000 caracteres) e corrige até passar. Conferência
+  com até 30 min (`NIVOO_VERIFY_TIMEOUT_SEC`, antes 2 min).
+* **Seguir sozinho**: plano com `"continuacao": true` (a próxima parte de um pedido já aprovado pelo usuário, ou a
+  continuação depois das respostas dele) começa sozinho, aprovado por "Nivoo (seguindo o seu pedido)". A entrega com
+  parte do pedido por fazer já traz esse plano. Pedido novo sempre espera o "Fazer"; no máximo `NIVOO_SEGUIR_MAX`
+  (8) planos seguidos sem mensagem do usuário; desligável em Ajustes ("Seguir sozinho até terminar", coluna
+  `Project.seguirSozinho`).
+* **Perguntar pouco**: o que está claro (pedido, conversa, memória, arquivos) a IA faz; decisão reversível com opção
+  clara ela decide e conta; pergunta só o que bloqueia, com opções e recomendação; nunca pede ao usuário o que o
+  sistema faz (testes, build, arquivos, comandos no servidor quando há SSH). O plano faz o pedido inteiro.
+* **Limpeza ao fim de cada trabalho** (concluído, parado ou com falha): `node_modules`, `__pycache__`, `.pytest_cache`,
+  `.cache`, `.npm`, `.turbo` saem da pasta do trabalho (só o que o git não versiona) e nunca entram no commit
+  (ignorados no git do Nivoo). O log diz quanto foi liberado. Testes `31-seguir-ate-o-fim` e `22`.
+
 ## Memória em camadas (2026-11-15)
 
 * **Problema real**: a memória era uma pilha. Tudo caía na mesma tabela e no mesmo painel: notas de progresso de cada

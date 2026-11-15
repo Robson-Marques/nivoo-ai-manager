@@ -323,12 +323,14 @@ export class StepExecutorService {
       const v = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
         cwd: worktree,
         env: minimalEnv({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir }),
-        timeoutMs: 120_000,
+        // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
+        timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
+        maxBuffer: 20 * 1024 * 1024,
         signal,
       });
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
-      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-800);
+      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
       verified = v.exitCode === 0;
       // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.
@@ -648,6 +650,18 @@ export class StepExecutorService {
     return commit;
   }
 
+  /** Ao fim do trabalho (parado/falhou): tira da pasta do trabalho dependências e caches (node_modules…). */
+  private async limparAoFim(job: Job & { project?: { dirKey: string } }): Promise<void> {
+    try {
+      const p = job.project ?? (await this.prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { dirKey: true } }));
+      const wt = path.join(this.workspace.projectDirs(p.dirKey).worktrees, job.id);
+      const r = await this.workspace.limparLixoDeExecucao(wt);
+      if (r.removidos.length) await this.logs.log(job.id, `Limpeza: ${r.removidos.join(', ')} apagado(s) da pasta do trabalho (${r.mb} MB; são só instalação/cache)`, { source: 'worker' });
+    } catch {
+      /* limpeza é melhor esforço */
+    }
+  }
+
   private async blockJob(task: ClaimedTask, workerId: string, job: Job, step: Step, reason: string, detail: string): Promise<StepOutcome> {
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
@@ -658,6 +672,7 @@ export class StepExecutorService {
       });
     });
     await this.logs.log(job.id, `Job BLOQUEADO (${reason}) na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
+    await this.limparAoFim(job);
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'BLOQUEADO';
@@ -673,6 +688,7 @@ export class StepExecutorService {
       });
     });
     await this.logs.log(job.id, `Job FALHOU na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
+    await this.limparAoFim(job);
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'FALHOU';

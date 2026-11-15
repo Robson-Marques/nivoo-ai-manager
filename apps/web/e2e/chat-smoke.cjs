@@ -240,12 +240,14 @@ const plano = {
     passo('trabalho feito, conferido contra as regras e incorporado; memória automática visível, abre e copia');
 
     // 4b. Revisão com dúvida que só o usuário responde: perguntas com respostas sugeridas; responder ali mesmo continua.
+    // A entrega do cardápio (IA volta sozinha com o resumo) termina antes de preparar a próxima resposta da IA.
+    await page.locator('.selo-entrega').first().waitFor({ timeout: 60000 });
     const prontosAntes = await page.locator('.progresso.p-CONCLUIDO').count();
     fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
     fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify({ ...plano, texto: 'Vou montar as bebidas.', memoria: [], job: { ...plano.job, title: 'Bebidas', objective: 'Criar bebidas.md', steps: [{ key: 'b', title: 'Escrever as bebidas', instructions: "printf '# Bebidas\\n' > bebidas.md", verifyCommand: 'test -f bebidas.md' }], criteria: [{ key: 'b', description: 'bebidas existe', kind: 'FILE_EXISTS', config: { path: 'bebidas.md' } }] } }) + '\n```');
     await page.getByPlaceholder(/Escreva sua mensagem/).fill('Agora as bebidas');
     await page.keyboard.press('Enter');
-    await page.getByText('Vou montar as bebidas.').waitFor({ timeout: 60000 });
+    await page.getByText('Vou montar as bebidas.').first().waitFor({ timeout: 60000 });
     fs.writeFileSync(path.join(ctl, 'mode'), 'bash');
     fs.writeFileSync(path.join(ctl, 'conforme'), 'duvida');
     await page.getByRole('button', { name: 'Fazer', exact: true }).last().click();

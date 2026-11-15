@@ -143,6 +143,7 @@ export class ProjectsService {
       data.aiReserva = lista;
     }
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
+    if (typeof body?.seguirSozinho === 'boolean') data.seguirSozinho = body.seguirSozinho;
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
     if (data.provider) await moverTrabalhoParaIa(this.prisma, id, String(data.provider));

@@ -207,6 +207,8 @@ model Project {
   memory        MemoryEntry[]
   artifacts     Artifact[]
   sshPedidos    SshPedido[]
+  /// Plano que continua um pedido já aprovado começa sozinho (sem esperar o "Fazer")
+  seguirSozinho  Boolean   @default(true)
 }
 
 model Job {

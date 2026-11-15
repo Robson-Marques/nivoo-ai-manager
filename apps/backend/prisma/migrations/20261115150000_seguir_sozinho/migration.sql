@@ -1,0 +1,1 @@
+ALTER TABLE "Project" ADD COLUMN "seguirSozinho" BOOLEAN NOT NULL DEFAULT true;

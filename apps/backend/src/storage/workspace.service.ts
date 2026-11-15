@@ -274,7 +274,8 @@ export class WorkspaceService {
     const current = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf8') : '';
     // contexto/: cópias de leitura (padrões da base e conhecimento do projeto); .nivoo/: notas e memória
     // (já gravadas no banco). Nada disso entra no git, para não conflitar ao integrar jobs na pasta principal.
-    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/', 'out/'].filter((l) => !current.split('\n').includes(l));
+    // node_modules/, __pycache__/…: dependências e caches da conferência (npm ci, testes, build) — nunca vão para o commit.
+    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/', 'out/', ...WorkspaceService.LIXO_DE_EXECUCAO.map((d) => `${d}/`)].filter((l) => !current.split('\n').includes(l));
     if (missing.length) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}${missing.join('\n')}\n`);
     return wt;
   }
@@ -342,6 +343,62 @@ export class WorkspaceService {
       fs.mkdirSync(path.dirname(p), { recursive: true });
       fs.writeFileSync(p, conteudo);
     }
+  }
+
+  /** Pastas que são só instalação ou cache (refeitas quando preciso): nunca são resultado do trabalho. */
+  static readonly LIXO_DE_EXECUCAO = ['node_modules', '__pycache__', '.pytest_cache', '.cache', '.npm', '.turbo'];
+
+  /**
+   * Limpeza ao fim de cada trabalho (concluído, parado ou com falha): apaga da pasta do trabalho as dependências e
+   * caches criados pela conferência (npm ci, testes, build). Só pastas que o git NÃO versiona; o resto fica intacto.
+   * Devolve quantos MB foram liberados.
+   */
+  async limparLixoDeExecucao(worktree: string): Promise<{ removidos: string[]; mb: number }> {
+    const removidos: string[] = [];
+    let bytes = 0;
+    if (!fs.existsSync(worktree)) return { removidos, mb: 0 };
+    const arquivosVersionados = (await this.git(worktree, ['ls-files', '-z'])).stdout.split('\0').filter(Boolean);
+    const temVersionado = (rel: string) => arquivosVersionados.some((f) => f.startsWith(`${rel}/`));
+    const tamanho = (p: string): number => {
+      let n = 0;
+      const pilha = [p];
+      while (pilha.length) {
+        const atual = pilha.pop()!;
+        let st: fs.Stats;
+        try {
+          st = fs.lstatSync(atual);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) for (const e of fs.readdirSync(atual)) pilha.push(path.join(atual, e));
+        else n += st.size;
+      }
+      return n;
+    };
+    const walk = (dir: string, depth: number) => {
+      if (depth > 6) return;
+      let entradas: fs.Dirent[];
+      try {
+        entradas = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const e of entradas) {
+        if (!e.isDirectory() || e.isSymbolicLink() || e.name === '.git') continue;
+        const p = path.join(dir, e.name);
+        const rel = path.relative(worktree, p);
+        if (WorkspaceService.LIXO_DE_EXECUCAO.includes(e.name)) {
+          // Pasta que o projeto versiona (ex.: um .cache/ de propósito): fica — só sai o que o git não guarda.
+          if (temVersionado(rel)) continue;
+          bytes += tamanho(p);
+          fs.rmSync(p, { recursive: true, force: true });
+          removidos.push(rel);
+        } else if (depth === 0 && [SESSION_CONTEXT_DIR, 'out', '.nivoo'].includes(e.name)) continue;
+        else walk(p, depth + 1);
+      }
+    };
+    walk(worktree, 0);
+    return { removidos, mb: Math.round(bytes / 1024 / 1024) };
   }
 
   sanitizeHarnessFiles(worktree: string): string[] {

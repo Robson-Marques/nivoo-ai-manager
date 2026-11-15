@@ -17,6 +17,7 @@ import { AGENT_RULES } from '../security/policy';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
+import { ConversationsService } from '../conversations/conversations.service';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -42,6 +43,7 @@ export class PlannerService {
     private readonly jobs: JobsService,
     private readonly profiles: ProjectProfileService,
     private readonly artifacts: ArtifactStoreService,
+    private readonly conversations: ConversationsService,
   ) {}
 
   async handle(task: ClaimedTask, workerId: string, signal: AbortSignal): Promise<void> {
@@ -195,10 +197,7 @@ export class PlannerService {
           ? `A IA não respondeu em ${Math.round(Number(tempo[1]) / 60000)} minutos (o servidor dela pode estar lento ou sobrecarregado). Envie a mensagem de novo; se repetir, troque a IA do projeto no topo da conversa.`
           : `A IA não conseguiu responder: ${result.error ?? 'erro desconhecido'}`;
       }
-      else if (parsed?.tipo === 'plano' && msg.kind === 'entrega') {
-        // A entrega é sempre um relatório (o plano novo vem depois das respostas do usuário).
-        content = String(parsed.texto ?? '');
-      } else if (parsed?.tipo === 'plano') {
+      else if (parsed?.tipo === 'plano') {
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId });
@@ -222,23 +221,61 @@ export class PlannerService {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
+      // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
+      const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
       const gravada = await this.prisma.conversationMessage.updateMany({
         where: { id: msg.id, status: 'PENDENTE' },
         data: {
           status: erro ? 'ERRO' : 'PRONTA',
           kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
           content: erro ?? `${trocou}${content || '(sem resposta)'}`,
-          plan,
+          plan: planoDaEntrega ? undefined : plan,
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,
         },
       });
       // Resposta cancelada pelo usuário enquanto a IA trabalhava: o custo da sessão conta mesmo assim.
       if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
+      if (gravada.count && !erro && plan) {
+        const alvo = planoDaEntrega
+          ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega } })).id
+          : msg.id;
+        await this.seguirSozinho(project.id, msg.conversationId, alvo, parsed?.continuacao === true);
+      }
       await this.queue.complete(task.id, workerId);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * Seguir até o fim: plano que CONTINUA um pedido já feito/aprovado nesta conversa (a próxima parte, ou depois das
+   * respostas do usuário) começa sozinho, sem esperar o "Fazer" — se o projeto deixa (Ajustes: "seguir sozinho") e sem
+   * passar de NIVOO_SEGUIR_MAX planos seguidos sem nenhuma mensagem do usuário (proteção contra laço).
+   */
+  private async seguirSozinho(projectId: string, conversationId: string, messageId: string, continuacao: boolean): Promise<void> {
+    if (!continuacao) return;
+    const projeto = await this.prisma.project.findUnique({ where: { id: projectId }, select: { seguirSozinho: true } });
+    if (!projeto?.seguirSozinho) return;
+    // Só continua o que o usuário já pediu: precisa existir um plano aprovado por ele nesta conversa.
+    const aprovadoPeloUsuario = await this.prisma.conversationMessage.findFirst({ where: { conversationId, approvedAt: { not: null }, NOT: { approvedBy: { startsWith: 'Nivoo' } } } });
+    if (!aprovadoPeloUsuario) return;
+    const ultimaDoUsuario = await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } });
+    const seguidos = await this.prisma.conversationMessage.count({
+      where: { conversationId, approvedBy: { startsWith: 'Nivoo' }, ...(ultimaDoUsuario ? { createdAt: { gt: ultimaDoUsuario.createdAt } } : {}) },
+    });
+    const max = Number(process.env.NIVOO_SEGUIR_MAX ?? 8);
+    if (seguidos >= max) {
+      await this.prisma.conversationMessage.create({
+        data: { conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `Já foram ${seguidos} etapas seguidas sem você falar nada: este plano espera o seu "Fazer" para continuar.` },
+      });
+      return;
+    }
+    await this.conversations.approve(projectId, conversationId, messageId, { decidedBy: 'Nivoo (seguindo o seu pedido)' }).catch(async (e) => {
+      await this.prisma.conversationMessage.create({
+        data: { conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `Não consegui começar o próximo plano sozinho (${e?.message ?? e}); clique em "Fazer".` },
+      });
+    });
   }
 
   /**
@@ -272,7 +309,7 @@ export class PlannerService {
 
   /** O que a IA precisa para apresentar a entrega: o trabalho e os arquivos que ele criou/alterou/apagou. */
   private async dadosDaEntrega(jobId: string, dirKey: string): Promise<string> {
-    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 } } });
+    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: true } });
     if (!job) return '';
     const arquivos = job.mergedCommit ? await this.workspace.arquivosDoCommit(dirKey, job.mergedCommit) : [];
     const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
@@ -284,6 +321,9 @@ export class PlannerService {
         (await this.artifacts.resultadosDosTrabalhos(job.projectId, [jobId])).filter((a) => a.name !== 'conferencia-regras.json').map((a) => `${a.name} (${a.sizeBytes} bytes)`).join('; ') || 'nenhum'
       }`,
       'Os resultados são o produto do trabalho tanto quanto os arquivos: apresente-os (o que contêm, os achados e as decisões pendentes).',
+      'Conferências que o SISTEMA rodou e passaram:',
+      ...job.steps.filter((x) => x.status === 'CONCLUIDO' && x.verifyCommand && x.verifyCommand !== 'true').map((x) => `- etapa "${x.title || x.key}": ${x.verifyCommand!.slice(0, 300)}`),
+      ...job.criteria.filter((c) => c.status === 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}): ${c.description.slice(0, 200)}`),
     ].join('\n');
   }
 
@@ -336,17 +376,29 @@ export class PlannerService {
       'ESCOPO: se o pedido estiver fora do escopo do projeto ou contrariar as regras da base ou do projeto, NÃO proponha plano:',
       'responda (tipo "resposta") explicando, com educação, por que não pode e o que é possível dentro do projeto.',
       'Termine SEMPRE com UM bloco ```json``` em um destes formatos:',
-      '1) {"tipo":"resposta","texto":"..."} — para perguntas, esclarecimentos ou quando faltar informação (pergunte o que precisar).',
-      '2) {"tipo":"plano","texto":"explicação curta para o usuário","job":{...}} — quando houver trabalho a executar.',
+      '1) {"tipo":"resposta","texto":"..."} — para perguntas, esclarecimentos ou quando faltar informação que BLOQUEIA o trabalho.',
+      '2) {"tipo":"plano","texto":"explicação curta para o usuário","continuacao":true|false,"job":{...}} — quando houver trabalho a executar.',
+      '   "continuacao": true quando o plano CONTINUA um pedido que o usuário já fez/aprovou nesta conversa (a próxima parte, ou seguir',
+      '   depois que ele respondeu as perguntas): o sistema começa sozinho, sem esperar o "Fazer". Pedido novo: false (ele aprova).',
+      'PERGUNTE POUCO: o que está claro no pedido, na conversa, na memória ou nos arquivos, faça. Decisão reversível com uma opção',
+      'claramente melhor: decida, siga e conte o que decidiu. Pergunte só o que bloqueia e só o usuário sabe — com opções e a sua recomendação.',
+      'Nunca peça ao usuário para fazer o que o sistema faz: rodar testes ou build (é a conferência das etapas), mexer em arquivos do',
+      'projeto, ou comandos no servidor quando há ferramenta de servidor (SSH) — use a ferramenta; ela pede a permissão dele.',
       'Formato do job:',
       '{"title":"...","objective":"objetivo completo e verificável",',
       ' "steps":[{"key":"etapa1","title":"...","instructions":"o que a IA deve fazer","dependsOn":[],',
       '           "verifyCommand":"comando bash que retorna 0 quando a etapa está pronta, ex.: test -s docs/briefing.md"}],',
       ' "criteria":[{"key":"...","description":"...","kind":"FILE_EXISTS","config":{"path":"docs/briefing.md"}}]}',
       'Regras do plano:',
-      '- Toda etapa executada por IA precisa de verifyCommand (verificação objetiva).',
-      '- verifyCommand e critérios COMMAND: use só comandos básicos do bash (test, grep, find, wc, ls, cat, head, tail, sed, awk, diff).',
-      '  NUNCA rg, jq, python, node, npm ou outro programa que talvez não esteja instalado.',
+      '- Toda etapa executada por IA precisa de verifyCommand (verificação objetiva). O SISTEMA roda a conferência ao fim de cada',
+      '  sessão; se falhar, a IA recebe o erro e corrige numa nova sessão, até passar. A IA não roda comandos: quem testa é a conferência.',
+      '- CÓDIGO: toda etapa que muda código confere com os TESTES e o BUILD reais do projeto (os scripts que existem no package.json,',
+      '  Makefile, pyproject…; confira antes de citar), instalando as dependências quando preciso. Ex.: "npm ci && npm test && npm run build"',
+      '  ou "npm ci && npm run test:upgrade". Nunca deixe teste ou build para o usuário rodar, nem entregue código conferido só por leitura.',
+      '  Teste que depende de algo que o servidor do Nivoo não tem (outro banco, outro serviço) fica de fora, e o "texto" diz qual.',
+      '- Conferência de documentos: comandos básicos do bash (test, grep, find, wc, ls, cat, head, tail, sed, awk, diff). Não use rg nem jq.',
+      '- FAÇA O PEDIDO INTEIRO num plano só (quantas etapas precisar). Não divida em "parte A agora, parte B depois" para esperar o usuário;',
+      '  só fica para depois o que depende de uma resposta dele que bloqueia de verdade.',
       '- Arquivos que fazem parte do projeto (estrutura, documentos, código, peças) vão em caminhos normais: depois de',
       '  aprovados pelo verificador ficam na pasta principal e os próximos trabalhos os enxergam.',
       '- out/ é só para evidências e relatórios (viram artefatos com hash; não ficam na pasta principal).',
@@ -423,14 +475,17 @@ export class PlannerService {
         ? [
             '## AGORA: apresente a ENTREGA do trabalho que acabou de terminar (o usuário ainda não viu o resultado)',
             entrega,
-            'Leia os arquivos novos/alterados acima e responda em linguagem simples:',
-            '1) O que foi feito (poucas linhas).',
+            'Leia os arquivos novos/alterados e os resultados acima e responda em linguagem simples:',
+            '1) O que foi feito (poucas linhas) e como foi conferido (as conferências que o SISTEMA rodou estão acima; não diga',
+            '   que nada foi testado se uma conferência rodou testes).',
             '2) Onde está: os caminhos exatos dos arquivos principais (o usuário abre pela tela clicando neles).',
             '   Vídeo: o resultado é o vídeo COMPLETO (…-completo.mp4, com player e "baixar" na conversa); cite as cenas só como peças.',
-            '3) Se o resultado tiver decisões, dúvidas, riscos ou itens que dependem do usuário (ex.: um documento com pendências),',
-            '   LISTE TODAS como perguntas numeradas — cada uma com as opções e a SUA recomendação — e peça a resposta',
-            '   (ex.: "1. C5 — página de teste de iconografia: (a) apagar (b) manter. Recomendo (a) porque…").',
-            '4) O próximo passo sugerido. Não proponha plano agora: espere as respostas. Use {"tipo":"resposta"}.',
+            '3) SE FALTA PARTE DO PEDIDO do usuário (veja a conversa e o objetivo) e nada bloqueia: NÃO pare. Responda com',
+            '   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se uma parte depende de uma',
+            '   resposta do usuário, faça o plano do resto e pergunte só aquilo.',
+            '4) Perguntas: SÓ o que bloqueia e só o usuário decide (com opções e a sua recomendação). Nada de pedir para ele rodar',
+            '   testes, build, comandos ou atualizar o servidor quando o sistema pode fazer isso (conferências e ferramenta SSH).',
+            '   Se tudo foi feito e não há bloqueio: só o resumo, sem perguntas. Pedido totalmente concluído: {"tipo":"resposta"}.',
           ]
         : [
       '## Mensagem atual do usuário',

@@ -263,6 +263,11 @@ export class CompletionService {
     // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
     if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
     if (updated) await escreverArquivosDaMemoria(this.prisma, job.projectId);
+    // Fim do trabalho (concluído ou parado na conferência final): limpeza de dependências e caches da pasta do trabalho.
+    if (updated && status !== 'AGUARDANDO_APROVACAO' && !(report.finalStatus === 'EXECUTANDO')) {
+      const limpo = await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees, job.id)).catch(() => null);
+      if (limpo?.removidos.length) await this.logs.log(jobId, `Limpeza: ${limpo.removidos.join(', ')} apagado(s) da pasta do trabalho (${limpo.mb} MB; são só instalação/cache)`, { source: 'evaluator' });
+    }
     if (updated && status === 'CONCLUIDO') {
       // Resultados (relatórios, inventários, planos de out/) também na pasta DEFINITIVA do projeto.
       const pasta = await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(async (e) => {
