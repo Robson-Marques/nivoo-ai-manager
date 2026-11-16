@@ -11,7 +11,7 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
-import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, TEXTO_FOTOS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -875,7 +875,7 @@ export class StepExecutorService {
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
-    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...TEXTO_FOTOS, ...TEXTO_ROTEIRO]);
+    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
       const emOut = fs.existsSync(path.join(worktree, 'out'))

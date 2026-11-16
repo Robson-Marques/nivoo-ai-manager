@@ -215,6 +215,9 @@ sys.stdout.buffer.write(b.getvalue())`]);
     const revisor = lido('prompt-revisor.txt');
     expect(revisor).toContain('Mudanças feitas por este trabalho');
     expect(revisor).toContain('REGRA-SESSAO-7');
+    // Lente de interface: padrão local, contexto repetido e foto de toda tela alterada.
+    expect(revisor).toMatch(/PADRÃO LOCAL[\s\S]*CONTEXTO REPETIDO[\s\S]*SEM foto/);
+    expect(lido('prompt.txt')).toMatch(/TELAS NO PADRÃO DO SISTEMA/);
     const args = lido('args.txt');
     expect(args).toContain('--append-system-prompt'); // perfil também como instrução de sistema
     expect(args).toContain('REGRA-SESSAO-7');
@@ -311,6 +314,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(r1.content).toMatch(/Guardei na memória do projeto: Cor/);
     const prompt = lido('prompt.txt');
     expect(prompt).toContain('ESCOPO-LP-4');
+    expect(prompt).toMatch(/TELAS NO PADRÃO DO SISTEMA[\s\S]*Diga no plano qual tela existente é a referência/);
     expect(prompt).toMatch(/fora do escopo/);
     expect(lido('args.txt')).toContain('--append-system-prompt');
     // Dois cliques em "Fazer" ao mesmo tempo: um trabalho só.

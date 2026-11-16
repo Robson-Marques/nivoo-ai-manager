@@ -193,6 +193,19 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Telas no padrão do próprio sistema (2026-11-16)
+
+* **Caso real (ctrl-leads)**: a IA criou "Atendimento e retenção" como um cartão largo solto na aba Integrações (conteúdo
+  estreito, botão Salvar no meio, vazio sem função) em vez de uma aba de configurações, e a tela de Atendimento dentro do
+  cliente pedia de novo o "Cliente" (título e caminho no topo perdiam o cliente). A lente de interface do Studio Workflow
+  já condena isso ("não inventar um layout novo", componente/padrão local, cartão solto, vazio sem função), mas nada a fazia
+  valer — e a foto provavelmente só cobria a tela inicial, sem login.
+* Agora (`TEXTO_PADRAO_DAS_TELAS`, no plano e em toda sessão): antes de criar/mudar tela, a IA acha a tela IRMÃ existente
+  e segue o mesmo padrão, e diz no plano qual é a referência; não pede de novo o que a navegação já escolheu; toda tela
+  mudada tem foto nos dois tamanhos por roteiro com login de teste, junto com a irmã de referência.
+* A revisão compara com as telas irmãs (PADRÃO LOCAL) e aponta como violação: cartão desproporcional, botão solto, CONTEXTO
+  REPETIDO e tela alterada SEM foto. Teste em `13`.
+
 ## Correção não para enquanto avança; testes de interação do projeto rodam na conferência (2026-11-16)
 
 * **Caso real (ConnectChat)**: o trabalho parou com testes (57, 34 com PostgreSQL), build, fotos e roteiros passando; a

@@ -20,7 +20,7 @@ import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
-import { TEXTO_FOTOS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -434,6 +434,7 @@ export class PlannerService {
       ...TEXTO_SISTEMA_RODANDO,
       ...TEXTO_FOTOS,
       ...TEXTO_ROTEIRO,
+      ...TEXTO_PADRAO_DAS_TELAS,
       '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',
       '  "dev"/"start" são detectados; se o projeto liga de outro jeito (monorepo, outra pasta, comando próprio), inclua no plano',
       '  um nivoo-previa.json na raiz: {"tipo":"servidor","pasta":"apps/web","instalar":"pnpm install","comando":"pnpm dev --port $PORT","caminho":"/"}',

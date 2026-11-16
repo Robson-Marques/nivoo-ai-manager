@@ -187,6 +187,22 @@ export const TEXTO_FOTOS = [
   '  --sem-emoji-em-controles também falha com emoji usado como botão/ícone (regra do Studio Workflow: emoji não é ícone de UI).',
 ];
 
+/**
+ * Padrão das telas (lente de interface do Studio Workflow: "não inventar um layout novo", seguir o componente/padrão
+ * local; card solto ou vazio sem função; contexto já escolhido não se pede de novo). Vale para o plano e para a IA.
+ */
+export const TEXTO_PADRAO_DAS_TELAS = [
+  '- TELAS NO PADRÃO DO SISTEMA: antes de criar ou mudar tela, aba, cartão, formulário ou menu, ACHE no projeto a tela',
+  '  existente mais parecida (a irmã: mesma área, mesmas abas) e siga o MESMO padrão — mesmo componente de abas/cartões,',
+  '  mesmas larguras, mesmo alinhamento, botão de ação no mesmo lugar, configuração onde as configurações equivalentes ficam',
+  '  (uma aba de configuração, não um bloco solto em outra tela). Diga no plano qual tela existente é a referência. Não peça',
+  '  de novo o que a navegação já escolheu (ex.: seletor de cliente dentro da tela do cliente) e mantenha título e caminho no',
+  '  contexto. Cartão largo com conteúdo estreito, vazio sem função e botão solto no meio são defeitos.',
+  '- Toda tela que o trabalho mudar precisa de FOTO na conferência, no computador e no celular: roteiro em nivoo-roteiros/',
+  '  que entra (usuário de teste no banco de teste), navega até a tela e tira {"foto": "..."} com "tamanho": "ambos" — e',
+  '  fotografa também a tela irmã de referência. Tela só depois do login não aparece em nivoo-previa.json "telas": use o roteiro.',
+];
+
 export const TEXTO_ROTEIRO = [
   '- INTERAÇÃO DAS TELAS (foco, digitação, Enter, carregando, erro recuperável, troca de sessão): escreva roteiros em',
   '  nivoo-roteiros/*.json ({"nome","tamanho":"computador|celular|ambos","passos":[{"ir":"/login"},{"digitar":"#email","valor":"a@b"},',
