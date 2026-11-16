@@ -18,6 +18,7 @@ import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
+import { ProviderRegistry } from '../providers/provider-registry.service';
 
 export interface CriterionResult {
   key: string;
@@ -65,15 +66,17 @@ export class CompletionService {
     private readonly logs: LogService,
     private readonly git: GitService,
     private readonly orchestrator: OrchestratorService,
+    private readonly registry: ProviderRegistry,
   ) {}
 
   /**
    * Critério final não passou num trabalho feito por IA: em vez de parar e esperar o usuário, cria uma etapa de
-   * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. Até
-   * NIVOO_CORRECOES_MAX (6) rodadas desde a última intervenção do usuário, parando antes se a revisão repetir as
-   * mesmas violações; depois disso o trabalho para e explica. Devolve true se criou a correção.
+   * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. SEM teto de
+   * rodadas enquanto houver avanço (a cobrança muda). A mesma cobrança de novo: a rodada seguinte muda a abordagem e
+   * passa para outra IA conectada, se houver. Só para (esperando o usuário) quando a MESMA cobrança volta idêntica
+   * depois de 3 correções seguidas — aí a IA não está conseguindo e girar só gastaria. Devolve true se criou a correção.
    */
-  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
@@ -82,22 +85,42 @@ export class CompletionService {
     if (falhas.some((f) => criterios.find((c) => c.key === f.key)?.kind === 'MANUAL_APPROVAL')) return false;
     const quem = daIa.includes(job.project.provider) ? job.project.provider : daIa[daIa.length - 1];
     const rodadas = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).length;
-    // Rodadas: enquanto houver avanço (a revisão aponta coisas DIFERENTES a cada rodada), até NIVOO_CORRECOES_MAX (6);
-    // a mesma lista de violações de novo = a IA não está conseguindo: para e explica. Conta desde a última
-    // intervenção do usuário ("Tentar de novo" ou uma resposta): o clique dele sempre vale rodadas novas.
-    const maxRodadas = Number(process.env.NIVOO_CORRECOES_MAX ?? 6);
+    // Rodadas contam desde a última intervenção do usuário ("Tentar de novo" ou uma resposta): o clique dele sempre
+    // recomeça. NIVOO_CORRECOES_MAX é um teto opcional (0 = sem teto, o padrão).
+    const maxRodadas = Number(process.env.NIVOO_CORRECOES_MAX ?? 0);
     const retomada = await this.prisma.logEntry.findFirst({ where: { jobId: job.id, message: { startsWith: 'Job retomado por' } }, orderBy: { id: 'desc' }, select: { createdAt: true } });
     const desde = Math.max(0, retomada?.createdAt.getTime() ?? 0, ...job.steps.filter((s) => s.key.startsWith('resposta-usuario-')).map((s) => s.createdAt.getTime()));
     const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-') && s.createdAt.getTime() > desde).sort((a, b) => b.order - a.order);
-    if (correcoesAgora.length >= maxRodadas) return false;
+    if (maxRodadas > 0 && correcoesAgora.length >= maxRodadas) return false;
+    // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
+    const cobranca = [
+      ...violacoesAgora.map((v) => v.slice(0, 300)),
+      ...falhas.filter((f) => f.key !== RULE_REVIEW_STEP).map((f) => `${f.key} — ${criterios.find((c) => c.key === f.key)?.description ?? ''}`),
+    ];
     const normal = (t: string) => t.toLowerCase().replace(/[^a-z0-9à-ú]+/g, ' ').trim();
-    if (violacoesAgora.length && correcoesAgora[0]) {
-      const anterior = normal(correcoesAgora[0].instructions);
-      // Cada violação entra na correção cortada em 800 caracteres: compara o começo dela.
-      if (violacoesAgora.every((v) => anterior.includes(normal(v.slice(0, 300))))) {
-        await this.logs.log(job.id, `A revisão apontou de novo as MESMAS violações depois da correção: a IA não está conseguindo resolver sozinha. O trabalho espera você (responder, "Tentar de novo" ou aceitar assim mesmo).`, { source: 'evaluator', level: 'WARN' });
-        return false;
+    const mesmaCobranca = (instr: string) => cobranca.length > 0 && cobranca.every((c) => normal(instr).includes(normal(c)));
+    // Quantas correções seguidas (da mais recente para trás) já cobraram exatamente isto.
+    let repetidas = 0;
+    for (const c of correcoesAgora) {
+      if (!mesmaCobranca(c.instructions)) break;
+      repetidas++;
+    }
+    if (repetidas >= 3) {
+      await this.logs.log(job.id, `A conferência final cobrou as MESMAS coisas depois de ${repetidas} correções seguidas (mudando a abordagem${new Set(correcoesAgora.slice(0, repetidas).map((c) => c.provider)).size > 1 ? ' e a IA' : ''}): a IA não está conseguindo resolver sozinha e girar de novo só gastaria. O trabalho espera você (responder, "Tentar de novo" ou aceitar assim mesmo).`, { source: 'evaluator', level: 'WARN' });
+      return false;
+    }
+    // Cobrança repetida: outra IA conectada (reservas do projeto, depois as que já trabalharam neste trabalho) tenta.
+    let quemCorrige = quem;
+    if (repetidas > 0) {
+      const anterior = correcoesAgora[0].provider ?? quem;
+      const candidatas = [...new Set([...(Array.isArray(job.project.aiReserva) ? (job.project.aiReserva as unknown[]).map(String) : []), ...daIa, job.project.provider])].filter((id) => id !== anterior && ia(id) && this.registry.has(id));
+      for (const id of candidatas) {
+        const st = await this.registry.status(id, 60_000).catch(() => null);
+        if (st?.available) {
+          quemCorrige = id;
+          break;
+        }
       }
     }
     const key = `correcao-criterios-${rodadas + 1}`;
@@ -151,15 +174,28 @@ export class CompletionService {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.step.create({
         data: {
-          jobId: job.id, key, order: review ? review.order : base, provider: quem, dependsOn: job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.key),
+          jobId: job.id, key, order: review ? review.order : base, provider: quemCorrige, dependsOn: job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.key),
           title: 'Corrigir o que a conferência final cobrou',
           instructions: [
             'O trabalho terminou as etapas, mas a conferência final do sistema NÃO passou nestes critérios:',
             ...linhas,
             ...revisao,
+            ...(repetidas > 0
+              ? [
+                  '',
+                  `ATENÇÃO: é a ${repetidas + 1}ª vez seguida que a conferência cobra EXATAMENTE isto — as correções anteriores NÃO resolveram.`,
+                  'Não repita o que já foi tentado: veja o que mudou (git log -p nesta pasta) e o que a revisão diz que ainda falta, e',
+                  'MUDE A ABORDAGEM. Se a cobrança é de evidência executada pelo sistema, a evidência precisa estar no lugar que a',
+                  'conferência roda (testes do projeto ou nivoo-roteiros/) — um script solto em outra pasta não conta.',
+                ]
+              : []),
             '',
             'Corrija o trabalho (arquivos do projeto) para que esses critérios passem, mantendo o que já foi feito e as regras do projeto.',
             'Faça o trabalho de verdade (ex.: se um inventário ou relatório ficou vazio, preencha com o conteúdo real, lendo os arquivos).',
+            'Teste de interação que o sistema precisa executar (foco, digitação, troca de sessão, resposta atrasada da rede…) vai em',
+            'nivoo-roteiros/: roteiro .json (com "atrasar"/"falharRede" para rede lenta ou com erro) ou script .cjs/.mjs com o',
+            'navegador sem tela — a conferência liga o sistema e roda TODOS eles. Script em outra pasta não roda na conferência.',
+            'Não pergunte ao usuário como rodar conferências: isso é do sistema.',
             'Não altere os critérios nem contorne a conferência. Antes de achar que falta informação, leia a conversa do pedido',
             '(contexto/conversa-do-pedido.md), a memória (.nivoo/memoria.md) e out/respostas-do-usuario.md. Se ainda faltar algo que só o',
             'usuário tem, faça a melhor versão possível, registre a dúvida em out/perguntas-ao-usuario.md COM as respostas possíveis',
@@ -169,9 +205,9 @@ export class CompletionService {
         },
       });
       if (review) await tx.step.update({ where: { id: review.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...review.dependsOn, key])], statusDetail: 'correção: conferir de novo' } });
-      await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `corrigindo o que a conferência final cobrou (rodada ${correcoesAgora.length + 1} de até ${maxRodadas})` } });
+      await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `corrigindo o que a conferência final cobrou (rodada ${correcoesAgora.length + 1}${repetidas ? ', mudando a abordagem' : ''})` } });
     });
-    await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${correcoesAgora.length + 1} de até ${maxRodadas})`, { source: 'evaluator', level: 'WARN' });
+    await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${correcoesAgora.length + 1}${repetidas ? `; a mesma cobrança pela ${repetidas + 1}ª vez: muda a abordagem${quemCorrige !== (correcoesAgora[0]?.provider ?? quem) ? ` e passa para ${quemCorrige}` : ''}` : ''})`, { source: 'evaluator', level: 'WARN' });
     await this.orchestrator.scheduleReady(job.id);
     return true;
   }

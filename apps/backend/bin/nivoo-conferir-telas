@@ -4,6 +4,11 @@
  * e roda os roteiros de interação (nivoo-roteiros/*.json, nivoo-roteiro); depois desliga. Uma linha na conferência:
  *   npm test && npm run build && nivoo-conferir-telas
  *
+ * Além dos roteiros .json, roda os scripts de interação do projeto em nivoo-roteiros/*.cjs|*.mjs (o que um roteiro
+ * não expressa: várias abas, mensagens chegando, troca de sessão no meio de um envio…), com NIVOO_BASE_URL (endereço do
+ * sistema ligado), NIVOO_PLAYWRIGHT (no .cjs: require(process.env.NIVOO_PLAYWRIGHT)) e NIVOO_PLAYWRIGHT_MJS (no .mjs:
+ * await import(process.env.NIVOO_PLAYWRIGHT_MJS)); código diferente de 0 = falhou. Resultado em out/telas-interativas/scripts.md.
+ *
  * nivoo-previa.json pode listar as telas a fotografar: {"telas": ["/", "/pedidos"], ...}. Sem nivoo-previa.json:
  * --se-houver sai sem erro (nada a conferir); sem a opção, é erro. Porta: $NIVOO_PORTA_TESTE (ou PORT).
  */
@@ -75,6 +80,52 @@ function responde() {
   });
 }
 
+/** Scripts de interação do projeto: um de cada vez, com o sistema ligado; relatório em out/telas-interativas/scripts.md. */
+async function rodarScripts(scripts) {
+  let pw = '';
+  try {
+    pw = require.resolve('playwright-core');
+  } catch {
+    /* sem navegador neste servidor: o script que precisar dele falha e diz */
+  }
+  const nm = pw ? pw.slice(0, pw.lastIndexOf('node_modules') + 'node_modules'.length) : '';
+  const pwMjs = pw && fs.existsSync(path.join(path.dirname(pw), 'index.mjs')) ? path.join(path.dirname(pw), 'index.mjs') : pw;
+  const limite = Number(process.env.NIVOO_ROTEIRO_SCRIPT_SEG || 600) * 1000;
+  const pastaSaida = path.join(raiz, 'out', 'telas-interativas');
+  fs.mkdirSync(pastaSaida, { recursive: true });
+  const linhas = [`# Scripts de interação — ${base}`, ''];
+  let tudoOk = true;
+  for (const nome of scripts) {
+    console.log(`nivoo-conferir-telas: rodando o script nivoo-roteiros/${nome}`);
+    const env = { ...process.env, NIVOO_BASE_URL: base, NIVOO_PLAYWRIGHT: pw, NIVOO_PLAYWRIGHT_MJS: pwMjs, NODE_PATH: [nm, process.env.NODE_PATH].filter(Boolean).join(path.delimiter) };
+    const saida = [];
+    const codigo = await new Promise((ok) => {
+      const f = spawn(process.execPath, [path.join('nivoo-roteiros', nome)], { cwd: raiz, env, stdio: ['ignore', 'pipe', 'pipe'] });
+      const guarda = (d) => {
+        process.stdout.write(d);
+        saida.push(String(d));
+      };
+      f.stdout.on('data', guarda);
+      f.stderr.on('data', guarda);
+      const t = setTimeout(() => {
+        saida.push(`\n(passou de ${limite / 1000} s: interrompido)`);
+        f.kill('SIGKILL');
+      }, limite);
+      f.on('exit', (c) => {
+        clearTimeout(t);
+        ok(c ?? 1);
+      });
+    });
+    const ok = codigo === 0;
+    if (!ok) tudoOk = false;
+    const fim = saida.join('').trim().split('\n').slice(-15).join('\n');
+    linhas.push(`- ${ok ? '✓' : '✗'} ${nome}${ok ? '' : ` (código ${codigo})`}`, ...(fim ? ['', '```', fim, '```', ''] : []));
+    console.log(`nivoo-conferir-telas: script ${nome}: ${ok ? 'ok' : `FALHOU (código ${codigo})`}`);
+  }
+  fs.writeFileSync(path.join(pastaSaida, 'scripts.md'), linhas.join('\n') + '\n');
+  return tudoOk;
+}
+
 (async () => {
   if (estatico) {
     servidor = http.createServer((req, res) => {
@@ -123,7 +174,9 @@ function responde() {
   const dirRoteiros = path.join(raiz, 'nivoo-roteiros');
   const roteiros = fs.existsSync(dirRoteiros) ? fs.readdirSync(dirRoteiros).filter((f) => f.endsWith('.json')).map((f) => path.join('nivoo-roteiros', f)) : [];
   if (roteiros.length && (await rodar('nivoo-roteiro', [base, ...roteiros])) !== 0) falhou = true;
-  if (!roteiros.length) console.log('nivoo-conferir-telas: sem roteiros de interação (nivoo-roteiros/*.json)');
+  const scripts = fs.existsSync(dirRoteiros) ? fs.readdirSync(dirRoteiros).filter((f) => /\.(cjs|mjs)$/.test(f)).sort() : [];
+  if (scripts.length && !(await rodarScripts(scripts))) falhou = true;
+  if (!roteiros.length && !scripts.length) console.log('nivoo-conferir-telas: sem roteiros de interação (nivoo-roteiros/*.json, *.cjs, *.mjs)');
   desligar();
   process.exit(falhou ? 1 : 0);
 })().catch((e) => {

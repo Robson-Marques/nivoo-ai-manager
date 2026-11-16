@@ -193,16 +193,30 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
-## Rodadas de correção enxergam o avanço (2026-11-16)
+## Correção não para enquanto avança; testes de interação do projeto rodam na conferência (2026-11-16)
 
 * **Caso real (ConnectChat)**: o trabalho parou com testes (57, 34 com PostgreSQL), build, fotos e roteiros passando; a
-  revisão apontava uma última lacuna (respostas atrasadas durante a troca de sessão). As 3 rodadas fixas tinham sido
-  gastas antes da correção acima (quando a etapa de correção conferia só `true`).
-* Agora: até `NIVOO_CORRECOES_MAX` (6) rodadas **desde a última intervenção do usuário** ("Tentar de novo" ou uma
-  resposta na caixa da revisão) — o clique dele sempre vale rodadas novas. A rodada para antes quando a revisão aponta
-  de novo **exatamente as mesmas violações** da correção anterior (a IA não está conseguindo): registra "A revisão apontou
-  de novo as MESMAS violações…" e o trabalho espera o usuário (responder, tentar de novo ou aceitar assim mesmo).
-  Teste em `13` (repetição para em 1 rodada; "Tentar de novo" ganha mais uma).
+  revisão cobrava "respostas atrasadas durante a troca de sessão" — e o teste que a IA escreveu para isso
+  (`scripts/nivoo-interacoes.mjs`) ficava **fora** da conferência: nada o executava e a correção não tinha como incluí-lo.
+  A IA não tinha como satisfazer a revisão; as rodadas fixas (3) acabavam e o trabalho parava.
+* **Sem teto de rodadas** (`NIVOO_CORRECOES_MAX` é só um teto opcional; 0 = sem teto, o padrão). Enquanto a cobrança
+  muda (avanço), a correção continua. A **mesma** cobrança de novo: a rodada seguinte avisa "é a Nª vez seguida… MUDE A
+  ABORDAGEM" e passa para outra IA conectada (reservas do projeto, depois as que já trabalharam no trabalho). Só espera o
+  usuário quando a mesma cobrança volta idêntica depois de **3 correções seguidas** (girar só gastaria). A contagem
+  recomeça a cada intervenção do usuário ("Tentar de novo" ou resposta na caixa da revisão).
+* **Testes de interação do projeto na conferência**: `nivoo-conferir-telas` roda, com o sistema ligado, os roteiros
+  `nivoo-roteiros/*.json` e também os scripts `nivoo-roteiros/*.cjs|*.mjs` (duas abas, mensagens chegando, troca de sessão
+  no meio de um envio…), com `NIVOO_BASE_URL`, `NIVOO_PLAYWRIGHT` (`require`) e `NIVOO_PLAYWRIGHT_MJS` (`import`); relatório
+  em `out/telas-interativas/scripts.md`; código ≠ 0 = falhou; limite `NIVOO_ROTEIRO_SCRIPT_SEG` (600 s).
+* **Rede lenta ou com erro nos roteiros**: `{"atrasar":"/api/mensagens","ms":4000}`, `{"falharRede":"/api/anexos"}`,
+  `{"liberarRede":true}` (texto = "o endereço contém"; com `*` = glob do Playwright).
+* IA, revisora e correção sabem disso: teste fora de `nivoo-roteiros/` não roda e não vale como evidência (a violação diz
+  para movê-lo); a IA não pergunta ao usuário como rodar conferências.
+* **"Perguntas para você" sem lixo**: o arquivo `out/perguntas-ao-usuario.md` dizendo "Nenhuma pergunta em aberto" (e
+  itens assim na revisão) não vira pergunta; o título do arquivo sai.
+* Testes: `13` (mesma cobrança: 3 correções, a 2ª e a 3ª mudando a abordagem, e para; "Tentar de novo" recomeça; 7
+  cobranças diferentes = 7 correções até concluir), `32` (rede lenta/erro, scripts .cjs/.mjs passando e falhando),
+  `unit/revisao-perguntas`, real `real-11` (troca de sessão com resposta atrasada, com a IA real).
 
 ## Leitura robusta da resposta da IA (2026-11-16)
 

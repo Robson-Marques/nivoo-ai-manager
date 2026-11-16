@@ -28,6 +28,14 @@ if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   if [ "$CONFORME" = duvida ]; then
     # "Não conforme" só por uma dúvida que só o usuário responde (o caso real do ConnectChat).
     echo '{"conforme": false, "violacoes": [], "perguntas": [{"pergunta": "Qual é a lista original dos títulos das 16 seções?", "opcoes": ["Os títulos do documento X", "Os títulos atuais do relatório"]}], "corrigido": []}' > out/conferencia-regras.json
+  elif [ "$CONFORME" = avanca ]; then
+    # Revisão que aponta uma coisa DIFERENTE a cada rodada (a IA está avançando) até "avanca-ate" rodadas; depois aprova.
+    N=$(( $(cat "$CTL/revisoes" 2>/dev/null || echo 0) + 1 )); echo "$N" > "$CTL/revisoes"
+    if [ "$N" -le "$(cat "$CTL/avanca-ate" 2>/dev/null || echo 5)" ]; then
+      echo "{\"conforme\": false, \"violacoes\": [\"pendência número $N ainda aberta (stub)\"], \"corrigido\": []}" > out/conferencia-regras.json
+    else
+      echo '{"conforme": true, "violacoes": [], "corrigido": [], "observacoes": "stub"}' > out/conferencia-regras.json
+    fi
   elif [ "$CONFORME" = true ]; then
     echo '{"conforme": true, "violacoes": [], "corrigido": [], "observacoes": "stub"}' > out/conferencia-regras.json
   else

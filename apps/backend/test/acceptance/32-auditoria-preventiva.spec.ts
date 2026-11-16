@@ -7,7 +7,10 @@
  * - trabalho que para avisa na conversa de onde veio;
  * - instrução de IA com "rm -rf" no texto não pede aprovação de "ação destrutiva".
  */
+import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { createHarness, Harness, truncateAll, waitFor } from '../support/harness';
 
@@ -280,4 +283,46 @@ describe('Auditoria preventiva', () => {
     expect(resultados).toEqual(expect.arrayContaining(['telas-interativas/cadastro-computador-preenchido.png', 'telas-interativas/relatorio.md']));
     expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/INTERAÇÃO DAS TELAS/);
   });
+  it('conferir telas: roteiro com rede lenta e com erro; scripts de interação do projeto (.cjs e .mjs) rodam com o sistema ligado', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conferir-telas-'));
+    const escrever = (rel: string, txt: string) => {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), txt);
+    };
+    escrever('nivoo-previa.json', JSON.stringify({ tipo: 'servidor', comando: 'node server.js' }));
+    escrever('index.html', [
+      '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width"><title>Chat</title>',
+      '<button id=enviar>Enviar</button><p id=saida></p>',
+      "<script>document.getElementById('enviar').onclick=async()=>{const s=document.getElementById('saida');s.textContent='Carregando';",
+      "try{const r=await fetch('/api/msg');s.textContent=(await r.json()).texto}catch(e){s.textContent='Falhou, tente de novo'}}</script>",
+    ].join(''));
+    escrever('server.js', "require('http').createServer((q,r)=>{if(q.url==='/api/msg'){r.setHeader('content-type','application/json');return r.end(JSON.stringify({texto:'resposta do servidor'}))}r.setHeader('content-type','text/html; charset=utf-8');r.end(require('fs').readFileSync('index.html'))}).listen(process.env.PORT,'127.0.0.1')");
+    escrever('nivoo-roteiros/rede.json', JSON.stringify({ nome: 'rede', passos: [
+      { atrasar: '/api/msg', ms: 1500 }, { ir: '/' }, { clicar: '#enviar' }, { esperarTexto: 'Carregando' },
+      { semTexto: 'resposta do servidor', descricao: 'a resposta ainda não chegou (rede lenta)' }, { esperarTexto: 'resposta do servidor' },
+      { liberarRede: true }, { falharRede: '/api/msg' }, { clicar: '#enviar' }, { esperarTexto: 'Falhou, tente de novo' },
+    ] }));
+    escrever('nivoo-roteiros/sessao.cjs', "const { chromium } = require(process.env.NIVOO_PLAYWRIGHT);\n(async () => { const b = await chromium.launch({ args: ['--no-sandbox'] }); const p = await b.newPage(); await p.goto(process.env.NIVOO_BASE_URL); await p.click('#enviar'); await p.getByText('resposta do servidor').waitFor({ timeout: 10000 }); await b.close(); console.log('cjs: troca de sessão ok'); })().catch((e) => { console.error(e.message); process.exit(1); });\n");
+    escrever('nivoo-roteiros/duas-abas.mjs', "const { chromium } = await import(process.env.NIVOO_PLAYWRIGHT_MJS);\nconst b = await chromium.launch({ args: ['--no-sandbox'] });\nconst [a, c] = [await b.newPage(), await b.newPage()];\nawait a.goto(process.env.NIVOO_BASE_URL); await c.goto(process.env.NIVOO_BASE_URL);\nawait c.click('#enviar'); await c.getByText('resposta do servidor').waitFor({ timeout: 10000 });\nif ((await a.textContent('#saida')) !== '') { console.error('a outra aba recebeu a resposta'); process.exit(1); }\nawait b.close(); console.log('mjs: duas abas ok');\n");
+    const porta = await new Promise<number>((ok) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const n = (s.address() as net.AddressInfo).port; s.close(() => ok(n)); }); });
+    const conferir = () => new Promise<{ codigo: number; saida: string }>((ok) => {
+      execFile(path.join(__dirname, '..', '..', 'bin', 'nivoo-conferir-telas'), [], { cwd: dir, env: { ...process.env, NIVOO_PORTA_TESTE: String(porta) }, timeout: 180_000 }, (e, so, se) => ok({ codigo: e ? Number((e as any).code ?? 1) : 0, saida: `${so}${se}` }));
+    });
+    const r1 = await conferir();
+    expect(r1.saida).toMatch(/nivoo-roteiro: ok rede \(computador\)/);
+    expect(r1.saida).toMatch(/cjs: troca de sessão ok/);
+    expect(r1.saida).toMatch(/mjs: duas abas ok/);
+    expect(r1.codigo).toBe(0);
+    const relatorio = fs.readFileSync(path.join(dir, 'out', 'telas-interativas', 'scripts.md'), 'utf8');
+    expect(relatorio).toMatch(/✓ duas-abas\.mjs/);
+    expect(relatorio).toMatch(/✓ sessao\.cjs/);
+    // Script que encontra o problema: a conferência falha e o relatório diz qual e por quê.
+    escrever('nivoo-roteiros/atrasada.cjs', "console.log('a resposta atrasada apareceu na sessão errada'); process.exit(3);\n");
+    const r2 = await conferir();
+    expect(r2.codigo).toBe(1);
+    const rel2 = fs.readFileSync(path.join(dir, 'out', 'telas-interativas', 'scripts.md'), 'utf8');
+    expect(rel2).toMatch(/✗ atrasada\.cjs \(código 3\)/);
+    expect(rel2).toMatch(/apareceu na sessão errada/);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }, 400_000);
 });

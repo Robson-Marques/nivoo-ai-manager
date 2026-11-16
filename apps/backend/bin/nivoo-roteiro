@@ -22,6 +22,10 @@
  *   {"recarregar": true}                     recarrega a página
  *   {"foto": "depois-do-login"}              foto da tela neste momento
  *   {"aguardar": 500}                        espera (ms)
+ *   {"atrasar": "/api/mensagens", "ms": 4000}  daqui em diante, as respostas dos endereços que contêm esse texto chegam
+ *                                           atrasadas (com * vira padrão glob do Playwright)
+ *   {"falharRede": "/api/anexos"}           daqui em diante, esses pedidos falham (rede caiu)
+ *   {"liberarRede": true}                   volta a rede ao normal
  * Cada passo pode ter "descricao". Falha em qualquer passo (ou erro de script na página) → saída com erro, foto da
  * falha e relatório (relatorio.md/json) na pasta.
  */
@@ -42,6 +46,8 @@ const TAMANHOS = {
   celular: { viewport: { width: 390, height: 844 }, isMobile: true },
 };
 const nomeSeguro = (t) => String(t).replace(/[^a-zA-Z0-9-]+/g, '-').slice(0, 50) || 'tela';
+/** Texto simples = "o endereço contém isto"; com * = padrão glob do Playwright. */
+const endereco = (t) => (String(t).includes('*') ? String(t) : (url) => url.href.includes(String(t)));
 const descrever = (p) => p.descricao || JSON.stringify(p).slice(0, 120);
 
 async function executarPasso(pagina, p, prefixo, fotos) {
@@ -88,6 +94,16 @@ async function executarPasso(pagina, p, prefixo, fotos) {
     return;
   }
   if (p.aguardar) return void (await pagina.waitForTimeout(Number(p.aguardar)));
+  // Rede lenta ou com erro (ex.: resposta que chega depois da troca de sessão): vale até "liberarRede".
+  if (p.atrasar) {
+    const ms = Number(p.ms ?? 3000);
+    return void (await pagina.route(endereco(p.atrasar), async (rota) => {
+      await new Promise((ok) => setTimeout(ok, ms));
+      await rota.continue().catch(() => undefined); // a página pode ter saído enquanto esperava
+    }));
+  }
+  if (p.falharRede) return void (await pagina.route(endereco(p.falharRede), (rota) => rota.abort('failed').catch(() => undefined)));
+  if (p.liberarRede) return void (await pagina.unrouteAll({ behavior: 'ignoreErrors' }));
   throw new Error(`passo desconhecido: ${JSON.stringify(p).slice(0, 120)}`);
 }
 

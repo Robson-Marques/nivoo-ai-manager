@@ -195,8 +195,17 @@ export const TEXTO_ROTEIRO = [
   '  nivoo-roteiro http://127.0.0.1:$NIVOO_PORTA_TESTE nivoo-roteiros/*.json   — o sistema executa num navegador sem tela',
   '  ("digitar" confere que o campo não perde o foco nem o valor a cada letra), tira fotos (out/telas-interativas/) e FALHA',
   '  no passo que não acontecer. É a evidência de interação que a revisão e as regras de interface pedem.',
+  '  Rede lenta ou com erro (resposta que chega DEPOIS da troca de sessão, envio que falha): {"atrasar":"/api/mensagens","ms":4000},',
+  '  {"falharRede":"/api/anexos"} e {"liberarRede":true} (valem para os endereços que contêm o texto).',
+  '- O que um roteiro .json não expressa (duas abas, mensagens chegando, troca de sessão no meio de um envio, fila de saída):',
+  '  script em nivoo-roteiros/<nome>.cjs (ou .mjs) com o navegador sem tela — const { chromium } = require(process.env.NIVOO_PLAYWRIGHT)',
+  '  (no .mjs: const { chromium } = await import(process.env.NIVOO_PLAYWRIGHT_MJS)), endereço em process.env.NIVOO_BASE_URL,',
+  '  chromium.launch({ args: ["--no-sandbox"] }),',
+  '  fotos em out/telas-interativas/; termina com código diferente de 0 se algo não acontecer. Script em OUTRA pasta não roda na',
+  '  conferência e não vale como evidência.',
   '- MAIS SIMPLES: com nivoo-previa.json na raiz (e "telas": ["/", "/pedidos"] nele), uma linha na conferência faz tudo —',
-  '  nivoo-conferir-telas  — liga o sistema como a prévia, tira as fotos (--exigir-sem-erros), roda nivoo-roteiros/*.json e desliga.',
+  '  nivoo-conferir-telas  — liga o sistema como a prévia, tira as fotos (--exigir-sem-erros), roda nivoo-roteiros/*.json e os',
+  '  scripts nivoo-roteiros/*.cjs|*.mjs, e desliga.',
   '  Ex.: "npm ci && npm test && npm run build && nivoo-conferir-telas". Correções e respostas do usuário rodam isso sozinhas.',
 ];
 

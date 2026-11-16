@@ -32,8 +32,10 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       '   sobreposto, botão fora do lugar, tela em branco ou que não cabe no celular é violação (diga qual tela e o que está errado).',
       '   Confira as fotos CONTRA as regras de interface do modelo do projeto, quando houver (em contexto/base/, ex.: no Studio',
       '   Workflow, doctrine/disciplines/visual-interface-quality.md: composição, densidade, cortes, camadas, estados, ícones).',
-      '   Evidência de INTERAÇÃO (foco, digitação, Enter, carregando, erro) é a dos roteiros: out/telas-interativas/relatorio.md',
-      '   (nivoo-roteiro). Se faltar e o trabalho mexeu em interação, é violação concreta: "falta roteiro de <fluxo> na conferência".',
+      '   Evidência de INTERAÇÃO (foco, digitação, Enter, carregando, erro, rede lenta) é a dos roteiros executados pela conferência:',
+      '   out/telas-interativas/relatorio.md (nivoo-roteiros/*.json) e out/telas-interativas/scripts.md (scripts nivoo-roteiros/*.cjs|*.mjs).',
+      '   Se faltar e o trabalho mexeu em interação, é violação concreta: "falta roteiro de <fluxo> em nivoo-roteiros/". Teste em outra',
+      '   pasta não roda na conferência: a violação diz para movê-lo para nivoo-roteiros/. Nunca pergunte ao usuário como rodar testes.',
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho. Sobra para apagar (código morto, arquivo esquecido):',
@@ -73,6 +75,12 @@ export interface RevisaoLida {
 const lista = (x: unknown): string[] => (Array.isArray(x) ? x.map((y) => (typeof y === 'string' ? y : JSON.stringify(y))).filter(Boolean) : typeof x === 'string' && x.trim() ? [x] : []);
 
 /** Relatório da revisão (out/conferencia-regras.json) + perguntas de out/perguntas-ao-usuario.md; null se não houver. */
+/** Texto que diz que NÃO há pergunta (ex.: "Nenhuma pergunta em aberto nesta etapa"), sem nenhuma pergunta de fato. */
+export function semPergunta(texto: string): boolean {
+  if (texto.includes('?')) return false;
+  return /(nenhuma|\bsem\b|não há|nao ha|não existe|nao existe|\bnada\b)[^.\n]{0,40}(pergunta|dúvida|duvida|pendência de decisão)/i.test(texto) || !/\S/.test(texto);
+}
+
 export function lerRevisao(worktree: string): RevisaoLida | null {
   let r: any;
   try {
@@ -82,11 +90,13 @@ export function lerRevisao(worktree: string): RevisaoLida | null {
   }
   const perguntas: PerguntaDaRevisao[] = (Array.isArray(r?.perguntas) ? r.perguntas : typeof r?.perguntas === 'string' ? [r.perguntas] : [])
     .map((p: any) => (typeof p === 'string' ? { pergunta: p, opcoes: [] } : { pergunta: String(p?.pergunta ?? p?.texto ?? JSON.stringify(p)), opcoes: lista(p?.opcoes) }))
-    .filter((p: PerguntaDaRevisao) => p.pergunta.trim())
+    .filter((p: PerguntaDaRevisao) => p.pergunta.trim() && !semPergunta(p.pergunta))
     .map((p: PerguntaDaRevisao) => ({ pergunta: p.pergunta.slice(0, 3000), opcoes: p.opcoes.map((o) => o.slice(0, 500)).slice(0, 6) }));
   try {
+    // O arquivo de perguntas da IA só vira pergunta se tiver pergunta de verdade ("Nenhuma pergunta em aberto" não é).
     const md = fs.readFileSync(path.join(worktree, 'out', 'perguntas-ao-usuario.md'), 'utf8').trim();
-    if (md) perguntas.push({ pergunta: md.slice(0, 6000), opcoes: [] });
+    const corpo = md.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n').trim();
+    if (corpo && !semPergunta(corpo)) perguntas.push({ pergunta: corpo.slice(0, 6000), opcoes: [] });
   } catch {
     /* sem arquivo de perguntas */
   }

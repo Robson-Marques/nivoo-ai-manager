@@ -238,26 +238,53 @@ sys.stdout.buffer.write(b.getvalue())`]);
       const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d.status).not.toBe('CONCLUIDO');
-      // A revisão reprovou sempre com a MESMA violação: uma rodada de correção e, repetida a violação, para (sem girar à toa).
-      expect(d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(1);
+      // A revisão reprovou sempre com a MESMA violação: a 2ª e a 3ª correção mudam a abordagem; repetida depois de 3
+      // correções seguidas, para (a IA não está conseguindo; girar só gastaria).
+      const correcoes = d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-'));
+      expect(correcoes.length).toBe(3);
+      expect(correcoes.find((s: any) => s.key === 'correcao-criterios-1').instructions).not.toMatch(/ATENÇÃO/);
+      expect(correcoes.find((s: any) => s.key === 'correcao-criterios-2').instructions).toMatch(/2ª vez seguida[\s\S]*MUDE A ABORDAGEM/);
+      expect(correcoes.find((s: any) => s.key === 'correcao-criterios-3').instructions).toMatch(/3ª vez seguida/);
+      expect(correcoes[0].instructions).toMatch(/nivoo-roteiros\//);
       const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/logs`)).body.map((l: any) => l.message).join('\n');
-      expect(logs).toMatch(/apontou de novo as MESMAS violações/);
+      expect(logs).toMatch(/cobrou as MESMAS coisas depois de 3 correções seguidas/);
       expect(d.blockedReason).toBe('CRITERIOS_NAO_ATENDIDOS');
       expect(d.mergeStatus).toBeNull(); // nada entrou na pasta principal
-      // "Tentar de novo" é uma intervenção do usuário: ganha rodada nova (não para de cara pela repetição antiga).
+      // "Tentar de novo" é uma intervenção do usuário: recomeça a contagem (não para de cara pela repetição antiga).
       await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'Robson' }).expect(201);
       await waitFor(async () => {
         const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
-        return x.steps.some((s: any) => s.key === 'correcao-criterios-2') ? x : null;
+        return x.steps.some((s: any) => s.key === 'correcao-criterios-4') ? x : null;
       }, 60000);
       const d2 = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d2.status).toBe('BLOQUEADO');
-      expect(d2.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(2);
+      expect(d2.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(6);
     } finally {
       ctl('conforme', null);
     }
     // A etapa de conferência é do sistema: não pode ser criada nem dispensada pela conversa.
     await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 't', objective: 'o', criteria: ok, defaultProvider: 'claude-code-cli', steps: [{ key: 'conferencia-regras', instructions: 'x', verifyCommand: 'true' }] }).expect(400);
+  });
+
+  it('sem teto de rodadas: enquanto a revisão aponta coisas diferentes (avanço), a correção continua até ficar pronto', async () => {
+    const p = await projeto('Avanço', 'geral', { rules: 'Toda página precisa de rodapé.' });
+    ctl('mode', null);
+    ctl('conforme', 'avanca');
+    ctl('avanca-ate', '7');
+    ctl('revisoes', null);
+    try {
+      const j = await job(p.id, { title: 'longo', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 180000);
+      expect(d.status).toBe('CONCLUIDO');
+      // 7 cobranças diferentes = 7 correções (o limite antigo parava na 3ª), nenhuma "mudando a abordagem".
+      const correcoes = d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-'));
+      expect(correcoes.length).toBe(7);
+      expect(correcoes.some((s: any) => /ATENÇÃO/.test(s.instructions))).toBe(false);
+    } finally {
+      ctl('conforme', null);
+      ctl('avanca-ate', null);
+      ctl('revisoes', null);
+    }
   });
 
   it('conversa: plano com a IA do projeto; aprovação vira trabalho com conferência; recusa fora do escopo está no prompt', async () => {
