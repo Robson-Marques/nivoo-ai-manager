@@ -144,6 +144,32 @@ describe('Auditoria preventiva', () => {
     expect(logs).toMatch(/cache do corepack quebrado no servidor; refeito/);
   });
 
+  it('npm ci sem package-lock.json: o sistema refaz a conferência com npm install (não é falha do código), sem gastar sessões', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'SemLock', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    // Um "npm" de mentira: "npm ci" sem lockfile falha como o de verdade (EUSAGE); "npm install" instala e cria o lockfile.
+    const fakeNpm = [
+      'cat > npm <<\'SH\'',
+      '#!/bin/bash',
+      'if [ "$1" = ci ] && [ ! -f package-lock.json ]; then echo "npm error code EUSAGE" >&2; echo "npm error The npm ci command can only install with an existing package-lock.json" >&2; exit 1; fi',
+      'if [ "$1" = install ]; then echo "added 1 package"; touch package-lock.json; exit 0; fi',
+      'exit 0',
+      'SH',
+      'chmod +x npm',
+      'echo feito > feito.txt',
+    ].join('\n');
+    const x = await rodar(p.id, {
+      title: 'lockfile',
+      steps: [{ key: 'v', instructions: fakeNpm, verifyCommand: 'PATH="$PWD:$PATH" npm ci && test -f feito.txt' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts).toHaveLength(1); // não gastou 6 sessões: curou na mesma conferência
+    const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/logs`)).body.map((l: any) => l.message).join('\n');
+    expect(logs).toMatch(/não tem package-lock\.json, então "npm ci" não roda; refiz com "npm install"/);
+  });
+
   it('problema do servidor (sem rede para o registro de pacotes): para na hora explicando, sem 6 sessões inúteis', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'SemRede', provider: 'claude-code-cli' }).expect(201)).body;
     ctl('mode', 'bash');

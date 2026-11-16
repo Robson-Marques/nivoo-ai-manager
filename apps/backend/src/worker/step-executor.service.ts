@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
-import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, semLockfile, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -344,6 +344,7 @@ export class StepExecutorService {
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
     const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
+    let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
     let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
     let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
@@ -375,7 +376,7 @@ export class StepExecutorService {
         void L(`Conferência ainda rodando (${Math.round((Date.now() - inicioConferencia) / 60_000)} min)${ultimaLinha ? `: ${ultimaLinha.slice(0, 160)}` : ''}`, 'INFO', attempt.id);
       }, avisoMs * 4);
       const conferir = () =>
-        runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
+        runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommandEfetivo], {
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
@@ -393,6 +394,17 @@ export class StepExecutorService {
         const cache = process.env.COREPACK_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.cache', 'node', 'corepack');
         fs.rmSync(cache, { recursive: true, force: true });
         await L(`Conferência: cache do corepack quebrado no servidor; refeito (${cache}) e conferindo de novo`, 'WARN', attempt.id);
+        v = await conferir();
+      }
+      // "npm ci" sem package-lock.json (projeto que não commita o lockfile): o npm aborta com EUSAGE antes de testar.
+      // A IA não tem terminal para gerar o lockfile nem pode mudar o comando: o sistema refaz a conferência com
+      // "npm ci" → "npm install" (igual para yarn/pnpm "--frozen-lockfile"), uma vez. Não é falha do código.
+      if (v.exitCode !== 0 && semLockfile(`${v.stdout}${v.stderr}`) && /npm ci|--frozen-lockfile|--immutable/.test(verifyCommandEfetivo)) {
+        verifyCommandEfetivo = verifyCommandEfetivo
+          .replace(/npm ci/g, 'npm install')
+          .replace(/\s--frozen-lockfile/g, '')
+          .replace(/\s--immutable/g, '');
+        await L('Conferência: o projeto não tem package-lock.json, então "npm ci" não roda; refiz com "npm install" (sem travar no lockfile).', 'WARN', attempt.id);
         v = await conferir();
       }
       clearInterval(pulso);

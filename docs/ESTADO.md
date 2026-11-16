@@ -193,6 +193,20 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## "npm ci" sem lockfile não trava mais o trabalho (2026-11-16)
+
+* **Caso real (financas-pessoais, ChatGPT/Claude)**: a conferência das etapas usava `npm ci`, e o projeto não commita
+  `package-lock.json`. O `npm ci` aborta com `EUSAGE` antes de testar; a IA diagnosticou certo (não inventou lockfile,
+  não mexeu no comando), mas não tinha como resolver, e o trabalho repetiu 6 vezes e travou (US$ 1,57 à toa).
+* Agora a conferência **se cura sozinha** (como já fazia com o cache do corepack): quando o comando usa `npm ci`
+  (ou `--frozen-lockfile`/`--immutable`) e falha por falta de lockfile (`semLockfile`), o sistema refaz a conferência
+  trocando `npm ci` por `npm install`, uma vez, e registra "o projeto não tem package-lock.json… refiz com npm install".
+  Não é falha do código, então não gasta sessões da IA.
+* O **planejador** também deixou de sugerir `npm ci`: a regra e os exemplos passam a usar `npm install`, e `npm ci` só
+  quando o `package-lock.json` está entre os arquivos do projeto.
+* Teste `32` (npm de mentira: `npm ci` sem lockfile falha, `npm install` cria o lockfile e passa; cura numa conferência,
+  uma tentativa só).
+
 ## Pausar/Continuar trabalho e ditado por voz (2026-11-16)
 
 * **Pausar**: o "parar" (interromper) virou **Pausar** por completo (`POST /jobs/:jid/pause`, motivo `PAUSADO`; o

@@ -222,7 +222,7 @@ export const TEXTO_ROTEIRO = [
   '- MAIS SIMPLES: com nivoo-previa.json na raiz (e "telas": ["/", "/pedidos"] nele), uma linha na conferência faz tudo —',
   '  nivoo-conferir-telas  — liga o sistema como a prévia, tira as fotos (--exigir-sem-erros), roda nivoo-roteiros/*.json e os',
   '  scripts nivoo-roteiros/*.cjs|*.mjs, e desliga.',
-  '  Ex.: "npm ci && npm test && npm run build && nivoo-conferir-telas". Correções e respostas do usuário rodam isso sozinhas.',
+  '  Ex.: "npm install && npm test && npm run build && nivoo-conferir-telas". Correções e respostas do usuário rodam isso sozinhas.',
 ];
 
 export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
@@ -242,6 +242,11 @@ export function ambienteDaConferencia(extra: Record<string, string | undefined> 
  * Falha da conferência que é do SERVIDOR do Nivoo, não do projeto: nenhuma sessão de IA resolve. Devolve a linha que
  * mostra o problema, ou null.
  */
+/** Erro típico do `npm ci` quando o projeto não commitou o package-lock.json (ou pnpm/yarn em modo travado). */
+export function semLockfile(saida: string): boolean {
+  return /can only install with an existing package-lock\.json|npm-shrinkwrap\.json with lockfileVersion|No lockfile found|lockfile.*not found|frozen-lockfile|EUSAGE[\s\S]*npm ci/i.test(saida);
+}
+
 export function problemaDoAmbiente(saida: string): string | null {
   const padroes = [
     /Cannot find module '[^']*corepack[^']*'[^\n]*/i,
