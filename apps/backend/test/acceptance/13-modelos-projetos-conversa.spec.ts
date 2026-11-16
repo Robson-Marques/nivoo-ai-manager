@@ -238,10 +238,21 @@ sys.stdout.buffer.write(b.getvalue())`]);
       const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d.status).not.toBe('CONCLUIDO');
-      // A revisão reprovou sempre: o trabalho voltou para correção (até 3 rodadas) e parou sem ficar pronto.
-      expect(d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(3);
+      // A revisão reprovou sempre com a MESMA violação: uma rodada de correção e, repetida a violação, para (sem girar à toa).
+      expect(d.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(1);
+      const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}/logs`)).body.map((l: any) => l.message).join('\n');
+      expect(logs).toMatch(/apontou de novo as MESMAS violações/);
       expect(d.blockedReason).toBe('CRITERIOS_NAO_ATENDIDOS');
       expect(d.mergeStatus).toBeNull(); // nada entrou na pasta principal
+      // "Tentar de novo" é uma intervenção do usuário: ganha rodada nova (não para de cara pela repetição antiga).
+      await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'Robson' }).expect(201);
+      await waitFor(async () => {
+        const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+        return x.steps.some((s: any) => s.key === 'correcao-criterios-2') ? x : null;
+      }, 60000);
+      const d2 = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
+      expect(d2.status).toBe('BLOQUEADO');
+      expect(d2.steps.filter((s: any) => s.key.startsWith('correcao-criterios-')).length).toBe(2);
     } finally {
       ctl('conforme', null);
     }

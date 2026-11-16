@@ -1,6 +1,6 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
-> Atualizado em 2026-11-15. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
+> Atualizado em 2026-11-16. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
 ## Revisão "não conforme" volta para correção, sem loop (2026-11-15)
@@ -10,7 +10,7 @@ ainda não conseguia ler), e a conferência das regras, corretamente, reprovou �
 com "conforme=true", então ela repetia a revisão até o trabalho parar. Agora: a etapa de revisão termina quando o
 relatório existe (conforme true OU false; vale também para trabalhos antigos); o critério final continua exigindo
 conforme=true, e quando ele falha a etapa de correção leva para a IA do projeto as **violações apontadas pela
-revisora** (o relatório antigo é apagado; a revisão roda de novo), até 3 rodadas. Informação que só o usuário tem não
+revisora** (o relatório antigo é apagado; a revisão roda de novo), até 6 rodadas (ADR-083). Informação que só o usuário tem não
 trava mais: a IA faz a melhor versão e registra em `out/perguntas-ao-usuario.md` (vai na entrega). O diagnóstico
 mostra a versão mesmo com a pasta do código de outro dono (`safe.directory`). Testes em `22` e `13`.
 
@@ -156,7 +156,7 @@ com o stub do Codex.
 * **Critério final não passou → a IA corrige sozinha**: em vez de parar esperando o usuário, o sistema cria a
   etapa "Corrigir o que a conferência final cobrou" (`correcao-criterios-N`) para a IA do projeto, com o critério,
   a descrição e a evidência; a etapa só termina quando os mesmos critérios passam; a conferência das regras roda
-  de novo e os critérios são reavaliados. Até 3 rodadas; só trabalho feito por IA e só critério automático
+  de novo e os critérios são reavaliados. Até 6 rodadas, parando antes se a revisão repetir (ADR-083); só trabalho feito por IA e só critério automático
   (o de aprovação manual reprovado volta para o usuário). "Tentar de novo" num trabalho parado por critério
   também passa a corrigir. Teste em `22`.
 * **Ciclo sem fim**: sem limite de sessões, se a conferência da etapa falha 6 vezes seguidas do mesmo jeito (mesmo
@@ -192,6 +192,17 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   `"telas"`), tira as fotos (`--exigir-sem-erros`), roda os roteiros e desliga.
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
+
+## Rodadas de correção enxergam o avanço (2026-11-16)
+
+* **Caso real (ConnectChat)**: o trabalho parou com testes (57, 34 com PostgreSQL), build, fotos e roteiros passando; a
+  revisão apontava uma última lacuna (respostas atrasadas durante a troca de sessão). As 3 rodadas fixas tinham sido
+  gastas antes da correção acima (quando a etapa de correção conferia só `true`).
+* Agora: até `NIVOO_CORRECOES_MAX` (6) rodadas **desde a última intervenção do usuário** ("Tentar de novo" ou uma
+  resposta na caixa da revisão) — o clique dele sempre vale rodadas novas. A rodada para antes quando a revisão aponta
+  de novo **exatamente as mesmas violações** da correção anterior (a IA não está conseguindo): registra "A revisão apontou
+  de novo as MESMAS violações…" e o trabalho espera o usuário (responder, tentar de novo ou aceitar assim mesmo).
+  Teste em `13` (repetição para em 1 rodada; "Tentar de novo" ganha mais uma).
 
 ## Leitura robusta da resposta da IA (2026-11-16)
 
