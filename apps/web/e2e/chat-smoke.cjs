@@ -61,7 +61,7 @@ const plano = {
   job: {
     title: 'Cardápio',
     objective: 'Criar cardapio.md',
-    steps: [{ key: 'c', title: 'Escrever o cardápio', instructions: "sleep 6; printf '# Cardápio\\n- Margherita\\n' > cardapio.md", verifyCommand: 'test -f cardapio.md' }],
+    steps: [{ key: 'c', title: 'Escrever o cardápio', instructions: "sleep 10; printf '# Cardápio\\n- Margherita\\n' > cardapio.md", verifyCommand: 'test -f cardapio.md' }],
     criteria: [{ key: 'a', description: 'cardápio existe', kind: 'FILE_EXISTS', config: { path: 'cardapio.md' } }],
   },
   memoria: [
@@ -224,6 +224,13 @@ const plano = {
     await page.locator('.andamento', { hasText: /Etapa 1 de 2: Escrever o cardápio/ }).waitFor();
     await page.locator('.andamento', { hasText: /Rodando há/ }).waitFor({ timeout: 15000 });
     await shot(page, '6b-andamento');
+    // Pausar e Continuar: para na hora e guarda tudo; "Continuar" (logo em seguida) segue de onde parou.
+    await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+    await page.getByText('Pausado por você. Tudo o que foi feito está salvo.').waitFor({ timeout: 20000 });
+    await shot(page, '6c-pausado');
+    await page.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await page.locator('.andamento [role=progressbar]').waitFor({ timeout: 30000 });
+    passo('pausar e continuar o trabalho pela tela');
     await page.getByText(/Pronto\. O resultado/).waitFor({ timeout: 90000 });
     if (!fs.existsSync(path.join(ctl, 'prompt-revisor.txt'))) throw new Error('a conferência das regras não rodou');
     await page.getByText('Tom das peças', { exact: true }).waitFor({ timeout: 15000 });
@@ -399,6 +406,37 @@ with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:d
     await shot(page, '9a-anexos-no-chat');
     for (const f of ['mode', 'resposta.txt']) fs.rmSync(path.join(ctl, f), { force: true });
     passo('anexos no chat: imagem com miniatura e Word lido como texto pela IA');
+
+    // Ditado: o microfone usa o reconhecimento de fala do navegador (aqui simulado, sem microfone) e escreve na caixa.
+    await page.evaluate(() => {
+      class Falso {
+        start() {
+          window.__ditadoLang = this.lang;
+          setTimeout(() => this.onresult?.({ results: [[{ transcript: 'quero o cardápio' }], [{ transcript: ' de sexta' }]] }), 100);
+        }
+        stop() {
+          setTimeout(() => this.onend?.(), 10);
+        }
+        abort() {}
+      }
+      window.SpeechRecognition = Falso;
+    });
+    await page.getByRole('button', { name: 'Falar a mensagem' }).click();
+    await page.getByText(/Ouvindo… fale normalmente/).waitFor();
+    await page.waitForFunction(() => document.querySelector('form.entrada textarea')?.value === 'quero o cardápio de sexta');
+    await shot(page, '9f-ditado');
+    if ((await page.evaluate(() => window.__ditadoLang)) !== 'pt-BR') throw new Error('o ditado não está em português');
+    await page.getByRole('button', { name: 'Parar o ditado' }).click();
+    await page.getByText(/Ouvindo… fale normalmente/).waitFor({ state: 'detached' });
+    // Navegador sem ditado (ex.: Firefox): explica o que usar em vez de não fazer nada.
+    await page.evaluate(() => {
+      window.SpeechRecognition = undefined;
+      window.webkitSpeechRecognition = undefined;
+    });
+    await page.getByRole('button', { name: 'Falar a mensagem' }).click();
+    await page.getByText(/Este navegador não faz ditado/).waitFor();
+    await page.locator('form.entrada textarea').fill('');
+    passo('ditado por voz: o microfone escreve a fala na caixa (português), para no clique; sem suporte, explica');
 
     // 5b. Servidor SSH: cadastro pela tela (chave gerada pelo Nivoo), teste, e a IA pedindo um comando que só roda
     // depois do "Permitir" na conversa.

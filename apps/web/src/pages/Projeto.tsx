@@ -1,4 +1,5 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { BotaoDitado } from '../Ditado';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
@@ -88,7 +89,7 @@ const MOTIVO: Record<string, string> = {
   LIMITE_ORCAMENTO: 'atingiu a trava de gasto deste trabalho',
   LIMITE_ORCAMENTO_PROJETO: 'o projeto atingiu o limite de gasto',
   CONFLITO_INCORPORACAO: 'outro trabalho mexeu nos mesmos arquivos',
-  INTERROMPIDO: 'foi interrompido',
+  INTERROMPIDO: 'foi interrompido pelo sistema',
   FALHA_INTERNA: 'deu um erro interno no Nivoo (o diagnóstico abaixo mostra qual)',
   POLITICA: 'foi bloqueado por segurança',
   APROVACAO_REJEITADA: 'a confirmação foi recusada',
@@ -570,6 +571,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha). Imagens: cole ou arraste aqui.'}
             disabled={pensando}
           />
+          <BotaoDitado texto={texto} onTexto={setTexto} desativado={pensando || ocupado} />
           <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length)}>{ocupado && anexos.length ? 'Enviando…' : 'Enviar'}</button>
         </form>
         </>
@@ -765,7 +767,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   };
   const aprovacao = job.approvals?.find((a: any) => a.status === 'PENDENTE');
   return (
-    <div className={`progresso p-${job.status}`}>
+    <div className={`progresso p-${job.status}${job.blockedReason === 'PAUSADO' ? ' pausado' : ''}`}>
       {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
       {job.status === 'CONCLUIDO' && <ArquivosDoTrabalho projetoId={projetoId} jobId={jobId} />}
       {job.status === 'CONCLUIDO' && <VideosDoTrabalho projetoId={projetoId} steps={job.steps} />}
@@ -788,7 +790,14 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
           )}
         </span>
       )}
-      {['BLOQUEADO', 'FALHOU'].includes(job.status) && (
+      {job.status === 'BLOQUEADO' && job.blockedReason === 'PAUSADO' && (
+        <span>
+          Pausado por você. Tudo o que foi feito está salvo.{' '}
+          <button onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Continuar</button>
+          <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
+        </span>
+      )}
+      {['BLOQUEADO', 'FALHOU'].includes(job.status) && job.blockedReason !== 'PAUSADO' && (
         <span>
           Parei: {conferenciaFalhou(job) ? 'a revisão final precisa de você (veja abaixo)' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
           <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
@@ -798,7 +807,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
         </span>
       )}
       {['EXECUTANDO', 'PENDENTE', 'AGUARDANDO_RECURSO'].includes(job.status) && (
-        <button className="link" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/interrupt`, 'POST', { by: nomeUsuario() }))}>parar</button>
+        <button className="secondary" title="Para agora e guarda tudo; depois é só clicar em Continuar" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/pause`, 'POST', { by: nomeUsuario() }))}>Pausar</button>
       )}
       {erro && <div className="error">{erro}</div>}
     </div>

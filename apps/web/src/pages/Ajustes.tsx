@@ -101,19 +101,19 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
           <div key={j.id} className="row" style={{ justifyContent: 'space-between' }}>
             <span className="small">{j.title} — {ESTADO[j.status] ?? j.status}</span>
             <button
-              className="danger"
+              className="secondary"
               onClick={async () => {
                 setErro(null);
                 try {
-                  await api(`/projects/${projeto.id}/jobs/${j.id}/interrupt`, 'POST', { by: nomeUsuario() });
+                  await api(`/projects/${projeto.id}/jobs/${j.id}/pause`, 'POST', { by: nomeUsuario() });
                   await carregarTrabalhos();
-                  setMsg(`Trabalho "${j.title}" parado. Dá para continuar depois com "Tentar de novo" no chat.`);
+                  setMsg(`Trabalho "${j.title}" pausado. Tudo fica salvo; para seguir, clique em "Continuar" no trabalho, na conversa.`);
                 } catch (e: any) {
                   setErro(e.message);
                 }
               }}
             >
-              Parar
+              Pausar
             </button>
           </div>
         ))}

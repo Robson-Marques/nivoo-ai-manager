@@ -40,9 +40,10 @@ describe('Interrupção e retomada', () => {
     const progress = () => Number(fs.readFileSync(path.join(wt, 'out', 'progress.txt'), 'utf8'));
     await waitFor(async () => fs.existsSync(path.join(wt, 'out', 'progress.txt')) && progress() >= 3, 20000, 100);
 
-    const interrupted = await h.http().post(`/api/projects/${p.id}/jobs/${job.id}/interrupt`).send({ by: 'teste' }).expect(201);
+    const interrupted = await h.http().post(`/api/projects/${p.id}/jobs/${job.id}/pause`).send({ by: 'teste' }).expect(201);
     expect(interrupted.body.status).toBe('BLOQUEADO');
-    expect(interrupted.body.blockedReason).toBe('INTERROMPIDO');
+    expect(interrupted.body.blockedReason).toBe('PAUSADO');
+    expect(interrupted.body.statusDetail).toBe('pausado por teste');
 
     // Worker detecta a perda do lease, encerra o processo e registra a tentativa como INTERROMPIDA.
     const after = await waitFor(async () => {
@@ -67,7 +68,7 @@ describe('Interrupção e retomada', () => {
     await h.http().post(`/api/projects/${p.id}/jobs/${job.id}/resume`).send({ by: 'teste' }).expect(201);
     const done = await waitFor(async () => {
       const j = (await h.http().get(`/api/projects/${p.id}/jobs/${job.id}`)).body;
-      return ['CONCLUIDO', 'FALHOU'].includes(j.status) || (j.status === 'BLOQUEADO' && j.blockedReason !== 'INTERROMPIDO') ? j : null;
+      return ['CONCLUIDO', 'FALHOU'].includes(j.status) || (j.status === 'BLOQUEADO' && j.blockedReason !== 'PAUSADO') ? j : null;
     }, 30000);
     expect(done.status).toBe('CONCLUIDO');
     const stepAttempts = done.attempts.filter((a: any) => a.stepId === done.steps[1].id);

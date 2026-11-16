@@ -193,6 +193,20 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Pausar/Continuar trabalho e ditado por voz (2026-11-16)
+
+* **Pausar**: o "parar" (interromper) virou **Pausar** por completo (`POST /jobs/:jid/pause`, motivo `PAUSADO`; o
+  `interrupt` saiu). Para na hora e guarda tudo (arquivos, notas, checkpoint); a tela mostra "Pausado por você. Tudo o
+  que foi feito está salvo." (em amarelo, não é erro) com **Continuar** (e "Continuar com" outra IA). "Continuar" logo
+  depois de "Pausar" espera a sessão da IA terminar de fechar (até `NIVOO_ESPERA_ENCERRAR_MS`, 20 s) em vez de recusar —
+  nunca duas sessões no mesmo trabalho. `INTERROMPIDO` fica só para o sistema (projeto sendo excluído). Ajustes →
+  "Trabalhos em andamento" também pausa. Testes `04`, `12` e tela (`chat-smoke`, foto `6c-pausado`).
+* **Ditado por voz**: microfone ao lado do Enviar; a fala vira texto na caixa (pt-BR) pelo reconhecimento do próprio
+  navegador (Chrome, Edge, Safari) — não gasta a IA do projeto; o texto aparece enquanto fala e dá para corrigir antes
+  de enviar; recomeça sozinho depois das pausas até clicar de novo; para ao enviar. Firefox não tem: o botão explica
+  (Chrome/Edge/Safari ou o microfone do teclado do celular). Microfone bloqueado, sem internet ou sem microfone: aviso
+  claro. Ícone Tabler "microphone". Tela (`chat-smoke`, reconhecimento simulado; foto `9f-ditado`).
+
 ## A IA sabe que a pasta é o repositório do projeto (2026-11-16)
 
 * **Caso real (IA Studio, ChatGPT)**: pedido de auditoria; a IA parou ("a sessão está numa cópia Linux e o Git diz que não

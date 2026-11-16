@@ -125,6 +125,7 @@ textarea { resize: vertical; line-height: 1.5; }
 .progresso { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .progresso.p-CONCLUIDO { color: var(--ok); font-weight: 600; }
 .progresso.p-BLOQUEADO, .progresso.p-FALHOU { color: var(--bad); }
+.progresso.pausado { color: var(--warn); } /* pausado pelo usuário não é erro */
 .progresso .detalhes { color: var(--muted); margin-left: auto; font-weight: normal; }
 .progresso button.link, .mem-item button.link { color: var(--muted); padding: 0 4px; text-decoration: underline; font-size: 12px; }
 .dica { color: var(--muted); text-align: center; margin-top: 10vh; }
@@ -285,7 +286,15 @@ textarea { resize: vertical; line-height: 1.5; }
   .conexao-painel { margin-left: 16px; }
 }
 /* Anexos no chat */
-.entrada { grid-template-columns: auto 1fr auto; align-items: end; }
+.entrada { grid-template-columns: auto 1fr auto auto; align-items: end; }
+/* Ditado: microfone ao lado do Enviar; ligado fica vermelho e pulsando. */
+.entrada .microfone { width: 42px; height: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 10px; }
+.entrada .microfone:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.entrada .microfone.ouvindo { background: var(--bad); color: #fff; border-color: var(--bad); animation: pulso-microfone 1.4s ease-in-out infinite; }
+@keyframes pulso-microfone { 0%, 100% { box-shadow: 0 0 0 0 rgba(180, 35, 24, .45); } 50% { box-shadow: 0 0 0 6px rgba(180, 35, 24, 0); } }
+@media (prefers-reduced-motion: reduce) { .entrada .microfone.ouvindo { animation: none; } }
+.ditado-aviso { grid-column: 1 / -1; order: -1; font-size: 13px; color: var(--muted); }
+.ditado-aviso.erro { color: var(--bad); }
 .entrada .clipe { width: 42px; height: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 10px; }
 .entrada .clipe:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
 .entrada.arrastando textarea { border: 2px dashed var(--accent); background: var(--accent-soft); }

@@ -135,7 +135,7 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 | GET | `/projects/:pid/jobs/:jid` | Job completo: objetivos, etapas, tentativas, critérios com evidência, checkpoints, artefatos, aprovações e `ultimaAtividade` ({mensagem, em}: última linha do log, para a tela mostrar o andamento). |
 | GET | `/projects/:pid/jobs/:jid/report` | Estado real e pendências (o que falta para concluir). |
 | POST | `/projects/:pid/jobs/:jid/start` | PENDENTE → EXECUTANDO. |
-| POST | `/projects/:pid/jobs/:jid/interrupt` | `{ "by"? }` — interrompe (BLOQUEADO/INTERROMPIDO), preservando o estado. |
+| POST | `/projects/:pid/jobs/:jid/pause` | `{ "by"? }` — pausa na hora (BLOQUEADO/PAUSADO), guardando tudo; `resume` ("Continuar") segue de onde parou. |
 | POST | `/projects/:pid/jobs/:jid/resume` | `{ "by"? }` — retoma do último checkpoint. |
 | POST | `/projects/:pid/jobs/:jid/evaluate` | Pede nova verificação dos critérios (nunca conclui diretamente). |
 | GET | `/projects/:pid/jobs/:jid/resultados` | Resultados do trabalho (`out/`), versão mais recente de cada: `[{id, nome, bytes, sha256, criadoEm}]`; o conteúdo sai em `/projects/:pid/artifacts/:id`. |

@@ -38,7 +38,7 @@ describe('Isolamento entre projetos', () => {
     // Rotas com o id de B não enxergam recursos de A.
     await h.http().get(`/api/projects/${b.id}/jobs/${jobA.id}`).expect(404);
     await h.http().get(`/api/projects/${b.id}/jobs/${jobA.id}/logs`).expect(404);
-    await h.http().post(`/api/projects/${b.id}/jobs/${jobA.id}/interrupt`).expect(404);
+    await h.http().post(`/api/projects/${b.id}/jobs/${jobA.id}/pause`).expect(404);
     await h.http().get(`/api/projects/${b.id}/artifacts/${art.id}`).expect(404);
     expect((await h.http().get(`/api/projects/${b.id}/jobs`)).body).toHaveLength(0);
     expect((await h.http().get(`/api/projects/${b.id}/artifacts`)).body).toHaveLength(0);

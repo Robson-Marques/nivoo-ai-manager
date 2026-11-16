@@ -51,9 +51,9 @@ export class JobsController {
     return this.jobs.start(pid, jid);
   }
 
-  @Post('jobs/:jid/interrupt')
-  interrupt(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
-    return this.jobs.interrupt(pid, jid, body?.by);
+  @Post('jobs/:jid/pause')
+  pausar(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string, @Body() body: any) {
+    return this.jobs.pausar(pid, jid, body?.by);
   }
 
   @Post('jobs/:jid/resume')

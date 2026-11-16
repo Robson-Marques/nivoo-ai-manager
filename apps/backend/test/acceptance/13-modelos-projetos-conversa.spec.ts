@@ -327,7 +327,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     const jobId = c2.messages.find((m: any) => m.id === r1.id).jobId;
     const j = (await h.http().get(`/api/projects/${p.id}/jobs/${jobId}`)).body;
     expect(j.steps.map((s: any) => s.key)).toEqual(['html', 'conferencia-regras']);
-    await h.http().post(`/api/projects/${p.id}/jobs/${jobId}/interrupt`).send({ by: 'teste' });
+    await h.http().post(`/api/projects/${p.id}/jobs/${jobId}/pause`).send({ by: 'teste' });
     ctl('mode', null);
     ctl('resposta.txt', null);
   });

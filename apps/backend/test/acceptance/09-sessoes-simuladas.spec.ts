@@ -56,7 +56,7 @@ describe('Classificação de término (SIMULADO com stub TEST-ONLY)', () => {
     });
     expect(j.attempts[0].status).toBe('RECURSO_INDISPONIVEL');
     expect(j.tasks.some((t: any) => t.status === 'QUEUED' && t.runAt > new Date())).toBe(true);
-    await h.http().post(`/api/projects/${pid}/jobs/${job.id}/interrupt`).expect(201);
+    await h.http().post(`/api/projects/${pid}/jobs/${job.id}/pause`).expect(201);
     ctl('mode', null);
   });
 

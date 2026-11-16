@@ -4,6 +4,9 @@ export const TERMINAL_JOB_STATES: ExecStatus[] = [ExecStatus.CONCLUIDO];
 
 /** Motivos padronizados de bloqueio (blockedReason). */
 export const BlockedReason = {
+  /** Pausado pelo usuário: tudo fica salvo e "Continuar" segue de onde parou. */
+  PAUSADO: 'PAUSADO',
+  /** Interrompido pelo sistema (ex.: o projeto está sendo excluído). */
   INTERROMPIDO: 'INTERROMPIDO',
   FALHA_INTERNA: 'FALHA_INTERNA',
   REPETICAO_IMPRODUTIVA: 'REPETICAO_IMPRODUTIVA',

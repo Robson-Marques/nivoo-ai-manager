@@ -45,17 +45,28 @@ describe('Revisão independente — regressões', () => {
       return estados.includes(x.status) ? x : null;
     }, ms);
 
-  it('#2 retomar com a sessão ainda sendo encerrada é recusado (não abre sessão paralela)', async () => {
+  it('#2 continuar com a sessão ainda sendo encerrada: espera o encerramento (sem sessão paralela); passando do prazo, recusa', async () => {
     const p = await createProject(h, 'rev retomada');
     // Ignora SIGTERM: o encerramento leva o tempo do SIGKILL (3 s), abrindo a janela da corrida.
     const j = await job(p.id, { title: 't', steps: [{ key: 's', instructions: "trap '' TERM; echo inicio; sleep 20" }] });
     await waitFor(() => h.prisma.attempt.findFirst({ where: { jobId: j.id, status: 'EXECUTANDO', pid: { not: null } } }));
-    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/interrupt`).expect(201);
-    const r = await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).expect(409);
-    expect(r.body.message).toMatch(/ainda está sendo encerrada/);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/pause`).expect(201);
+    // Sem espera: recusa enquanto a sessão fecha (nunca duas sessões no mesmo trabalho).
+    process.env.NIVOO_ESPERA_ENCERRAR_MS = '0';
+    try {
+      const r = await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).expect(409);
+      expect(r.body.message).toMatch(/ainda está sendo encerrada/);
+    } finally {
+      delete process.env.NIVOO_ESPERA_ENCERRAR_MS;
+    }
     expect(await h.prisma.queueTask.count({ where: { jobId: j.id, status: { in: ['QUEUED', 'RUNNING'] } } })).toBe(0);
-    await waitFor(async () => (await h.prisma.attempt.findFirst({ where: { jobId: j.id } }))?.status === 'INTERROMPIDA', 20000);
-    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/interrupt`).send({}).expect(409); // já bloqueado
+    // Com a espera padrão, "Continuar" logo depois de "Pausar" aguarda o encerramento e só então segue.
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/resume`).send({ by: 'teste' }).expect(201);
+    expect((await h.prisma.attempt.findFirst({ where: { jobId: j.id, number: 1 } }))?.status).toBe('INTERROMPIDA');
+    await waitFor(() => h.prisma.attempt.findFirst({ where: { jobId: j.id, number: 2, status: 'EXECUTANDO' } }), 20000);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/pause`).expect(201);
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/pause`).send({}).expect(409); // já pausado
+    await waitFor(async () => (await h.prisma.attempt.findFirst({ where: { jobId: j.id, number: 2 } }))?.status === 'INTERROMPIDA', 20000);
   });
 
   it('#10 retomar um job FALHOU por limite de tentativas executa de novo (limites contam a partir da retomada)', async () => {

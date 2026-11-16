@@ -329,19 +329,23 @@ export class JobsService {
     return this.get(projectId, jobId);
   }
 
-  async interrupt(projectId: string, jobId: string, by = 'operador') {
+  /**
+   * Pausar: para na hora (a sessão da IA em andamento é encerrada) e guarda tudo — arquivos, notas, checkpoint. O
+   * "Continuar" (resume) segue de onde parou, numa sessão nova que recebe o que já foi feito.
+   */
+  async pausar(projectId: string, jobId: string, by = 'operador') {
     await this.get(projectId, jobId);
     const changed = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       const r = await tx.job.updateMany({
         where: { id: jobId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } },
-        data: { status: 'BLOQUEADO', blockedReason: BlockedReason.INTERROMPIDO, statusDetail: `interrompido por ${by}` },
+        data: { status: 'BLOQUEADO', blockedReason: BlockedReason.PAUSADO, statusDetail: `pausado por ${by}` },
       });
       if (r.count) await this.queue.cancelForJob(tx, jobId);
       return r.count;
     });
-    if (!changed) throw new ConflictException('Job não está em execução');
-    await this.logs.log(jobId, `Job interrompido por ${by}. Estado preservado; use retomar para continuar.`, { level: 'WARN' });
+    if (!changed) throw new ConflictException('O trabalho não está em andamento');
+    await this.logs.log(jobId, `Trabalho pausado por ${by}. Tudo o que foi feito fica salvo; "Continuar" segue de onde parou.`, { level: 'WARN' });
     return this.get(projectId, jobId);
   }
 
@@ -350,15 +354,26 @@ export class JobsService {
     if (!['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(job.status)) {
       throw new ConflictException(`Job em ${job.status} não pode ser retomado`);
     }
-    // Uma sessão ainda em andamento (worker vivo encerrando o processo após a interrupção) impede a
-    // retomada: senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace.
-    const vivos = await this.prisma.attempt.findMany({ where: { jobId, status: 'EXECUTANDO' } });
-    const limite = new Date(Date.now() - 2 * appConfig().leaseMs);
-    for (const a of vivos) {
-      const hb = await this.prisma.workerHeartbeat.findUnique({ where: { id: a.workerId } });
-      if (hb && hb.lastSeenAt > limite) {
-        throw new ConflictException(`A sessão #${a.number} ainda está sendo encerrada pelo worker ${a.workerId}. Aguarde alguns segundos e retome de novo.`);
+    // Uma sessão ainda em andamento (worker vivo encerrando o processo depois do "Pausar") impede a retomada:
+    // senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace. "Continuar" logo depois de "Pausar"
+    // espera alguns segundos o encerramento em vez de recusar.
+    const sessaoAindaFechando = async () => {
+      const vivos = await this.prisma.attempt.findMany({ where: { jobId, status: 'EXECUTANDO' } });
+      const limite = new Date(Date.now() - 2 * appConfig().leaseMs);
+      for (const a of vivos) {
+        const hb = await this.prisma.workerHeartbeat.findUnique({ where: { id: a.workerId } });
+        if (hb && hb.lastSeenAt > limite) return a;
       }
+      return null;
+    };
+    const ate = Date.now() + Number(process.env.NIVOO_ESPERA_ENCERRAR_MS ?? 20_000);
+    let fechando = await sessaoAindaFechando();
+    while (fechando && Date.now() < ate) {
+      await new Promise((r) => setTimeout(r, 500));
+      fechando = await sessaoAindaFechando();
+    }
+    if (fechando) {
+      throw new ConflictException(`A sessão #${fechando.number} ainda está sendo encerrada pelo worker ${fechando.workerId}. Aguarde alguns segundos e clique em Continuar de novo.`);
     }
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
