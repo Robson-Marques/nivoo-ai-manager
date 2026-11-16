@@ -193,6 +193,20 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## A IA sabe que a pasta é o repositório do projeto (2026-11-16)
+
+* **Caso real (IA Studio, ChatGPT)**: pedido de auditoria; a IA parou ("a sessão está numa cópia Linux e o Git diz que não
+  é um repositório; a regra exige a pasta original em C:\Users\...\IA STUDIO"), depois pediu autorização para usar o
+  GitHub e por fim o endereço do repositório — que já estava ligado ao projeto e em dia (0 a enviar, 0 a receber). A
+  conversa roda numa cópia sem `.git` (`git archive main`) e nada dizia isso à IA, nem que a pasta é o repositório.
+* Agora toda conversa e toda etapa recebem "## Repositório do projeto" (`src/git/contexto-git.ts`): esta pasta É o projeto
+  (main, último commit), ligada a `<url>` (branch), estado da última consulta (em dia / N commits a receber → "Atualizar
+  do Git"), sem pedir endereço, autorização nem baixar de novo; na conversa, "not a git repository" é esperado e o
+  histórico vai em `contexto/historico-git.txt`; caminhos de outra máquina (C:\Users\..., /home/...) nas regras, memória
+  ou pedido são este mesmo projeto — nunca parar por isso. Endereço sem usuário/senha.
+* Testes: `15` (etapa e conversa de projeto ligado: texto, histórico) e real `real-12` (ChatGPT, regra "pare se não estiver
+  em C:\Users\..."; respondeu com o plano da auditoria em 35 s, sem bloquear nem pedir nada).
+
 ## Menu de projetos: "+" na linha do projeto e "Arquivados" no rodapé (2026-11-16)
 
 * Pedido do usuário: os links soltos "conversas arquivadas" (dentro do projeto) e "projetos arquivados" (no fim da lista)

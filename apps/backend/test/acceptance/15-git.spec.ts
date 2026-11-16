@@ -107,7 +107,27 @@ describe('Git do projeto (GitHub/GitLab)', () => {
       steps: [{ key: 's', instructions: 'x', verifyCommand: 'grep -q REPO-RULE-9 contexto/repositorio/_CLAUDE.md && test ! -e CLAUDE.md' }],
     });
     expect(d.status).toBe('CONCLUIDO');
-    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toContain('contexto/repositorio/');
+    const promptEtapa = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(promptEtapa).toContain('contexto/repositorio/');
+    // A IA sabe que esta pasta É o projeto ligado ao repositório (não pede endereço nem "a pasta original").
+    expect(promptEtapa).toContain(`ligada ao repositório ${remoto} (branch develop)`);
+    expect(promptEtapa).toMatch(/Caminhos de outra máquina[\s\S]*são ESTE mesmo projeto/);
+    expect(promptEtapa).not.toMatch(/not a git repository/); // a etapa roda numa cópia com git
+    // Conversa: cópia sem .git — o prompt explica e o histórico vai em contexto/historico-git.txt.
+    const conv = (await h.http().post(`/api/projects/${pid}/conversations`).send({}).expect(201)).body;
+    fs.writeFileSync(path.join(CTL, 'mode'), 'texto');
+    fs.writeFileSync(path.join(CTL, 'resposta.txt'), '```json\n{"tipo":"resposta","texto":"ok","memoria":[]}\n```');
+    await h.http().post(`/api/projects/${pid}/conversations/${conv.id}/messages`).send({ content: 'faça a auditoria' }).expect(201);
+    await waitFor(async () => {
+      const ms = (await h.http().get(`/api/projects/${pid}/conversations/${conv.id}`)).body.messages;
+      return ms.some((m: any) => m.role === 'ASSISTENTE' && m.status !== 'PENDENTE') ? true : null;
+    }, 60_000);
+    fs.rmSync(path.join(CTL, 'mode'), { force: true });
+    fs.rmSync(path.join(CTL, 'resposta.txt'), { force: true });
+    const promptConversa = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(promptConversa).toContain(`ligada ao repositório ${remoto} (branch develop)`);
+    expect(promptConversa).toMatch(/"not a git repository" — é esperado, não é bloqueio/);
+    expect(fs.readFileSync(path.join(CTL, 'historico-git.txt'), 'utf8')).toMatch(/inicial/);
     const repo = path.join(p.workspacePath, 'repo');
     expect(git(repo, 'show', 'main:CLAUDE.md')).toBe('Regra do repositório: REPO-RULE-9.'); // intacto
     // Um trabalho de IA de verdade muda arquivos: aqui, um trabalho local que edita app.txt.

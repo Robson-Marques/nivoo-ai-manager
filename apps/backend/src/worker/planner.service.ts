@@ -21,6 +21,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
 import { TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { historicoGit, textoDoRepositorio } from '../git/contexto-git';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -115,6 +116,8 @@ export class PlannerService {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
       this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp);
+      // A cópia não tem .git: o histórico vai num arquivo (e o prompt explica que "not a git repository" é esperado).
+      fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
       // Instruções de agente do repositório do projeto: legíveis em contexto/repositorio/, inertes.
       const harness = (await runProcess('bash', ['-c', 'git -C "$1" ls-tree -r --name-only main', '_', repo], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 })).stdout
         .split('\n')
@@ -352,7 +355,7 @@ export class PlannerService {
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null, camada: 'PROJETO' } }),
@@ -386,6 +389,8 @@ export class PlannerService {
       ...ferramentasDaIa(providerId, mcpDoProjeto(project.id).map((m) => m.nome)),
       '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
       '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
+      '',
+      ...(await textoDoRepositorio(this.workspace.projectDirs(project.dirKey).repo, project, { semPastaGit: true })),
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       '',

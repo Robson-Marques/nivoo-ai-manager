@@ -20,6 +20,8 @@ prev=""; for a in "$@"; do [ "$prev" = "--mcp-config" ] && cp "$a" "$CTL/mcp.jso
 echo "${ANTHROPIC_API_KEY:-}|${CLAUDE_CONFIG_DIR:-}|${CLAUDE_CODE_OAUTH_TOKEN:-}" > "$CTL/env.txt"
 # Anexos do chat que chegaram à sessão (com o tamanho de cada um).
 [ -d contexto/anexos ] && (cd contexto/anexos && find . -type f -printf '%p %s\n' | sort) > "$CTL/anexos.txt"
+# Histórico do git entregue à cópia da conversa (que não tem .git).
+rm -f "$CTL/historico-git.txt"; [ -f contexto/historico-git.txt ] && cp contexto/historico-git.txt "$CTL/historico-git.txt"
 if printf '%s' "$prompt" | grep -q "Você é um REVISOR independente"; then
   # Conferência das regras: guarda o prompt do revisor e grava o relatório pedido.
   echo "$prompt" > "$CTL/prompt-revisor.txt"
