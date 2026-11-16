@@ -177,6 +177,22 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Correções retestadas e interação das telas comprovada (2026-11-16)
+
+* **Bug real (ConnectChat)**: a revisão apontou "falta evidência funcional das correções": a etapa de correção
+  conferia só o critério que falhou — no caso da revisão, `true` — e a etapa criada pela resposta do usuário também. A IA
+  mexia no código e nada rodava os testes de novo. Agora correções e respostas rodam DE NOVO as conferências de todas as
+  etapas do trabalho (testes, build, fotos) + `nivoo-conferir-telas --se-houver` (`conferenciasDasEtapas`).
+* **`nivoo-roteiro`** (interação, sem a IA navegar): roteiros em `nivoo-roteiros/*.json` (ir, clicar, preencher,
+  digitar — confere foco e valor a cada letra —, tecla, esperarTexto, esperar, sumir, semTexto, focoEm, valorDe,
+  recarregar, foto, aguardar), executados num navegador sem tela, no computador e/ou celular; fotos e relatório em
+  `out/telas-interativas/`; falha no passo que não acontecer ou com erro de script. A revisão trata a falta de roteiro
+  como violação quando o trabalho mexeu em interação (disciplina de interface do Studio Workflow).
+* **`nivoo-conferir-telas`**: uma linha na conferência — liga o sistema como a prévia (`nivoo-previa.json`, com
+  `"telas"`), tira as fotos (`--exigir-sem-erros`), roda os roteiros e desliga.
+* Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
+  perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
+
 ## Leitura robusta da resposta da IA (2026-11-16)
 
 * **Bug real (ctrl-leads)**: a entrega da v0.17.39 virou só "[A resposta da IA veio com o plano quebrado…]". O leitor

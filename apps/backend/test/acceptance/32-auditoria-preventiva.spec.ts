@@ -257,4 +257,27 @@ describe('Auditoria preventiva', () => {
     expect(logs).toMatch(/Conferência rodando \(0 min\): ✓ teste do atualizador/);
     expect(logs).toMatch(/Conferência ainda rodando \(0 min\)/);
   });
+  it('roteiro de interação: campo que perde o foco a cada letra falha a conferência; a IA corrige e passa', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Roteiro', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    // 1ª sessão: o campo é recriado a cada letra (perde o foco). 2ª: a IA lê o relatório do roteiro e corrige.
+    const comBug = "<!doctype html><meta charset=utf-8><input id=nome><script>document.getElementById('nome').addEventListener('input',e=>{const n=e.target.cloneNode();n.value=e.target.value;e.target.replaceWith(n)})</script>";
+    const certo = '<!doctype html><meta charset=utf-8><input id=nome>';
+    const x = await rodar(p.id, {
+      title: 'formulário',
+      steps: [{
+        key: 'f',
+        instructions: `mkdir -p nivoo-roteiros && echo '{"nome":"cadastro","passos":[{"ir":"/"},{"digitar":"#nome","valor":"Maria"},{"foto":"preenchido"}]}' > nivoo-roteiros/cadastro.json && if grep -q "perdeu o foco" out/telas-interativas/relatorio.md 2>/dev/null; then echo "${certo}" > index.html; else echo "${comBug}" > index.html; fi`,
+        verifyCommand: `(node -e "require('http').createServer((q,r)=>{r.setHeader('content-type','text/html');r.end(require('fs').readFileSync('index.html'))}).listen(process.env.NIVOO_PORTA_TESTE)" &); sleep 0.7; nivoo-roteiro http://127.0.0.1:$NIVOO_PORTA_TESTE nivoo-roteiros/*.json`,
+      }],
+      criteria: [{ key: 'i', description: 'i', kind: 'FILE_EXISTS', config: { path: 'index.html' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts).toHaveLength(2);
+    expect(x.attempts[0].error).toMatch(/perdeu o foco no meio da digitação/);
+    const resultados = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/resultados`).expect(200)).body.map((r: any) => r.nome);
+    expect(resultados).toEqual(expect.arrayContaining(['telas-interativas/cadastro-computador-preenchido.png', 'telas-interativas/relatorio.md']));
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/INTERAÇÃO DAS TELAS/);
+  });
 });

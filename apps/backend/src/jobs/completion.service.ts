@@ -13,7 +13,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
-import { lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
+import { conferenciasDasEtapas, lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
@@ -72,7 +72,7 @@ export class CompletionService {
    * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. Até
    * 3 rodadas; depois disso o trabalho para e explica. Devolve true se criou a correção.
    */
-  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number; verifyCommand: string | null }>; project: { provider: string } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
@@ -114,7 +114,7 @@ export class CompletionService {
     // pela conferência da etapa de revisão mesmo sem ela gravar nada novo).
     if (job.steps.some((s) => s.key === RULE_REVIEW_STEP)) fs.rmSync(path.join(worktree, RULE_REVIEW_REPORT), { force: true });
     // A etapa só termina quando os mesmos critérios passam (comandos e arquivos verificáveis aqui mesmo).
-    const confere = falhas
+    const confereCriterios = falhas
       .filter((f) => f.key !== RULE_REVIEW_STEP) // a conformidade é dada pela revisão, que roda de novo depois
       .map((f) => criterios.find((x) => x.key === f.key))
       .map((c) => {
@@ -123,8 +123,10 @@ export class CompletionService {
         if (c?.kind === 'FILE_EXISTS' && typeof cfg.path === 'string') return `test -e '${String(cfg.path).replace(/'/g, '')}'`;
         return null;
       })
-      .filter(Boolean)
-      .join(' && ') || 'true';
+      .filter(Boolean) as string[];
+    // Depois da correção, as conferências das etapas (testes, build, fotos) rodam de novo: a correção não pode
+    // quebrar o que já passava, e a revisão precisa de evidência nova.
+    const confere = [...new Set([...confereCriterios, ...conferenciasDasEtapas(job.steps)])].join(' && ') || 'true';
     const review = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
     const base = Math.max(...job.steps.map((s) => s.order)) + 1;
     await this.prisma.$transaction(async (tx) => {

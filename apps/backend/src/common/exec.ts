@@ -187,6 +187,19 @@ export const TEXTO_FOTOS = [
   '  --sem-emoji-em-controles também falha com emoji usado como botão/ícone (regra do Studio Workflow: emoji não é ícone de UI).',
 ];
 
+export const TEXTO_ROTEIRO = [
+  '- INTERAÇÃO DAS TELAS (foco, digitação, Enter, carregando, erro recuperável, troca de sessão): escreva roteiros em',
+  '  nivoo-roteiros/*.json ({"nome","tamanho":"computador|celular|ambos","passos":[{"ir":"/login"},{"digitar":"#email","valor":"a@b"},',
+  '  {"tecla":"Enter"},{"esperarTexto":"Carregando"},{"esperarTexto":"Bem-vindo"},{"foto":"depois"}]}; também clicar, preencher,',
+  '  esperar, sumir, semTexto, focoEm, valorDe/igual, recarregar, aguardar) e confira com o sistema ligado:',
+  '  nivoo-roteiro http://127.0.0.1:$NIVOO_PORTA_TESTE nivoo-roteiros/*.json   — o sistema executa num navegador sem tela',
+  '  ("digitar" confere que o campo não perde o foco nem o valor a cada letra), tira fotos (out/telas-interativas/) e FALHA',
+  '  no passo que não acontecer. É a evidência de interação que a revisão e as regras de interface pedem.',
+  '- MAIS SIMPLES: com nivoo-previa.json na raiz (e "telas": ["/", "/pedidos"] nele), uma linha na conferência faz tudo —',
+  '  nivoo-conferir-telas  — liga o sistema como a prévia, tira as fotos (--exigir-sem-erros), roda nivoo-roteiros/*.json e desliga.',
+  '  Ex.: "npm ci && npm test && npm run build && nivoo-conferir-telas". Correções e respostas do usuário rodam isso sozinhas.',
+];
+
 export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const base = minimalEnv();
   return minimalEnv({
@@ -211,7 +224,7 @@ export function problemaDoAmbiente(saida: string): string | null {
     /\bENOSPC\b[^\n]*/,
     /(EAI_AGAIN|ENOTFOUND|ECONNREFUSED|ETIMEDOUT)[^\n]*(registry|npmjs|yarnpkg|pypi)[^\n]*/i,
     /ERR_PNPM_META_FETCH_FAIL[^\n]*/,
-    /nivoo-fotos: navegador sem tela[^\n]*/,
+    /nivoo-(fotos|roteiro): navegador sem tela[^\n]*/,
     /npm (ERR!|error) (network|code E(AI_AGAIN|NOTFOUND|CONNRESET))[^\n]*/i,
   ];
   for (const p of padroes) {

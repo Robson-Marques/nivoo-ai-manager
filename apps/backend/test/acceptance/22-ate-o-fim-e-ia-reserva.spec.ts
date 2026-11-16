@@ -249,7 +249,8 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const keys = x.steps.map((s: any) => s.key);
     expect(keys).toEqual(expect.arrayContaining(['regra', 'correcao-criterios-1', 'conferencia-regras']));
     const correcao = x.steps.find((s: any) => s.key === 'correcao-criterios-1');
-    expect(correcao.verifyCommand).toBe('( grep -q CHANGELOG CLAUDE-regras.md )');
+    // A correção confere o critério que falhou E de novo as conferências das etapas (a correção não pode quebrar nada).
+    expect(correcao.verifyCommand).toBe('( grep -q CHANGELOG CLAUDE-regras.md ) && ( test -f notas.md ) && ( nivoo-conferir-telas --se-houver )');
     const prompt = fs.readFileSync(path.join(process.env.TMPDIR ?? '/tmp', 'nivoo-cli-stub', 'prompt-correcao.txt'), 'utf8');
     expect(prompt).toMatch(/regra-registrada — regra do CHANGELOG registrada/);
     expect(prompt).toMatch(/evidência: .*exitCode/);
@@ -343,6 +344,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const etapa = b.steps.find((s: any) => s.key === 'resposta-usuario-1');
     expect(etapa.instructions).toMatch(/Qual é a lista original[\s\S]*Resposta do usuário \(Robson\):\nOs títulos são os do arquivo SECOES-ORIGINAIS\./);
     expect(etapa.status).toBe('CONCLUIDO');
+    expect(etapa.verifyCommand).toBe('( test -s auditoria.md ) && ( nivoo-conferir-telas --se-houver )'); // a resposta muda o trabalho: as conferências rodam de novo
     const ordem = b.attempts.map((a: any) => b.steps.find((s: any) => s.id === a.stepId)?.key);
     expect(ordem.lastIndexOf('conferencia-regras')).toBeGreaterThan(ordem.indexOf('resposta-usuario-1'));
     expect(b.steps.some((s: any) => s.key.startsWith('correcao-criterios-'))).toBe(false);

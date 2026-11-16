@@ -32,6 +32,8 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       '   sobreposto, botão fora do lugar, tela em branco ou que não cabe no celular é violação (diga qual tela e o que está errado).',
       '   Confira as fotos CONTRA as regras de interface do modelo do projeto, quando houver (em contexto/base/, ex.: no Studio',
       '   Workflow, doctrine/disciplines/visual-interface-quality.md: composição, densidade, cortes, camadas, estados, ícones).',
+      '   Evidência de INTERAÇÃO (foco, digitação, Enter, carregando, erro) é a dos roteiros: out/telas-interativas/relatorio.md',
+      '   (nivoo-roteiro). Se faltar e o trabalho mexeu em interação, é violação concreta: "falta roteiro de <fluxo> na conferência".',
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho. Sobra para apagar (código morto, arquivo esquecido):',
@@ -114,4 +116,24 @@ export function aceitarRevisao(worktree: string, por: string): void {
   };
   fs.mkdirSync(path.dirname(arq), { recursive: true });
   fs.writeFileSync(arq, JSON.stringify(novo, null, 2));
+}
+
+/**
+ * Conferências das etapas de trabalho (testes, build, fotos…), para rodar DE NOVO depois de uma correção ou de uma
+ * resposta do usuário: sem isso, a IA mexia no código depois da revisão e nada rodava os testes outra vez (a etapa de
+ * correção conferia só "true"). Ignora a revisão, as próprias correções/respostas e conferências vazias.
+ */
+export function conferenciasDasEtapas(steps: Array<{ key: string; verifyCommand: string | null }>): string[] {
+  const vistos = new Set<string>();
+  const lista: string[] = [];
+  for (const s of steps) {
+    if (s.key === RULE_REVIEW_STEP || /^(correcao-criterios|resposta-usuario)-/.test(s.key)) continue;
+    const c = (s.verifyCommand ?? '').trim();
+    if (!c || c === 'true' || c === ':' || vistos.has(c)) continue;
+    vistos.add(c);
+    lista.push(`( ${c} )`);
+  }
+  // Telas: com nivoo-previa.json, liga o sistema, fotografa e roda os roteiros de interação (sem prévia, não faz nada).
+  if (!lista.some((c) => c.includes('nivoo-conferir-telas'))) lista.push('( nivoo-conferir-telas --se-houver )');
+  return lista;
 }

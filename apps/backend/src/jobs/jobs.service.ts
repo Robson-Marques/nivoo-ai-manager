@@ -12,7 +12,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
-import { aceitarRevisao, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
+import { aceitarRevisao, conferenciasDasEtapas, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
 
 const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_THRESHOLD', 'MANUAL_APPROVAL'] as const;
@@ -482,7 +482,8 @@ export class JobsService {
             'Ajuste os entregáveis de acordo com a resposta (ela também está em out/respostas-do-usuario.md), mantendo o que já foi feito e as regras do projeto.',
             'Atualize out/perguntas-ao-usuario.md: tire o que foi respondido; deixe só o que continuar realmente em aberto.',
           ].join('\n'),
-          verifyCommand: 'true',
+          // A resposta muda o trabalho: as conferências das etapas (testes, build, fotos) rodam de novo.
+          verifyCommand: conferenciasDasEtapas(outras).join(' && ') || 'true',
         },
       });
       await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });

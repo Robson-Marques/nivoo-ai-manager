@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+/**
+ * nivoo-roteiro — comprova a INTERAÇÃO de telas (foco, digitação, Enter, carregando, erro, troca de sessão) seguindo
+ * roteiros escritos pela IA. Quem executa é o sistema, num navegador sem tela; a IA não navega.
+ *
+ * uso: nivoo-roteiro <endereço-base> <roteiro.json ...> [--pasta out/telas-interativas]
+ *   ex.: nivoo-roteiro http://127.0.0.1:$NIVOO_PORTA_TESTE nivoo-roteiros/*.json
+ *
+ * Roteiro (JSON): { "nome": "login", "tamanho": "computador" | "celular" | "ambos", "passos": [ ... ] }
+ * Passos (um por objeto):
+ *   {"ir": "/login"}                         abre o caminho
+ *   {"clicar": "button[type=submit]"}        clica (seletor CSS ou text=…)
+ *   {"preencher": "#email", "valor": "a@b"}  preenche de uma vez
+ *   {"digitar": "#nome", "valor": "Maria"}   digita letra por letra e CONFERE que o campo continua com o foco e com o valor
+ *   {"tecla": "Enter"}                       aperta uma tecla
+ *   {"esperarTexto": "Bem-vindo"}            espera o texto aparecer (até 15 s)
+ *   {"esperar": ".carregando"}               espera o elemento aparecer
+ *   {"sumir": ".carregando"}                 espera o elemento sumir
+ *   {"semTexto": "Erro inesperado"}          confere que o texto NÃO está na tela
+ *   {"focoEm": "#senha"}                     confere qual elemento tem o foco
+ *   {"valorDe": "#email", "igual": "a@b"}    confere o valor de um campo
+ *   {"recarregar": true}                     recarrega a página
+ *   {"foto": "depois-do-login"}              foto da tela neste momento
+ *   {"aguardar": 500}                        espera (ms)
+ * Cada passo pode ter "descricao". Falha em qualquer passo (ou erro de script na página) → saída com erro, foto da
+ * falha e relatório (relatorio.md/json) na pasta.
+ */
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+
+const args = process.argv.slice(2);
+const iPasta = args.indexOf('--pasta');
+const pasta = iPasta >= 0 ? args.splice(iPasta, 2)[1] : 'out/telas-interativas';
+const [base, ...arquivos] = args;
+if (!base || !/^https?:\/\//.test(base) || !arquivos.length) {
+  console.error('uso: nivoo-roteiro <endereço-base http://…> <roteiro.json ...> [--pasta out/telas-interativas]');
+  process.exit(2);
+}
+const TAMANHOS = {
+  computador: { viewport: { width: 1366, height: 900 }, isMobile: false },
+  celular: { viewport: { width: 390, height: 844 }, isMobile: true },
+};
+const nomeSeguro = (t) => String(t).replace(/[^a-zA-Z0-9-]+/g, '-').slice(0, 50) || 'tela';
+const descrever = (p) => p.descricao || JSON.stringify(p).slice(0, 120);
+
+async function executarPasso(pagina, p, prefixo, fotos) {
+  const t = 15_000;
+  if (p.ir !== undefined) return void (await pagina.goto(new URL(p.ir, base).toString(), { waitUntil: 'networkidle', timeout: 30_000 }));
+  if (p.clicar) return void (await pagina.locator(p.clicar).first().click({ timeout: t }));
+  if (p.preencher) return void (await pagina.locator(p.preencher).first().fill(String(p.valor ?? ''), { timeout: t }));
+  if (p.digitar) {
+    const campo = pagina.locator(p.digitar).first();
+    await campo.click({ timeout: t });
+    const valor = String(p.valor ?? '');
+    for (const letra of valor) {
+      await pagina.keyboard.type(letra, { delay: 40 });
+      const temFoco = await campo.evaluate((el) => el === document.activeElement);
+      if (!temFoco) throw new Error(`o campo ${p.digitar} perdeu o foco no meio da digitação (depois de "${letra}")`);
+    }
+    const atual = await campo.inputValue().catch(() => null);
+    if (atual !== null && atual !== valor) throw new Error(`o campo ${p.digitar} ficou com "${atual}" em vez de "${valor}" (a digitação se perdeu)`);
+    return;
+  }
+  if (p.tecla) return void (await pagina.keyboard.press(p.tecla));
+  if (p.esperarTexto) return void (await pagina.getByText(p.esperarTexto, { exact: false }).first().waitFor({ timeout: t }));
+  if (p.esperar) return void (await pagina.locator(p.esperar).first().waitFor({ timeout: t }));
+  if (p.sumir) return void (await pagina.locator(p.sumir).first().waitFor({ state: 'hidden', timeout: t }));
+  if (p.semTexto) {
+    if ((await pagina.getByText(p.semTexto, { exact: false }).count()) > 0) throw new Error(`o texto "${p.semTexto}" está na tela`);
+    return;
+  }
+  if (p.focoEm) {
+    const ok = await pagina.locator(p.focoEm).first().evaluate((el) => el === document.activeElement).catch(() => false);
+    if (!ok) throw new Error(`o foco não está em ${p.focoEm}`);
+    return;
+  }
+  if (p.valorDe) {
+    const v = await pagina.locator(p.valorDe).first().inputValue({ timeout: t });
+    if (v !== String(p.igual ?? '')) throw new Error(`${p.valorDe} tem "${v}" em vez de "${p.igual}"`);
+    return;
+  }
+  if (p.recarregar) return void (await pagina.reload({ waitUntil: 'networkidle' }));
+  if (p.foto) {
+    const arq = path.join(pasta, `${prefixo}-${nomeSeguro(p.foto)}.png`);
+    await pagina.screenshot({ path: arq, fullPage: true });
+    fotos.push(arq);
+    return;
+  }
+  if (p.aguardar) return void (await pagina.waitForTimeout(Number(p.aguardar)));
+  throw new Error(`passo desconhecido: ${JSON.stringify(p).slice(0, 120)}`);
+}
+
+(async () => {
+  let chromium;
+  try {
+    ({ chromium } = require('playwright-core'));
+  } catch {
+    console.error('nivoo-roteiro: navegador sem tela não instalado neste servidor (playwright-core ausente). Rode "nivoo update".');
+    process.exit(3);
+  }
+  let navegador;
+  try {
+    navegador = await chromium.launch({ args: ['--no-sandbox'] });
+  } catch (e) {
+    console.error(`nivoo-roteiro: navegador sem tela não abriu neste servidor (${String(e.message).split('\n')[0]}). Rode "nivoo update".`);
+    process.exit(3);
+  }
+  fs.mkdirSync(pasta, { recursive: true });
+  const resultados = [];
+  for (const arq of arquivos) {
+    let roteiro;
+    try {
+      roteiro = JSON.parse(fs.readFileSync(arq, 'utf8'));
+    } catch (e) {
+      resultados.push({ roteiro: arq, tamanho: '-', ok: false, falha: `roteiro ilegível: ${e.message}`, fotos: [], errosDeScript: [] });
+      continue;
+    }
+    const tamanhos = roteiro.tamanho === 'ambos' ? ['computador', 'celular'] : [roteiro.tamanho === 'celular' ? 'celular' : 'computador'];
+    for (const tam of tamanhos) {
+      const ctx = await navegador.newContext({ ...TAMANHOS[tam], hasTouch: tam === 'celular', deviceScaleFactor: 1 });
+      const pagina = await ctx.newPage();
+      const r = { roteiro: roteiro.nome || path.basename(arq), tamanho: tam, ok: true, falha: '', passo: null, fotos: [], errosDeScript: [] };
+      pagina.on('pageerror', (e) => r.errosDeScript.push(String(e.message).slice(0, 300)));
+      const prefixo = `${nomeSeguro(r.roteiro)}-${tam}`;
+      const passos = Array.isArray(roteiro.passos) ? roteiro.passos : [];
+      for (let i = 0; i < passos.length; i++) {
+        try {
+          await executarPasso(pagina, passos[i], prefixo, r.fotos);
+        } catch (e) {
+          r.ok = false;
+          r.passo = i + 1;
+          r.falha = `passo ${i + 1} (${descrever(passos[i])}): ${String(e.message).split('\n')[0]}`;
+          const arqFalha = path.join(pasta, `${prefixo}-falha-passo-${i + 1}.png`);
+          await pagina.screenshot({ path: arqFalha, fullPage: true }).catch(() => undefined);
+          r.fotos.push(arqFalha);
+          break;
+        }
+      }
+      if (r.ok && r.errosDeScript.length) {
+        r.ok = false;
+        r.falha = `erro de script na página: ${r.errosDeScript[0]}`;
+      }
+      resultados.push(r);
+      await ctx.close();
+    }
+  }
+  await navegador.close();
+  const falhas = resultados.filter((r) => !r.ok);
+  fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({ base, resultados }, null, 2));
+  fs.writeFileSync(
+    path.join(pasta, 'relatorio.md'),
+    [
+      `# Roteiros de interação — ${base}`,
+      '',
+      ...resultados.map((r) => `- ${r.ok ? '✓' : '✗'} ${r.roteiro} (${r.tamanho})${r.ok ? '' : `: ${r.falha}`}${r.fotos.length ? ` — fotos: ${r.fotos.join(', ')}` : ''}`),
+      '',
+    ].join('\n'),
+  );
+  for (const r of resultados) console.log(`nivoo-roteiro: ${r.ok ? 'ok' : 'FALHOU'} ${r.roteiro} (${r.tamanho})${r.ok ? '' : ` — ${r.falha}`}`);
+  if (falhas.length) {
+    console.error(`nivoo-roteiro: ${falhas.length} roteiro(s) falharam — veja ${pasta}/relatorio.md e as fotos`);
+    process.exit(1);
+  }
+})().catch((e) => {
+  console.error(`nivoo-roteiro: falhou: ${e?.message ?? e}`);
+  process.exit(4);
+});

@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+/**
+ * nivoo-conferir-telas — liga o sistema como a prévia liga (nivoo-previa.json), tira as fotos das telas (nivoo-fotos)
+ * e roda os roteiros de interação (nivoo-roteiros/*.json, nivoo-roteiro); depois desliga. Uma linha na conferência:
+ *   npm test && npm run build && nivoo-conferir-telas
+ *
+ * nivoo-previa.json pode listar as telas a fotografar: {"telas": ["/", "/pedidos"], ...}. Sem nivoo-previa.json:
+ * --se-houver sai sem erro (nada a conferir); sem a opção, é erro. Porta: $NIVOO_PORTA_TESTE (ou PORT).
+ */
+'use strict';
+const fs = require('node:fs');
+const http = require('node:http');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
+
+const seHouver = process.argv.includes('--se-houver');
+const raiz = process.cwd();
+const arqPrevia = path.join(raiz, 'nivoo-previa.json');
+if (!fs.existsSync(arqPrevia)) {
+  if (seHouver) {
+    console.log('nivoo-conferir-telas: sem nivoo-previa.json — nada a conferir nas telas');
+    process.exit(0);
+  }
+  console.error('nivoo-conferir-telas: falta o nivoo-previa.json na raiz (como ligar o sistema)');
+  process.exit(2);
+}
+let cfg;
+try {
+  cfg = JSON.parse(fs.readFileSync(arqPrevia, 'utf8'));
+} catch (e) {
+  console.error(`nivoo-conferir-telas: nivoo-previa.json inválido: ${e.message}`);
+  process.exit(2);
+}
+const porta = Number(process.env.NIVOO_PORTA_TESTE || process.env.PORT || 0);
+if (!porta) {
+  console.error('nivoo-conferir-telas: sem porta ($NIVOO_PORTA_TESTE)');
+  process.exit(2);
+}
+const pasta = path.resolve(raiz, String(cfg.pasta || '.'));
+if (!pasta.startsWith(raiz)) {
+  console.error('nivoo-conferir-telas: "pasta" fora do projeto');
+  process.exit(2);
+}
+const ferramentas = __dirname;
+const base = `http://127.0.0.1:${porta}`;
+const estatico = cfg.tipo === 'estatico' || !cfg.comando;
+let filho = null;
+let servidor = null;
+
+const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+
+function desligar() {
+  if (servidor) servidor.close();
+  if (filho && filho.pid) {
+    try {
+      process.kill(-filho.pid, 'SIGTERM');
+    } catch {
+      /* já parou */
+    }
+  }
+}
+process.on('exit', desligar);
+
+function responde() {
+  return new Promise((ok) => {
+    const r = http.get({ host: '127.0.0.1', port: porta, path: '/', timeout: 2000 }, (res) => {
+      res.resume();
+      ok(true);
+    });
+    r.on('error', () => ok(false));
+    r.on('timeout', () => {
+      r.destroy();
+      ok(false);
+    });
+  });
+}
+
+(async () => {
+  if (estatico) {
+    servidor = http.createServer((req, res) => {
+      let rel = decodeURIComponent(new URL(req.url, base).pathname).replace(/^\/+/, '');
+      let arq = path.resolve(pasta, rel);
+      if (!arq.startsWith(pasta)) return void ((res.statusCode = 404), res.end());
+      if (fs.existsSync(arq) && fs.statSync(arq).isDirectory()) arq = path.join(arq, 'index.html');
+      if (!fs.existsSync(arq)) {
+        if (path.extname(rel)) return void ((res.statusCode = 404), res.end());
+        arq = path.join(pasta, 'index.html');
+      }
+      res.setHeader('Content-Type', TIPOS[path.extname(arq).toLowerCase()] || 'application/octet-stream');
+      fs.createReadStream(arq).pipe(res);
+    });
+    await new Promise((ok) => servidor.listen(porta, '127.0.0.1', ok));
+  } else {
+    if (cfg.instalar && !fs.existsSync(path.join(pasta, 'node_modules'))) {
+      console.log(`nivoo-conferir-telas: $ ${cfg.instalar}`);
+      const r = spawnSync('bash', ['-c', cfg.instalar], { cwd: pasta, stdio: 'inherit', env: process.env });
+      if (r.status !== 0) {
+        console.error(`nivoo-conferir-telas: a instalação falhou (exit ${r.status})`);
+        process.exit(1);
+      }
+    }
+    console.log(`nivoo-conferir-telas: ligando o sistema ($ ${cfg.comando}) na porta ${porta}`);
+    filho = spawn('bash', ['-c', cfg.comando], { cwd: pasta, env: { ...process.env, PORT: String(porta), HOST: '127.0.0.1' }, detached: true, stdio: ['ignore', 'inherit', 'inherit'] });
+    let saiu = null;
+    filho.on('exit', (c) => (saiu = c));
+    const limite = Date.now() + Number(process.env.NIVOO_PREVIA_ESPERA_SEG || 180) * 1000;
+    while (!(await responde())) {
+      if (saiu !== null) {
+        console.error(`nivoo-conferir-telas: o sistema parou antes de responder (código ${saiu})`);
+        process.exit(1);
+      }
+      if (Date.now() > limite) {
+        console.error(`nivoo-conferir-telas: o sistema não respondeu na porta ${porta}`);
+        process.exit(1);
+      }
+      await new Promise((ok) => setTimeout(ok, 700));
+    }
+  }
+  const telas = Array.isArray(cfg.telas) && cfg.telas.length ? cfg.telas.map(String) : [String(cfg.caminho || '/')];
+  const rodar = (prog, args) => new Promise((ok) => spawn(path.join(ferramentas, prog), args, { stdio: 'inherit', cwd: raiz, env: process.env }).on('exit', (c) => ok(c ?? 1)));
+  let falhou = false;
+  if ((await rodar('nivoo-fotos', [base, ...telas, '--exigir-sem-erros'])) !== 0) falhou = true;
+  const dirRoteiros = path.join(raiz, 'nivoo-roteiros');
+  const roteiros = fs.existsSync(dirRoteiros) ? fs.readdirSync(dirRoteiros).filter((f) => f.endsWith('.json')).map((f) => path.join('nivoo-roteiros', f)) : [];
+  if (roteiros.length && (await rodar('nivoo-roteiro', [base, ...roteiros])) !== 0) falhou = true;
+  if (!roteiros.length) console.log('nivoo-conferir-telas: sem roteiros de interação (nivoo-roteiros/*.json)');
+  desligar();
+  process.exit(falhou ? 1 : 0);
+})().catch((e) => {
+  console.error(`nivoo-conferir-telas: falhou: ${e?.message ?? e}`);
+  desligar();
+  process.exit(4);
+});
