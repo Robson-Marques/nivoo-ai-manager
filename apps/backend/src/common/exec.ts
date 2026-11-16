@@ -182,7 +182,9 @@ export const TEXTO_FOTOS = [
   '  nivoo-fotos http://127.0.0.1:$NIVOO_PORTA_TESTE / /outra-tela --exigir-sem-erros',
   '  que tira foto de cada tela no computador e no celular (out/telas/*.png + relatorio.md) e FALHA se houver erro de script ou',
   '  no console, arquivo que não carrega, tela em branco ou página mais larga que o celular. Em site/sistema com tela, use nas',
-  '  etapas que mexem no visual. Na sessão seguinte, a IA ABRE as fotos e corrige o que estiver feio, cortado ou desalinhado.',
+  '  etapas que mexem no visual. Na sessão seguinte, a IA ABRE as fotos e corrige o que estiver feio, cortado ou desalinhado,',
+  '  seguindo as regras de interface do modelo do projeto (contexto/base/; no Studio Workflow, a disciplina de interface).',
+  '  --sem-emoji-em-controles também falha com emoji usado como botão/ícone (regra do Studio Workflow: emoji não é ícone de UI).',
 ];
 
 export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {

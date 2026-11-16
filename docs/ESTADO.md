@@ -190,6 +190,11 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * **Erro pego pelo ensaio real e corrigido**: as IAs punham "aprovação manual do visual" e o trabalho ficava esperando
   o clique do usuário (a regra do plano mandava usar aprovação manual para "estética"). Agora aprovação manual só quando
   o usuário pede; visual é conferido pelas fotos e pela revisão.
+* As fotos são conferidas CONTRA as regras de interface do modelo do projeto (no Studio Workflow, a disciplina
+  "Composição e integridade de interface", `doctrine/disciplines/visual-interface-quality.md`). Checagens automáticas
+  extras: acentos quebrados ("SÃ£o" — falta `<meta charset="utf-8">`) e, com `--sem-emoji-em-controles`, emoji usado
+  como botão/ícone (regra do Studio). O que depende de interação (foco, digitação, teclado) não aparece em foto: fica
+  para os testes do projeto e a revisão.
 * Testes: `32` (ciclo página larga → corrige → passa) e real `real-09` — Claude e ChatGPT reais corrigiram um site
   quebrado no celular, planejando sozinhos a conferência com `nivoo-fotos`, e concluíram sem pedir nada.
 

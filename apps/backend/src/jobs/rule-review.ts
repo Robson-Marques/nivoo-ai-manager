@@ -30,6 +30,8 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
       '2. Examine TODAS as mudanças listadas em "Mudanças feitas por este trabalho" e os arquivos alterados. Se existir out/telas/',
       '   (fotos das telas tiradas pela conferência, computador e celular), ABRA as fotos: layout quebrado, texto cortado ou',
       '   sobreposto, botão fora do lugar, tela em branco ou que não cabe no celular é violação (diga qual tela e o que está errado).',
+      '   Confira as fotos CONTRA as regras de interface do modelo do projeto, quando houver (em contexto/base/, ex.: no Studio',
+      '   Workflow, doctrine/disciplines/visual-interface-quality.md: composição, densidade, cortes, camadas, estados, ícones).',
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho. Sobra para apagar (código morto, arquivo esquecido):',

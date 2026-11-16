@@ -2,11 +2,12 @@
 /**
  * nivoo-fotos — fotos das telas de um sistema rodando, para a conferência (sem a IA navegar).
  *
- * uso: nivoo-fotos <endereço-base> [caminho ...] [--pasta out/telas] [--exigir-sem-erros] [--esperar <ms>]
+ * uso: nivoo-fotos <endereço-base> [caminho ...] [--pasta out/telas] [--exigir-sem-erros] [--sem-emoji-em-controles] [--esperar <ms>]
  *   ex.: nivoo-fotos http://127.0.0.1:$NIVOO_PORTA_TESTE / /pedidos /contato --exigir-sem-erros
  *
  * Para cada caminho, tira foto no tamanho de computador (1366×900) e de celular (390×844), e registra: erros do
- * console, erros de script, arquivos que não carregaram (4xx/5xx), tela em branco e rolagem para o lado no celular.
+ * console, erros de script, arquivos que não carregaram (4xx/5xx), tela em branco, rolagem para o lado no celular e
+ * acentos quebrados (codificação); com --sem-emoji-em-controles, emoji usado como botão/ícone.
  * Grava as fotos e o relatório (relatorio.md e relatorio.json) na pasta (padrão out/telas — vira resultado do
  * trabalho; a IA abre as fotos na sessão seguinte). Com --exigir-sem-erros, sai com erro se achar algum problema.
  */
@@ -24,6 +25,8 @@ const opcao = (nome, padrao) => {
 };
 const exigir = args.includes('--exigir-sem-erros');
 if (exigir) args.splice(args.indexOf('--exigir-sem-erros'), 1);
+const semEmoji = args.includes('--sem-emoji-em-controles');
+if (semEmoji) args.splice(args.indexOf('--sem-emoji-em-controles'), 1);
 const pasta = opcao('--pasta', 'out/telas');
 const esperar = Number(opcao('--esperar', '600'));
 const [base, ...caminhosBrutos] = args;
@@ -60,7 +63,7 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
     for (const t of TAMANHOS) {
       const ctx = await navegador.newContext({ viewport: t.viewport, isMobile: t.isMobile, hasTouch: t.isMobile, deviceScaleFactor: 1 });
       const pagina = await ctx.newPage();
-      const r = { caminho, tamanho: t.nome, foto: '', status: null, errosDoConsole: [], errosDeScript: [], naoCarregou: [], emBranco: false, rolagemParaOLado: false };
+      const r = { caminho, tamanho: t.nome, foto: '', status: null, errosDoConsole: [], errosDeScript: [], naoCarregou: [], emBranco: false, rolagemParaOLado: false, emojiEmControles: [], acentosQuebrados: '' };
       pagina.on('console', (m) => m.type() === 'error' && r.errosDoConsole.push(m.text().slice(0, 300)));
       pagina.on('pageerror', (e) => r.errosDeScript.push(String(e.message).slice(0, 300)));
       pagina.on('response', (resp) => {
@@ -78,6 +81,19 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
           imagens: document.images.length + document.querySelectorAll('canvas,svg,video').length,
         }));
         r.rolagemParaOLado = t.isMobile && medidas.largura > medidas.janela + 1;
+        // Acentos quebrados ("Ã§", "Ã£"…): texto em UTF-8 lido como outra codificação (falta <meta charset="utf-8">).
+        r.acentosQuebrados = await pagina.evaluate(() => {
+          const m = /\S*Ã[\u0080-\u00BF§£©¡³ªº\u00A0-\u00BF]\S*/.exec(document.body?.innerText ?? '');
+          return m ? m[0].slice(0, 40) : '';
+        });
+        // Emoji em botão, link, menu ou navegação (no Studio Workflow, emoji não é ícone de UI).
+        r.emojiEmControles = await pagina.evaluate(() => {
+          const emoji = /\p{Extended_Pictographic}/u;
+          return [...document.querySelectorAll('button, a, [role=button], [role=menuitem], [role=tab], nav *, label, summary')]
+            .filter((el) => emoji.test(el.textContent || '') && el.children.length === 0)
+            .slice(0, 10)
+            .map((el) => `${el.tagName.toLowerCase()}: "${(el.textContent || '').trim().slice(0, 40)}"`);
+        });
         r.emBranco = medidas.texto === 0 && medidas.imagens === 0;
         const altura = await pagina.evaluate(() => Math.min(document.documentElement.scrollHeight, 4000));
         r.foto = path.join(pasta, `${nomeDe(caminho)}-${t.nome}.png`);
@@ -100,6 +116,8 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
     for (const e of [...new Set(r.naoCarregou)]) problemas.push(`${onde}: não carregou: ${e}`);
     if (r.emBranco) problemas.push(`${onde}: tela em branco (sem texto nem imagem)`);
     if (r.rolagemParaOLado) problemas.push(`${onde}: a página é mais larga que o celular (rolagem para o lado)`);
+    if (r.acentosQuebrados) problemas.push(`${onde}: acentos aparecem quebrados ("${r.acentosQuebrados}") — falta <meta charset="utf-8"> ou o servidor manda outra codificação`);
+    if (semEmoji) for (const e of r.emojiEmControles) problemas.push(`${onde}: emoji usado como ícone/controle (${e}) — use ícone semântico ou texto`);
   }
   fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({ base, resultados, problemas }, null, 2));
   fs.writeFileSync(
