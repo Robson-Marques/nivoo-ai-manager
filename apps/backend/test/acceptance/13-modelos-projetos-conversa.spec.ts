@@ -386,11 +386,17 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(prompt).toContain('CONV-MEM-5'); // memória do projeto
     expect(prompt).not.toContain('guarde isso por favor'); // histórico da outra conversa não vem junto
 
-    // Arquivar: some da lista principal, aparece nas arquivadas, não aceita mensagem até desarquivar.
+    // Arquivar: some da lista principal, aparece em "Arquivados" (tudo num lugar só, com o projeto de cada conversa),
+    // não aceita mensagem até desarquivar.
     await h.http().patch(`/api/projects/${p.id}/conversations/${c1.id}`).send({ archived: true, title: 'Marca' }).expect(200);
     expect((await h.http().get(`/api/projects/${p.id}/conversations`)).body.map((c: any) => c.id)).toEqual([c2.id]);
-    const arq = (await h.http().get(`/api/projects/${p.id}/conversations?arquivadas=1`)).body;
-    expect(arq.map((c: any) => [c.id, c.title])).toEqual([[c1.id, 'Marca']]);
+    const tudo = (await h.http().get('/api/arquivados').expect(200)).body;
+    expect(tudo.conversas.filter((c: any) => c.project.id === p.id).map((c: any) => [c.id, c.title])).toEqual([[c1.id, 'Marca']]);
+    // "+" do menu reaproveita a conversa nova ainda vazia (sem acumular "Nova conversa" em branco).
+    const vazia = (await h.http().post(`/api/projects/${p.id}/conversations`).send({ reaproveitarVazia: true }).expect(201)).body;
+    expect((await h.http().post(`/api/projects/${p.id}/conversations`).send({ reaproveitarVazia: true }).expect(201)).body.id).toBe(vazia.id);
+    expect(vazia.id).not.toBe(c2.id); // a que já tem mensagem não é reaproveitada
+    await h.http().delete(`/api/projects/${p.id}/conversations/${vazia.id}`).expect(200);
     await h.http().post(`/api/projects/${p.id}/conversations/${c1.id}/messages`).send({ content: 'oi' }).expect(409);
     await h.http().patch(`/api/projects/${p.id}/conversations/${c1.id}`).send({ archived: false }).expect(200);
 
@@ -402,7 +408,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     // Projeto arquivado sai da lista principal e volta ao desarquivar.
     await h.http().patch(`/api/projects/${p.id}`).send({ archived: true }).expect(200);
     expect((await h.http().get('/api/projects')).body.some((x: any) => x.id === p.id)).toBe(false);
-    expect((await h.http().get('/api/projects?arquivados=1')).body.map((x: any) => x.id)).toContain(p.id);
+    expect((await h.http().get('/api/arquivados')).body.projetos.some((x: any) => x.id === p.id)).toBe(true);
     await h.http().patch(`/api/projects/${p.id}`).send({ archived: false }).expect(200);
     expect((await h.http().get('/api/projects')).body.some((x: any) => x.id === p.id)).toBe(true);
     ctl('mode', null);

@@ -88,10 +88,10 @@ export class ProjectsService {
     return id;
   }
 
-  /** Projetos ativos (arquivados só com `arquivados=1`). */
-  list(archived = false) {
+  /** Projetos ativos (os arquivados ficam em GET /arquivados). */
+  list() {
     return this.prisma.project.findMany({
-      where: { archivedAt: archived ? { not: null } : null },
+      where: { archivedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { area: { select: { id: true, slug: true, name: true } } },
     });

@@ -12,7 +12,7 @@ import { LoginSessionsService } from './accounts/login-sessions.service';
 import { AreasService } from './areas/areas.service';
 import { AreasController } from './areas/areas.controller';
 import { GitController } from './git/git.controller';
-import { ConversationsController } from './conversations/conversations.controller';
+import { ArquivadosController, ConversationsController } from './conversations/conversations.controller';
 import { MemoryController } from './memory/memory.controller';
 import { ProjectsController } from './projects/projects.controller';
 import { SystemController } from './system/system.controller';
@@ -21,7 +21,7 @@ import { PreviaService } from './previa/previa.service';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AccountsController, AreasController, GitController, ConversationsController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
+  controllers: [AccountsController, AreasController, GitController, ConversationsController, ArquivadosController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
   providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService, PreviaService],
 })
 export class AppModule implements OnModuleInit {

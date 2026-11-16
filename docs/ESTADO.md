@@ -193,6 +193,19 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Menu de projetos: "+" na linha do projeto e "Arquivados" no rodapé (2026-11-16)
+
+* Pedido do usuário: os links soltos "conversas arquivadas" (dentro do projeto) e "projetos arquivados" (no fim da lista)
+  e o "+ Nova conversa" em texto deixavam o menu bagunçado.
+* Agora: o projeto aberto mostra só as conversas ativas, recuadas; o **"+"** (ícone Tabler, MIT) na linha do projeto abre
+  uma conversa nova — e, se já há uma "Nova conversa" vazia, abre essa (`reaproveitarVazia`), sem acumular conversas em
+  branco. **"Arquivados"** é um botão só, no rodapé do menu: abre uma janela com projetos e conversas arquivadas (Abrir,
+  Desarquivar e, na conversa, Excluir). Projeto arquivado aberto aparece no topo do menu como "Arquivado (aberto)"; a tela
+  do projeto acompanha quando ele é desarquivado pela janela.
+* API: `GET /arquivados` substitui `?arquivados=1` (projetos) e `?arquivadas=1` (conversas), removidos por completo.
+* Testes: `13` (lista de arquivados, "+" reaproveitando a conversa vazia) e tela (`chat-smoke`: "+", janela Arquivados
+  com desarquivar e excluir, projeto arquivado; fotos `9-arquivados`, `9d-menu-projetos`, `9e-projeto-arquivado`).
+
 ## Telas no padrão do próprio sistema (2026-11-16)
 
 * **Caso real (ctrl-leads)**: a IA criou "Atendimento e retenção" como um cartão largo solto na aba Integrações (conteúdo

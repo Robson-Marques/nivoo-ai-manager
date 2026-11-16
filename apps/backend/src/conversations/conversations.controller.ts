@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Res } from '@nestjs/common';
 import * as path from 'node:path';
 import { TIPOS_IMAGEM } from './attachments';
 import { ConversationsService } from './conversations.service';
@@ -8,8 +8,8 @@ export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get()
-  list(@Param('pid', ParseUUIDPipe) pid: string, @Query('arquivadas') arquivadas?: string) {
-    return this.conversations.list(pid, arquivadas === '1');
+  list(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.conversations.list(pid);
   }
 
   @Post()
@@ -56,5 +56,16 @@ export class ConversationsController {
   @Post(':cid/messages/:mid/approve')
   approve(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string, @Param('mid', ParseUUIDPipe) mid: string, @Body() body: any) {
     return this.conversations.approve(pid, cid, mid, body);
+  }
+}
+
+/** Projetos e conversas arquivados de todos os projetos (o botão "Arquivados" do menu). */
+@Controller('arquivados')
+export class ArquivadosController {
+  constructor(private readonly conversations: ConversationsService) {}
+
+  @Get()
+  list() {
+    return this.conversations.arquivados();
   }
 }

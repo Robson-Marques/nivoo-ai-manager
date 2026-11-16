@@ -37,10 +37,10 @@ export class ConversationsService {
     return c;
   }
 
-  /** Conversas do projeto, mais recentes primeiro (arquivadas só com `arquivadas=1`). */
-  list(projectId: string, archived = false) {
+  /** Conversas ativas do projeto, mais recentes primeiro (as arquivadas ficam em GET /arquivados). */
+  list(projectId: string) {
     return this.prisma.conversation.findMany({
-      where: { projectId, archivedAt: archived ? { not: null } : null },
+      where: { projectId, archivedAt: null },
       orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { messages: true } } },
     });
@@ -48,7 +48,26 @@ export class ConversationsService {
 
   async create(projectId: string, body: any) {
     if (!(await this.prisma.project.findUnique({ where: { id: projectId } }))) throw new NotFoundException('Projeto não encontrado');
+    // "+" do menu: se já há uma conversa nova ainda vazia, abre ela (sem acumular várias "Nova conversa" em branco).
+    if (body?.reaproveitarVazia === true) {
+      const vazia = await this.prisma.conversation.findFirst({ where: { projectId, archivedAt: null, title: TITULO_PADRAO, messages: { none: {} } }, orderBy: { updatedAt: 'desc' } });
+      if (vazia) return this.prisma.conversation.update({ where: { id: vazia.id }, data: { updatedAt: new Date() } });
+    }
     return this.prisma.conversation.create({ data: { projectId, title: optString(body, 'title', 200) ?? TITULO_PADRAO } });
+  }
+
+  /** Tudo o que está arquivado, num lugar só (botão "Arquivados" no rodapé do menu): projetos e conversas. */
+  async arquivados() {
+    const [projetos, conversas] = await Promise.all([
+      this.prisma.project.findMany({ where: { archivedAt: { not: null } }, orderBy: { archivedAt: 'desc' }, select: { id: true, name: true, archivedAt: true, area: { select: { name: true } } } }),
+      this.prisma.conversation.findMany({
+        where: { archivedAt: { not: null } },
+        orderBy: { archivedAt: 'desc' },
+        take: 500,
+        select: { id: true, title: true, archivedAt: true, project: { select: { id: true, name: true, archivedAt: true } } },
+      }),
+    ]);
+    return { projetos, conversas };
   }
 
   async get(projectId: string, conversationId: string) {

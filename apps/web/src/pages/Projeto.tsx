@@ -235,7 +235,7 @@ function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId
 export function Projeto() {
   const { pid, cid } = useParams();
   const nav = useNavigate();
-  const { recarregar, recarregarConversas } = useProjetos();
+  const { recarregar, recarregarConversas, projetos } = useProjetos();
   const [projeto, setProjeto] = useState<any>(null);
   // Painel da direita (Memória, Arquivos, Git, Ajustes): aberto/fechado e a aba ficam lembrados neste navegador.
   const [painel, setPainelBruto] = useState(() => lerPreferencia('nivoo_painel', '1') === '1');
@@ -254,6 +254,10 @@ export function Projeto() {
     setProjeto(null);
     carregar().catch(() => undefined);
   }, [carregar]);
+  // A lista do menu mudou (ex.: projeto desarquivado pela janela "Arquivados"): a tela do projeto acompanha.
+  useEffect(() => {
+    if (projetos) carregar().catch(() => undefined);
+  }, [projetos, carregar]);
   // Sem conversa na rota: abre a mais recente ou começa uma nova.
   useEffect(() => {
     if (cid || !pid) return;

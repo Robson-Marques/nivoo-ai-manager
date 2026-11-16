@@ -12,8 +12,8 @@ export class ProjectsController {
   ) {}
 
   @Get()
-  list(@Query('arquivados') arquivados?: string) {
-    return this.projects.list(arquivados === '1');
+  list() {
+    return this.projects.list();
   }
 
   @Post()

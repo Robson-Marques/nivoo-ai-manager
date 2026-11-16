@@ -70,12 +70,40 @@ textarea { resize: vertical; line-height: 1.5; }
 .chat-side .novo { width: 100%; padding: 10px; font-size: 14px; }
 .proj-list { flex: 1; overflow: auto; }
 .proj-list .grupo { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #8d96a8; margin: 12px 6px 4px; }
-.proj-list .proj { display: block; padding: 7px 8px; border-radius: 6px; color: #cfd6e4; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.proj-list .proj:hover { background: rgba(255,255,255,.06); }
-.proj-list .proj.on { background: rgba(255,255,255,.12); color: #fff; }
+/* Linha do projeto: nome + "+" (nova conversa), que aparece na linha aberta, ao passar o mouse ou com o teclado. */
+.proj-linha { display: flex; align-items: center; gap: 2px; border-radius: 6px; padding-right: 4px; }
+.proj-linha:hover { background: rgba(255,255,255,.06); }
+.proj-linha.on { background: rgba(255,255,255,.12); }
+.proj-list .proj { display: block; flex: 1; min-width: 0; padding: 7px 8px; color: #cfd6e4; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-linha.on .proj { color: #fff; font-weight: 600; }
+.proj-linha.arquivado .proj { font-style: italic; color: #8d96a8; }
+.proj-acao { all: unset; cursor: pointer; flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 6px; color: #8d96a8; visibility: hidden; }
+.proj-linha:hover .proj-acao, .proj-linha.on .proj-acao, .proj-acao:focus-visible { visibility: visible; }
+.proj-acao:hover { background: rgba(255,255,255,.12); color: #fff; }
+.proj-acao:focus-visible { outline: 2px solid #9fb4e6; outline-offset: -2px; }
 .side-foot { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 8px; }
 .side-foot a { color: #8d96a8; font-size: 12px; padding: 3px 6px; text-decoration: none; }
 .side-foot a:hover, .side-foot a.active { color: #fff; }
+.side-foot .side-botao { all: unset; cursor: pointer; display: flex; align-items: center; gap: 6px; color: #8d96a8; font-size: 12px; padding: 3px 6px; border-radius: 6px; }
+.side-foot .side-botao:hover { color: #fff; }
+.side-foot .side-botao:focus-visible { outline: 2px solid #9fb4e6; }
+.side-foot .side-botao svg { width: 14px; height: 14px; }
+/* Arquivados (janela): projetos e conversas, cada um com Abrir / Desarquivar (/ Excluir). */
+.modal.arquivados { width: 640px; gap: 4px; }
+.arq-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.arq-topo h2 { font-size: 17px; }
+.modal.arquivados h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 12px 0 2px; }
+.arq-item { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.arq-item:last-child { border-bottom: 0; }
+.arq-nome { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.arq-nome b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arq-nome span { font-size: 12px; color: var(--muted); }
+.arq-item button { flex: none; padding: 6px 10px; font-size: 13px; }
+.arq-item .link.perigo { color: var(--bad); padding: 6px 4px; }
+@media (max-width: 560px) {
+  .arq-item { flex-wrap: wrap; }
+  .arq-nome { flex-basis: 100%; }
+}
 .chat-main { min-width: 0; min-height: 0; display: flex; }
 .chat-vazio { margin: auto; text-align: center; max-width: 440px; padding: 16px; }
 .conversa { flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }
@@ -188,22 +216,16 @@ textarea { resize: vertical; line-height: 1.5; }
 
 /* Conversas do projeto na lateral */
 .conversas { margin: 2px 0 8px 10px; padding-left: 6px; border-left: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; gap: 1px; }
-.nova-conversa { background: none; color: #9fb4e6; text-align: left; padding: 4px 6px; font-size: 12px; }
 .conversa-item { position: relative; display: flex; align-items: center; border-radius: 6px; }
 .conversa-item a { flex: 1; min-width: 0; color: #b8c0d0; font-size: 12px; padding: 5px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: none; }
 .conversa-item:hover, .conversa-item.on { background: rgba(255,255,255,.08); }
 .conversa-item.on a { color: #fff; }
-.conversa-item.arquivada a { font-style: italic; color: #8d96a8; }
 .conversa-item .mais { background: none; color: #8d96a8; padding: 0 6px; font-size: 14px; visibility: hidden; }
 .conversa-item:hover .mais, .conversa-item.on .mais { visibility: visible; }
 .menu-conversa { position: absolute; right: 0; top: 100%; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 130px; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .menu-conversa button { background: none; color: var(--text); text-align: left; padding: 6px 10px; font-size: 13px; }
 .menu-conversa button:hover { background: var(--accent-soft); }
 .menu-conversa .perigo { color: var(--bad); }
-.chat-side .link.mini { color: #8d96a8; font-size: 11px; text-align: left; padding: 4px 6px; text-decoration: none; }
-.chat-side .link.mini:hover { color: #fff; }
-.mini.muted-side { color: #6b7385; font-size: 11px; padding: 0 6px; }
-.proj.arquivado { font-style: italic; color: #8d96a8; }
 .titulo-conversa { margin-top: 2px; }
 .arquivada-aviso { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 0 auto 16px; }
 .conta-opcao { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }

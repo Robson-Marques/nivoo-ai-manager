@@ -342,25 +342,45 @@ const plano = {
     const primeira = page.locator('.conversa-item.on');
     await primeira.waitFor();
     if (!(await primeira.innerText()).includes('Quero o cardápio')) throw new Error('a conversa não ganhou o título da primeira mensagem');
-    await page.getByRole('button', { name: '+ Nova conversa' }).click();
+    // "+" na linha do projeto abre uma conversa nova; clicar de novo reaproveita a que ainda está vazia.
+    const linhaProjeto = page.locator('.proj-linha.on');
+    await linhaProjeto.getByRole('button', { name: /Nova conversa em/ }).click();
     await page.getByText(/Nova conversa\. A IA já conhece/).waitFor();
+    const urlNova = page.url();
+    await linhaProjeto.getByRole('button', { name: /Nova conversa em/ }).click();
+    await page.waitForTimeout(500);
+    if (page.url() !== urlNova) throw new Error('o "+" criou outra conversa em branco em vez de abrir a vazia');
+    if ((await page.locator('.conversa-item', { hasText: 'Nova conversa' }).count()) !== 1) throw new Error('mais de uma "Nova conversa" em branco no menu');
     await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).hover();
     await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).getByRole('button', { name: /Opções/ }).click();
     await page.getByRole('button', { name: 'Arquivar', exact: true }).click();
     await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).waitFor({ state: 'detached' });
-    await page.getByRole('button', { name: 'conversas arquivadas' }).click();
-    const arquivada = page.locator('.conversa-item.arquivada', { hasText: 'Quero o cardápio' });
+    // Arquivados: um botão só, no rodapé do menu; abre a janela com projetos e conversas arquivadas.
+    if ((await page.locator('.chat-side').getByText(/arquivad/i).count()) !== 1) throw new Error('sobrou link de arquivados solto no menu');
+    await page.locator('.side-foot').getByRole('button', { name: 'Arquivados' }).click();
+    const janela = page.getByRole('dialog', { name: 'Arquivados' });
+    const arquivada = janela.locator('.arq-item', { hasText: 'Quero o cardápio' });
     await arquivada.waitFor();
-    await shot(page, '9-conversas-arquivadas');
-    await arquivada.hover();
-    await arquivada.getByRole('button', { name: /Opções/ }).click();
-    page.once('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+    await shot(page, '9-arquivados');
+    await arquivada.getByRole('button', { name: 'Desarquivar' }).click();
     await arquivada.waitFor({ state: 'detached' });
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).waitFor(); // voltou para o menu
+    await janela.getByText(/Nada arquivado/).waitFor();
+    await janela.getByRole('button', { name: 'Fechar' }).click();
+    // Arquiva de novo e exclui pela janela.
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).hover();
+    await page.locator('.conversa-item', { hasText: 'Quero o cardápio' }).getByRole('button', { name: /Opções/ }).click();
+    await page.getByRole('button', { name: 'Arquivar', exact: true }).click();
+    await page.locator('.side-foot').getByRole('button', { name: 'Arquivados' }).click();
+    page.once('dialog', (d) => d.accept());
+    await janela.getByRole('button', { name: /Excluir a conversa Quero o cardápio/ }).click();
+    await janela.getByText(/Nada arquivado/).waitFor();
+    await janela.getByRole('button', { name: 'Fechar' }).click();
+    await shot(page, '9d-menu-projetos');
     passo('nova conversa, conversa arquivada e excluída');
 
-    // Anexos no chat: imagem (miniatura) e documento Word (vira texto para a IA).
-    await page.getByRole('button', { name: '+ Nova conversa' }).click();
+    // Anexos no chat: imagem (miniatura) e documento Word (vira texto para a IA). O "+" abre a conversa vazia que já existe.
+    await page.locator('.proj-linha.on').getByRole('button', { name: /Nova conversa em/ }).click();
     fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
     fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n{"tipo":"resposta","texto":"Recebi a foto e o documento.","memoria":[]}\n```');
     const png = path.join(tmp, 'foto.png');
@@ -417,6 +437,22 @@ with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:d
     if (!/Permitido por .* e executado em Produção .*ola-smoke/.test(saidaMcp)) throw new Error(`a IA não recebeu a saída do comando permitido: ${saidaMcp.slice(-300)}`);
     await fetch(`${base}/api/ssh/servidores/${srv.id}`, { method: 'DELETE' });
     passo('servidor SSH cadastrado (chave do Nivoo), testado; comando da IA só rodou depois do "Permitir" na conversa');
+
+    // Projeto arquivado: sai do grupo e aparece em "Arquivados"; aberto, fica no menu como "Arquivado"; desarquivar traz de volta.
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    await page.getByRole('button', { name: 'Arquivar projeto' }).click();
+    await page.locator('.proj-linha.arquivado', { hasText: nome }).waitFor();
+    await page.locator('.side-foot').getByRole('button', { name: 'Arquivados' }).click();
+    const janelaProjetos = page.getByRole('dialog', { name: 'Arquivados' });
+    const projetoArquivado = janelaProjetos.locator('.arq-item', { hasText: nome });
+    await projetoArquivado.waitFor();
+    await shot(page, '9e-projeto-arquivado');
+    await projetoArquivado.getByRole('button', { name: 'Desarquivar' }).click();
+    await projetoArquivado.waitFor({ state: 'detached' });
+    await janelaProjetos.getByRole('button', { name: 'Fechar' }).click();
+    await page.locator('.proj-linha:not(.arquivado)', { hasText: nome }).waitFor();
+    await page.getByRole('button', { name: 'Arquivar projeto' }).waitFor(); // a tela do projeto acompanhou
+    passo('projeto arquivado aparece em "Arquivados" (e no menu enquanto aberto); desarquivar traz de volta');
 
     // 6. Excluir o projeto
     page.once('dialog', (d) => d.accept(nome));

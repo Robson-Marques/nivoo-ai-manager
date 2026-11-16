@@ -61,7 +61,7 @@ Lista de conexões em `conexoes.json`; credenciais em `segredos.json` (permissã
 
 | Método | Rota | Função |
 |---|---|---|
-| GET | `/projects` | Lista projetos ativos (com o modelo); `?arquivados=1` lista os arquivados. |
+| GET | `/projects` | Lista projetos ativos (com o modelo). Os arquivados ficam em `GET /arquivados`. |
 | POST | `/projects` | `{ "name", "description"?, "base"? (slug do modelo; padrão `geral`), "provider"? (id de uma conexão de IA; padrão: a conexão padrão), "rules"?, "author"? }`. A descrição vira memória ESPECIFICACAO; `rules` vira a versão 1 das regras do projeto. |
 | GET | `/projects/:pid` | Projeto com regras vigentes, arquivos de conhecimento e `custoGastoUsd` (trabalhos + conversa). |
 | PATCH | `/projects/:pid` | `{ "name"?, "description"?, "provider"?, "model"? (modelo da IA do projeto; `null` = padrão; guardado por IA em `aiModels`), "modeloDe"? (guardar o modelo de outro conector, ex.: `gemini-video`), "reserva"? (lista ordenada de conexões de IA reserva), "maxCostUsd"? (número ou `null`), "archived"? (true/false) }`. |
@@ -116,7 +116,8 @@ Categorias: `ESPECIFICACAO`, `ARQUITETURA_RESTRICOES`, `DECISAO_APROVADA`, `EVID
 
 | Método | Rota | Função |
 |---|---|---|
-| GET / POST | `/projects/:pid/conversations` | Lista as conversas ativas (`?arquivadas=1` para as arquivadas) / cria conversa `{ "title"? }` (sem título: "Nova conversa", que vira o começo da primeira mensagem). Todas compartilham memória, regras, conhecimento e arquivos do projeto; o histórico enviado à IA é só o da conversa. |
+| GET / POST | `/projects/:pid/conversations` | Lista as conversas ativas (as arquivadas ficam em `GET /arquivados`) / cria conversa `{ "title"?, "reaproveitarVazia"? }` (sem título: "Nova conversa", que vira o começo da primeira mensagem; com `reaproveitarVazia: true`, o "+" do menu, devolve a conversa nova ainda vazia, se houver). Todas compartilham memória, regras, conhecimento e arquivos do projeto; o histórico enviado à IA é só o da conversa. |
+| GET | `/arquivados` | Tudo o que está arquivado (o botão "Arquivados" do menu): `{ projetos: [{ id, name, archivedAt, area }], conversas: [{ id, title, archivedAt, project: { id, name } }] }`. Desarquivar: `PATCH` do projeto ou da conversa com `{ "archived": false }`. |
 | PATCH | `/projects/:pid/conversations/:cid` | `{ "title"?, "archived"? }` — renomear / arquivar / desarquivar. Conversa arquivada não recebe mensagens (409). |
 | DELETE | `/projects/:pid/conversations/:cid` | Exclui a conversa (mensagens); para antes a resposta em andamento. Memória, arquivos e trabalhos do projeto continuam. |
 | POST | `/projects/:pid/conversations/:cid/cancel` | Para a resposta em andamento ("Pensando…"). |
