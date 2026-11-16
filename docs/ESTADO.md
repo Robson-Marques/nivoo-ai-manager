@@ -216,7 +216,9 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   itens assim na revisão) não vira pergunta; o título do arquivo sai.
 * Testes: `13` (mesma cobrança: 3 correções, a 2ª e a 3ª mudando a abordagem, e para; "Tentar de novo" recomeça; 7
   cobranças diferentes = 7 correções até concluir), `32` (rede lenta/erro, scripts .cjs/.mjs passando e falhando),
-  `unit/revisao-perguntas`, real `real-11` (troca de sessão com resposta atrasada, com a IA real).
+  `unit/revisao-perguntas`, real `real-11`: o ChatGPT (Codex) corrigiu a troca de sessão com resposta atrasada, planejou a
+  conferência com `nivoo-conferir-telas`, pôs o teste em `nivoo-roteiros/resposta-atrasada.cjs`, a revisão aprovou de
+  primeira e um roteiro independente com a resposta da Alfa atrasada 2,5 s passou na pasta principal (computador e celular).
 
 ## Leitura robusta da resposta da IA (2026-11-16)
 

@@ -1,0 +1,117 @@
+  console.log
+    PLANO: plano Identifiquei a causa: uma resposta atrasada atualiza a conversa sem conferir se ela ainda está aberta. Vou corrigir isso e comprovar que Beta continua mostrando somente suas mensagens mesmo depois de a resposta da Alfa chegar. ["npm test && nivoo-conferir-telas && test -s out/resposta-atrasada.md"]
+
+
+  console.log
+    TRABALHO Impedir mensagens de outra sessão após a troca: CONCLUIDO todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto
+
+
+  console.log
+      etapa corrigir [CONCLUIDO] () verify: npm test && nivoo-conferir-telas && test -s out/resposta-atrasada.md
+
+
+  console.log
+      etapa conferencia-regras [CONCLUIDO] (codex-cli) verify: python3 -c "import json,sys; d=json.load(open('out/conferencia-regras.json')); sys.exit(0 if isinstance(d.get('conforme'), bool) else 1)"
+
+
+  console.log
+      tentativa 1 SUCESSO
+
+
+  console.log
+      tentativa 1 SUCESSO
+
+
+  console.log
+    ENTREGA: A correção impede que respostas de sessões abertas anteriormente alterem a conversa atual.
+    
+    O sistema aprovou os nove testes e a conferência no navegador, em computador e celular. A resposta da Alfa foi retida até Beta aparecer; depois foi entregue e processada. Beta continuou mostrando somente suas próprias mensagens, com o título correto.
+    
+    Arquivos: app.js (correção), test/sessoes.test.cjs (testes), nivoo-roteiros/resposta-atrasada.cjs (comprovação no navegador) e nivoo-previa.json (configuração da prévia).
+    
+    Em Resultados, o relatório resposta-atrasada.md registra a sequência comprovada. As fotos telas-interativas/computador-03-beta-apos-alfa.png e telas-interativas/celular-03-beta-apos-alfa.png mostram Beta após a chegada da Alfa. A conferência independente também aprovou o cumprimento das regras. Não há pendências apontadas.
+
+
+  console.log
+    ROTEIROS NA MAIN: resposta-atrasada.cjs
+
+
+  console.log
+    --- resposta-atrasada.cjs
+    const { chromium } = require(process.env.NIVOO_PLAYWRIGHT);
+    const assert = require('node:assert/strict');
+    const fs = require('node:fs/promises');
+    const path = require('node:path');
+    
+    function sinal() {
+      let resolve;
+      const promise = new Promise(res => { resolve = res; });
+      return { promise, resolve };
+    }
+    
+    async function executar() {
+      assert.ok(process.env.NIVOO_BASE_URL, 'NIVOO_BASE_URL é obrigatório');
+      const saida = path.resolve(process.env.NIVOO_OUTPUT_DIR || 'out');
+      const fotos = path.join(saida, 'telas-interativas');
+      await fs.mkdir(fotos, { recursive: true });
+      const etapas = [];
+      const registrar = texto => etapas.push(`- ${new Date().toISOString()} — ${texto}`);
+      const browser = await chromium.launch({ args: ['--no-sandbox'] });
+      try {
+        for (const [tamanho, viewport] of [
+          ['computador', { width: 1280, height: 800 }],
+          ['celular', { width: 390, height: 844 }]
+        ]) {
+          const page = await browser.newPage({ viewport });
+          page.setDefaultTimeout(15000);
+          const erros = [];
+          page.on('pageerror', erro => erros.push(erro.message));
+          page.on('console', mensagem => { if (mensagem.type() === 'error') erros.push(mensagem.text()); });
+          const retida = sinal();
+          const liberar = sinal();
+          const entregue = sinal();
+          await page.route('**/api/mensagens?sessao=alfa', async route => {
+            try {
+              const resposta = await route.fetch();
+              assert.equal(resposta.status(), 200);
+              retida.resolve();
+              await liberar.promise;
+              await route.fulfill({ response: resposta });
+              entregue.resolve();
+            } catch (erro) {
+              retida.resolve({ erro: erro.message });
+              entregue.resolve({ erro: erro.message });
+            }
+          });
+          await page.goto(process.env.NIVOO_BASE_URL);
+          // Instrumentação somente no navegador de teste: observa a leitura do corpo
+          // e o término real de abrir, sem alterar a lógica de seleção do app.
+          await page.evaluate(() => {
+            window.prova = { corpos: [], concluidas: [] };
+            const fetchOriginal = window.fetch;
+            window.fetch = async (...args) => {
+              const resposta = await fetchOriginal(...args);
+              const jsonOriginal = resposta.json.bind(resposta);
+              resposta.json = async () => {
+                const dados = await jsonOriginal();
+                window.prova.corpos.push({ url: String(args[0]), dados });
+                return dados;
+              };
+              return resposta;
+
+
+  console.log
+    nivoo-roteiro: ok troca (computador)
+    nivoo-roteiro: ok troca (celular)
+
+
+PASS test/integration/real-11-resposta-atrasada.spec.ts (326.929 s)
+  REAL: resposta atrasada na troca de sessão é corrigida e comprovada (codex-cli)
+    ✓ troca de sessão com resposta atrasada (322432 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       1 passed, 1 total
+Snapshots:   0 total
+Time:        326.974 s
+Ran all test suites matching /test\/integration\/real-11-resposta-atrasada.spec.ts/i.
+EXIT 0
