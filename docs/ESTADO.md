@@ -242,6 +242,9 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   para clicar, "Outra" para escrever e "Enviar respostas" (só com todas respondidas), que vira a mensagem do usuário;
   depois de respondido, os cartões ficam marcados como respondidos. Coluna `ConversationMessage.perguntas` (migração
   `20261115160000_perguntas_com_opcoes`); validação em `normalizarPerguntas`.
+* **Perguntas e plano nunca juntos**: com pergunta que bloqueia, a IA responde só com as perguntas e manda o plano
+  depois das respostas; se ela mandar os dois, o sistema segura o plano ("Depois das suas respostas, eu mando o plano")
+  — antes aparecia um "Fazer" que ignorava as respostas. Teste em `31`.
 * Testes: `31` (validação), tela (`chat-smoke`, foto `7c-perguntas-com-opcoes`) e real `real-08` — Claude e ChatGPT
   reais perguntaram com cartões (texto curto, opções com a recomendada primeiro).
 

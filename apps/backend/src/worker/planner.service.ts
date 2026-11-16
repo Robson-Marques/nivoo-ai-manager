@@ -233,6 +233,13 @@ export class PlannerService {
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
       const perguntas = erro ? null : normalizarPerguntas(parsed?.perguntas);
+      // Perguntas e plano juntos: o plano espera as respostas (senão dá para clicar em "Fazer" antes de responder e o
+      // plano não leva as respostas em conta). A IA manda o plano de novo depois que o usuário responder.
+      if (perguntas && plan) {
+        plan = undefined;
+        kind = 'resposta';
+        content = `${content}\n\nDepois das suas respostas, eu mando o plano.`.trim();
+      }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
       const gravada = await this.prisma.conversationMessage.updateMany({
@@ -400,6 +407,8 @@ export class PlannerService {
       'acontece se escolher"}],"multipla":false}] — de 1 a 4 perguntas, cada uma com 2 a 4 opções; a recomendada PRIMEIRO, com',
       '" (recomendado)" no rótulo. A tela mostra cartões para o usuário clicar (e "Outra" para escrever). No "texto", diga só em uma',
       'frase que precisa das respostas — não repita as perguntas nem as opções no texto.',
+      'NUNCA mande "perguntas" e plano na mesma resposta: com pergunta que bloqueia, responda só com as perguntas (tipo "resposta") e',
+      'mande o plano depois das respostas (com "continuacao": true, ele começa sozinho). Se nada bloqueia, plano direto, sem perguntas.',
       'PERGUNTE POUCO: o que está claro no pedido, na conversa, na memória ou nos arquivos, faça. Decisão reversível com uma opção',
       'claramente melhor: decida, siga e conte o que decidiu. Pergunte só o que bloqueia e só o usuário sabe — com opções e a sua recomendação.',
       'Nunca peça ao usuário para fazer o que o sistema faz: rodar testes ou build (é a conferência das etapas), mexer em arquivos do',
@@ -512,8 +521,8 @@ export class PlannerService {
             '2) Onde está: os caminhos exatos dos arquivos principais (o usuário abre pela tela clicando neles).',
             '   Vídeo: o resultado é o vídeo COMPLETO (…-completo.mp4, com player e "baixar" na conversa); cite as cenas só como peças.',
             '3) SE FALTA PARTE DO PEDIDO do usuário (veja a conversa e o objetivo) e nada bloqueia: NÃO pare. Responda com',
-            '   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se uma parte depende de uma',
-            '   resposta do usuário, faça o plano do resto e pergunte só aquilo.',
+            '   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se falta uma resposta do',
+            '   usuário que bloqueia, NÃO mande plano: só as perguntas (tipo "resposta"); o plano vem depois que ele responder.',
             '4) Perguntas: SÓ o que bloqueia e só o usuário decide — no campo "perguntas" (cartões com opções). Nada de pedir para ele rodar',
             '   testes, build, comandos ou atualizar o servidor quando o sistema pode fazer isso (conferências e ferramenta SSH).',
             '   Se tudo foi feito e não há bloqueio: só o resumo, sem perguntas. Pedido totalmente concluído: {"tipo":"resposta"}.',

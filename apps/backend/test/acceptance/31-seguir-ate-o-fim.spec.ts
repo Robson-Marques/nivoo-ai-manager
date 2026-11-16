@@ -125,4 +125,22 @@ describe('Seguir até o fim', () => {
     ]);
     expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/PERGUNTAS COM OPÇÕES[\s\S]*"perguntas"/);
   });
+  it('perguntas e plano juntos: só as perguntas aparecem; o plano espera as respostas (nada começa sozinho)', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Espera respostas', provider: 'claude-code-cli' }).expect(201)).body;
+    const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    ctl('mode', 'texto');
+    ctl('resposta.txt', json({
+      tipo: 'plano', texto: 'Posso apagar o Caddy.', continuacao: true, job: parte('A'), memoria: [],
+      perguntas: [{ pergunta: 'Algum servidor usa o Caddy?', opcoes: ['Nenhum usa, pode apagar', 'Vou conferir'] }],
+    }));
+    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'limpe' }).expect(201);
+    const r = await waitFor(async () => (await mensagens(p.id, c.id)).find((m: any) => m.role === 'ASSISTENTE' && m.status === 'PRONTA') ?? null);
+    ctl('mode', null);
+    expect(r.kind).toBe('resposta');
+    expect(r.plan).toBeNull();
+    expect(r.perguntas).toHaveLength(1);
+    expect(r.content).toMatch(/Depois das suas respostas, eu mando o plano\./);
+    expect((await h.http().get(`/api/projects/${p.id}/jobs`)).body).toHaveLength(0);
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/NUNCA mande "perguntas" e plano na mesma resposta/);
+  });
 });
