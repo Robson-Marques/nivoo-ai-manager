@@ -177,6 +177,15 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Leitura robusta da resposta da IA (2026-11-16)
+
+* **Bug real (ctrl-leads)**: a entrega da v0.17.39 virou só "[A resposta da IA veio com o plano quebrado…]". O leitor
+  cortava o JSON no primeiro fechamento de bloco de código — e a entrega tinha um bloco de comandos do servidor DENTRO
+  do texto. Agora o JSON final é lido pela estrutura (chaves, aspas, escapes), do último bloco para trás; quebra de
+  linha/tabulação soltas e vírgula sobrando são consertadas; a resposta principal precisa ser `tipo` resposta/plano
+  (um item de memória não é confundido com ela). Sem conserto, o texto da resposta é recuperado e a resposta original
+  vai para o registro de erros (diagnóstico). Teste `unit/resposta-da-ia`.
+
 ## Ajustes de uso real: conferência visível, rolagem, prévia durante trabalho, limite da IA (2026-11-16)
 
 * **Conferência visível**: a conferência (instalar, testar, compilar) registra quando começa, a última linha da saída a
