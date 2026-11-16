@@ -20,7 +20,7 @@ import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
-import { TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { TEXTO_FOTOS, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { memoryLine, sortMemory } from './context-builder';
@@ -418,6 +418,7 @@ export class PlannerService {
       '  Teste que depende de algo que o servidor do Nivoo não tem (outro banco, outro serviço) fica de fora, e o "texto" diz qual.',
       ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : ['- Este servidor não oferece banco de teste: testes que precisam de PostgreSQL ficam de fora (diga quais).']),
       ...TEXTO_SISTEMA_RODANDO,
+      ...TEXTO_FOTOS,
       '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',
       '  "dev"/"start" são detectados; se o projeto liga de outro jeito (monorepo, outra pasta, comando próprio), inclua no plano',
       '  um nivoo-previa.json na raiz: {"tipo":"servidor","pasta":"apps/web","instalar":"pnpm install","comando":"pnpm dev --port $PORT","caminho":"/"}',
@@ -431,7 +432,9 @@ export class PlannerService {
       '  aprovados pelo verificador ficam na pasta principal e os próximos trabalhos os enxergam.',
       '- out/ é só para evidências e relatórios (viram artefatos com hash; não ficam na pasta principal).',
       '- Critérios: FILE_EXISTS {"path"}, COMMAND {"command"}, ARTIFACT_PRESENT {"name": arquivo em out/},',
-      '  METRIC_THRESHOLD {"artifact","path","op","value"}, MANUAL_APPROVAL {} (use para qualidade subjetiva, ex.: estética).',
+      '  METRIC_THRESHOLD {"artifact","path","op","value"}, MANUAL_APPROVAL {} (SÓ quando o usuário pediu para aprovar antes de',
+      '  concluir: ele trava o trabalho esperando o clique dele). Visual e usabilidade NÃO são aprovação manual: confira com as',
+      '  fotos das telas (nivoo-fotos) e a revisão independente abre as fotos.',
       '- Respeite o perfil do projeto (regras da base, regras do projeto, conhecimento) e a memória.',
       '- Não inclua etapa de revisão das regras: o sistema acrescenta sozinho uma conferência independente no fim.',
       '- No "texto" de um plano, explique em palavras simples o que será feito (sem falar de critérios, JSON ou comandos).',

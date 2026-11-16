@@ -70,7 +70,7 @@ describe('Ideias do ECC no Nivoo', () => {
     for (let i = 0; i < 40; i++) {
       await h.http().post(`/api/projects/${p.id}/memory`).send({ category: 'PENDENCIA', title: `nota-${i}`, content: `PENDENCIA-${i} ` + 'x'.repeat(400) }).expect(201);
     }
-    process.env.NIVOO_CONTEXT_MAX_CHARS = '6000';
+    process.env.NIVOO_CONTEXT_MAX_CHARS = '10000'; // pequeno de propósito: só parte da memória cabe
     const j = await run(p.id, {
       title: 'contexto', defaultProvider: 'claude-code-cli',
       steps: [{ key: 'a', instructions: 'trabalhe', verifyCommand: 'true' }],
@@ -84,7 +84,7 @@ describe('Ideias do ECC no Nivoo', () => {
     expect(prompt).not.toContain('PENDENCIA-0 ');
     const stats = (await h.prisma.attempt.findFirstOrThrow({ where: { jobId: j.id } })).contextStats as any;
     expect(stats.memoryOmitted).toBeGreaterThan(20);
-    expect(stats.budgetChars).toBe(6000);
+    expect(stats.budgetChars).toBe(10000);
     const wt = path.join(p.workspacePath, 'worktrees', j.id);
     const full = fs.readFileSync(path.join(wt, '.nivoo', 'memoria.md'), 'utf8');
     expect(full).toContain('PENDENCIA-0 ');

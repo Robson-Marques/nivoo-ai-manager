@@ -27,7 +27,9 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
     instructions: [
       'Você é um REVISOR independente. Você não fez este trabalho; confira-o com rigor.',
       '1. Leia o perfil do projeto (regras da base, regras do projeto, materiais em contexto/), a memória e o objetivo.',
-      '2. Examine TODAS as mudanças listadas em "Mudanças feitas por este trabalho" e os arquivos alterados.',
+      '2. Examine TODAS as mudanças listadas em "Mudanças feitas por este trabalho" e os arquivos alterados. Se existir out/telas/',
+      '   (fotos das telas tiradas pela conferência, computador e celular), ABRA as fotos: layout quebrado, texto cortado ou',
+      '   sobreposto, botão fora do lugar, tela em branco ou que não cabe no celular é violação (diga qual tela e o que está errado).',
       '3. Aponte cada violação: regra descumprida, algo fora do escopo, informação inventada, item pedido que faltou,',
       '   sobra deixada para trás (código morto, arquivo esquecido, documentação desatualizada).',
       '4. Corrija você mesmo as violações que puder, sem ampliar o trabalho. Sobra para apagar (código morto, arquivo esquecido):',

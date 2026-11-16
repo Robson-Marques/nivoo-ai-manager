@@ -177,6 +177,22 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Fotos das telas pela conferência (2026-11-15)
+
+* `apps/backend/bin/nivoo-fotos` (no PATH das conferências): com o sistema ligado, tira foto de cada tela pedida no
+  computador (1366×900) e no celular (390×844) e registra erro de script, erro no console, arquivo que não carrega
+  (4xx/5xx), tela em branco e página mais larga que o celular; grava `out/telas/*.png` + `relatorio.md`/`.json`
+  (resultados do trabalho; abrem como imagem na tela). `--exigir-sem-erros` faz a conferência falhar com o problema.
+  A IA não navega: a sessão seguinte é orientada a ABRIR as fotos e corrigir; a revisão independente abre as fotos e
+  trata visual quebrado como violação.
+* Navegador sem tela: `playwright-core` (dependência do backend) + Chromium instalado pelo `nivoo update` em
+  `/opt/nivoo/navegadores` (`PLAYWRIGHT_BROWSERS_PATH`). Sem ele, a conferência para na hora como problema do servidor.
+* **Erro pego pelo ensaio real e corrigido**: as IAs punham "aprovação manual do visual" e o trabalho ficava esperando
+  o clique do usuário (a regra do plano mandava usar aprovação manual para "estética"). Agora aprovação manual só quando
+  o usuário pede; visual é conferido pelas fotos e pela revisão.
+* Testes: `32` (ciclo página larga → corrige → passa) e real `real-09` — Claude e ChatGPT reais corrigiram um site
+  quebrado no celular, planejando sozinhos a conferência com `nivoo-fotos`, e concluíram sem pedir nada.
+
 ## Painéis recolhíveis e prévia do projeto em tela dividida (2026-11-15)
 
 * **Painéis**: a lista de projetos recolhe para a esquerda (faixa fina com ☰ e +); o painel Memória/Arquivos/Git/

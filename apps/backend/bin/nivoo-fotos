@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+/**
+ * nivoo-fotos — fotos das telas de um sistema rodando, para a conferência (sem a IA navegar).
+ *
+ * uso: nivoo-fotos <endereço-base> [caminho ...] [--pasta out/telas] [--exigir-sem-erros] [--esperar <ms>]
+ *   ex.: nivoo-fotos http://127.0.0.1:$NIVOO_PORTA_TESTE / /pedidos /contato --exigir-sem-erros
+ *
+ * Para cada caminho, tira foto no tamanho de computador (1366×900) e de celular (390×844), e registra: erros do
+ * console, erros de script, arquivos que não carregaram (4xx/5xx), tela em branco e rolagem para o lado no celular.
+ * Grava as fotos e o relatório (relatorio.md e relatorio.json) na pasta (padrão out/telas — vira resultado do
+ * trabalho; a IA abre as fotos na sessão seguinte). Com --exigir-sem-erros, sai com erro se achar algum problema.
+ */
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+
+const args = process.argv.slice(2);
+const opcao = (nome, padrao) => {
+  const i = args.indexOf(nome);
+  if (i < 0) return padrao;
+  const v = args[i + 1];
+  args.splice(i, 2);
+  return v;
+};
+const exigir = args.includes('--exigir-sem-erros');
+if (exigir) args.splice(args.indexOf('--exigir-sem-erros'), 1);
+const pasta = opcao('--pasta', 'out/telas');
+const esperar = Number(opcao('--esperar', '600'));
+const [base, ...caminhosBrutos] = args;
+if (!base || !/^https?:\/\//.test(base)) {
+  console.error('uso: nivoo-fotos <endereço-base http://…> [caminho ...] [--pasta out/telas] [--exigir-sem-erros] [--esperar <ms>]');
+  process.exit(2);
+}
+const caminhos = caminhosBrutos.length ? caminhosBrutos : ['/'];
+const TAMANHOS = [
+  { nome: 'computador', viewport: { width: 1366, height: 900 }, isMobile: false },
+  { nome: 'celular', viewport: { width: 390, height: 844 }, isMobile: true },
+];
+const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-').slice(0, 60) || 'inicio');
+
+(async () => {
+  let chromium;
+  try {
+    ({ chromium } = require('playwright-core'));
+  } catch {
+    console.error('nivoo-fotos: navegador sem tela não instalado neste servidor (playwright-core ausente). Rode "nivoo update".');
+    process.exit(3);
+  }
+  let navegador;
+  try {
+    navegador = await chromium.launch({ args: ['--no-sandbox'] });
+  } catch (e) {
+    console.error(`nivoo-fotos: navegador sem tela não abriu neste servidor (${String(e.message).split('\n')[0]}). Rode "nivoo update".`);
+    process.exit(3);
+  }
+  fs.mkdirSync(pasta, { recursive: true });
+  const origem = new URL(base).origin;
+  const resultados = [];
+  for (const caminho of caminhos) {
+    for (const t of TAMANHOS) {
+      const ctx = await navegador.newContext({ viewport: t.viewport, isMobile: t.isMobile, hasTouch: t.isMobile, deviceScaleFactor: 1 });
+      const pagina = await ctx.newPage();
+      const r = { caminho, tamanho: t.nome, foto: '', status: null, errosDoConsole: [], errosDeScript: [], naoCarregou: [], emBranco: false, rolagemParaOLado: false };
+      pagina.on('console', (m) => m.type() === 'error' && r.errosDoConsole.push(m.text().slice(0, 300)));
+      pagina.on('pageerror', (e) => r.errosDeScript.push(String(e.message).slice(0, 300)));
+      pagina.on('response', (resp) => {
+        if (resp.status() >= 400 && resp.url().startsWith(origem)) r.naoCarregou.push(`${resp.status()} ${resp.url().slice(origem.length) || '/'}`);
+      });
+      pagina.on('requestfailed', (req) => req.url().startsWith(origem) && r.naoCarregou.push(`falhou ${req.url().slice(origem.length) || '/'}`));
+      try {
+        const resp = await pagina.goto(new URL(caminho, base).toString(), { waitUntil: 'networkidle', timeout: 30_000 });
+        r.status = resp ? resp.status() : null;
+        await pagina.waitForTimeout(esperar);
+        const medidas = await pagina.evaluate(() => ({
+          largura: document.documentElement.scrollWidth,
+          janela: document.documentElement.clientWidth || window.innerWidth,
+          texto: (document.body?.innerText ?? '').trim().length,
+          imagens: document.images.length + document.querySelectorAll('canvas,svg,video').length,
+        }));
+        r.rolagemParaOLado = t.isMobile && medidas.largura > medidas.janela + 1;
+        r.emBranco = medidas.texto === 0 && medidas.imagens === 0;
+        const altura = await pagina.evaluate(() => Math.min(document.documentElement.scrollHeight, 4000));
+        r.foto = path.join(pasta, `${nomeDe(caminho)}-${t.nome}.png`);
+        await pagina.screenshot({ path: r.foto, clip: { x: 0, y: 0, width: t.viewport.width, height: Math.max(altura, t.viewport.height) }, fullPage: true });
+      } catch (e) {
+        r.errosDeScript.push(`não abriu: ${String(e.message).split('\n')[0]}`);
+      }
+      resultados.push(r);
+      await ctx.close();
+    }
+  }
+  await navegador.close();
+
+  const problemas = [];
+  for (const r of resultados) {
+    const onde = `${r.caminho} (${r.tamanho})`;
+    if (r.status && r.status >= 400) problemas.push(`${onde}: a página respondeu ${r.status}`);
+    for (const e of r.errosDeScript) problemas.push(`${onde}: erro de script: ${e}`);
+    for (const e of r.errosDoConsole) problemas.push(`${onde}: erro no console: ${e}`);
+    for (const e of [...new Set(r.naoCarregou)]) problemas.push(`${onde}: não carregou: ${e}`);
+    if (r.emBranco) problemas.push(`${onde}: tela em branco (sem texto nem imagem)`);
+    if (r.rolagemParaOLado) problemas.push(`${onde}: a página é mais larga que o celular (rolagem para o lado)`);
+  }
+  fs.writeFileSync(path.join(pasta, 'relatorio.json'), JSON.stringify({ base, resultados, problemas }, null, 2));
+  fs.writeFileSync(
+    path.join(pasta, 'relatorio.md'),
+    [
+      `# Fotos das telas — ${base}`,
+      '',
+      ...resultados.map((r) => `- ${r.caminho} (${r.tamanho}): ${r.foto || 'sem foto'}`),
+      '',
+      problemas.length ? '## Problemas encontrados' : '## Nenhum problema automático encontrado (confira as fotos)',
+      ...problemas.map((p) => `- ${p}`),
+      '',
+    ].join('\n'),
+  );
+  console.log(`nivoo-fotos: ${resultados.filter((r) => r.foto).length} foto(s) em ${pasta}/ (relatorio.md)`);
+  for (const p of problemas) console.log(`  problema: ${p}`);
+  if (exigir && problemas.length) {
+    console.error(`nivoo-fotos: ${problemas.length} problema(s) nas telas — veja ${pasta}/relatorio.md e as fotos`);
+    process.exit(1);
+  }
+})().catch((e) => {
+  console.error(`nivoo-fotos: falhou: ${e?.message ?? e}`);
+  process.exit(4);
+});

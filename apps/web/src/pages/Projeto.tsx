@@ -1287,11 +1287,20 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
 /** Um resultado do trabalho (relatório, inventário…): ler, copiar e baixar. */
 function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any; onFechar: () => void }) {
   const [texto, setTexto] = useState<string | null>(null);
+  const [imagem, setImagem] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
   const url = `/projects/${projetoId}/artifacts/${r.id}`;
+  const ehImagem = /\.(png|jpe?g|gif|webp)$/i.test(String(r.nome));
   useEffect(() => {
+    if (ehImagem) {
+      let u: string | null = null;
+      urlDoArquivo(url).then((x) => setImagem((u = x)));
+      return () => {
+        if (u) URL.revokeObjectURL(u);
+      };
+    }
     lerArquivo(url).then(setTexto);
-  }, [url]);
+  }, [url, ehImagem]);
   return (
     <div className="modal-fundo" onClick={onFechar}>
       <div className="modal largo" onClick={(e) => e.stopPropagation()}>
@@ -1320,7 +1329,7 @@ function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any
             <button className="secondary" onClick={onFechar}>Fechar</button>
           </span>
         </div>
-        <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>
+        {ehImagem ? (imagem ? <img className="foto-resultado" src={imagem} alt={r.nome} /> : <p className="muted">Carregando…</p>) : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import * as net from 'node:net';
+import * as path from 'node:path';
 import { spawn } from 'node:child_process';
 
 export interface RunOptions {
@@ -32,7 +33,7 @@ export interface RunResult {
 const PASS_THROUGH = [
   'PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'TERM', 'USER', 'SHELL', 'TMPDIR',
   'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'https_proxy', 'http_proxy', 'no_proxy',
-  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE',
+  'NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'PLAYWRIGHT_BROWSERS_PATH',
 ];
 
 /**
@@ -173,8 +174,21 @@ export const TEXTO_SISTEMA_RODANDO = [
   '  curl -fsS http://127.0.0.1:$NIVOO_PORTA_TESTE/api/... | grep -q "esperado". O sistema desliga tudo que a conferência ligou.',
 ];
 
+/** Ferramentas do Nivoo para as conferências (ex.: nivoo-fotos), postas no PATH delas. */
+export const PASTA_FERRAMENTAS = path.resolve(__dirname, '..', '..', 'bin');
+
+export const TEXTO_FOTOS = [
+  '- FOTOS DAS TELAS (sem a IA navegar): com o sistema ligado, a conferência pode rodar',
+  '  nivoo-fotos http://127.0.0.1:$NIVOO_PORTA_TESTE / /outra-tela --exigir-sem-erros',
+  '  que tira foto de cada tela no computador e no celular (out/telas/*.png + relatorio.md) e FALHA se houver erro de script ou',
+  '  no console, arquivo que não carrega, tela em branco ou página mais larga que o celular. Em site/sistema com tela, use nas',
+  '  etapas que mexem no visual. Na sessão seguinte, a IA ABRE as fotos e corrige o que estiver feio, cortado ou desalinhado.',
+];
+
 export function ambienteDaConferencia(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  const base = minimalEnv();
   return minimalEnv({
+    PATH: `${PASTA_FERRAMENTAS}:${base.PATH ?? '/usr/local/bin:/usr/bin:/bin'}`,
     CI: 'true',
     COREPACK_ENABLE_DOWNLOAD_PROMPT: '0',
     COREPACK_ENABLE_STRICT: '0',
@@ -195,6 +209,7 @@ export function problemaDoAmbiente(saida: string): string | null {
     /\bENOSPC\b[^\n]*/,
     /(EAI_AGAIN|ENOTFOUND|ECONNREFUSED|ETIMEDOUT)[^\n]*(registry|npmjs|yarnpkg|pypi)[^\n]*/i,
     /ERR_PNPM_META_FETCH_FAIL[^\n]*/,
+    /nivoo-fotos: navegador sem tela[^\n]*/,
     /npm (ERR!|error) (network|code E(AI_AGAIN|NOTFOUND|CONNRESET))[^\n]*/i,
   ];
   for (const p of padroes) {

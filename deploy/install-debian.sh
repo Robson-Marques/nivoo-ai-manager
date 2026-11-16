@@ -195,6 +195,21 @@ npm run build --silent >/dev/null
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
 ok "backend e interface compilados"
 
+# Navegador sem tela para as FOTOS DAS TELAS nas conferências (nivoo-fotos). A IA não navega: o sistema tira as fotos.
+NAVEGADORES=/opt/nivoo/navegadores
+install -d -m 755 "$NAVEGADORES"
+if PLAYWRIGHT_BROWSERS_PATH="$NAVEGADORES" node node_modules/playwright-core/cli.js install --with-deps chromium >/dev/null 2>&1 \
+  || PLAYWRIGHT_BROWSERS_PATH="$NAVEGADORES" node node_modules/playwright-core/cli.js install chromium >/dev/null 2>&1; then
+  chmod -R go+rX "$NAVEGADORES"
+  ok "navegador sem tela para as fotos das telas ($NAVEGADORES)"
+else
+  warn "não consegui instalar o navegador sem tela: as fotos das telas ficam indisponíveis (o resto funciona)"
+fi
+if [ -f "$ENV_FILE" ]; then
+  sed -i '/^PLAYWRIGHT_BROWSERS_PATH=/d' "$ENV_FILE"
+  echo "PLAYWRIGHT_BROWSERS_PATH=$NAVEGADORES" >> "$ENV_FILE"
+fi
+
 # -----------------------------------------------------------------------------
 step "7/9 Migrações do banco e modelo padrão"
 set -a; . "$ENV_FILE"; set +a

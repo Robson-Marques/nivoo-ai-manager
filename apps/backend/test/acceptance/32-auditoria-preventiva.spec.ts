@@ -215,4 +215,29 @@ describe('Auditoria preventiva', () => {
     expect(livre).toBe(true);
     expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).toMatch(/VER O SISTEMA RODANDO \(sem navegador\)/);
   });
+  it('fotos das telas: a conferência fotografa (computador e celular), falha com a página larga demais no celular; a IA corrige', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Fotos', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const largo = '<!doctype html><meta name=viewport content=width=device-width><h1>Loja</h1><div style=width:900px>tabela</div>';
+    const certo = '<!doctype html><meta name=viewport content=width=device-width><h1>Loja</h1><div style=max-width:100%>tabela</div>';
+    const x = await rodar(p.id, {
+      title: 'visual',
+      steps: [{
+        key: 'v',
+        // 1ª sessão: página larga demais. 2ª: a IA lê o relatório das fotos e corrige.
+        instructions: `if grep -q "mais larga que o celular" out/telas/relatorio.md 2>/dev/null; then echo '${certo}' > index.html; else echo '${largo}' > index.html; fi`,
+        verifyCommand: `(node -e "require('http').createServer((q,r)=>{r.setHeader('content-type','text/html');r.end(require('fs').readFileSync('index.html'))}).listen(process.env.NIVOO_PORTA_TESTE)" &); sleep 0.7; nivoo-fotos http://127.0.0.1:$NIVOO_PORTA_TESTE / --exigir-sem-erros`,
+      }],
+      criteria: [{ key: 'i', description: 'i', kind: 'FILE_EXISTS', config: { path: 'index.html' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts).toHaveLength(2);
+    expect(x.attempts[0].error).toMatch(/mais larga que o celular/);
+    const resultados = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/resultados`).expect(200)).body.map((r: any) => r.nome);
+    expect(resultados).toEqual(expect.arrayContaining(['telas/inicio-computador.png', 'telas/inicio-celular.png', 'telas/relatorio.md']));
+    const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
+    expect(prompt).toMatch(/FOTOS DAS TELAS \(sem a IA navegar\)/);
+    expect(prompt).toMatch(/A última conferência tirou FOTOS das telas/);
+  });
 });

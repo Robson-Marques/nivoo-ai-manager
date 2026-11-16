@@ -381,3 +381,4 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .conversa-topo > div:first-child { min-width: 0; }
 .abas-topo { flex-wrap: wrap; }
 .conversa.com-previa .conversa-topo .seletor-ia { max-width: 100%; }
+.foto-resultado { max-width: 100%; max-height: 75vh; display: block; margin: 0 auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
