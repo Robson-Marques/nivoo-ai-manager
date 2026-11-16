@@ -106,7 +106,19 @@ export class ClaudeCodeCliProvider implements AiProvider {
         if (c?.type === 'tool_result' && c.is_error) onLog(`[ferramenta negada/erro] ${String(typeof c.content === 'string' ? c.content : JSON.stringify(c.content)).slice(0, 300)}`, 'WARN');
       }
     } else if (ev.type === 'rate_limit_event') {
-      onLog(`[limite do provedor] ${JSON.stringify(ev).slice(0, 300)}`, 'WARN');
+      // Aviso de rotina do Claude sobre o limite de uso: "liberado" não interessa à tela; perto do limite ou estourado,
+      // em português e com a hora em que renova.
+      const info = ev.rate_limit_info ?? {};
+      const status = String(info.status ?? '');
+      if (status && status !== 'allowed') {
+        const tipo: Record<string, string> = { five_hour: 'de 5 horas', seven_day: 'semanal', seven_day_opus: 'semanal (Opus)' };
+        const quando = Number(info.resetsAt) ? new Date(Number(info.resetsAt) * (Number(info.resetsAt) < 1e12 ? 1000 : 1)).toISOString() : '';
+        const uso = typeof info.utilization === 'number' ? ` (${Math.round(info.utilization * (info.utilization <= 1 ? 100 : 1))}% usado)` : '';
+        onLog(
+          `[limite da IA] ${status === 'allowed_warning' ? 'perto do limite' : 'limite atingido'} ${tipo[info.rateLimitType] ?? ''}${uso}${quando ? `; renova em ${quando}` : ''}`.replace(/\s+/g, ' '),
+          'WARN',
+        );
+      }
     }
   }
 

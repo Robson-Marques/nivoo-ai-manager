@@ -296,6 +296,10 @@ const plano = {
     await shot(page, '7d-paineis-recolhidos');
     await page.reload();
     await page.locator('.chat-app.lado-recolhido').waitFor();
+    // Ao abrir a conversa, ela fica no fim (mesmo com cartões e resultados que carregam depois).
+    await page.waitForTimeout(2500);
+    const distanciaDoFim = await page.locator('.mensagens').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    if (distanciaDoFim > 40) throw new Error(`a conversa abriu longe do fim (${distanciaDoFim}px)`);
     await page.locator('.abas-topo').getByRole('button', { name: 'Arquivos' }).click();
     await page.locator('.painel .tab.active', { hasText: 'Arquivos' }).waitFor();
     await page.getByRole('button', { name: 'Mostrar os projetos' }).click();

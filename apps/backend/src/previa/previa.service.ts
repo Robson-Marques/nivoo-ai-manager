@@ -49,6 +49,7 @@ interface Previa {
   log: string;
   ultimoUso: number;
   ligadaEm?: Date;
+  trabalhoEmAndamento?: boolean;
 }
 
 const TIPOS: Record<string, string> = {
@@ -165,6 +166,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       origem: p.como?.origem ?? null,
       url: p.estado === 'no-ar' ? `${this.urlPublica()}/__nivoo_previa/abrir?t=${p.token}&caminho=${encodeURIComponent(p.como?.caminho ?? '/')}` : null,
       enderecoConfigurado: !!process.env.NIVOO_PREVIA_URL,
+      trabalhoEmAndamento: !!p.trabalhoEmAndamento,
       ligadaEm: p.ligadaEm ?? null,
       log: p.log.slice(-6000),
     };
@@ -211,7 +213,16 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     }
     p.dir = dir;
     const como = PreviaService.comoRodar(dir);
-    if (!como) throw new Error('não achei o que mostrar: o projeto não tem index.html nem package.json com "dev"/"start". Peça à IA para criar o nivoo-previa.json (como ligar o sistema).');
+    if (!como) {
+      // A prévia mostra a PASTA PRINCIPAL: se um trabalho em andamento vai criar a prévia, ela só aparece quando ele concluir.
+      const rodando = await this.prisma.job.findFirst({ where: { projectId: p.projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } }, select: { title: true } });
+      p.trabalhoEmAndamento = !!rodando;
+      throw new Error(
+        rodando
+          ? `a prévia mostra a pasta principal do projeto, que ainda não tem como ligar o sistema. O trabalho "${rodando.title}" está em andamento: o que ele faz (inclusive a prévia, se estiver no plano) entra na pasta principal quando ele concluir. Depois, clique em "Ligar a prévia".`
+          : 'não achei o que mostrar: o projeto não tem index.html nem package.json com "dev"/"start". Peça à IA para criar o nivoo-previa.json (como ligar o sistema).',
+      );
+    }
     p.como = como;
     const pastaAbs = resolveInside(dir, como.pasta);
     if (como.tipo === 'estatico') {

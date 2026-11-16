@@ -137,4 +137,14 @@ describe('Prévia do projeto', () => {
     expect(e.estado).toBe('erro');
     expect(e.mensagem).toMatch(/nivoo-previa\.json/);
   });
+  it('trabalho em andamento que vai criar a prévia: a mensagem explica que ela aparece quando ele concluir', async () => {
+    const p = await projetoCom('Andamento', { 'LEIAME.md': 'só texto' });
+    const j = (await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 'Criar a prévia', objective: 'x', steps: [{ key: 's', instructions: 'true' }], criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }] }).expect(201)).body;
+    await h.prisma.job.update({ where: { id: j.id }, data: { status: 'EXECUTANDO' } });
+    await h.http().post(`/api/projects/${p.id}/previa/ligar`).expect(201);
+    const e = await noAr(p.id);
+    expect(e.estado).toBe('erro');
+    expect(e.trabalhoEmAndamento).toBe(true);
+    expect(e.mensagem).toMatch(/O trabalho "Criar a prévia" está em andamento/);
+  });
 });

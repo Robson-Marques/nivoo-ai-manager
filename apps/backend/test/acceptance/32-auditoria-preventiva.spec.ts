@@ -240,4 +240,21 @@ describe('Auditoria preventiva', () => {
     expect(prompt).toMatch(/FOTOS DAS TELAS \(sem a IA navegar\)/);
     expect(prompt).toMatch(/A última conferência tirou FOTOS das telas/);
   });
+  it('conferência demorada mostra o andamento (não parece travada): início, última linha da saída e "ainda rodando"', async () => {
+    process.env.NIVOO_CONFERENCIA_AVISO_MS = '500';
+    const p = (await h.http().post('/api/projects').send({ name: 'Demorada', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'demorada',
+      steps: [{ key: 'd', instructions: 'echo ok > feito.txt', verifyCommand: 'echo "instalando dependências"; sleep 1.2; echo "✓ teste do atualizador"; sleep 3; test -f feito.txt' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    delete process.env.NIVOO_CONFERENCIA_AVISO_MS;
+    expect(x.status).toBe('CONCLUIDO');
+    const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/logs`)).body.map((l: any) => l.message).join('\n');
+    expect(logs).toMatch(/Conferindo a etapa \(testes, build…\): echo "instalando dependências"/);
+    expect(logs).toMatch(/Conferência rodando \(0 min\): ✓ teste do atualizador/);
+    expect(logs).toMatch(/Conferência ainda rodando \(0 min\)/);
+  });
 });

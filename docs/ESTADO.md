@@ -177,6 +177,22 @@ concluídas; a etapa atual aparece animada — dentro de uma etapa não há como
 Gemini passaram a registrar cada passo na hora (antes só no fim da sessão, que pode levar 15 min). A API do
 trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andamento`) e unitário do Codex.
 
+## Ajustes de uso real: conferência visível, rolagem, prévia durante trabalho, limite da IA (2026-11-16)
+
+* **Conferência visível**: a conferência (instalar, testar, compilar) registra quando começa, a última linha da saída a
+  cada 15 s e "ainda rodando" a cada minuto (`NIVOO_CONFERENCIA_AVISO_MS`); a tela mostra "conferindo há N min — …"
+  em vez de "Sem novidade há 18 min". Critérios finais também registram quando rodam. O botão de diagnóstico aparece
+  também durante o trabalho.
+* **Conversa abre no fim**: ficava parada no meio porque partes que carregam depois (progresso, arquivos, resultados,
+  imagens, cartões) empurravam o fim. Agora fica grudada no fim enquanto carrega, a não ser que a pessoa role para
+  cima. Tela (`chat-smoke` confere a distância do fim ao abrir).
+* **Prévia durante um trabalho**: a mensagem explica que a prévia mostra a pasta principal e que o trabalho em
+  andamento entra nela ao concluir; o botão "Pedir à IA" some enquanto há trabalho rodando. Teste em `33`.
+* **Limite da IA**: "You've hit your 5-hour limit" (e semanal, "limit · resets") não era reconhecido como limite — a
+  sessão era refeita na hora. Agora vira IA indisponível (espera a renovação ou passa para a IA reserva). O aviso de
+  rotina do Claude sobre limite ("rate_limit_event") não aparece mais como código: só "perto do limite"/"limite
+  atingido", com a hora em que renova. Teste `unit/limite-da-ia`.
+
 ## Fotos das telas pela conferência (2026-11-15)
 
 * `apps/backend/bin/nivoo-fotos` (no PATH das conferências): com o sistema ligado, tira foto de cada tela pedida no

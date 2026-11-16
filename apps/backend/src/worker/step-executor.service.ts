@@ -353,8 +353,30 @@ export class StepExecutorService {
         return null;
       });
       const porta = await portaLivre().catch(() => 0);
+      // A conferência pode levar minutos (instalar, testar, compilar): registra o andamento para a tela não parecer
+      // parada — a última linha da saída a cada 15 s e um "ainda rodando" a cada minuto.
+      await L(`Conferindo a etapa (testes, build…): ${verifyCommand.replace(/\s+/g, ' ').slice(0, 200)}`, 'INFO', attempt.id);
+      const inicioConferencia = Date.now();
+      const avisoMs = Number(process.env.NIVOO_CONFERENCIA_AVISO_MS ?? 15_000);
+      let ultimaLinha = '';
+      let ultimoRegistro = Date.now();
+      const anotar = (pedaco: string) => {
+        const l = pedaco.split('\n').map((x) => x.replace(/\x1b\[[0-9;]*m/g, '').trim()).filter(Boolean).pop();
+        if (l) ultimaLinha = l;
+        if (ultimaLinha && Date.now() - ultimoRegistro > avisoMs) {
+          ultimoRegistro = Date.now();
+          void L(`Conferência rodando (${Math.round((Date.now() - inicioConferencia) / 60_000)} min): ${ultimaLinha.slice(0, 200)}`, 'INFO', attempt.id);
+        }
+      };
+      const pulso = setInterval(() => {
+        if (Date.now() - ultimoRegistro < avisoMs * 3.5) return;
+        ultimoRegistro = Date.now();
+        void L(`Conferência ainda rodando (${Math.round((Date.now() - inicioConferencia) / 60_000)} min)${ultimaLinha ? `: ${ultimaLinha.slice(0, 160)}` : ''}`, 'INFO', attempt.id);
+      }, avisoMs * 4);
       const conferir = () =>
         runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommand], {
+          onStdout: anotar,
+          onStderr: anotar,
           cwd: worktree,
           env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...(banco?.env ?? {}) }),
           encerrarGrupoAoSair: true,
@@ -372,6 +394,7 @@ export class StepExecutorService {
         await L(`Conferência: cache do corepack quebrado no servidor; refeito (${cache}) e conferindo de novo`, 'WARN', attempt.id);
         v = await conferir();
       }
+      clearInterval(pulso);
       if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.

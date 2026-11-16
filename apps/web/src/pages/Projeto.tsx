@@ -286,7 +286,6 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     gravarPreferencia('nivoo_previa', v ? '1' : '0');
     if (v && painel) onPainel(); // tela dividida: o painel recolhe para a barra de cima
   };
-  const fim = useRef<HTMLDivElement>(null);
   const [contas, setContas] = useState<any[]>([]);
   useEffect(() => {
     api<any[]>('/accounts').then(setContas).catch(() => undefined);
@@ -318,8 +317,44 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     return () => clearInterval(t);
   }, [carregar, pensando]);
   const qtd = conv?.messages?.length ?? 0;
+  // Conversa "grudada no fim": ao abrir e enquanto as partes que carregam depois (progresso, arquivos, resultados,
+  // imagens, cartões) crescem, a lista fica no fim — a não ser que a pessoa tenha rolado para cima para ler.
+  const lista = useRef<HTMLDivElement>(null);
+  const noFim = useRef(true);
+  const irProFim = () => {
+    const el = lista.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+  const aoRolar = () => {
+    const el = lista.current;
+    if (el) noFim.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+  const temConversa = !!conv;
   useEffect(() => {
-    fim.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = lista.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (noFim.current) irProFim();
+    });
+    const observarFilhos = () => {
+      for (const c of Array.from(el.children)) ro.observe(c);
+    };
+    observarFilhos();
+    const mo = new MutationObserver(observarFilhos);
+    mo.observe(el, { childList: true });
+    irProFim();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [temConversa]);
+  useEffect(() => {
+    // Mensagem nova: vai para o fim se a pessoa já estava lá ou se foi ela que escreveu.
+    const ultima = conv?.messages?.[qtd - 1];
+    if (noFim.current || ultima?.role === 'USUARIO') {
+      noFim.current = true;
+      irProFim();
+    }
     setVersaoPainel((v) => v + 1);
   }, [qtd, pensando]);
 
@@ -441,7 +476,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           </div>
         </header>
 
-        <div className="mensagens">
+        <div className="mensagens" ref={lista} onScroll={aoRolar}>
           {mensagens.length === 0 && (
             <div className="dica">
               <p>Nova conversa. A IA já conhece as regras, o conhecimento, os arquivos e a memória deste projeto.</p>
@@ -464,7 +499,6 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
               onResponder={responderPerguntas}
             />
           ))}
-          <div ref={fim} />
         </div>
 
         {conv?.archivedAt ? (
@@ -847,6 +881,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
           <div className="previa-info">
             <p className="error">{e?.mensagem}</p>
             <div className="row">
+              {!e?.trabalhoEmAndamento && (
               <button
                 className="secondary"
                 onClick={() =>
@@ -857,6 +892,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
               >
                 Pedir à IA para arrumar a prévia
               </button>
+              )}
               {e?.log && <button className="link small" onClick={() => setVerLog(!verLog)}>{verLog ? 'ocultar registro' : 'ver o registro'}</button>}
             </div>
             {verLog && <pre className="texto-arquivo">{e.log.slice(-6000)}</pre>}
@@ -1123,7 +1159,13 @@ function atividadeLegivel(msg: string): string {
     .replace(/^\[agente\] |^\[agent_message\] |^\[reasoning\] /, '')
     .replace(/^Tentativa #(\d+).*/, 'sessão $1 começou')
     .replace(/^(claude|codex|gemini) .*/s, 'a IA começou a trabalhar (lendo o projeto)…')
-    .replace(/^\[sessão [^\]]*\] término=.*/, 'sessão encerrada; conferindo o resultado…');
+    .replace(/^\[sessão [^\]]*\] término=.*/, 'sessão encerrada; conferindo o resultado…')
+    .replace(/^Conferindo a etapa \(testes, build…\): /, 'conferindo (testes e build): ')
+    .replace(/^Conferência rodando \((\d+) min\): /, 'conferindo há $1 min — ')
+    .replace(/^Conferência ainda rodando \((\d+) min\):? ?/, 'conferindo há $1 min ')
+    .replace(/^Conferência final: /, 'conferência final: ')
+    .replace(/^\[limite da IA\] /, 'IA: ')
+    .replace(/^\[limite do provedor\] .*/s, 'aviso de limite de uso da IA');
 }
 
 /** Motivo do fim de uma sessão, curto e legível. */
@@ -1177,6 +1219,10 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
           {atividadeLegivel(ult.mensagem)}
         </div>
       )}
+      {/* Também durante o trabalho: o relatório completo (log ao vivo, tentativas, conferências) para o suporte. */}
+      <div className="row small" style={{ marginTop: 4 }}>
+        <BotaoDiagnostico url={`/projects/${job.projectId}/jobs/${job.id}/diagnostico`} nomeArquivo={`diagnostico-trabalho-${String(job.id).slice(0, 8)}.md`} />
+      </div>
     </div>
   );
 }

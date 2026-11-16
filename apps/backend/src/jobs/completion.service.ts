@@ -369,6 +369,7 @@ export class CompletionService {
       switch (c.kind) {
         case 'COMMAND': {
           const cmd = String(cfg.command ?? '');
+          await this.logs.log(job.id, `Conferência final: critério "${c.key}" rodando (${cmd.replace(/\s+/g, ' ').slice(0, 160)})`, { source: 'evaluator' });
           const pol = evaluatePolicy(cmd);
           if (!pol.allowed) return { ...base, passed: false, evidence: { erro: 'comando bloqueado pela política', motivos: pol.reasons } };
           const r = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
