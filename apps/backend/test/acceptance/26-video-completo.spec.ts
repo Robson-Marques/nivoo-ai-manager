@@ -126,6 +126,58 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('vídeo enviado pelo app (streaming): entra na mídia fora do git, é editado em midia/saida e baixa pela API', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Edição enviada' }).expect(201)).body;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'enviar-'));
+    const origem = path.join(tmp, 'abertura.mp4');
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=24:duration=4', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=4', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', origem]);
+    const bytes = fs.readFileSync(origem);
+    // Envia por streaming (corpo bruto), como o navegador faz; não cabe no limite de 60 MB do JSON, mas aqui vai direto.
+    const env = await h.http().post(`/api/projects/${p.id}/videos`).query({ nome: 'abertura.mp4' }).set('Content-Type', 'application/octet-stream').send(bytes).expect(201);
+    expect(env.body).toMatchObject({ nome: 'abertura.mp4', pasta: 'entrada' });
+    expect(env.body.caminho).toMatch(/^midia\/entrada\/[0-9a-f-]+\.mp4$/);
+    expect(env.body.bytes).toBe(bytes.length);
+    // Aparece na lista; nome inválido é recusado.
+    expect((await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos.map((v: any) => v.caminho)).toContain(env.body.caminho);
+    await h.http().post(`/api/projects/${p.id}/videos`).query({ nome: 'arquivo.txt' }).set('Content-Type', 'application/octet-stream').send(Buffer.from('x')).expect(400);
+
+    // Edita: corta o vídeo enviado para [1,3] e salva em midia/saida (fora do git).
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'editar enviado', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'edita', providerOptions: { cenas: [env.body.caminho], cortes: [{ inicio: 1, fim: 3 }], arquivo: 'midia/saida/final.mp4' } }],
+        criteria: [{ key: 'v', description: 'x', kind: 'COMMAND', config: { command: 'true' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    // O vídeo editado está na mídia (saida), baixa pela API com tipo de vídeo e dura ~2 s.
+    const editados = (await h.http().get(`/api/projects/${p.id}/videos`)).body.videos.filter((v: any) => v.pasta === 'saida');
+    expect(editados.map((v: any) => v.caminho)).toContain('midia/saida/final.mp4');
+    const baixado = await h.http().get(`/api/projects/${p.id}/midia/content`).query({ path: 'midia/saida/final.mp4' }).buffer(true).parse((res, cb) => {
+      const partes: Buffer[] = [];
+      res.on('data', (c: Buffer) => partes.push(c));
+      res.on('end', () => cb(null, Buffer.concat(partes)));
+    }).expect(200);
+    expect(baixado.headers['content-type']).toMatch(/^video\/mp4/);
+    const final = path.join(tmp, 'baixado.mp4');
+    fs.writeFileSync(final, baixado.body as Buffer);
+    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(2, 0);
+    // Nada de mídia foi para o git (vídeo é pesado): o repo não tem a pasta midia.
+    const repo = path.join(p.workspacePath, 'repo');
+    const noGit = execFileSync('git', ['ls-files'], { cwd: repo }).toString();
+    expect(noGit).not.toMatch(/midia\//);
+    // Apagar o enviado some da lista.
+    const vid = env.body.caminho.split('/').pop();
+    const apos = (await h.http().delete(`/api/projects/${p.id}/videos/${vid}`).expect(200)).body;
+    expect(apos.videos.map((v: any) => v.caminho)).not.toContain(env.body.caminho);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
     const plano = comVideoCompleto(
       [

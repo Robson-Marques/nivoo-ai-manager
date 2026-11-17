@@ -305,6 +305,7 @@ export class StepExecutorService {
         context,
         cwd: worktree,
         outputDir,
+        projectMediaDir: this.pastaDeMidia(job.project.dirKey),
         systemPrompt: isAi ? profile.text : undefined,
         timeoutMs,
         signal,
@@ -879,6 +880,14 @@ export class StepExecutorService {
    * Montado com orçamento (NIVOO_CONTEXT_MAX_CHARS): seções obrigatórias sempre entram; memória e
    * artefatos entram por prioridade; o restante fica íntegro em .nivoo/memoria.md (leitura sob demanda).
    */
+  /** Pasta de mídia durável do projeto (vídeos enviados e editados), fora do git; criada se não existir. */
+  private pastaDeMidia(dirKey: string): string {
+    const dir = this.workspace.projectDirs(dirKey).midia;
+    fs.mkdirSync(path.join(dir, 'entrada'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'saida'), { recursive: true });
+    return dir;
+  }
+
   async buildContext(job: Job, step: Step, profileText: string, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
     const [objective, criteria, steps, checkpoint, memory, attempts, artifacts] = await Promise.all([
       this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),

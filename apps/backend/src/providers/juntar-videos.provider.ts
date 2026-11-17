@@ -36,6 +36,12 @@ export class JuntarVideosProvider implements AiProvider {
     };
   }
 
+  /** Resolve um caminho do projeto: `midia/...` vai para a pasta de mídia durável (fora do git); o resto, no worktree. */
+  private resolver(req: ExecutionRequest, rel: string): string {
+    if (/^midia\//.test(rel) && req.projectMediaDir) return resolveInside(req.projectMediaDir, rel.replace(/^midia\//, ''));
+    return resolveInside(req.cwd, rel);
+  }
+
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null> };
     const cenas = o.cenas ?? [];
@@ -46,7 +52,7 @@ export class JuntarVideosProvider implements AiProvider {
     try {
       const entradas: string[] = [];
       for (const c of cenas) {
-        const abs = resolveInside(req.cwd, c);
+        const abs = this.resolver(req, c);
         if (!fs.existsSync(abs) || !fs.statSync(abs).size) return { exitCode: 1, output: '', error: `cena não encontrada: ${c}` };
         entradas.push(abs);
       }
@@ -134,15 +140,15 @@ export class JuntarVideosProvider implements AiProvider {
         const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
-          musica = resolveInside(req.cwd, o.trilha.arquivo);
+          musica = this.resolver(req, o.trilha.arquivo);
           if (!fs.existsSync(musica)) return { exitCode: 1, output: '', error: `trilha não encontrada no projeto: ${o.trilha.arquivo}` };
           trilhaInfo = `trilha ${o.trilha.arquivo}`;
         } else if (o.trilha?.descricao) {
           // Já gerada antes para este vídeo (mesma descrição): reaproveita, sem pagar de novo.
           const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
           const meta = o.arquivo.replace(/\.mp4$/i, '-trilha.txt');
-          const absG = resolveInside(req.cwd, guardada);
-          const absM = resolveInside(req.cwd, meta);
+          const absG = this.resolver(req, guardada);
+          const absM = this.resolver(req, meta);
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === o.trilha.descricao.trim()) {
             musica = absG;
             trilhaInfo = `trilha ${guardada} (reaproveitada)`;
@@ -197,11 +203,11 @@ export class JuntarVideosProvider implements AiProvider {
           legendado = true;
         } else req.onLog(`não consegui gravar as legendas no vídeo (${l.stderr.trim().slice(-200)}); ficam só no arquivo .srt`, 'WARN');
       }
-      const destino = resolveInside(req.cwd, o.arquivo);
+      const destino = this.resolver(req, o.arquivo);
       fs.mkdirSync(path.dirname(destino), { recursive: true });
       fs.copyFileSync(saida, destino);
       const srtArquivo = srtTexto ? o.arquivo.replace(/\.mp4$/i, '.srt') : null;
-      if (srtArquivo && srtTexto) fs.writeFileSync(resolveInside(req.cwd, srtArquivo), srtTexto);
+      if (srtArquivo && srtTexto) fs.writeFileSync(this.resolver(req, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());
       const mb = (fs.statSync(destino).size / 1024 / 1024).toFixed(1);
       const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}`;

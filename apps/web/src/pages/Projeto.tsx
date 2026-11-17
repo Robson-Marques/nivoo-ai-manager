@@ -1,7 +1,7 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { BotaoDitado } from '../Ditado';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
+import { api, enviarVideo, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -365,13 +365,52 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
 
   // Anexos da próxima mensagem: botão do clipe, colar (Ctrl+V) e arrastar para a conversa.
   const [anexos, setAnexos] = useState<File[]>([]);
+  // Vídeos para EDITAR: vão por streaming (arquivo grande) para a mídia do projeto, não como anexo da mensagem.
+  const [videos, setVideos] = useState<any[]>([]);
+  const [enviandoVideos, setEnviandoVideos] = useState<Array<{ nome: string; pct: number; erro?: string }>>([]);
+  const EH_VIDEO = /\.(mp4|mov|webm|mkv|m4v)$/i;
+  const carregarVideos = useCallback(async () => {
+    try {
+      setVideos(((await api(`/projects/${projeto.id}/videos`)).videos ?? []).filter((v: any) => v.pasta === 'entrada'));
+    } catch {
+      /* sem vídeos */
+    }
+  }, [projeto.id]);
+  useEffect(() => {
+    carregarVideos();
+  }, [carregarVideos]);
+  const enviarVideos = async (lista: File[]) => {
+    for (const f of lista) {
+      const item = { nome: f.name, pct: 0 };
+      setEnviandoVideos((a) => [...a, item]);
+      try {
+        await enviarVideo(projeto.id, f, (pct) => setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
+        setEnviandoVideos((a) => a.filter((x) => x !== item));
+        await carregarVideos();
+      } catch (err: any) {
+        setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+      }
+    }
+  };
+  const apagarVideo = async (v: any) => {
+    if (!window.confirm(`Tirar o vídeo "${v.nome}" do projeto?`)) return;
+    try {
+      setVideos(((await api(`/projects/${projeto.id}/videos/${v.caminho.split('/').pop()}`, 'DELETE')).videos ?? []).filter((x: any) => x.pasta === 'entrada'));
+    } catch (err: any) {
+      setErro(err.message);
+    }
+  };
   const [arrastando, setArrastando] = useState(false);
   const seletor = useRef<HTMLInputElement>(null);
   const anexar = (lista: File[]) => {
     setErro(null);
-    const grandes = lista.filter((f) => f.size > 10 * 1024 * 1024);
+    // Vídeo (para editar) vai por streaming para a mídia do projeto; o resto segue como anexo da mensagem (até 10 MB).
+    const videosAgora = lista.filter((f) => EH_VIDEO.test(f.name) || f.type.startsWith('video/'));
+    if (videosAgora.length) enviarVideos(videosAgora);
+    const outros = lista.filter((f) => !(EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
+    const grandes = outros.filter((f) => f.size > 10 * 1024 * 1024);
     if (grandes.length) setErro(`Passa de 10 MB: ${grandes.map((f) => f.name).join(', ')}`);
-    setAnexos((atuais) => [...atuais, ...lista.filter((f) => f.size <= 10 * 1024 * 1024)].slice(0, 10));
+    setAnexos((atuais) => [...atuais, ...outros.filter((f) => f.size <= 10 * 1024 * 1024)].slice(0, 10));
   };
   const colar = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     const imagens = Array.from(e.clipboardData.items)
@@ -537,6 +576,25 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           }}
         >
           {erro && <div className="error">{erro}</div>}
+          {(videos.length > 0 || enviandoVideos.length > 0) && (
+            <div className="videos-prontos">
+              <span className="muted small">Vídeos para editar (é só pedir na conversa, ex.: "corta os 3 primeiros segundos da abertura e junta com o depoimento"):</span>
+              <div className="videos-lista">
+                {videos.map((v) => (
+                  <span key={v.caminho} className="video-chip" title={v.nome}>
+                    🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{(v.bytes / 1024 / 1024).toFixed(0)} MB</span>
+                    <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
+                  </span>
+                ))}
+                {enviandoVideos.map((v, i) => (
+                  <span key={`env-${i}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
+                    🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.erro ? `falhou: ${v.erro.slice(0, 60)}` : `enviando ${v.pct}%`}</span>
+                    {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((_, j) => j !== i))}>×</button>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {anexos.length > 0 && (
             <div className="anexos-pendentes">
               {anexos.map((f, i) => (
@@ -556,7 +614,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             type="file"
             multiple
             hidden
-            accept="image/png,image/jpeg,image/gif,image/webp,.mp3,.wav,.m4a,.aac,.ogg,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.sql,.py,.ts,.tsx,.js,.jsx,.css,.sh"
+            accept="image/png,image/jpeg,image/gif,image/webp,video/*,.mp4,.mov,.webm,.mkv,.m4v,.mp3,.wav,.m4a,.aac,.ogg,.pdf,.docx,.xlsx,.pptx,.odt,.ods,.odp,.txt,.md,.csv,.json,.html,.xml,.yml,.yaml,.sql,.py,.ts,.tsx,.js,.jsx,.css,.sh"
             onChange={(e) => {
               anexar(Array.from(e.target.files ?? []));
               e.target.value = '';

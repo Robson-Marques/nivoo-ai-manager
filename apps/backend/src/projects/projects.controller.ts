@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import * as fs from 'node:fs';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
 import { PreviaService } from '../previa/previa.service';
@@ -40,6 +41,30 @@ export class ProjectsController {
   @Post(':pid/rules')
   rules(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
     return this.projects.newRules(pid, body);
+  }
+
+  // Vídeos do projeto (modo edição): enviar por streaming (arquivo grande), listar, baixar e apagar. Fora do git.
+  @Get(':pid/videos')
+  videos(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.projects.videos(pid);
+  }
+
+  @Post(':pid/videos')
+  async enviarVideo(@Param('pid', ParseUUIDPipe) pid: string, @Query('nome') nome: string, @Req() req: Request) {
+    return this.projects.salvarVideo(pid, nome, req);
+  }
+
+  @Delete(':pid/videos/:vid')
+  apagarVideo(@Param('pid', ParseUUIDPipe) pid: string, @Param('vid') vid: string) {
+    return this.projects.apagarVideo(pid, vid);
+  }
+
+  @Get(':pid/midia/content')
+  async midiaContent(@Param('pid', ParseUUIDPipe) pid: string, @Query('path') caminho: string, @Res() res: Response) {
+    const abs = await this.projects.arquivoDeMidia(pid, caminho);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.type(/\.webm$/i.test(abs) ? 'video/webm' : /\.mov$/i.test(abs) ? 'video/quicktime' : 'video/mp4');
+    fs.createReadStream(abs).pipe(res);
   }
 
   @Get(':pid/conferencia-env')

@@ -71,7 +71,8 @@ export class JobsService {
       // Juntar as cenas num vídeo só (etapa do sistema, ffmpeg).
       if ((provider ?? defaultProvider) === 'juntar-videos') {
         Object.assign(providerOptions, opcoesDeJuncao(key, opts));
-        verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
+        // Vídeo editado em midia/ fica na pasta de mídia durável (fora do worktree): quem confere é o provider (exitCode).
+        verificacao = verifyCommand ?? (String(providerOptions.arquivo).startsWith('midia/') ? 'true' : `test -s '${providerOptions.arquivo}'`);
       }
       // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
       // git guarda tudo (dá para voltar qualquer arquivo) — não pede uma segunda confirmação.

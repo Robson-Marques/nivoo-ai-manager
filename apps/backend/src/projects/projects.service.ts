@@ -1,8 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
 import { apagarVariaveisDaConferencia, gravarReferenciaDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia, referenciasDaConferencia } from '../accounts/secrets';
 import { listGitAccounts } from '../git/git-accounts';
+import { apagarVideoEnviado, arquivoDaMidia, gravarVideoEnviado, listarVideos } from './midia';
+import { Readable } from 'node:stream';
 import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
 import { resolveInside } from '../common/path-guard';
@@ -259,6 +262,37 @@ export class ProjectsService {
       throw new BadRequestException(e?.message ?? 'nome inválido');
     }
     return this.variaveisDaConferencia(id);
+  }
+
+  /** Pasta de mídia durável do projeto (vídeos enviados e editados), fora do git; criada se não existir. */
+  private async midiaDir(id: string): Promise<string> {
+    const p = await this.assertExists(id);
+    const dir = this.workspace.projectDirs(p.dirKey).midia;
+    fs.mkdirSync(path.join(dir, 'entrada'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'saida'), { recursive: true });
+    return dir;
+  }
+
+  /** Vídeos do projeto: enviados (entrada) e editados (saida). */
+  async videos(id: string) {
+    return { videos: listarVideos(await this.midiaDir(id)) };
+  }
+
+  /** Guarda um vídeo enviado pelo app (streaming, arquivo grande). Fora do git e fora da sessão da IA. */
+  async salvarVideo(id: string, nome: string, corpo: Readable) {
+    return gravarVideoEnviado(await this.midiaDir(id), nome, corpo);
+  }
+
+  async apagarVideo(id: string, videoId: string) {
+    if (!apagarVideoEnviado(await this.midiaDir(id), videoId)) throw new NotFoundException('Vídeo não encontrado');
+    return this.videos(id);
+  }
+
+  /** Caminho em disco de um vídeo da mídia (midia/entrada|saida/<arquivo>), para transmitir no download. */
+  async arquivoDeMidia(id: string, caminho: string): Promise<string> {
+    const abs = arquivoDaMidia(await this.midiaDir(id), String(caminho ?? ''));
+    if (!abs) throw new NotFoundException('Vídeo não encontrado na mídia do projeto');
+    return abs;
   }
 
   async remove(id: string) {

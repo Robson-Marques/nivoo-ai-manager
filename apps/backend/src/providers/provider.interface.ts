@@ -29,6 +29,8 @@ export interface ExecutionRequest {
   context: string;
   cwd: string;
   outputDir: string;
+  /** Pasta de mídia durável do projeto (<projeto>/midia), fora do git: vídeos enviados e vídeos editados. */
+  projectMediaDir?: string;
   /**
    * Perfil do projeto (regras da base + regras do projeto + conhecimento). Vai como instrução de sistema
    * quando o executor permite (Claude) e, em todo caso, no topo do prompt.

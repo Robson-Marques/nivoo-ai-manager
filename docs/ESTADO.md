@@ -193,6 +193,20 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Modo edição de vídeo, etapa 2: enviar vídeo pelo app e mídia fora do git (2026-11-17)
+
+* O usuário **arrasta o vídeo na conversa** e ele sobe por **streaming** (não pelo anexo base64, que trava em arquivo
+  grande): `POST /projects/:id/videos` grava direto em disco com limite `NIVOO_MAX_VIDEO_MB` (2 GB). Barra de progresso no
+  chat; o vídeo vira um chip "para editar".
+* **Mídia fora do git**: os vídeos (enviados e editados) ficam em `<projeto>/midia/` — `entrada/` e `saida/` —, nunca no
+  repositório (vídeo é pesado) nem na sessão da IA. O provider `juntar-videos` resolve `midia/...` nessa pasta durável
+  (`ExecutionRequest.projectMediaDir`); o vídeo editado sai em `midia/saida/<nome>.mp4`. Download por `GET /midia/content`.
+* O **planejador lista** os vídeos enviados (`midia/entrada/...`, nome e tamanho) para a IA referenciar em `cenas`, e
+  orienta: editar o que o usuário enviou, salvando em `midia/saida/`, sem Veo.
+* API: `GET /projects/:id/videos`, `POST /projects/:id/videos` (streaming), `DELETE /projects/:id/videos/:id`,
+  `GET /projects/:id/midia/content`. Testes `26` (enviar por streaming → editar → baixar; nada de mídia no git) e tela
+  (`chat-smoke`: arrastar vídeo vira chip e não vira anexo; foto `9a2-video-para-editar`).
+
 ## Modo edição de vídeo, etapa 1: recorte e velocidade por clipe (2026-11-17)
 
 * A mesma etapa do sistema `juntar-videos` (ffmpeg, SEM IA e SEM custo) passa a EDITAR, não só juntar cenas geradas pelo Veo:

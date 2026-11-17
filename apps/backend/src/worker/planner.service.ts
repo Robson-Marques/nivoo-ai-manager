@@ -15,6 +15,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES } from '../security/policy';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+import { listarVideos } from '../projects/midia';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -38,6 +39,19 @@ const MAX_ARQUIVOS = 300;
  * fizer ali é aproveitado. Sempre com o perfil do projeto e a IA escolhida para ele.
  * Resultado: uma resposta em texto ou um plano (rascunho de job) que só vira trabalho com aprovação.
  */
+/** Vídeos que o usuário enviou/editou (modo edição): a IA os referencia por midia/entrada|saida/<arquivo>. */
+function textoDosVideos(videos: ReturnType<typeof listarVideos>): string[] {
+  const enviados = videos.filter((v) => v.pasta === 'entrada');
+  if (!enviados.length) return [];
+  const mb = (b: number) => `${(b / 1024 / 1024).toFixed(0)} MB`;
+  return [
+    `Vídeos que o usuário já enviou para EDITAR (use estes caminhos em "cenas"; são ffmpeg, sem Veo e sem custo): ${enviados
+      .slice(0, 40)
+      .map((v) => `${v.caminho} (${v.nome}, ${mb(v.bytes)})`)
+      .join('; ')}. O vídeo editado sai em midia/saida/<nome>.mp4 (fora do git).`,
+  ];
+}
+
 @Injectable()
 export class PlannerService {
   constructor(
@@ -393,6 +407,7 @@ export class PlannerService {
       ...(await textoDoRepositorio(this.workspace.projectDirs(project.dirKey).repo, project, { semPastaGit: true })),
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
+      ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
       memTxt || '(vazia)',
@@ -500,9 +515,11 @@ export class PlannerService {
             '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"volumeCenas":1}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
-            '  EDIÇÃO (vídeos que o usuário JÁ TEM, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Em "cenas" ponha os',
-            '  vídeos dele na ordem e, para RECORTAR/ACELERAR cada um, "cortes":[{"inicio":1.5,"fim":8},{"velocidade":2}] (alinhado com',
-            '  "cenas"; inicio/fim em segundos, velocidade 0.25–8; null ou {} = clipe inteiro). Reordenar = mudar a ordem de "cenas".',
+            '  EDIÇÃO (vídeos que o usuário JÁ ENVIOU, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Os vídeos enviados',
+            '  estão listados acima com o caminho midia/entrada/<arquivo> — use ESSES caminhos em "cenas", na ordem desejada, e o',
+            '  "arquivo" final em midia/saida/<nome>.mp4 (a mídia fica fora do git). Para RECORTAR/ACELERAR cada clipe:',
+            '  "cortes":[{"inicio":1.5,"fim":8},{"velocidade":2}] (alinhado com "cenas"; inicio/fim em segundos, velocidade 0.25–8;',
+            '  null ou {} = clipe inteiro). Reordenar = mudar a ordem de "cenas". Também valem legendas, transicoes e trilha.',
             '  Tudo isso (cortar, juntar, transição, legenda, trilha, acelerar) é ffmpeg no servidor: SEM Veo e SEM custo. Só use o',
             '  Veo para gerar um trecho NOVO quando o usuário pedir de verdade; para "editar o que já tenho", nunca gere com o Veo.',
           ]

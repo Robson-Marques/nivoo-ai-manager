@@ -15,6 +15,8 @@ export interface ProjectDirs {
   repo: string;
   knowledge: string;
   worktrees: string;
+  /** Mídia durável (vídeos enviados e editados), fora do git. */
+  midia: string;
 }
 
 /** Pasta, dentro do diretório de trabalho da IA, com as cópias de leitura: base/ e conhecimento/. */
@@ -41,6 +43,7 @@ export class WorkspaceService {
       repo: path.join(root, 'repo'),
       knowledge: path.join(root, 'conhecimento'),
       worktrees: path.join(root, 'worktrees'),
+      midia: path.join(root, 'midia'),
     };
   }
 

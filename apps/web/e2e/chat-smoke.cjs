@@ -418,6 +418,15 @@ with zipfile.ZipFile(sys.argv[1],'w') as z: z.writestr('word/document.xml','<w:d
     for (const f of ['mode', 'resposta.txt']) fs.rmSync(path.join(ctl, f), { force: true });
     passo('anexos no chat: imagem com miniatura e Word lido como texto pela IA');
 
+    // Vídeo para editar: arrastar no chat envia por streaming para a mídia do projeto (não vira anexo) e vira chip.
+    const videoMp4 = path.join(tmp, 'abertura.mp4');
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=24:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', videoMp4]);
+    await page.locator('form.entrada input[type=file]').setInputFiles(videoMp4);
+    await page.locator('.video-chip', { hasText: 'abertura.mp4' }).waitFor({ timeout: 30000 });
+    if ((await page.locator('.anexo-chip', { hasText: 'abertura.mp4' }).count()) !== 0) throw new Error('o vídeo virou anexo da mensagem em vez de ir para a mídia');
+    await shot(page, '9a2-video-para-editar');
+    passo('vídeo arrastado no chat vai por streaming para a mídia do projeto e aparece como chip de edição');
+
     // Ditado: o microfone usa o reconhecimento de fala do navegador (aqui simulado, sem microfone) e escreve na caixa.
     await page.evaluate(() => {
       class Falso {
