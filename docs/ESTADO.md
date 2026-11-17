@@ -193,6 +193,18 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Modo edição de vídeo, etapa 3: a IA analisa o vídeo e sugere cortes (2026-11-17)
+
+* Ferramenta `nivoo-analisar-video <video> --pasta out/analise/<nome>` (ffmpeg, grátis): extrai 1 quadro/s (reduzidos para a
+  IA ler barato) e aponta trechos ESCUROS (blackdetect), SILÊNCIOS (silencedetect) e CORTES DE CENA (select scene), com os
+  tempos, em `resumo.md` + `dados.json`. Caminhos `midia/...` resolvem na pasta de mídia do projeto (`NIVOO_MIDIA_DIR`).
+* As etapas `local-shell` e a conferência recebem as ferramentas no PATH (`PASTA_FERRAMENTAS`) e `NIVOO_MIDIA_DIR`.
+* Fluxo (no planejador): etapa `local-shell` roda a análise; depois uma etapa de IA ABRE os quadros + o resumo e escreve
+  `out/analise/<nome>/sugestoes.md` com cortes concretos; o usuário aprova e só então vem a edição com `juntar-videos`.
+  Assim a IA "vê" o vídeo por quadros + os apontamentos (sem assistir o filme), gastando centavos.
+* Teste `26` (análise aponta o trecho escuro e o silêncio e extrai os quadros). Transcrição da fala (voz→texto) fica para
+  um próximo incremento (via Gemini quando conectado).
+
 ## Modo edição de vídeo, etapa 2: enviar vídeo pelo app e mídia fora do git (2026-11-17)
 
 * O usuário **arrasta o vídeo na conversa** e ele sobe por **streaming** (não pelo anexo base64, que trava em arquivo

@@ -522,6 +522,13 @@ export class PlannerService {
             '  null ou {} = clipe inteiro). Reordenar = mudar a ordem de "cenas". Também valem legendas, transicoes e trilha.',
             '  Tudo isso (cortar, juntar, transição, legenda, trilha, acelerar) é ffmpeg no servidor: SEM Veo e SEM custo. Só use o',
             '  Veo para gerar um trecho NOVO quando o usuário pedir de verdade; para "editar o que já tenho", nunca gere com o Veo.',
+            '  A IA "VER" o vídeo e SUGERIR cortes: primeiro uma etapa de sistema (provider "local-shell") que roda',
+            '  nivoo-analisar-video midia/entrada/<arquivo> --pasta out/analise/<nome> (extrai 1 quadro/s e aponta trechos escuros,',
+            '  silêncios e cortes de cena — ffmpeg, grátis); depois uma etapa de IA que ABRE os quadros out/analise/<nome>/quadro-*.jpg',
+            '  e o resumo.md e escreve out/analise/<nome>/sugestoes.md com cortes concretos (tempo). Mostre as sugestões; só edite de',
+            '  verdade (juntar-videos com cortes) depois que o usuário aprovar. Ex. das duas etapas:',
+            '  {"key":"analisar","provider":"local-shell","instructions":"nivoo-analisar-video midia/entrada/<arq> --pasta out/analise/<nome>","verifyCommand":"test -s out/analise/<nome>/resumo.md"},',
+            '  {"key":"sugerir","instructions":"Abra out/analise/<nome>/resumo.md e os quadros e escreva out/analise/<nome>/sugestoes.md com cortes.","verifyCommand":"test -s out/analise/<nome>/sugestoes.md"}',
           ]
         : []),
       ...(resultados.length

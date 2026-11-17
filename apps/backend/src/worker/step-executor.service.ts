@@ -394,7 +394,7 @@ export class StepExecutorService {
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...envDaConferencia, ...(banco?.env ?? {}) }),
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), NIVOO_MIDIA_DIR: this.pastaDeMidia(job.project.dirKey), ...envDaConferencia, ...(banco?.env ?? {}) }),
           encerrarGrupoAoSair: true,
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,

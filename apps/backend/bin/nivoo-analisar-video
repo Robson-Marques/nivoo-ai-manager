@@ -1,0 +1,98 @@
+#!/usr/bin/env node
+/**
+ * nivoo-analisar-video — para a IA "ver" um vídeo sem assisti-lo: o ffmpeg (grátis) extrai um quadro por segundo
+ * e detecta trechos escuros, silêncios e cortes de cena. A IA lê os quadros + o resumo e sugere ajustes com o tempo
+ * ("corta os 3s iniciais", "em 0:12 está escuro", "silêncio de 0:20 a 0:23").
+ *
+ * uso: nivoo-analisar-video <video.mp4> [--pasta out/analise/<nome>] [--por-segundo 1]
+ *   caminhos midia/... resolvem na pasta de mídia do projeto ($NIVOO_MIDIA_DIR).
+ */
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const args = process.argv.slice(2);
+const opt = (nome, padrao) => {
+  const i = args.indexOf(nome);
+  return i >= 0 ? args[i + 1] : padrao;
+};
+const entradaBruta = args.find((a) => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--pasta' && args[args.indexOf(a) - 1] !== '--por-segundo');
+if (!entradaBruta) {
+  console.error('uso: nivoo-analisar-video <video> [--pasta out/analise/<nome>] [--por-segundo 1]');
+  process.exit(2);
+}
+// midia/... vai para a pasta de mídia do projeto; o resto, relativo ao diretório atual.
+const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
+const video = /^midia\//.test(entradaBruta) && midiaDir ? path.join(midiaDir, entradaBruta.replace(/^midia\//, '')) : path.resolve(entradaBruta);
+if (!fs.existsSync(video)) {
+  console.error(`nivoo-analisar-video: vídeo não encontrado: ${entradaBruta}`);
+  process.exit(1);
+}
+const nome = path.basename(video).replace(/\.[^.]+$/, '');
+const pasta = path.resolve(opt('--pasta', path.join('out', 'analise', nome)));
+fs.mkdirSync(pasta, { recursive: true });
+const porSegundo = Number(opt('--por-segundo', '1')) || 1;
+
+const ffprobe = (a) => spawnSync('ffprobe', ['-v', 'error', ...a, video], { encoding: 'utf8' }).stdout.trim();
+const ffmpeg = (a) => spawnSync('ffmpeg', ['-hide_banner', '-nostdin', ...a], { encoding: 'utf8' });
+
+const dur = Number(ffprobe(['-show_entries', 'format=duration', '-of', 'csv=p=0'])) || 0;
+const dim = ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x']);
+const fps = (() => {
+  const r = ffprobe(['-select_streams', 'v:0', '-show_entries', 'stream=r_frame_rate', '-of', 'csv=p=0']);
+  const [n, d] = r.split('/').map(Number);
+  return d ? +(n / d).toFixed(2) : Number(r) || 0;
+})();
+const temAudio = ffprobe(['-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0']) !== '';
+
+// Um quadro a cada 1/porSegundo s, reduzido para a IA ler barato (largura 480).
+ffmpeg(['-i', video, '-vf', `fps=${porSegundo},scale=480:-2`, '-qscale:v', '3', path.join(pasta, 'quadro-%04d.jpg')]);
+const quadros = fs.readdirSync(pasta).filter((f) => /^quadro-\d+\.jpg$/.test(f)).sort();
+
+const tempo = (s) => {
+  const m = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  return `${m}:${String(ss).padStart(2, '0')}`;
+};
+// Trechos escuros (blackdetect), silêncios (silencedetect) e cortes de cena (select scene).
+const escuros = [];
+{
+  const saida = ffmpeg(['-i', video, '-vf', 'blackdetect=d=0.2:pic_th=0.96', '-an', '-f', 'null', '-']).stderr || '';
+  for (const m of saida.matchAll(/black_start:([\d.]+) black_end:([\d.]+)/g)) escuros.push({ de: +m[1], ate: +m[2] });
+}
+const silencios = [];
+if (temAudio) {
+  const saida = ffmpeg(['-i', video, '-af', 'silencedetect=noise=-35dB:d=0.6', '-vn', '-f', 'null', '-']).stderr || '';
+  let ini = null;
+  for (const m of saida.matchAll(/silence_(start|end): ([\d.]+)/g)) {
+    if (m[1] === 'start') ini = +m[2];
+    else if (ini !== null) (silencios.push({ de: ini, ate: +m[2] }), (ini = null));
+  }
+}
+const cenas = [];
+{
+  const saida = ffmpeg(['-i', video, '-vf', "select='gt(scene,0.4)',showinfo", '-an', '-f', 'null', '-']).stderr || '';
+  for (const m of saida.matchAll(/pts_time:([\d.]+)/g)) cenas.push(+m[1]);
+}
+
+const dados = { video: entradaBruta, duracaoSeg: +dur.toFixed(2), resolucao: dim, fps, temAudio, quadrosPorSegundo: porSegundo, quadros: quadros.length, escuros, silencios, cortesDeCena: cenas };
+fs.writeFileSync(path.join(pasta, 'dados.json'), JSON.stringify(dados, null, 2));
+
+const linhas = [
+  `# Análise do vídeo ${path.basename(video)}`,
+  '',
+  `- Duração: ${tempo(dur)} (${dur.toFixed(1)} s) · Resolução: ${dim} · ${fps} quadros/s · ${temAudio ? 'com áudio' : 'sem áudio'}`,
+  `- Quadros extraídos (1 a cada ${1 / porSegundo === 1 ? 'segundo' : `${(1 / porSegundo).toFixed(2)} s`}): ${quadros.length} em ${path.relative(process.cwd(), pasta) || '.'}/ (quadro-0001.jpg = ~0 s, quadro-0002.jpg = ~${(1 / porSegundo).toFixed(0)} s…). ABRA os quadros para ver o vídeo.`,
+  '',
+  '## O que o sistema já notou (confira nos quadros)',
+  escuros.length ? `- Trechos ESCUROS/pretos: ${escuros.map((e) => `${tempo(e.de)}–${tempo(e.ate)}`).join(', ')}` : '- Nenhum trecho preto detectado.',
+  silencios.length ? `- SILÊNCIOS: ${silencios.map((s) => `${tempo(s.de)}–${tempo(s.ate)}`).join(', ')}` : temAudio ? '- Sem silêncios longos.' : '- Vídeo sem áudio.',
+  cenas.length ? `- CORTES DE CENA por volta de: ${cenas.map((c) => tempo(c)).join(', ')}` : '- Poucas mudanças de cena.',
+  '',
+  'Use estes tempos como PISTA; confirme abrindo os quadros antes de sugerir cortes. Sugira ajustes concretos com o tempo',
+  '(ex.: "corte 0:00–0:03, a abertura arrasta"; "escuro em 0:12, descarte"; "silêncio 0:20–0:23, corte") para virar um plano',
+  'de edição com juntar-videos (cenas + cortes).',
+];
+fs.writeFileSync(path.join(pasta, 'resumo.md'), linhas.join('\n') + '\n');
+console.log(`nivoo-analisar-video: ${quadros.length} quadro(s), ${escuros.length} trecho(s) escuro(s), ${silencios.length} silêncio(s), ${cenas.length} corte(s) de cena → ${path.relative(process.cwd(), pasta) || '.'}/resumo.md`);

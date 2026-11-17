@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { minimalEnv, runProcess } from '../common/exec';
+import { minimalEnv, PASTA_FERRAMENTAS, runProcess } from '../common/exec';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
@@ -39,6 +39,9 @@ export class LocalShellProvider implements AiProvider {
         NIVOO_STEP_ID: req.stepId,
         NIVOO_ATTEMPT_ID: req.attemptId,
         NIVOO_OUTPUT_DIR: req.outputDir,
+        // Ferramentas do Nivoo (nivoo-analisar-video, nivoo-fotos…) no PATH e a pasta de mídia do projeto.
+        PATH: `${PASTA_FERRAMENTAS}:${process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin'}`,
+        ...(req.projectMediaDir ? { NIVOO_MIDIA_DIR: req.projectMediaDir } : {}),
       }),
       timeoutMs: req.timeoutMs,
       signal: req.signal,

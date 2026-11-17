@@ -178,6 +178,38 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('análise do vídeo (nivoo-analisar-video): extrai quadros e aponta trecho escuro e silêncio, para a IA sugerir cortes', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Análise' }).expect(201)).body;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'analise-'));
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    // Vídeo 6 s: 2 s normal, 2 s PRETO + silêncio, 2 s normal.
+    ff('-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=24:duration=2', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(tmp, 's1.mp4'));
+    ff('-f', 'lavfi', '-i', 'color=c=black:size=640x360:rate=24:duration=2', '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000:duration=2', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(tmp, 's2.mp4'));
+    ff('-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=24:duration=2', '-f', 'lavfi', '-i', 'sine=frequency=660:duration=2', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(tmp, 's3.mp4'));
+    fs.writeFileSync(path.join(tmp, 'l.txt'), ['s1', 's2', 's3'].map((x) => `file '${path.join(tmp, x)}.mp4'`).join('\n'));
+    ff('-f', 'concat', '-safe', '0', '-i', path.join(tmp, 'l.txt'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(tmp, 'v.mp4'));
+    const env = (await h.http().post(`/api/projects/${p.id}/videos`).query({ nome: 'v.mp4' }).set('Content-Type', 'application/octet-stream').send(fs.readFileSync(path.join(tmp, 'v.mp4'))).expect(201)).body;
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'analisar', objective: 'x', defaultProvider: 'local-shell',
+        steps: [{ key: 'analisar', provider: 'local-shell', instructions: `nivoo-analisar-video "${env.caminho}" --pasta out/analise/v`, verifyCommand: 'test -s out/analise/v/resumo.md' }],
+        criteria: [{ key: 'c', description: 'x', kind: 'COMMAND', config: { command: 'true' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    const wt = path.join(p.workspacePath, 'worktrees', j.id, 'out', 'analise', 'v');
+    const resumo = fs.readFileSync(path.join(wt, 'resumo.md'), 'utf8');
+    expect(resumo).toMatch(/Trechos ESCUROS\/pretos: 0:02/);
+    expect(resumo).toMatch(/SILÊNCIOS: 0:02/);
+    expect(fs.readdirSync(wt).filter((f) => /^quadro-\d+\.jpg$/.test(f)).length).toBeGreaterThanOrEqual(5);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
     const plano = comVideoCompleto(
       [
