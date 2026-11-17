@@ -1,0 +1,102 @@
+#!/usr/bin/env node
+/**
+ * nivoo-renderizar-motion — transforma uma ANIMAÇÃO DE CÓDIGO (motion design: HTML/CSS/JS que a IA escreve) em vídeo,
+ * gravando a página num navegador sem tela (Playwright) e convertendo para mp4 (ffmpeg). SEM Veo e SEM custo.
+ *
+ * uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]
+ *   A página pode definir window.__motionSegundos (duração) e setar window.__motionFim = true quando terminar.
+ *   Caminhos midia/... em --saida resolvem na pasta de mídia do projeto ($NIVOO_MIDIA_DIR).
+ */
+'use strict';
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const args = process.argv.slice(2);
+const opt = (nome, padrao) => {
+  const i = args.indexOf(nome);
+  return i >= 0 ? args[i + 1] : padrao;
+};
+const alvoBruto = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--saida' && args[i - 1] !== '--segundos' && args[i - 1] !== '--tamanho');
+if (!alvoBruto) {
+  console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
+  process.exit(2);
+}
+const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
+const resolver = (rel) => (/^midia\//.test(rel) && midiaDir ? path.join(midiaDir, rel.replace(/^midia\//, '')) : path.resolve(rel));
+let entrada = path.resolve(alvoBruto);
+if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) entrada = path.join(entrada, 'index.html');
+if (!fs.existsSync(entrada)) {
+  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava um index.html)`);
+  process.exit(1);
+}
+const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
+if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
+  console.error('nivoo-renderizar-motion: --saida deve ser midia/saida/<nome>.mp4');
+  process.exit(2);
+}
+const saida = resolver(saidaRel);
+const segundosArg = Math.min(300, Math.max(1, Number(opt('--segundos', '15')) || 15));
+const [W, H] = String(opt('--tamanho', '1920x1080')).split('x').map((n) => Number(n) || 0);
+if (!W || !H) {
+  console.error('nivoo-renderizar-motion: --tamanho deve ser como 1920x1080');
+  process.exit(2);
+}
+
+(async () => {
+  let chromium;
+  try {
+    ({ chromium } = require('playwright-core'));
+  } catch {
+    try {
+      ({ chromium } = await import('playwright-core'));
+    } catch {
+      console.error('nivoo-renderizar-motion: navegador sem tela não instalado (playwright-core ausente). Rode "nivoo update".');
+      process.exit(3);
+    }
+  }
+  const dirVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-motion-'));
+  let navegador;
+  try {
+    navegador = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu', '--force-color-profile=srgb'] });
+  } catch (e) {
+    console.error(`nivoo-renderizar-motion: navegador sem tela não abriu (${String(e.message).split('\n')[0]}). Rode "nivoo update".`);
+    process.exit(3);
+  }
+  const ctx = await navegador.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, recordVideo: { dir: dirVideo, size: { width: W, height: H } } });
+  const pagina = await ctx.newPage();
+  const erros = [];
+  pagina.on('pageerror', (e) => erros.push(String(e.message).slice(0, 200)));
+  await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+  // Duração: a que a página declarar (window.__motionSegundos), senão --segundos. Para antes se window.__motionFim.
+  const segundos = Math.min(300, Math.max(1, Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
+  const limite = Date.now() + segundos * 1000;
+  while (Date.now() < limite) {
+    if (await pagina.evaluate(() => window.__motionFim === true).catch(() => false)) break;
+    await pagina.waitForTimeout(100);
+  }
+  const video = pagina.video();
+  await ctx.close(); // grava o .webm
+  await navegador.close();
+  const webm = video ? await video.path() : null;
+  if (!webm || !fs.existsSync(webm)) {
+    console.error('nivoo-renderizar-motion: a gravação não foi criada');
+    process.exit(4);
+  }
+  fs.mkdirSync(path.dirname(saida), { recursive: true });
+  // webm → mp4 (H.264, yuv420p, faststart): toca em qualquer lugar e serve para juntar/editar depois.
+  const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', webm, '-t', String(segundos), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', saida], { encoding: 'utf8' });
+  fs.rmSync(dirVideo, { recursive: true, force: true });
+  if (r.status !== 0) {
+    console.error(`nivoo-renderizar-motion: ffmpeg falhou: ${(r.stderr || '').trim().slice(-300)}`);
+    process.exit(4);
+  }
+  const dur = Number(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', saida], { encoding: 'utf8' }).stdout.trim()) || 0;
+  const mb = (fs.statSync(saida).size / 1024 / 1024).toFixed(1);
+  if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
+  console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${dur.toFixed(1)} s, ${mb} MB)`);
+})().catch((e) => {
+  console.error(`nivoo-renderizar-motion: falhou: ${e?.message ?? e}`);
+  process.exit(4);
+});

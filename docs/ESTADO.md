@@ -193,6 +193,18 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Motion Design: animação de código vira vídeo, sem Veo (2026-11-17)
+
+* Capacidade chamável de QUALQUER projeto (não é um modelo à parte): a IA escreve uma ANIMAÇÃO em código
+  (`motion/<nome>/index.html`, HTML/CSS/JS, um arquivo; declara `window.__motionSegundos` e seta `window.__motionFim`);
+  a ferramenta `nivoo-renderizar-motion` abre a página num navegador sem tela (Playwright recordVideo), grava e converte
+  para mp4 em `midia/saida/<nome>.mp4`, com a duração cortada no tempo pedido. SEM Veo e SEM custo de vídeo.
+* Fluxo no planejador: etapa de IA escreve a animação → etapa `local-shell` renderiza → `juntar-videos` soma música,
+  legenda e junta com outras cenas. O Veo fica só para filmagem realista; animação/apresentação prefere Motion Design.
+* A animação (código) fica no git (reutilizável); o vídeo pesado vai para `midia/` (fora do git). Teste `26` (anima →
+  renderiza → baixa, 2 s/640x360; index.html no git, mídia não).
+* Próximo incremento: VOZ (locução por texto) pela Gemini, para o Motion ganhar narração além de música e legenda.
+
 ## Modo edição de vídeo, etapa 3: a IA analisa o vídeo e sugere cortes (2026-11-17)
 
 * Ferramenta `nivoo-analisar-video <video> --pasta out/analise/<nome>` (ffmpeg, grátis): extrai 1 quadro/s (reduzidos para a

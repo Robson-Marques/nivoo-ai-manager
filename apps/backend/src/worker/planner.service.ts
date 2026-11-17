@@ -529,6 +529,13 @@ export class PlannerService {
             '  verdade (juntar-videos com cortes) depois que o usuário aprovar. Ex. das duas etapas:',
             '  {"key":"analisar","provider":"local-shell","instructions":"nivoo-analisar-video midia/entrada/<arq> --pasta out/analise/<nome>","verifyCommand":"test -s out/analise/<nome>/resumo.md"},',
             '  {"key":"sugerir","instructions":"Abra out/analise/<nome>/resumo.md e os quadros e escreva out/analise/<nome>/sugestoes.md com cortes.","verifyCommand":"test -s out/analise/<nome>/sugestoes.md"}',
+            '  MOTION DESIGN (animação de código, SEM Veo e SEM custo de vídeo): para abertura, título animado, lower-third, logo,',
+            '  explicação com texto e formas em movimento. A IA escreve a animação em motion/<nome>/index.html (HTML/CSS/JS, um',
+            '  arquivo, sem internet; declare a duração em window.__motionSegundos e, no fim, window.__motionFim=true). Uma etapa de',
+            '  sistema (provider "local-shell") renderiza para vídeo:',
+            '  {"key":"render","provider":"local-shell","instructions":"nivoo-renderizar-motion motion/<nome> --saida midia/saida/<nome>.mp4 --segundos 15 --tamanho 1920x1080","verifyCommand":"true"}.',
+            '  Depois dá para somar MÚSICA de fundo, LEGENDA e juntar com outras cenas na etapa juntar-videos (cenas:["midia/saida/<nome>.mp4"]).',
+            '  Prefira Motion Design (barato) a Veo quando o pedido é animação/apresentação; o Veo é para filmagem realista.',
           ]
         : []),
       ...(resultados.length

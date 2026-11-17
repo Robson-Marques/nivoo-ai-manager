@@ -210,6 +210,50 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('motion design: a IA escreve uma animação de código e o sistema renderiza para vídeo (sem Veo) em midia/saida', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Motion' }).expect(201)).body;
+    const anim = [
+      '<!doctype html><html><head><meta charset=utf-8><style>',
+      'html,body{margin:0;height:100%;background:#0b1020;overflow:hidden}',
+      '.t{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font:60px sans-serif;opacity:0;animation:a 1s forwards}',
+      '@keyframes a{to{opacity:1}}</style></head><body><div class=t>Nivoo</div>',
+      '<script>window.__motionSegundos=2;setTimeout(()=>window.__motionFim=true,2100)</script></body></html>',
+    ].join('');
+    // Etapa de sistema (local-shell): escreve a animação e renderiza. Em um pedido real, a IA é quem escreve o index.html.
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'motion', objective: 'x', defaultProvider: 'local-shell',
+        steps: [{ key: 'render', provider: 'local-shell', instructions: `mkdir -p motion/intro && cat > motion/intro/index.html <<'HTML'\n${anim}\nHTML\nnivoo-renderizar-motion motion/intro --saida midia/saida/intro.mp4 --segundos 2 --tamanho 640x360`, verifyCommand: 'true' }],
+        criteria: [{ key: 'c', description: 'x', kind: 'COMMAND', config: { command: 'true' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 120_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    // O vídeo do motion está na mídia (saida), baixa pela API e dura ~2 s, 640x360.
+    const editados = (await h.http().get(`/api/projects/${p.id}/videos`)).body.videos.filter((v: any) => v.pasta === 'saida');
+    expect(editados.map((v: any) => v.caminho)).toContain('midia/saida/intro.mp4');
+    const baixado = await h.http().get(`/api/projects/${p.id}/midia/content`).query({ path: 'midia/saida/intro.mp4' }).buffer(true).parse((res, cb) => {
+      const partes: Buffer[] = [];
+      res.on('data', (c: Buffer) => partes.push(c));
+      res.on('end', () => cb(null, Buffer.concat(partes)));
+    }).expect(200);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'motion-'));
+    const mp4 = path.join(tmp, 'intro.mp4');
+    fs.writeFileSync(mp4, baixado.body as Buffer);
+    expect(ffprobe(mp4, '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x')).toBe('640x360');
+    expect(Number(ffprobe(mp4, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(2, 0);
+    // A animação (código) ficou no projeto (reutilizável); o vídeo pesado não foi para o git.
+    const repo = path.join(p.workspacePath, 'repo');
+    const noGit = execFileSync('git', ['ls-files'], { cwd: repo }).toString();
+    expect(noGit).toMatch(/motion\/intro\/index\.html/);
+    expect(noGit).not.toMatch(/midia\//);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
     const plano = comVideoCompleto(
       [
