@@ -350,6 +350,44 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('vídeo pronto SEM áudio + narração mais longa: ganha som e segura o último quadro até a fala acabar (não corta)', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Prévia pronta' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 'pr'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'audio'), { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    // Prévia completa SEM faixa de áudio (como a que o usuário já editou em outro lugar), 2 s.
+    ff('-f', 'lavfi', '-i', 'testsrc=size=720x1280:rate=24:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-an', path.join(repo, 'videos', 'pr', 'previa.mp4'));
+    ff('-f', 'lavfi', '-i', 'sine=frequency=500:duration=4', '-c:a', 'libmp3lame', path.join(repo, 'audio', 'locucao.mp3'));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'previa muda e locucao'], { cwd: repo });
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'som na prévia', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'junta', providerOptions: {
+          cenas: ['videos/pr/previa.mp4'], arquivo: 'videos/pr/pr-completo.mp4',
+          trilha: { arquivo: 'audio/locucao.mp3', volume: 0.2 },
+          narracao: { arquivo: 'audio/locucao.mp3' },
+        } }],
+        criteria: [{ key: 'v', description: 'x', kind: 'FILE_EXISTS', config: { path: 'videos/pr/pr-completo.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'previa-'));
+    const final = path.join(tmp, 'f.mp4');
+    fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/pr/pr-completo.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
+    expect(ffprobe(final, '-select_streams', 'a', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0')).toBe('aac'); // prévia muda ganhou áudio
+    // O vídeo não foi cortado em 2 s: segurou o último quadro até a locução (4 s) acabar.
+    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(4, 0);
+    expect(Number(ffprobe(final, '-select_streams', 'v:0', '-show_entries', 'stream=duration', '-of', 'csv=p=0'))).toBeCloseTo(4, 0);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('seletor de voz: catálogo com gênero (feminina/masculina) e voz padrão do projeto guardada', async () => {
     const vozes = (await h.http().get('/api/projects/vozes-narracao').expect(200)).body as Array<{ id: string; genero: string; estilo: string }>;
     expect(vozes.find((v) => v.id === 'Kore')?.genero).toBe('feminina');

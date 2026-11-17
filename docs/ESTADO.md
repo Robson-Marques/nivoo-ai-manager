@@ -294,7 +294,23 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   o trabalho ficava **BLOQUEADO** dizendo que `midia/saida/<nome>.mp4` "não existe". Teste `26` (edição com critério
   `FILE_EXISTS` sobre `midia/saida/final.mp4` conclui o trabalho).
 * **Aviso de limite no envio:** quando o upload de um vídeo falha, a conversa mostra um aviso de que provavelmente é
-  **limite de tamanho** do servidor/proxy, sugerindo mandar um **.zip** ou copiar para `midia/entrada` no servidor.
+  **limite de tamanho** do servidor/proxy, sugerindo mandar um **.zip**.
+
+## Montagem de vídeo: áudio junto, vídeo no tamanho do áudio, player e tamanhos certos (2026-11-17)
+
+Vários defeitos reais numa montagem de Reel, corrigidos:
+* **Música + narração montadas JUNTAS** (antes eram dois passos que brigavam na duração). O vídeo pode **não ter áudio
+  próprio** (uma prévia pronta, só imagem): a música/voz viram a trilha. O vídeo final tem o **tamanho do áudio** — se a
+  narração passar do vídeo, o sistema **segura o último quadro** (`tpad`) até a fala acabar, em vez de cortar pela metade.
+  A música enche o vídeo inteiro (loop + fade) e abaixa sob a voz (ducking).
+* **Fluxo recomendado para quem já tem o vídeo pronto:** usar o vídeo inteiro como **única cena** e só somar trilha e/ou
+  narração — não cortar em pedaços. O planejador orienta isso; com narração, a legenda é curta/opcional.
+* **Player do chat** passou a abrir a mídia por `/midia/content` (fora do git), não por `/files/content` — antes dava
+  "Não foi possível abrir" no vídeo final.
+* **Tamanhos pequenos mostram KB** (não "0 MB" arredondado): arquivos de ~200 KB apareciam como "0 MB" na tela e para a
+  IA, que concluía que os vídeos estavam "vazios". Corrigido na tela e no contexto do planejador.
+* Teste `26` (prévia SEM áudio + narração mais longa → ganha som e o vídeo é esticado até o fim da fala; os casos de
+  trilha e narração continuam verdes).
 
 ## Trocar o agente (área) de um projeto (2026-11-17)
 

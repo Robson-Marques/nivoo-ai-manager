@@ -45,7 +45,7 @@ const MAX_ARQUIVOS = 300;
 function textoDosVideos(videos: ReturnType<typeof listarVideos>): string[] {
   const enviados = videos.filter((v) => v.pasta === 'entrada');
   if (!enviados.length) return [];
-  const mb = (b: number) => `${(b / 1024 / 1024).toFixed(0)} MB`;
+  const mb = (b: number) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
   return [
     `Vídeos que o usuário já enviou para EDITAR (use estes caminhos em "cenas"; são ffmpeg, sem Veo e sem custo): ${enviados
       .slice(0, 40)
@@ -528,6 +528,11 @@ export class PlannerService {
             '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"narracao":{"texto":"...","voz":"Kore"},"volumeCenas":1}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
+            '  VÍDEO PRONTO (o usuário já editou/cortou em outro lugar e só quer SOM): use o vídeo inteiro como ÚNICA cena',
+            '  ("cenas":["midia/entrada/<arquivo>"]) e some "trilha" e/ou "narracao". NÃO corte em pedaços nem junte as versões curtas.',
+            '  O vídeo pode nem ter áudio próprio (prévia muda) — tudo bem, a música/voz viram a trilha. O sistema deixa o vídeo do',
+            '  TAMANHO DO ÁUDIO: se a narração passar do vídeo, segura o último quadro até a fala acabar (nunca corta pela metade).',
+            '  Quando houver NARRAÇÃO (voz), a legenda é OPCIONAL; se usar, deixe CURTA (poucas palavras), nunca a fala inteira na tela.',
             '  EDIÇÃO (vídeos que o usuário JÁ ENVIOU, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Os vídeos enviados',
             '  estão listados acima com o caminho midia/entrada/<arquivo> — use ESSES caminhos em "cenas", na ordem desejada, e o',
             '  "arquivo" final em midia/saida/<nome>.mp4 (a mídia fica fora do git). Para RECORTAR/ACELERAR cada clipe:',

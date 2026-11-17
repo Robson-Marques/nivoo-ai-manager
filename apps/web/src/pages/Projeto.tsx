@@ -618,7 +618,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
                 <div className="videos-lista">
                   {videos.map((v) => (
                     <span key={v.caminho} className="video-chip" title={v.nome}>
-                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{(v.bytes / 1024 / 1024).toFixed(0)} MB</span>
+                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(v.bytes / 1024))} KB` : `${(v.bytes / 1024 / 1024).toFixed(1)} MB`}</span>
                       <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
                     </span>
                   ))}
@@ -632,17 +632,10 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
               )}
               {enviandoVideos.some((v) => v.erro) && (
                 <div className="error small" style={{ marginTop: 4 }}>
-                  Não consegui enviar o vídeo — provavelmente passa do <b>limite de tamanho</b> do servidor ou do proxy (ex.: Cloudflare 100 MB por envio). O que fazer:
-                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-                    <li>Mande um <b>.zip</b> com os vídeos aqui mesmo (eu extraio todos).</li>
-                    {projeto.workspacePath && <li>Ou copie os arquivos para <code>{projeto.workspacePath}/midia/entrada</code> no servidor (SCP/FTP) e clique em “Procurar”.</li>}
-                  </ul>
+                  Não consegui enviar o vídeo. Se for arquivo grande, pode ser o <b>limite de tamanho</b> do servidor/proxy (ex.: Cloudflare 100 MB por envio). Tente mandar um <b>.zip</b> com os vídeos aqui mesmo — eu extraio todos de uma vez.
                 </div>
               )}
-              <div className="row small" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span className="muted small">Vários de uma vez? Arraste um <b>.zip</b>.</span>
-                <button type="button" className="link" disabled={importando} onClick={importarDaPasta}>{importando ? 'Procurando…' : 'Procurar vídeos que coloquei no servidor'}</button>
-              </div>
+              <span className="muted small">Vários de uma vez? Junte num <b>.zip</b> e arraste aqui — o sistema extrai sozinho.</span>
             </div>
           )}
           {anexos.length > 0 && (
@@ -1374,7 +1367,11 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
   useEffect(() => {
     let u: string | null = null;
     let saiu = false;
-    urlDoArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`, 'video/mp4').then((x) => {
+    // A mídia (vídeos enviados/editados) fica fora do git: vem por /midia/content; o resto (cenas no git) por /files/content.
+    const rota = /^midia\//.test(caminho)
+      ? `/projects/${projetoId}/midia/content?path=${encodeURIComponent(caminho)}`
+      : `/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`;
+    urlDoArquivo(rota, 'video/mp4').then((x) => {
       if (saiu) {
         if (x) URL.revokeObjectURL(x);
         return;

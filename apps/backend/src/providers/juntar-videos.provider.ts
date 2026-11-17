@@ -134,20 +134,25 @@ export class JuntarVideosProvider implements AiProvider {
         r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
       }
       if (r.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui juntar as cenas: ${r.stderr.trim().slice(-300)}`, interrupted: req.signal.aborted };
-      // Trilha de fundo única, de ponta a ponta: a música abaixa sozinha quando há fala nas cenas (ducking) e
-      // entra/sai em fade. Gerada pelo Google (Lyria) a partir da descrição, ou um áudio do projeto.
+      // ÁUDIO: música de fundo (trilha) + narração (voz) por cima, montadas JUNTAS. O vídeo pode nem ter som próprio
+      // (ex.: uma prévia pronta, sem áudio): então música/voz viram a trilha. O vídeo final tem o TAMANHO DO ÁUDIO —
+      // se a narração passar do vídeo, a imagem segura o último quadro até a fala acabar (nunca corta pela metade).
       let custo = 0;
       let trilhaInfo = '';
       let narracaoInfo = '';
-      if (o.trilha || (o.volumeCenas !== undefined && o.volumeCenas < 1)) {
-        const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
+      const querAudio = !!o.trilha || !!(o.narracao?.texto?.trim() || o.narracao?.arquivo) || (o.volumeCenas !== undefined && o.volumeCenas < 1);
+      if (querAudio) {
+        const durDe = async (f: string) => Number((await probe(f, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
+        const temAudio = async (f: string) => Boolean((await probe(f, ['-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0'])).stdout.trim());
+        const vDur = await durDe(saida);
+        const videoTemAudio = await temAudio(saida);
+        // 1) MÚSICA de fundo: um áudio do projeto, ou gerada pelo Lyria (reaproveitada quando a descrição não muda).
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
           musica = this.resolver(req, o.trilha.arquivo);
           if (!fs.existsSync(musica)) return { exitCode: 1, output: '', error: `trilha não encontrada no projeto: ${o.trilha.arquivo}` };
           trilhaInfo = `trilha ${o.trilha.arquivo}`;
         } else if (o.trilha?.descricao) {
-          // Já gerada antes para este vídeo (mesma descrição): reaproveita, sem pagar de novo.
           const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
           const meta = o.arquivo.replace(/\.mp4$/i, '-trilha.txt');
           const absG = this.resolver(req, guardada);
@@ -157,44 +162,24 @@ export class JuntarVideosProvider implements AiProvider {
             trilhaInfo = `trilha ${guardada} (reaproveitada)`;
           } else {
             req.onLog(`Gerando a trilha de fundo com o Google (Lyria): ${o.trilha.descricao.slice(0, 120)}`);
-            const g = await this.gerarMusica(o.trilha.descricao, total, req);
+            const g = await this.gerarMusica(o.trilha.descricao, vDur, req);
             if ('erro' in g) return { exitCode: 1, output: '', error: `não consegui gerar a trilha: ${g.erro}`, resourceUnavailable: g.indisponivel };
             fs.mkdirSync(path.dirname(absG), { recursive: true });
             fs.writeFileSync(absG, g.bytes);
             fs.writeFileSync(absM, `${o.trilha.descricao.trim()}\n`);
             musica = absG;
-            custo = g.custo;
+            custo += g.custo;
             trilhaInfo = `trilha gerada (${g.modelo}) em ${guardada}`;
           }
         }
-        const volM = o.trilha?.volume ?? 0.3;
-        const volC = o.volumeCenas ?? 1;
-        const fimFade = Math.max(0, total - 2.5).toFixed(2);
-        const filtros = musica
-          ? volC > 0
-            ? `[1:a]atrim=0:${total.toFixed(2)},asetpts=PTS-STARTPTS,volume=${volM},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[m];` +
-              `[0:a]volume=${volC},asplit=2[voz][sc];[m][sc]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=350[md];` +
-              `[voz][md]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`
-            : `[1:a]atrim=0:${total.toFixed(2)},asetpts=PTS-STARTPTS,volume=${Math.min(1, volM * 2.5)},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[a]`
-          : `[0:a]volume=${volC}[a]`;
-        const mixado = path.join(tmp, 'mixado.mp4');
-        const m = await ff(['-i', saida, ...(musica ? ['-stream_loop', '-1', '-i', musica] : []), '-filter_complex', filtros, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', total.toFixed(2), '-movflags', '+faststart', mixado], 1_800_000);
-        if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui misturar a trilha: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: true };
-        fs.renameSync(mixado, saida);
-        if (!trilhaInfo) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
-        req.onLog(`Áudio: ${trilhaInfo}; música abaixa sob as falas`);
-      }
-      // NARRAÇÃO (voz): locução por cima do vídeo; o fundo (cenas + música) abaixa sob a voz. Gerada pela Gemini (TTS)
-      // a partir do texto, ou um áudio do projeto. Reaproveitada quando o texto não muda (não paga de novo).
-      if (o.narracao?.texto?.trim() || o.narracao?.arquivo) {
-        const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
+        // 2) NARRAÇÃO (voz): um áudio do projeto, ou gerada pela Gemini TTS (reaproveitada quando texto/voz não mudam).
         let voz: string | null = null;
         let vozInfo = '';
-        if (o.narracao.arquivo) {
+        if (o.narracao?.arquivo) {
           voz = this.resolver(req, o.narracao.arquivo);
           if (!fs.existsSync(voz)) return { exitCode: 1, output: '', error: `narração não encontrada no projeto: ${o.narracao.arquivo}`, costUsd: custo, costEstimated: !!custo };
           vozInfo = `narração ${o.narracao.arquivo}`;
-        } else if (o.narracao.texto?.trim()) {
+        } else if (o.narracao?.texto?.trim()) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-narracao.mp3');
           const meta = o.arquivo.replace(/\.mp4$/i, '-narracao.txt');
           const absG = this.resolver(req, guardada);
@@ -204,8 +189,8 @@ export class JuntarVideosProvider implements AiProvider {
             voz = absG;
             vozInfo = `narração ${guardada} (reaproveitada)`;
           } else {
-            req.onLog(`Gerando a narração com a Gemini (voz ${o.narracao.voz ?? VOZ_PADRAO}): ${o.narracao.texto.slice(0, 120)}`);
-            const g = await this.gerarNarracao(o.narracao.texto.trim(), o.narracao.voz ?? VOZ_PADRAO, req);
+            req.onLog(`Gerando a narração com a Gemini (voz ${o.narracao.voz ?? VOZ_PADRAO}): ${o.narracao.texto!.slice(0, 120)}`);
+            const g = await this.gerarNarracao(o.narracao.texto!.trim(), o.narracao.voz ?? VOZ_PADRAO, req);
             if ('erro' in g) return { exitCode: 1, output: '', error: `não consegui gerar a narração: ${g.erro}`, resourceUnavailable: g.indisponivel, costUsd: custo, costEstimated: !!custo };
             fs.mkdirSync(path.dirname(absG), { recursive: true });
             const conv = await this.audioParaMp3(g.bytes, g.mime, absG, tmp);
@@ -216,19 +201,61 @@ export class JuntarVideosProvider implements AiProvider {
             vozInfo = `narração gerada (${g.modelo}) em ${guardada}`;
           }
         }
-        if (voz) {
-          const volFundo = Number.isFinite(o.narracao.volumeFundoSobVoz) ? Math.max(0, Math.min(1, Number(o.narracao.volumeFundoSobVoz))) : 0.35;
-          // Voz em primeiro plano; o fundo (cenas+música) abaixa sob a voz (ducking) e volta nos silêncios.
-          const filtros = `[1:a]aresample=48000,asetpts=PTS-STARTPTS[narr];[narr]asplit=2[nv][nk];` +
-            `[0:a]volume=${volFundo}[bg];[bg][nk]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[bgd];` +
-            `[nv][bgd]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`;
-          const comVoz = path.join(tmp, 'com-voz.mp4');
-          const m = await ff(['-i', saida, '-i', voz, '-filter_complex', filtros, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', total.toFixed(2), '-movflags', '+faststart', comVoz], 1_800_000);
-          if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui misturar a narração: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: !!custo };
-          fs.renameSync(comVoz, saida);
-          narracaoInfo = vozInfo;
-          req.onLog(`Áudio: ${vozInfo}; o fundo abaixa sob a voz`);
+        const nDur = voz ? await durDe(voz) : 0;
+        // 3) ALVO = o maior entre o vídeo e a narração. Se a fala passar do vídeo, segura o último quadro (não corta).
+        const alvo = Math.max(vDur, nDur);
+        if (alvo > vDur + 0.05) {
+          const esticado = path.join(tmp, 'esticado.mp4');
+          const e = await ff(['-i', saida, '-vf', `tpad=stop_mode=clone:stop_duration=${(alvo - vDur).toFixed(3)}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', ...(videoTemAudio ? ['-c:a', 'copy'] : ['-an']), '-movflags', '+faststart', esticado], 1_800_000);
+          if (e.exitCode === 0) fs.renameSync(esticado, saida);
+          else req.onLog(`não consegui esticar o vídeo até o fim da narração (${e.stderr.trim().slice(-160)})`, 'WARN');
         }
+        // 4) Monta a faixa de áudio de tamanho `alvo`: música (trim/loop + fade) + áudio do vídeo + voz (com ducking).
+        const volM = o.trilha?.volume ?? 0.3;
+        const volC = o.volumeCenas ?? 1;
+        const fimFade = Math.max(0, alvo - 2.5).toFixed(2);
+        const inputs: string[] = ['-i', saida];
+        const filtros: string[] = [];
+        const fundos: string[] = [];
+        if (videoTemAudio && volC > 0) {
+          filtros.push(`[0:a]volume=${volC}[cen]`);
+          fundos.push('cen');
+        }
+        if (musica) {
+          inputs.push('-stream_loop', '-1', '-i', musica);
+          const mi = inputs.filter((x) => x === '-i').length - 1;
+          filtros.push(`[${mi}:a]atrim=0:${alvo.toFixed(2)},asetpts=PTS-STARTPTS,volume=${volM},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[mus]`);
+          fundos.push('mus');
+        }
+        let fundo: string | null = null;
+        if (fundos.length === 1) fundo = fundos[0];
+        else if (fundos.length >= 2) {
+          filtros.push(`[${fundos[0]}][${fundos[1]}]amix=inputs=2:duration=longest:normalize=0[fundo]`);
+          fundo = 'fundo';
+        }
+        let rotuloFinal: string | null = null;
+        if (voz) {
+          inputs.push('-i', voz);
+          const vi = inputs.filter((x) => x === '-i').length - 1;
+          const volFundo = Number.isFinite(o.narracao?.volumeFundoSobVoz) ? Math.max(0, Math.min(1, Number(o.narracao!.volumeFundoSobVoz))) : 0.35;
+          filtros.push(`[${vi}:a]aresample=48000,asetpts=PTS-STARTPTS,apad=whole_dur=${alvo.toFixed(2)}[narr]`);
+          if (fundo) filtros.push(`[narr]asplit=2[nv][nk];[${fundo}]volume=${volFundo}[bg];[bg][nk]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[bgd];[nv][bgd]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`);
+          else filtros.push(`[narr]alimiter=limit=0.95[a]`);
+          rotuloFinal = 'a';
+          narracaoInfo = vozInfo;
+        } else if (fundo) {
+          filtros.push(`[${fundo}]alimiter=limit=0.95[a]`);
+          rotuloFinal = 'a';
+        }
+        if (rotuloFinal) {
+          const comAudio = path.join(tmp, 'com-audio.mp4');
+          const m = await ff([...inputs, '-filter_complex', filtros.join(';'), '-map', '0:v', '-map', `[${rotuloFinal}]`, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', alvo.toFixed(2), '-movflags', '+faststart', comAudio], 1_800_000);
+          if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui montar o áudio: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: !!custo };
+          fs.renameSync(comAudio, saida);
+        }
+        if (!trilhaInfo && videoTemAudio && volC !== 1) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
+        if (trilhaInfo) req.onLog(`Áudio: ${trilhaInfo}${musica ? '; música abaixa sob as falas' : ''}`);
+        if (narracaoInfo) req.onLog(`Áudio: ${narracaoInfo}; o fundo abaixa sob a voz`);
       }
       // Legendas: o texto de cada cena no tempo exato dela no vídeo final; gravadas na imagem e salvas em .srt.
       let srtTexto: string | null = null;
