@@ -12,7 +12,8 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
-import { variaveisDaConferencia } from '../accounts/secrets';
+import { referenciasDaConferencia, variaveisDaConferencia } from '../accounts/secrets';
+import { getGitAccount } from '../git/git-accounts';
 import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaCredencial, problemaDoAmbiente, runProcess, semLockfile, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
@@ -357,6 +358,16 @@ export class StepExecutorService {
         return null;
       });
       const porta = await portaLivre().catch(() => 0);
+      // Variáveis da conferência: valores fixos + as que apontam para o token de uma conta Git conectada
+      // (resolvido aqui; o token nunca entra na sessão da IA, só na conferência).
+      const envDaConferencia: Record<string, string> = { ...variaveisDaConferencia(job.projectId) };
+      for (const [nome, contaId] of Object.entries(referenciasDaConferencia(job.projectId))) {
+        try {
+          envDaConferencia[nome] = getGitAccount(contaId).token;
+        } catch {
+          /* conta apagada: a variável fica sem valor e o 401 orienta de novo */
+        }
+      }
       // A conferência pode levar minutos (instalar, testar, compilar): registra o andamento para a tela não parecer
       // parada — a última linha da saída a cada 15 s e um "ainda rodando" a cada minuto.
       await L(`Conferindo a etapa (testes, build…): ${verifyCommand.replace(/\s+/g, ' ').slice(0, 200)}`, 'INFO', attempt.id);
@@ -382,7 +393,7 @@ export class StepExecutorService {
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...variaveisDaConferencia(job.projectId), ...(banco?.env ?? {}) }),
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...envDaConferencia, ...(banco?.env ?? {}) }),
           encerrarGrupoAoSair: true,
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,

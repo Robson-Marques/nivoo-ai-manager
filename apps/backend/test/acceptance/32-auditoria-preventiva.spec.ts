@@ -227,6 +227,26 @@ describe('Auditoria preventiva', () => {
     expect(apos.variaveis).toEqual([]);
   });
 
+  it('variável da conferência usando o token de uma conta Git conectada: o token entra na conferência, nunca na IA', async () => {
+    const conta = (await h.http().post('/api/git/accounts').send({ tipo: 'gitlab', host: 'git.nivoo.dev.br', token: 'glpat-DO-GITLAB-999', verificar: false }).expect(201)).body;
+    const p = (await h.http().post('/api/projects').send({ name: 'TokenDaConta', provider: 'claude-code-cli' }).expect(201)).body;
+    const r = (await h.http().post(`/api/projects/${p.id}/conferencia-env`).send({ nome: 'GITLAB_PACKAGE_TOKEN', contaId: conta.id }).expect(201)).body;
+    expect(r.doGit).toEqual([{ nome: 'GITLAB_PACKAGE_TOKEN', contaId: conta.id, conta: expect.stringMatching(/git\.nivoo\.dev\.br/) }]);
+    expect(JSON.stringify(r)).not.toContain('glpat-DO-GITLAB-999'); // o token da conta nunca volta para a tela
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'usa token da conta',
+      steps: [{ key: 'v', instructions: 'echo ok > feito.txt', verifyCommand: 'printf "%s" "$GITLAB_PACKAGE_TOKEN" > out/tok.txt && [ "$(wc -c < out/tok.txt)" = 19 ] && test -f feito.txt' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO');
+    const wt = path.join((await h.http().get(`/api/projects/${p.id}`)).body.workspacePath, 'worktrees', x.id);
+    expect(fs.readFileSync(path.join(wt, 'out', 'tok.txt'), 'utf8')).toBe('glpat-DO-GITLAB-999'); // o token da conta chegou à conferência
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).not.toContain('glpat-DO-GITLAB-999'); // mas não à IA
+    await h.http().delete(`/api/git/accounts/${conta.id}`).expect(200);
+  });
+
   it('banco de teste descartável: cada trabalho tem o seu nas conferências e nos critérios; apagado no fim', async () => {
     // O usuário que o instalador cria: só cria bancos, não é superusuário.
     await h.prisma.$executeRawUnsafe(`DO $$ BEGIN

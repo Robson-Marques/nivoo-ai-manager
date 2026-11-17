@@ -239,54 +239,70 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
  * entra só no ambiente da conferência. A tela mostra os nomes, nunca o valor.
  */
 function VariaveisDaConferencia({ projeto }: { projeto: any }) {
-  const [nomes, setNomes] = useState<string[]>([]);
+  const [dados, setDados] = useState<{ variaveis: string[]; doGit: any[]; contasGit: any[] }>({ variaveis: [], doGit: [], contasGit: [] });
   const [nome, setNome] = useState('');
   const [valor, setValor] = useState('');
+  const [contaId, setContaId] = useState(''); // "" = valor digitado; id = usar o token da conta Git
   const [msg, setMsg] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const carregar = useCallback(async () => setNomes((await api(`/projects/${projeto.id}/conferencia-env`)).variaveis ?? []), [projeto.id]);
+  const carregar = useCallback(async () => setDados(await api(`/projects/${projeto.id}/conferencia-env`)), [projeto.id]);
   useEffect(() => {
     carregar().catch(() => undefined);
   }, [carregar]);
-  const gravar = async (n: string, v: string | null) => {
+  const gravar = async (corpo: any, ok: string) => {
     setErro(null);
     setMsg(null);
     try {
-      const r = await api(`/projects/${projeto.id}/conferencia-env`, 'POST', { nome: n, valor: v });
-      setNomes(r.variaveis ?? []);
-      setMsg(v === null ? `"${n}" apagada.` : `"${n}" guardada. O valor fica no servidor, fora do alcance da IA.`);
+      setDados(await api(`/projects/${projeto.id}/conferencia-env`, 'POST', corpo));
+      setMsg(ok);
     } catch (e: any) {
       setErro(e.message);
     }
   };
+  const apagar = (n: string) => window.confirm(`Apagar a variável "${n}"?`) && gravar({ nome: n, valor: null }, `"${n}" apagada.`);
   return (
     <div className="campo">
       <b>Variáveis da conferência</b>
       <span className="muted small">
         Tokens que a instalação e os testes precisam — por exemplo o token de um registro de pacotes privado (o nome que o
-        <code> .npmrc</code> usa, como <code>GITLAB_PACKAGE_TOKEN</code>). O valor fica guardado no servidor, nunca aparece
-        na tela nem vai para a IA; entra só quando a conferência instala as dependências.
+        <code> .npmrc</code> usa, como <code>GITLAB_PACKAGE_TOKEN</code>). O valor fica no servidor, nunca aparece na tela nem
+        vai para a IA; entra só quando a conferência instala as dependências. Pode digitar o valor ou usar o token de uma
+        conta Git que você já conectou em <Link to="/contas">Conexões</Link>.
       </span>
-      {nomes.length > 0 && (
+      {(dados.variaveis.length > 0 || dados.doGit.length > 0) && (
         <div className="confenv-lista">
-          {nomes.map((n) => (
+          {dados.variaveis.map((n) => (
             <span key={n} className="confenv-chip">
               <code>{n}</code> <span className="muted small">guardado</span>
-              <button type="button" className="link perigo" aria-label={`Apagar ${n}`} onClick={() => window.confirm(`Apagar a variável "${n}"?`) && gravar(n, null)}>×</button>
+              <button type="button" className="link perigo" aria-label={`Apagar ${n}`} onClick={() => apagar(n)}>×</button>
+            </span>
+          ))}
+          {dados.doGit.map((v) => (
+            <span key={v.nome} className="confenv-chip">
+              <code>{v.nome}</code> <span className="muted small">token da {v.conta}</span>
+              <button type="button" className="link perigo" aria-label={`Apagar ${v.nome}`} onClick={() => apagar(v.nome)}>×</button>
             </span>
           ))}
         </div>
       )}
       <div className="row confenv-nova">
         <input placeholder="NOME (ex.: GITLAB_PACKAGE_TOKEN)" value={nome} onChange={(e) => setNome(e.target.value)} />
-        <input type="password" placeholder="valor (token/segredo)" value={valor} onChange={(e) => setValor(e.target.value)} autoComplete="off" />
+        <select value={contaId} onChange={(e) => setContaId(e.target.value)} aria-label="De onde vem o valor">
+          <option value="">digitar o valor</option>
+          {dados.contasGit.map((c) => (
+            <option key={c.id} value={c.id}>token da {c.nome} ({c.host})</option>
+          ))}
+        </select>
+        {!contaId && <input type="password" placeholder="valor (token/segredo)" value={valor} onChange={(e) => setValor(e.target.value)} autoComplete="off" />}
         <button
           className="secondary"
-          disabled={!nome.trim() || !valor}
+          disabled={!nome.trim() || (!contaId && !valor)}
           onClick={async () => {
-            await gravar(nome.trim(), valor);
+            const n = nome.trim();
+            await gravar(contaId ? { nome: n, contaId } : { nome: n, valor }, `"${n}" guardada. O valor fica no servidor, fora do alcance da IA.`);
             setNome('');
             setValor('');
+            setContaId('');
           }}
         >
           Guardar

@@ -420,4 +420,4 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .confenv-chip code { font-size: 12.5px; }
 .confenv-chip .link.perigo { color: var(--bad); padding: 0 2px; font-size: 16px; line-height: 1; }
 .confenv-nova { gap: 6px; flex-wrap: wrap; }
-.confenv-nova input { flex: 1; min-width: 140px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+.confenv-nova input, .confenv-nova select { flex: 1; min-width: 140px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }

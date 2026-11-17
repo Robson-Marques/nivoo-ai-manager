@@ -112,11 +112,32 @@ export function variaveisDaConferencia(projectId: string): Record<string, string
   return env;
 }
 
+/**
+ * Uma variável da conferência pode, em vez de um valor fixo, APONTAR para o token de uma conta Git já conectada
+ * (ex.: usar o token do GitLab para o registro de pacotes privado, sem colar de novo). Chave `confref:<projectId>:<NOME>`
+ * guarda o id da conta Git; o valor (token) nunca é copiado para cá — é lido da conta na hora da conferência.
+ */
+const PREFIXO_CONFREF = 'confref:';
+
+export function gravarReferenciaDaConferencia(projectId: string, nome: string, gitAccountId: string | null): void {
+  if (!nomeDeVariavelValido(nome)) throw new Error('nome de variável inválido (use letras, números e _; comece com letra ou _)');
+  setSecret(`${PREFIXO_CONFREF}${projectId}:${nome}` as SecretKey, gitAccountId);
+}
+
+/** Nome da variável → id da conta Git cujo token deve ser usado. */
+export function referenciasDaConferencia(projectId: string): Record<string, string> {
+  const all = readAll() as Record<string, string>;
+  const p = `${PREFIXO_CONFREF}${projectId}:`;
+  const refs: Record<string, string> = {};
+  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v) refs[k.slice(p.length)] = v;
+  return refs;
+}
+
 /** Apaga todas as variáveis da conferência de um projeto (ao excluir o projeto). */
 export function apagarVariaveisDaConferencia(projectId: string): void {
   const all = readAll() as Record<string, string>;
   let mudou = false;
-  for (const k of Object.keys(all)) if (k.startsWith(`${PREFIXO_CONFENV}${projectId}:`)) (delete all[k], (mudou = true));
+  for (const k of Object.keys(all)) if (k.startsWith(`${PREFIXO_CONFENV}${projectId}:`) || k.startsWith(`${PREFIXO_CONFREF}${projectId}:`)) (delete all[k], (mudou = true));
   if (!mudou) return;
   const target = file();
   const tmp = `${target}.${process.pid}.tmp`;

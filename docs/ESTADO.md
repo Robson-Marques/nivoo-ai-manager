@@ -201,12 +201,16 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * **Para na primeira** (`faltaCredencial`): 401/403 num registro de pacotes (npm/yarn/pnpm/pip) é falta de token, que
   nenhuma sessão resolve. Bloqueia na 1ª conferência com `VERIFICACAO_IMPOSSIVEL` e a mensagem explica que falta o token e
   manda guardá-lo em Ajustes → "Variáveis da conferência".
-* **Variáveis da conferência (por projeto)**: tokens/segredos que a instalação e os testes precisam. Guardados no cofre 600
-  (`confenv:<projectId>:<NOME>`, nunca no banco, no git nem na sessão da IA); entram SÓ no `ambienteDaConferencia`. A tela
-  (Ajustes) mostra os nomes e nunca o valor. API `GET/POST /projects/:pid/conferencia-env` (POST com `valor:null` apaga).
+* **Variáveis da conferência (por projeto)**: tokens/segredos que a instalação e os testes precisam. O valor pode ser
+  DIGITADO (cofre 600, `confenv:<projectId>:<NOME>`) ou APONTAR para o token de uma conta Git já conectada
+  (`confref:<projectId>:<NOME>` guarda o id da conta; o token é lido dela na hora — útil quando o projeto é do GitHub mas o
+  registro de pacotes é do GitLab, ou o contrário). Nunca no banco, no git nem na sessão da IA; entram SÓ no
+  `ambienteDaConferencia`. A tela (Ajustes) mostra os nomes e a origem ("guardado" ou "token da \<conta\>"), nunca o valor.
+  API `GET/POST /projects/:pid/conferencia-env` (POST com `contaId` usa a conta; com `valor:null` e sem `contaId` apaga).
   Apagadas ao excluir o projeto.
-* Testes `32` (401 para na 1ª e cita "Variáveis da conferência"; o token do projeto chega à conferência com o valor certo,
-  nunca ao prompt da IA; a API só devolve nomes) e tela (`chat-smoke`: guardar, chip "guardado" sem o valor, apagar).
+* Testes `32` (401 para na 1ª e cita "Variáveis da conferência"; o valor digitado e o token da conta Git chegam à
+  conferência com o valor certo, nunca ao prompt da IA; a API só devolve nomes) e tela (`chat-smoke`: guardar, chip sem o
+  valor, apagar).
 
 ## "npm ci" sem lockfile não trava mais o trabalho (2026-11-16)
 

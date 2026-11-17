@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
-import { apagarVariaveisDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia } from '../accounts/secrets';
+import { apagarVariaveisDaConferencia, gravarReferenciaDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia, referenciasDaConferencia } from '../accounts/secrets';
+import { listGitAccounts } from '../git/git-accounts';
 import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
 import { resolveInside } from '../common/path-guard';
@@ -216,21 +217,45 @@ export class ProjectsService {
    * Exclui o projeto: banco (conversas, trabalhos, memória, regras), pasta do projeto e artefatos.
    * Antes, PARA tudo o que estiver rodando nele (trabalhos e respostas da IA) — excluir nunca fica preso.
    */
-  /** Nomes das variáveis da conferência do projeto (tokens de registro privado etc.); nunca devolve os valores. */
+  /**
+   * Variáveis da conferência: nomes de valores fixos (nunca os valores) + as que usam o token de uma conta Git
+   * conectada (com o nome da conta, nunca o token). Também devolve as contas Git para a tela oferecer a escolha.
+   */
   async variaveisDaConferencia(id: string) {
     await this.assertExists(id);
-    return { variaveis: nomesDasVariaveisDaConferencia(id) };
+    const contas = listGitAccounts();
+    const refs = referenciasDaConferencia(id);
+    return {
+      variaveis: nomesDasVariaveisDaConferencia(id),
+      doGit: Object.entries(refs).map(([nome, contaId]) => {
+        const c = contas.find((x) => x.id === contaId);
+        return { nome, contaId, conta: c ? `${c.nome} (${c.host.replace(/^https?:\/\//, '')})` : 'conta removida' };
+      }),
+      contasGit: contas.map((c) => ({ id: c.id, nome: c.nome, host: c.host.replace(/^https?:\/\//, ''), tipo: c.tipo })),
+    };
   }
 
-  /** Guarda (ou apaga, valor null) uma variável da conferência. O valor vai só para o cofre 600, nunca para a IA. */
+  /**
+   * Guarda uma variável da conferência: valor fixo (`valor`) OU o token de uma conta Git conectada (`contaId`).
+   * O valor/token vai só para o cofre 600 (ou é lido da conta na hora), nunca para a IA. valor:null e sem contaId apaga.
+   */
   async gravarVariavelDaConferencia(id: string, body: any) {
     await this.assertExists(id);
     const nome = reqString(body, 'nome', 100).trim();
-    const valor = body?.valor === null || body?.valor === undefined ? null : String(body.valor);
-    if (valor !== null && (!valor || valor.length > 10000)) throw new BadRequestException('valor vazio ou grande demais');
+    const contaId = body?.contaId ? String(body.contaId) : null;
     try {
-      gravarVariavelDaConferencia(id, nome, valor && valor.trim() ? valor : null);
+      if (contaId) {
+        if (!listGitAccounts().some((c) => c.id === contaId)) throw new Error('conta Git não encontrada');
+        gravarReferenciaDaConferencia(id, nome, contaId);
+        gravarVariavelDaConferencia(id, nome, null); // o nome não é as duas coisas ao mesmo tempo
+      } else {
+        const valor = body?.valor === null || body?.valor === undefined ? null : String(body.valor);
+        if (valor !== null && (!valor || valor.length > 10000)) throw new BadRequestException('valor vazio ou grande demais');
+        gravarVariavelDaConferencia(id, nome, valor && valor.trim() ? valor : null);
+        gravarReferenciaDaConferencia(id, nome, null);
+      }
     } catch (e: any) {
+      if (e instanceof BadRequestException) throw e;
       throw new BadRequestException(e?.message ?? 'nome inválido');
     }
     return this.variaveisDaConferencia(id);
