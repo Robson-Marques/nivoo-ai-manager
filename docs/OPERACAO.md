@@ -62,6 +62,10 @@
       No **nginx**: `client_max_body_size 2048m;` (e, para não encher o disco de temporário, `proxy_request_buffering off;`)
       na location do Nivoo. Na **Cloudflare** (Free/Pro) o limite do upload é 100 MB por requisição — para arquivos
       maiores, envie cada cena separada abaixo de 100 MB, ou use o acesso direto/túnel SSH sem passar pela borda.
+    - **Alternativas quando o envio pela internet trava:** (1) mandar um **.zip** com vários vídeos pelo chat (o servidor
+      extrai todos) — ainda respeita o limite do proxy por requisição; (2) colocar os arquivos **direto no servidor** por
+      SCP/FTP em `<pasta-do-projeto>/midia/entrada/` (ou em qualquer lugar da pasta do projeto) e clicar em **"Procurar
+      vídeos que coloquei no servidor"** na conversa — o Nivoo acha e importa, sem passar pela internet/proxy.
 16. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
     Pode cadastrar o GitHub e o GitLab ao mesmo tempo (e mais de uma conta de cada). Para **criar**

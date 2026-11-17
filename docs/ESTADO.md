@@ -278,6 +278,23 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   pedaços e salvar o vídeo com **0 byte**. Corpo vazio agora é recusado com a dica de liberar o tamanho no proxy (nginx
   `client_max_body_size`, Cloudflare 100 MB — ver `docs/OPERACAO.md`), e `listarVideos` **ignora restos de 0 byte** para
   não confundir a IA nem a tela. Teste `26` (upload de ~6 MB chega inteiro; corpo vazio recusado; resto de 0 byte some).
+  Um teste real de HTTP de **50 MB** por streaming grava o arquivo inteiro: o código está certo; o 0 MB em produção é o
+  **proxy/túnel na frente** (precisa liberar o tamanho do corpo), não o Nivoo.
+* **Enviar em lote (.zip) e achar o que foi jogado na mão (2026-11-17):** além de arrastar vídeos soltos, dá para mandar
+  um **.zip** pelo chat — `POST /projects/:id/videos/zip` (streaming) extrai **todos os vídeos de dentro** (em qualquer
+  subpasta) com `yauzl`; o nome em disco é um id gerado (sem "zip-slip"), com limites por vídeo, total e quantidade, e
+  ignora não-vídeos e o lixo do macOS. E um botão **"Procurar vídeos que coloquei no servidor"**
+  (`POST /projects/:id/videos/importar-da-pasta`) varre a pasta do projeto (menos `repo/`/git) e **move** para
+  `midia/entrada` os vídeos colocados por SCP/FTP; a tela mostra o caminho exato (`<workspacePath>/midia/entrada`). Teste
+  `26` (zip com 2 vídeos + 1 não-vídeo em subpasta extrai os 2; zip sem vídeo recusado; varredura pega os soltos e pula
+  o do `repo`).
+* **Critério final acha a mídia (2026-11-17):** como a mídia fica FORA do git (`<projeto>/midia/`), um critério
+  `FILE_EXISTS` com caminho `midia/...` passou a resolver na **pasta do projeto**, não na cópia do repositório
+  (worktree); os `COMMAND` finais recebem `NIVOO_MIDIA_DIR`. Antes, o vídeo era montado (trilha + locução + legenda) mas
+  o trabalho ficava **BLOQUEADO** dizendo que `midia/saida/<nome>.mp4` "não existe". Teste `26` (edição com critério
+  `FILE_EXISTS` sobre `midia/saida/final.mp4` conclui o trabalho).
+* **Aviso de limite no envio:** quando o upload de um vídeo falha, a conversa mostra um aviso de que provavelmente é
+  **limite de tamanho** do servidor/proxy, sugerindo mandar um **.zip** ou copiar para `midia/entrada` no servidor.
 
 ## Trocar o agente (área) de um projeto (2026-11-17)
 

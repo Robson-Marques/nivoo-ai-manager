@@ -1,7 +1,7 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { BotaoDitado } from '../Ditado';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, enviarVideo, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
+import { api, enviarVideo, enviarZipDeVideos, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -368,6 +368,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   // Vídeos para EDITAR: vão por streaming (arquivo grande) para a mídia do projeto, não como anexo da mensagem.
   const [videos, setVideos] = useState<any[]>([]);
   const [enviandoVideos, setEnviandoVideos] = useState<Array<{ nome: string; pct: number; erro?: string }>>([]);
+  const [msgVideos, setMsgVideos] = useState<string | null>(null);
+  const [importando, setImportando] = useState(false);
   const EH_VIDEO = /\.(mp4|mov|webm|mkv|m4v)$/i;
   const carregarVideos = useCallback(async () => {
     try {
@@ -379,6 +381,35 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   useEffect(() => {
     carregarVideos();
   }, [carregarVideos]);
+  const enviarZips = async (lista: File[]) => {
+    for (const f of lista) {
+      const item = { nome: f.name, pct: 0 };
+      setEnviandoVideos((a) => [...a, item]);
+      setMsgVideos(null);
+      try {
+        const r = await enviarZipDeVideos(projeto.id, f, (pct) => setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
+        setEnviandoVideos((a) => a.filter((x) => x !== item));
+        await carregarVideos();
+        setMsgVideos(`${r.adicionados.length} vídeo(s) extraído(s) do .zip${r.ignorados ? ` (${r.ignorados} item(ns) ignorado(s), não eram vídeo)` : ''}.`);
+      } catch (err: any) {
+        setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+      }
+    }
+  };
+  const importarDaPasta = async () => {
+    setImportando(true);
+    setErro(null);
+    setMsgVideos(null);
+    try {
+      const r = await api(`/projects/${projeto.id}/videos/importar-da-pasta`, 'POST');
+      await carregarVideos();
+      setMsgVideos(r.adicionados?.length ? `${r.adicionados.length} vídeo(s) encontrado(s) na pasta e importado(s).` : 'Nenhum vídeo novo na pasta do projeto. Coloque os arquivos na pasta de mídia do projeto e tente de novo.');
+    } catch (err: any) {
+      setErro(err.message);
+    } finally {
+      setImportando(false);
+    }
+  };
   const enviarVideos = async (lista: File[]) => {
     for (const f of lista) {
       const item = { nome: f.name, pct: 0 };
@@ -404,10 +435,13 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   const seletor = useRef<HTMLInputElement>(null);
   const anexar = (lista: File[]) => {
     setErro(null);
+    // .zip com vários vídeos: sobe por streaming e o servidor extrai todos de uma vez.
+    const zips = lista.filter((f) => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
+    if (zips.length) enviarZips(zips);
     // Vídeo (para editar) vai por streaming para a mídia do projeto; o resto segue como anexo da mensagem (até 10 MB).
-    const videosAgora = lista.filter((f) => EH_VIDEO.test(f.name) || f.type.startsWith('video/'));
+    const videosAgora = lista.filter((f) => !zips.includes(f) && (EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
     if (videosAgora.length) enviarVideos(videosAgora);
-    const outros = lista.filter((f) => !(EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
+    const outros = lista.filter((f) => !zips.includes(f) && !(EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
     const grandes = outros.filter((f) => f.size > 10 * 1024 * 1024);
     if (grandes.length) setErro(`Passa de 10 MB: ${grandes.map((f) => f.name).join(', ')}`);
     setAnexos((atuais) => [...atuais, ...outros.filter((f) => f.size <= 10 * 1024 * 1024)].slice(0, 10));
@@ -576,22 +610,38 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           }}
         >
           {erro && <div className="error">{erro}</div>}
-          {(videos.length > 0 || enviandoVideos.length > 0) && (
+          {(videos.length > 0 || enviandoVideos.length > 0 || msgVideos || importando || /v[ií]deo/i.test(`${projeto.area?.slug ?? ''} ${projeto.area?.name ?? ''}`)) && (
             <div className="videos-prontos">
-              <span className="muted small">Vídeos para editar (é só pedir na conversa, ex.: "corta os 3 primeiros segundos da abertura e junta com o depoimento"):</span>
-              <div className="videos-lista">
-                {videos.map((v) => (
-                  <span key={v.caminho} className="video-chip" title={v.nome}>
-                    🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{(v.bytes / 1024 / 1024).toFixed(0)} MB</span>
-                    <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
-                  </span>
-                ))}
-                {enviandoVideos.map((v, i) => (
-                  <span key={`env-${i}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
-                    🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.erro ? `falhou: ${v.erro.slice(0, 60)}` : `enviando ${v.pct}%`}</span>
-                    {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((_, j) => j !== i))}>×</button>}
-                  </span>
-                ))}
+              <span className="muted small">Vídeos para editar (arraste aqui, use o clipe, ou mande um .zip com vários — é só pedir na conversa, ex.: "corta os 3 primeiros segundos da abertura e junta com o depoimento"):</span>
+              {msgVideos && <span className="ok small">{msgVideos}</span>}
+              {(videos.length > 0 || enviandoVideos.length > 0) && (
+                <div className="videos-lista">
+                  {videos.map((v) => (
+                    <span key={v.caminho} className="video-chip" title={v.nome}>
+                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{(v.bytes / 1024 / 1024).toFixed(0)} MB</span>
+                      <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
+                    </span>
+                  ))}
+                  {enviandoVideos.map((v, i) => (
+                    <span key={`env-${i}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
+                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.erro ? `falhou: ${v.erro.slice(0, 60)}` : `enviando ${v.pct}%`}</span>
+                      {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((_, j) => j !== i))}>×</button>}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {enviandoVideos.some((v) => v.erro) && (
+                <div className="error small" style={{ marginTop: 4 }}>
+                  Não consegui enviar o vídeo — provavelmente passa do <b>limite de tamanho</b> do servidor ou do proxy (ex.: Cloudflare 100 MB por envio). O que fazer:
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    <li>Mande um <b>.zip</b> com os vídeos aqui mesmo (eu extraio todos).</li>
+                    {projeto.workspacePath && <li>Ou copie os arquivos para <code>{projeto.workspacePath}/midia/entrada</code> no servidor (SCP/FTP) e clique em “Procurar”.</li>}
+                  </ul>
+                </div>
+              )}
+              <div className="row small" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className="muted small">Vários de uma vez? Arraste um <b>.zip</b>.</span>
+                <button type="button" className="link" disabled={importando} onClick={importarDaPasta}>{importando ? 'Procurando…' : 'Procurar vídeos que coloquei no servidor'}</button>
               </div>
             </div>
           )}

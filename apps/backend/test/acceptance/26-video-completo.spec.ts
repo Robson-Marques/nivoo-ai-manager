@@ -146,7 +146,8 @@ describe('Vídeo completo (cenas juntadas)', () => {
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
         title: 'editar enviado', objective: 'x', defaultProvider: 'juntar-videos',
         steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'edita', providerOptions: { cenas: [env.body.caminho], cortes: [{ inicio: 1, fim: 3 }], arquivo: 'midia/saida/final.mp4' } }],
-        criteria: [{ key: 'v', description: 'x', kind: 'COMMAND', config: { command: 'true' } }],
+        // Critério FILE_EXISTS sobre a MÍDIA (fora do git): tem de achar o arquivo em <projeto>/midia/, não na cópia do repo.
+        criteria: [{ key: 'v', description: 'o vídeo final existe na mídia', kind: 'FILE_EXISTS', config: { path: 'midia/saida/final.mp4' } }],
       }).expect(201)
     ).body;
     await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
@@ -154,7 +155,7 @@ describe('Vídeo completo (cenas juntadas)', () => {
       const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
       return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
     }, 90_000);
-    expect(fim.status).toBe('CONCLUIDO');
+    expect(fim.status).toBe('CONCLUIDO'); // antes dava BLOQUEADO: o critério procurava midia/ dentro do git e não achava
     // O vídeo editado está na mídia (saida), baixa pela API com tipo de vídeo e dura ~2 s.
     const editados = (await h.http().get(`/api/projects/${p.id}/videos`)).body.videos.filter((v: any) => v.pasta === 'saida');
     expect(editados.map((v: any) => v.caminho)).toContain('midia/saida/final.mp4');
@@ -195,6 +196,40 @@ describe('Vídeo completo (cenas juntadas)', () => {
     const lista = (await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos;
     expect(lista.some((v: any) => v.caminho.endsWith('resto-vazio.mp4'))).toBe(false);
     expect(lista.find((v: any) => v.caminho === env.body.caminho)?.bytes).toBe(grande.length);
+  });
+
+  it('.zip com vários vídeos: o servidor extrai todos (até em subpasta); importar da pasta pega os jogados na mão, menos o do repo', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Zip e pasta' }).expect(201)).body;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-'));
+    const mkmp4 = (f: string) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=12:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=300:duration=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', f]);
+    // Zip com 2 vídeos (um numa subpasta) + 1 não-vídeo.
+    fs.mkdirSync(path.join(tmp, 'cenas'));
+    mkmp4(path.join(tmp, 'cenas', 'a.mp4'));
+    mkmp4(path.join(tmp, 'b.mov'));
+    fs.writeFileSync(path.join(tmp, 'leia.txt'), 'não é vídeo');
+    execFileSync('zip', ['-r', '-q', 'pacote.zip', 'cenas', 'b.mov', 'leia.txt'], { cwd: tmp });
+    const env = (await h.http().post(`/api/projects/${p.id}/videos/zip`).query({ nome: 'pacote.zip' }).set('Content-Type', 'application/octet-stream').send(fs.readFileSync(path.join(tmp, 'pacote.zip'))).expect(201)).body;
+    expect(env.adicionados.length).toBe(2);
+    expect(env.ignorados).toBeGreaterThanOrEqual(1); // o .txt
+    expect(env.videos.map((v: any) => v.nome).sort()).toEqual(['a.mp4', 'b.mov']);
+    // Zip sem nenhum vídeo é recusado.
+    execFileSync('zip', ['-q', 'sotxt.zip', 'leia.txt'], { cwd: tmp });
+    await h.http().post(`/api/projects/${p.id}/videos/zip`).query({ nome: 'sotxt.zip' }).set('Content-Type', 'application/octet-stream').send(fs.readFileSync(path.join(tmp, 'sotxt.zip'))).expect(400);
+
+    // Importar da pasta: vídeos jogados na raiz e numa subpasta entram; o que está no repo (git) NÃO é importado.
+    const root = p.workspacePath;
+    mkmp4(path.join(root, 'solto.mp4'));
+    fs.mkdirSync(path.join(root, 'uma-pasta'), { recursive: true });
+    mkmp4(path.join(root, 'uma-pasta', 'dentro.mp4'));
+    mkmp4(path.join(root, 'repo', 'do-repo.mp4'));
+    const imp = (await h.http().post(`/api/projects/${p.id}/videos/importar-da-pasta`).expect(201)).body;
+    const importados = imp.videos.map((v: any) => v.nome);
+    expect(importados).toContain('solto.mp4');
+    expect(importados).toContain('dentro.mp4');
+    expect(importados).not.toContain('do-repo.mp4'); // repo/git fica fora da varredura
+    expect(fs.existsSync(path.join(root, 'solto.mp4'))).toBe(false); // foi movido para a mídia
+    expect(fs.existsSync(path.join(root, 'repo', 'do-repo.mp4'))).toBe(true); // o do repo continua onde estava
+    fs.rmSync(tmp, { recursive: true, force: true });
   });
 
   it('análise do vídeo (nivoo-analisar-video): extrai quadros e aponta trecho escuro e silêncio, para a IA sugerir cortes', async () => {

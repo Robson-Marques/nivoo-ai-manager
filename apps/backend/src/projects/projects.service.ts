@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
 import { apagarVariaveisDaConferencia, gravarReferenciaDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia, referenciasDaConferencia } from '../accounts/secrets';
 import { listGitAccounts } from '../git/git-accounts';
-import { apagarVideoEnviado, arquivoDaMidia, gravarVideoEnviado, listarVideos } from './midia';
+import { apagarVideoEnviado, arquivoDaMidia, gravarVideoEnviado, gravarZipDeVideos, importarVideosDaPasta, listarVideos } from './midia';
 import { Readable } from 'node:stream';
 import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
@@ -325,6 +325,19 @@ export class ProjectsService {
   /** Guarda um vídeo enviado pelo app (streaming, arquivo grande). Fora do git e fora da sessão da IA. */
   async salvarVideo(id: string, nome: string, corpo: Readable) {
     return gravarVideoEnviado(await this.midiaDir(id), nome, corpo);
+  }
+
+  /** Recebe um .zip (streaming) e extrai TODOS os vídeos de dentro para a mídia do projeto. */
+  async salvarVideoZip(id: string, nome: string, corpo: Readable) {
+    const r = await gravarZipDeVideos(await this.midiaDir(id), nome, corpo);
+    return { ...r, videos: listarVideos(await this.midiaDir(id)).filter((v) => v.pasta === 'entrada') };
+  }
+
+  /** Varre a pasta do projeto atrás de vídeos que o usuário colocou na mão (SCP/FTP) e os importa para midia/entrada. */
+  async importarVideosDaPasta(id: string) {
+    const p = await this.assertExists(id);
+    const r = importarVideosDaPasta(this.workspace.projectDirs(p.dirKey).root, await this.midiaDir(id));
+    return { ...r, videos: listarVideos(await this.midiaDir(id)).filter((v) => v.pasta === 'entrada') };
   }
 
   async apagarVideo(id: string, videoId: string) {

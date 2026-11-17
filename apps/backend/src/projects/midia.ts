@@ -1,9 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import * as yauzl from 'yauzl';
 
 /**
  * Mídia durável do projeto (vídeos que o usuário envia para editar e os vídeos editados). Fica em
@@ -12,6 +14,8 @@ import { pipeline } from 'node:stream/promises';
  */
 export const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i;
 const MAX_VIDEO_BYTES = Number(process.env.NIVOO_MAX_VIDEO_MB ?? 2048) * 1024 * 1024;
+const MAX_ZIP_BYTES = Number(process.env.NIVOO_MAX_ZIP_MB ?? 4096) * 1024 * 1024;
+const MAX_VIDEOS_POR_ZIP = Number(process.env.NIVOO_MAX_VIDEOS_POR_ZIP ?? 300);
 
 export interface VideoDaMidia {
   id: string;
@@ -73,6 +77,172 @@ export async function gravarVideoEnviado(midia: string, nome: string, corpo: Rea
   // Guarda o nome original ao lado (para mostrar na tela), sem afetar o arquivo.
   fs.writeFileSync(path.join(dir, `${id}.nome`), nomeOk);
   return { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
+}
+
+/** Nome visível seguro para o .nome (não lança: só limpa e corta). */
+function nomeDisplaySeguro(base: string): string {
+  return (base.replace(/[\u0000-\u001f<>:"|?*]/g, '_').trim() || 'video').slice(0, 150);
+}
+
+export interface ResultadoZip {
+  adicionados: VideoDaMidia[];
+  ignorados: number; // entradas que não eram vídeo (ou passaram do limite)
+}
+
+/**
+ * Recebe um .zip por streaming, salva num temporário e extrai TODOS os vídeos de dentro (em qualquer subpasta) para
+ * midia/entrada. Segurança: o arquivo em disco usa um id gerado (NUNCA o caminho de dentro do zip → sem "zip-slip");
+ * só extrai extensões de vídeo; respeita limites de tamanho (por vídeo, total) e de quantidade.
+ */
+export async function gravarZipDeVideos(midia: string, nome: string, corpo: Readable): Promise<ResultadoZip> {
+  if (!/\.zip$/i.test(String(nome ?? '').trim())) throw new BadRequestException('Envie um arquivo .zip');
+  const dir = entradaDir(midia);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpZip = path.join(os.tmpdir(), `nivoo-zip-${crypto.randomUUID()}.zip`);
+  // 1) Salva o zip no temporário (streaming, com limite, contrapressão dentro do pipeline).
+  let bytes = 0;
+  const contador = new Transform({
+    transform(chunk: Buffer, _e, cb) {
+      bytes += chunk.length;
+      if (bytes > MAX_ZIP_BYTES) {
+        cb(Object.assign(new Error('LIMITE'), { estourou: true }));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(corpo, contador, fs.createWriteStream(tmpZip));
+  } catch (err: any) {
+    fs.rmSync(tmpZip, { force: true });
+    if (err?.estourou) throw new BadRequestException(`O .zip passa do limite de ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB`);
+    throw err;
+  }
+  if (!fs.existsSync(tmpZip) || !fs.statSync(tmpZip).size) {
+    fs.rmSync(tmpZip, { force: true });
+    throw new BadRequestException('O .zip chegou vazio (0 byte). Se há um proxy/Cloudflare/nginx na frente, libere o tamanho do upload.');
+  }
+  try {
+    const r = await extrairVideosDoZip(tmpZip, dir);
+    if (!r.adicionados.length) throw new BadRequestException('O .zip não tinha nenhum vídeo (MP4, MOV, WEBM, MKV, M4V).');
+    return r;
+  } finally {
+    fs.rmSync(tmpZip, { force: true });
+  }
+}
+
+function extrairVideosDoZip(zipPath: string, dir: string): Promise<ResultadoZip> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(zipPath, { lazyEntries: true }, (err, zip) => {
+      if (err || !zip) return reject(new BadRequestException('Não consegui abrir o .zip (arquivo inválido ou corrompido).'));
+      const adicionados: VideoDaMidia[] = [];
+      let ignorados = 0;
+      let total = 0;
+      const encerrar = (e?: any) => {
+        try {
+          zip.close();
+        } catch {
+          /* já fechado */
+        }
+        e ? reject(e) : resolve({ adicionados, ignorados });
+      };
+      zip.on('error', (e) => encerrar(new BadRequestException(`Falha ao ler o .zip: ${String((e as any)?.message ?? e).slice(0, 160)}`)));
+      zip.on('end', () => encerrar());
+      zip.readEntry();
+      zip.on('entry', (entry: yauzl.Entry) => {
+        const base = path.basename(entry.fileName.replace(/\\/g, '/'));
+        const ehPasta = /\/$/.test(entry.fileName);
+        // Só vídeos de verdade: nada de pasta, de arquivo oculto nem do lixo do macOS (__MACOSX/._*).
+        if (ehPasta || !VIDEO_EXT.test(base) || base.startsWith('.') || entry.fileName.startsWith('__MACOSX')) {
+          ignorados++;
+          return zip.readEntry();
+        }
+        if (entry.uncompressedSize > MAX_VIDEO_BYTES) {
+          ignorados++;
+          return zip.readEntry();
+        }
+        if (adicionados.length >= MAX_VIDEOS_POR_ZIP) return encerrar();
+        total += entry.uncompressedSize;
+        if (total > MAX_ZIP_BYTES) return encerrar(new BadRequestException(`Os vídeos do .zip passam do limite de ${Math.round(MAX_ZIP_BYTES / 1024 / 1024)} MB`));
+        const e = (VIDEO_EXT.exec(base)?.[0] ?? '').toLowerCase();
+        const id = `${crypto.randomUUID()}${e}`;
+        const destino = path.join(dir, id);
+        zip.openReadStream(entry, (er, stream) => {
+          if (er || !stream) {
+            ignorados++;
+            return zip.readEntry();
+          }
+          pipeline(stream, fs.createWriteStream(destino))
+            .then(() => {
+              const size = fs.existsSync(destino) ? fs.statSync(destino).size : 0;
+              if (!size) {
+                fs.rmSync(destino, { force: true });
+                ignorados++;
+                return zip.readEntry();
+              }
+              fs.writeFileSync(path.join(dir, `${id}.nome`), nomeDisplaySeguro(base));
+              adicionados.push({ id, nome: nomeDisplaySeguro(base), bytes: size, caminho: `midia/entrada/${id}`, pasta: 'entrada' });
+              zip.readEntry();
+            })
+            .catch((e2) => encerrar(e2));
+        });
+      });
+    });
+  });
+}
+
+/** Pastas que a varredura NUNCA importa (o repositório, o git, auxiliares). */
+const PASTAS_FORA_DA_VARREDURA = new Set(['repo', 'worktrees', '.nivoo', 'conhecimento', 'contexto', '.git', 'node_modules', 'saida']);
+
+/**
+ * Varre a pasta do projeto (root) atrás de vídeos que o usuário colocou "na mão" (ex.: por SCP/FTP, direto no
+ * servidor) e MOVE cada um para midia/entrada — assim aparecem na tela e para a IA mesmo que tenham caído na pasta
+ * errada. Ignora o repositório/git e o que já está em midia/entrada. O nome em disco é um id gerado (sem zip-slip).
+ */
+export function importarVideosDaPasta(root: string, midia: string): { adicionados: VideoDaMidia[] } {
+  const entrada = entradaDir(midia);
+  fs.mkdirSync(entrada, { recursive: true });
+  const achados: string[] = [];
+  const visitar = (dir: string, nivel: number) => {
+    if (nivel > 6) return;
+    let itens: fs.Dirent[];
+    try {
+      itens = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const it of itens) {
+      if (it.isSymbolicLink()) continue;
+      const abs = path.join(dir, it.name);
+      if (it.isDirectory()) {
+        if (PASTAS_FORA_DA_VARREDURA.has(it.name)) continue;
+        visitar(abs, nivel + 1);
+      } else if (it.isFile() && VIDEO_EXT.test(it.name) && path.dirname(abs) !== entrada) {
+        achados.push(abs);
+      }
+    }
+  };
+  visitar(root, 0);
+  const adicionados: VideoDaMidia[] = [];
+  for (const abs of achados) {
+    try {
+      if (!fs.statSync(abs).size) continue;
+      const e = (VIDEO_EXT.exec(abs)?.[0] ?? '').toLowerCase();
+      const id = `${crypto.randomUUID()}${e}`;
+      const destino = path.join(entrada, id);
+      try {
+        fs.renameSync(abs, destino);
+      } catch {
+        fs.copyFileSync(abs, destino); // outro sistema de arquivos: copia e apaga a origem
+        fs.rmSync(abs, { force: true });
+      }
+      fs.writeFileSync(path.join(entrada, `${id}.nome`), nomeDisplaySeguro(path.basename(abs)));
+      adicionados.push({ id, nome: nomeDisplaySeguro(path.basename(abs)), bytes: fs.statSync(destino).size, caminho: `midia/entrada/${id}`, pasta: 'entrada' });
+    } catch {
+      /* o que não der para mover, ignora */
+    }
+  }
+  return { adicionados };
 }
 
 /** Lista os vídeos enviados (entrada) e os editados (saida). */

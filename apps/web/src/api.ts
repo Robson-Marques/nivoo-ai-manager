@@ -139,6 +139,40 @@ export function enviarVideo(projetoId: string, file: File, onProgresso: (pct: nu
   });
 }
 
+/** Envia um .zip por streaming (corpo bruto), com progresso; o servidor extrai todos os vídeos de dentro. */
+export function enviarZipDeVideos(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ adicionados: any[]; ignorados: number; videos: any[] }> {
+  return new Promise((ok, erro) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/projects/${projetoId}/videos/zip?nome=${encodeURIComponent(file.name)}`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('content-type', 'application/octet-stream');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgresso(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          ok(JSON.parse(xhr.responseText));
+        } catch {
+          erro(new ApiError(xhr.status, 'Resposta inesperada do servidor.'));
+        }
+      } else {
+        let m = xhr.statusText;
+        try {
+          const d = JSON.parse(xhr.responseText);
+          m = Array.isArray(d?.message) ? d.message.join('; ') : d?.message ?? m;
+        } catch {
+          /* corpo não-JSON */
+        }
+        erro(new ApiError(xhr.status, m));
+      }
+    };
+    xhr.onerror = () => erro(new ApiError(0, 'Sem resposta do servidor (o envio pode ter sido grande demais ou a conexão caiu).'));
+    xhr.send(file);
+  });
+}
+
 export function fileToBase64(f: File): Promise<string> {
   return new Promise((ok, erro) => {
     const r = new FileReader();

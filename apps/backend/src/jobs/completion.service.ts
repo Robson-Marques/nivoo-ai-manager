@@ -421,6 +421,10 @@ export class CompletionService {
   private async check(job: Job, c: AcceptanceCriterion, worktree: string): Promise<CriterionResult> {
     const cfg = (c.config ?? {}) as Record<string, any>;
     const base = { key: c.key, kind: c.kind };
+    // A mídia (vídeos) fica em <projeto>/midia/, FORA do git: um caminho "midia/..." resolve na pasta do projeto,
+    // não na cópia (worktree) do repositório. Senão o vídeo é feito mas o critério FILE_EXISTS não o acha.
+    const dirs = this.workspace.projectDirs((job as Job & { project: { dirKey: string } }).project.dirKey);
+    const baseDoCaminho = (p: string) => (/^midia\//i.test(String(p)) ? dirs.root : worktree);
     try {
       switch (c.kind) {
         case 'COMMAND': {
@@ -433,6 +437,7 @@ export class CompletionService {
             env: ambienteDaConferencia({
               NIVOO_JOB_ID: job.id,
               NIVOO_OUTPUT_DIR: `${worktree}/out`,
+              NIVOO_MIDIA_DIR: dirs.midia,
               NIVOO_PORTA_TESTE: String(await portaLivre().catch(() => 0)),
               ...((await prepararBancoDeTeste(job.id).catch(() => null))?.env ?? {}),
             }),
@@ -449,7 +454,7 @@ export class CompletionService {
           };
         }
         case 'FILE_EXISTS': {
-          const p = resolveInside(worktree, String(cfg.path));
+          const p = resolveInside(baseDoCaminho(cfg.path), String(cfg.path));
           if (!fs.existsSync(p)) return { ...base, passed: false, evidence: { caminho: cfg.path, existe: false } };
           const st = fs.statSync(p);
           const minBytes = cfg.minBytes ?? 1;

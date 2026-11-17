@@ -61,6 +61,18 @@ export class ProjectsController {
     return this.projects.salvarVideo(pid, nome, req);
   }
 
+  /** Envia um .zip (streaming) e o servidor extrai todos os vídeos de dentro para a mídia do projeto. */
+  @Post(':pid/videos/zip')
+  async enviarZipDeVideos(@Param('pid', ParseUUIDPipe) pid: string, @Query('nome') nome: string, @Req() req: Request) {
+    return this.projects.salvarVideoZip(pid, nome, req);
+  }
+
+  /** Procura vídeos que o usuário colocou na pasta do projeto no servidor (SCP/FTP) e os importa para a mídia. */
+  @Post(':pid/videos/importar-da-pasta')
+  importarVideosDaPasta(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.projects.importarVideosDaPasta(pid);
+  }
+
   @Delete(':pid/videos/:vid')
   apagarVideo(@Param('pid', ParseUUIDPipe) pid: string, @Param('vid') vid: string) {
     return this.projects.apagarVideo(pid, vid);
