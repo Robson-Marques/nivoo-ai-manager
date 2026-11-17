@@ -12,7 +12,8 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { normalizedOutputHash } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
-import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, problemaDoAmbiente, runProcess, semLockfile, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { variaveisDaConferencia } from '../accounts/secrets';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaCredencial, problemaDoAmbiente, runProcess, semLockfile, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -348,6 +349,7 @@ export class StepExecutorService {
     let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
     let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
+    let credencialFaltando: string | null = null; // registro de pacotes privado sem token: só o usuário resolve
     if ((result.exitCode === 0 || (isAi && result.sessionEnded)) && !result.interrupted && !result.resourceUnavailable && verifyCommand) {
       // Banco de teste descartável do trabalho (testes de integração do projeto).
       const banco = await prepararBancoDeTeste(job.id).catch(async (e) => {
@@ -380,7 +382,7 @@ export class StepExecutorService {
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...(banco?.env ?? {}) }),
+          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), ...variaveisDaConferencia(job.projectId), ...(banco?.env ?? {}) }),
           encerrarGrupoAoSair: true,
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
@@ -409,6 +411,8 @@ export class StepExecutorService {
       }
       clearInterval(pulso);
       if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
+      // 401/403 num registro de pacotes privado: falta um token (segredo) que a IA não pode fornecer.
+      if (v.exitCode !== 0 && !v.aborted && !ambiente) credencialFaltando = faltaCredencial(`${v.stdout}${v.stderr}`);
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
       const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
@@ -545,6 +549,12 @@ export class StepExecutorService {
       await this.checkpoint(job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência falhou por um problema do SERVIDOR do Nivoo, não do projeto (${ambiente}). O trabalho feito está salvo. Rode "nivoo update" no servidor (instala e arruma as ferramentas) e clique em "Tentar de novo"; se repetir, mande o diagnóstico`);
+    }
+
+    if (credencialFaltando && attemptStatus !== 'SUCESSO') {
+      await this.checkpoint(job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        `a conferência não conseguiu instalar as dependências: um registro de pacotes privado recusou o acesso por falta de token (${credencialFaltando}). O trabalho feito está salvo. Guarde o token em Ajustes do projeto → "Variáveis da conferência" (ex.: GITLAB_PACKAGE_TOKEN, o mesmo nome que o .npmrc usa) e clique em "Continuar"`);
     }
 
     if (faltaPrograma && attemptStatus !== 'SUCESSO') {

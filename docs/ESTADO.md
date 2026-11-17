@@ -193,6 +193,21 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Token de registro privado: 401 para na hora e vai nas Variáveis da conferência (2026-11-17)
+
+* **Caso real (financas-pessoais)**: depois da cura do `npm ci`, o `npm install` do `admin-panel` levou `401 Unauthorized`
+  do registro privado `git.nivoo.dev.br` ao baixar `@studio-ux-ds/components` — o `.npmrc` usa `${GITLAB_PACKAGE_TOKEN}`,
+  que a conferência não tinha. A IA diagnosticou certo (não mexeu na credencial), mas o sistema insistiu 6 sessões (US$ 3,19).
+* **Para na primeira** (`faltaCredencial`): 401/403 num registro de pacotes (npm/yarn/pnpm/pip) é falta de token, que
+  nenhuma sessão resolve. Bloqueia na 1ª conferência com `VERIFICACAO_IMPOSSIVEL` e a mensagem explica que falta o token e
+  manda guardá-lo em Ajustes → "Variáveis da conferência".
+* **Variáveis da conferência (por projeto)**: tokens/segredos que a instalação e os testes precisam. Guardados no cofre 600
+  (`confenv:<projectId>:<NOME>`, nunca no banco, no git nem na sessão da IA); entram SÓ no `ambienteDaConferencia`. A tela
+  (Ajustes) mostra os nomes e nunca o valor. API `GET/POST /projects/:pid/conferencia-env` (POST com `valor:null` apaga).
+  Apagadas ao excluir o projeto.
+* Testes `32` (401 para na 1ª e cita "Variáveis da conferência"; o token do projeto chega à conferência com o valor certo,
+  nunca ao prompt da IA; a API só devolve nomes) e tela (`chat-smoke`: guardar, chip "guardado" sem o valor, apagar).
+
 ## "npm ci" sem lockfile não trava mais o trabalho (2026-11-16)
 
 * **Caso real (financas-pessoais, ChatGPT/Claude)**: a conferência das etapas usava `npm ci`, e o projeto não commita

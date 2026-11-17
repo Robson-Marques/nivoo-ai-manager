@@ -413,3 +413,11 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .abas-topo { flex-wrap: wrap; }
 .conversa.com-previa .conversa-topo .seletor-ia { max-width: 100%; }
 .foto-resultado { max-width: 100%; max-height: 75vh; display: block; margin: 0 auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+
+/* Variáveis da conferência: nomes em chips (valor nunca aparece) e a linha de cadastrar. */
+.confenv-lista { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0; }
+.confenv-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; }
+.confenv-chip code { font-size: 12.5px; }
+.confenv-chip .link.perigo { color: var(--bad); padding: 0 2px; font-size: 16px; line-height: 1; }
+.confenv-nova { gap: 6px; flex-wrap: wrap; }
+.confenv-nova input { flex: 1; min-width: 140px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }

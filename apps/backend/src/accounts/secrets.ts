@@ -78,6 +78,53 @@ export function apagarSegredosDaConexao(conexao: string): void {
 }
 
 /**
+ * Variáveis da conferência de um projeto: tokens/segredos que a INSTALAÇÃO e os testes precisam (ex.: o token de um
+ * registro de pacotes privado, GITLAB_PACKAGE_TOKEN). Ficam no mesmo cofre 600 (nunca no banco, no git nem na sessão da
+ * IA) e entram só no ambiente da conferência. Chave: `confenv:<projectId>:<NOME>`.
+ */
+const PREFIXO_CONFENV = 'confenv:';
+const NOME_VAR_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function nomeDeVariavelValido(nome: string): boolean {
+  return NOME_VAR_OK.test(nome) && nome.length <= 100;
+}
+
+/** Nomes das variáveis da conferência do projeto (nunca os valores — segredo não volta para a tela). */
+export function nomesDasVariaveisDaConferencia(projectId: string): string[] {
+  const p = `${PREFIXO_CONFENV}${projectId}:`;
+  return Object.keys(readAll())
+    .filter((k) => k.startsWith(p))
+    .map((k) => k.slice(p.length))
+    .sort();
+}
+
+export function gravarVariavelDaConferencia(projectId: string, nome: string, valor: string | null): void {
+  if (!nomeDeVariavelValido(nome)) throw new Error('nome de variável inválido (use letras, números e _; comece com letra ou _)');
+  setSecret(`${PREFIXO_CONFENV}${projectId}:${nome}` as SecretKey, valor);
+}
+
+/** As variáveis da conferência do projeto (nome → valor) para injetar no ambiente — só a conferência as recebe. */
+export function variaveisDaConferencia(projectId: string): Record<string, string> {
+  const all = readAll() as Record<string, string>;
+  const p = `${PREFIXO_CONFENV}${projectId}:`;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v) env[k.slice(p.length)] = v;
+  return env;
+}
+
+/** Apaga todas as variáveis da conferência de um projeto (ao excluir o projeto). */
+export function apagarVariaveisDaConferencia(projectId: string): void {
+  const all = readAll() as Record<string, string>;
+  let mudou = false;
+  for (const k of Object.keys(all)) if (k.startsWith(`${PREFIXO_CONFENV}${projectId}:`)) (delete all[k], (mudou = true));
+  if (!mudou) return;
+  const target = file();
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, target);
+}
+
+/**
  * Pasta de configuração própria de uma variante "API" de uma IA (ex.: claude-api), dentro do HOME do
  * serviço: o login da conta e o uso por chave de API nunca se misturam.
  */

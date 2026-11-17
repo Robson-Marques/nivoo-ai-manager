@@ -56,6 +56,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         rotaArquivo={(p) => `/projects/${projeto.id}/knowledge/file?path=${encodeURIComponent(p)}`}
         rotaRemover={(p) => `/projects/${projeto.id}/knowledge/file?path=${encodeURIComponent(p)}&by=${encodeURIComponent(nomeUsuario())}`}
       />
+      <VariaveisDaConferencia projeto={projeto} />
       <div className="campo">
         <b>IA que trabalha neste projeto</b>
         <div className="tipos">
@@ -227,6 +228,72 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
           <SeletorModelo projeto={projeto} onMudou={onMudou} ia="gemini-video" mostrarAviso />
         </div>
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Variáveis da conferência: tokens/segredos que a INSTALAÇÃO e os testes precisam (ex.: GITLAB_PACKAGE_TOKEN de um
+ * registro de pacotes privado no .npmrc). O valor vai para o cofre do servidor (nunca ao banco, ao git nem à IA) e
+ * entra só no ambiente da conferência. A tela mostra os nomes, nunca o valor.
+ */
+function VariaveisDaConferencia({ projeto }: { projeto: any }) {
+  const [nomes, setNomes] = useState<string[]>([]);
+  const [nome, setNome] = useState('');
+  const [valor, setValor] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const carregar = useCallback(async () => setNomes((await api(`/projects/${projeto.id}/conferencia-env`)).variaveis ?? []), [projeto.id]);
+  useEffect(() => {
+    carregar().catch(() => undefined);
+  }, [carregar]);
+  const gravar = async (n: string, v: string | null) => {
+    setErro(null);
+    setMsg(null);
+    try {
+      const r = await api(`/projects/${projeto.id}/conferencia-env`, 'POST', { nome: n, valor: v });
+      setNomes(r.variaveis ?? []);
+      setMsg(v === null ? `"${n}" apagada.` : `"${n}" guardada. O valor fica no servidor, fora do alcance da IA.`);
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  };
+  return (
+    <div className="campo">
+      <b>Variáveis da conferência</b>
+      <span className="muted small">
+        Tokens que a instalação e os testes precisam — por exemplo o token de um registro de pacotes privado (o nome que o
+        <code> .npmrc</code> usa, como <code>GITLAB_PACKAGE_TOKEN</code>). O valor fica guardado no servidor, nunca aparece
+        na tela nem vai para a IA; entra só quando a conferência instala as dependências.
+      </span>
+      {nomes.length > 0 && (
+        <div className="confenv-lista">
+          {nomes.map((n) => (
+            <span key={n} className="confenv-chip">
+              <code>{n}</code> <span className="muted small">guardado</span>
+              <button type="button" className="link perigo" aria-label={`Apagar ${n}`} onClick={() => window.confirm(`Apagar a variável "${n}"?`) && gravar(n, null)}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="row confenv-nova">
+        <input placeholder="NOME (ex.: GITLAB_PACKAGE_TOKEN)" value={nome} onChange={(e) => setNome(e.target.value)} />
+        <input type="password" placeholder="valor (token/segredo)" value={valor} onChange={(e) => setValor(e.target.value)} autoComplete="off" />
+        <button
+          className="secondary"
+          disabled={!nome.trim() || !valor}
+          onClick={async () => {
+            await gravar(nome.trim(), valor);
+            setNome('');
+            setValor('');
+          }}
+        >
+          Guardar
+        </button>
+      </div>
+      {msg && <div className="ok-msg">{msg}</div>}
+      {erro && <div className="error">{erro}</div>}
     </div>
   );
 }

@@ -42,6 +42,16 @@ export class ProjectsController {
     return this.projects.newRules(pid, body);
   }
 
+  @Get(':pid/conferencia-env')
+  conferenciaEnv(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.projects.variaveisDaConferencia(pid);
+  }
+
+  @Post(':pid/conferencia-env')
+  gravarConferenciaEnv(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
+    return this.projects.gravarVariavelDaConferencia(pid, body);
+  }
+
   @Get(':pid/rules/history')
   rulesHistory(@Param('pid', ParseUUIDPipe) pid: string) {
     return this.projects.rulesHistory(pid);

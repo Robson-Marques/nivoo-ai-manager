@@ -184,6 +184,49 @@ describe('Auditoria preventiva', () => {
     expect(x.statusDetail).toMatch(/problema do SERVIDOR do Nivoo, não do projeto \(EAI_AGAIN request to https:\/\/registry\.npmjs\.org/);
     expect(x.statusDetail).toMatch(/nivoo update/);
   });
+  it('401 de registro de pacotes privado: para na 1ª conferência (não 6 sessões) e explica que falta o token', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Registro401', provider: 'claude-code-cli' }).expect(201)).body;
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'npm 401',
+      steps: [{ key: 'v', instructions: 'echo ok > feito.txt', verifyCommand: 'echo "npm error code E401" >&2; echo "npm error 401 Unauthorized - GET https://git.nivoo.dev.br/api/v4/projects/1/packages/npm/@studio-ux-ds%2fcomponents" >&2; exit 1' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'VERIFICACAO_IMPOSSIVEL' });
+    expect(x.attempts).toHaveLength(1); // parou na primeira, não gastou 6 sessões
+    expect(x.statusDetail).toMatch(/registro de pacotes privado recusou o acesso por falta de token/);
+    expect(x.statusDetail).toMatch(/Variáveis da conferência/);
+  });
+
+  it('variável da conferência: o token do projeto chega à conferência (e nunca à sessão da IA); a API só devolve os nomes', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'TokenConf', provider: 'claude-code-cli' }).expect(201)).body;
+    // Guarda o token pela API. Só o nome volta; o valor nunca é devolvido.
+    const r = (await h.http().post(`/api/projects/${p.id}/conferencia-env`).send({ nome: 'GITLAB_PACKAGE_TOKEN', valor: 'segredo-123' }).expect(201)).body;
+    expect(r.variaveis).toEqual(['GITLAB_PACKAGE_TOKEN']);
+    expect(JSON.stringify(r)).not.toContain('segredo-123');
+    await h.http().post(`/api/projects/${p.id}/conferencia-env`).send({ nome: 'nome inválido!', valor: 'x' }).expect(400);
+    ctl('mode', 'bash');
+    const x = await rodar(p.id, {
+      title: 'usa token',
+      // A conferência enxerga o token; a etapa (sessão da IA) NÃO — por isso o teste do token fica na conferência.
+      // Confere o token SEM escrever o literal no comando (senão apareceria no prompt por estar no comando, não por vazar):
+      // grava o valor recebido num arquivo que o teste lê depois. 'segredo-123' tem 11 bytes.
+      steps: [{ key: 'v', instructions: 'echo ok > feito.txt', verifyCommand: 'printf "%s" "$GITLAB_PACKAGE_TOKEN" > out/tok.txt && [ "$(wc -c < out/tok.txt)" = 11 ] && test -f feito.txt' }],
+      criteria: [{ key: 'f', description: 'f', kind: 'FILE_EXISTS', config: { path: 'feito.txt' } }],
+    });
+    ctl('mode', null);
+    expect(x.status).toBe('CONCLUIDO'); // a conferência recebeu o token (11 bytes) e passou
+    // O valor do segredo nunca chegou ao prompt da IA (não está nas instruções nem no comando de verificação).
+    expect(fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8')).not.toContain('segredo-123');
+    // Mas a conferência de fato recebeu o valor certo (gravado por ela).
+    const wt = path.join((await h.http().get(`/api/projects/${p.id}`)).body.workspacePath, 'worktrees', x.id);
+    expect(fs.readFileSync(path.join(wt, 'out', 'tok.txt'), 'utf8')).toBe('segredo-123');
+    // Apagar: some da lista.
+    const apos = (await h.http().post(`/api/projects/${p.id}/conferencia-env`).send({ nome: 'GITLAB_PACKAGE_TOKEN', valor: null }).expect(201)).body;
+    expect(apos.variaveis).toEqual([]);
+  });
+
   it('banco de teste descartável: cada trabalho tem o seu nas conferências e nos critérios; apagado no fim', async () => {
     // O usuário que o instalador cria: só cria bancos, não é superusuário.
     await h.prisma.$executeRawUnsafe(`DO $$ BEGIN

@@ -200,8 +200,19 @@ const plano = {
     await page.getByText(/Salvo\. A versão anterior/).waitFor();
     await page.locator('.ajustes .materiais input[type=file]').first().setInputFiles(conhecimento);
     await page.getByText(/1 arquivo\(s\) guardados/).waitFor();
+    // Variável da conferência (token de registro privado): guarda, vira chip "guardado", e o valor nunca aparece na tela.
+    const confenv = page.locator('.campo', { hasText: 'Variáveis da conferência' });
+    await confenv.getByPlaceholder(/NOME/).fill('GITLAB_PACKAGE_TOKEN');
+    await confenv.getByPlaceholder(/valor/).fill(`tok-${stamp}`);
+    await confenv.getByRole('button', { name: 'Guardar' }).click();
+    await confenv.locator('.confenv-chip', { hasText: 'GITLAB_PACKAGE_TOKEN' }).waitFor();
+    await page.getByText(/guardada\. O valor fica no servidor/).waitFor();
+    if ((await confenv.innerText()).includes(`tok-${stamp}`)) throw new Error('o valor do token apareceu na tela');
     await shot(page, '5-ajustes');
-    passo('projeto criado no modelo, com regras próprias e conhecimento');
+    page.once('dialog', (d) => d.accept());
+    await confenv.getByRole('button', { name: /Apagar GITLAB_PACKAGE_TOKEN/ }).click();
+    await confenv.locator('.confenv-chip', { hasText: 'GITLAB_PACKAGE_TOKEN' }).waitFor({ state: 'detached' });
+    passo('projeto criado no modelo, com regras próprias, conhecimento e variável da conferência (valor fora da tela)');
 
     // 4. Conversa → plano → Fazer → conferência → pronto
     fs.writeFileSync(path.join(ctl, 'mode'), 'texto');

@@ -242,6 +242,25 @@ export function ambienteDaConferencia(extra: Record<string, string | undefined> 
  * Falha da conferência que é do SERVIDOR do Nivoo, não do projeto: nenhuma sessão de IA resolve. Devolve a linha que
  * mostra o problema, ou null.
  */
+/**
+ * Instalação que falha por falta de CREDENCIAL num registro de pacotes privado (npm/yarn/pnpm 401/403, pip 401/403):
+ * nenhuma sessão de IA resolve (o token é um segredo). Devolve o endereço/pacote, ou null.
+ */
+export function faltaCredencial(saida: string): string | null {
+  const padroes = [
+    /npm (?:error|ERR!) code E40[13][\s\S]*?(?:40[13][^\n]*)/i,
+    /\b40[13]\b[^\n]*\b(?:Unauthorized|Forbidden)\b[^\n]*/i,
+    /(?:Unauthorized|Forbidden|authentication|unauthenticated|403 Forbidden|401 Unauthorized)[^\n]*(?:registry|packages?\/npm|\.pkg\.|artifactory|nexus|gitlab|github\.com\/[^\n]*packages)[^\n]*/i,
+    /ERR_PNPM_FETCH_40[13][^\n]*/i,
+    /pip[^\n]*40[13][^\n]*(?:Unauthorized|Forbidden)/i,
+  ];
+  for (const p of padroes) {
+    const m = p.exec(saida);
+    if (m) return m[0].replace(/\s+/g, ' ').slice(0, 300);
+  }
+  return null;
+}
+
 /** Erro típico do `npm ci` quando o projeto não commitou o package-lock.json (ou pnpm/yarn em modo travado). */
 export function semLockfile(saida: string): boolean {
   return /can only install with an existing package-lock\.json|npm-shrinkwrap\.json with lockfileVersion|No lockfile found|lockfile.*not found|frozen-lockfile|EUSAGE[\s\S]*npm ci/i.test(saida);

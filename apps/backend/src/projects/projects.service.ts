@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
+import { apagarVariaveisDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia } from '../accounts/secrets';
 import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
 import { resolveInside } from '../common/path-guard';
@@ -215,12 +216,33 @@ export class ProjectsService {
    * Exclui o projeto: banco (conversas, trabalhos, memória, regras), pasta do projeto e artefatos.
    * Antes, PARA tudo o que estiver rodando nele (trabalhos e respostas da IA) — excluir nunca fica preso.
    */
+  /** Nomes das variáveis da conferência do projeto (tokens de registro privado etc.); nunca devolve os valores. */
+  async variaveisDaConferencia(id: string) {
+    await this.assertExists(id);
+    return { variaveis: nomesDasVariaveisDaConferencia(id) };
+  }
+
+  /** Guarda (ou apaga, valor null) uma variável da conferência. O valor vai só para o cofre 600, nunca para a IA. */
+  async gravarVariavelDaConferencia(id: string, body: any) {
+    await this.assertExists(id);
+    const nome = reqString(body, 'nome', 100).trim();
+    const valor = body?.valor === null || body?.valor === undefined ? null : String(body.valor);
+    if (valor !== null && (!valor || valor.length > 10000)) throw new BadRequestException('valor vazio ou grande demais');
+    try {
+      gravarVariavelDaConferencia(id, nome, valor && valor.trim() ? valor : null);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'nome inválido');
+    }
+    return this.variaveisDaConferencia(id);
+  }
+
   async remove(id: string) {
     const p = await this.assertExists(id);
     await this.stopEverything(id);
     await this.prisma.$transaction([this.prisma.approval.deleteMany({ where: { projectId: id } }), this.prisma.project.delete({ where: { id } })]);
     fs.rmSync(this.workspace.projectDirs(p.dirKey).root, { recursive: true, force: true });
     fs.rmSync(resolveInside(appConfig().artifactsRoot, id), { recursive: true, force: true });
+    apagarVariaveisDaConferencia(id);
     return { excluido: p.name };
   }
 
