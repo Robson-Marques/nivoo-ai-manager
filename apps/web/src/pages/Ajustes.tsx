@@ -57,6 +57,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
         rotaRemover={(p) => `/projects/${projeto.id}/knowledge/file?path=${encodeURIComponent(p)}&by=${encodeURIComponent(nomeUsuario())}`}
       />
       <VariaveisDaConferencia projeto={projeto} />
+      <TrocarAgente projeto={projeto} onMudou={onMudou} />
       <div className="campo">
         <b>IA que trabalha neste projeto</b>
         <div className="tipos">
@@ -204,6 +205,47 @@ function IasReserva({ projeto, contas, onSalvar }: { projeto: any; contas: any[]
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Trocar o agente (área) do projeto: migra para outro agente sem perder o trabalho (arquivos, memória e histórico ficam). */
+function TrocarAgente({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
+  const [agentes, setAgentes] = useState<any[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(() => {
+    api<any[]>('/areas').then(setAgentes).catch(() => undefined);
+  }, []);
+  const atual = projeto.area?.slug ?? '';
+  const trocar = async (slug: string) => {
+    if (!slug || slug === atual) return;
+    const nome = agentes.find((a) => a.slug === slug)?.name ?? slug;
+    if (!window.confirm(`Mudar este projeto para o agente "${nome}"? Seus arquivos, memória e histórico continuam; muda só o jeito de trabalhar (as regras da base do agente).`)) return;
+    setErro(null);
+    setMsg(null);
+    try {
+      await api(`/projects/${projeto.id}`, 'PATCH', { base: slug });
+      setMsg(`Agora este projeto é do agente "${nome}".`);
+      onMudou();
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  };
+  return (
+    <div className="campo">
+      <b>Agente do projeto</b>
+      <div className="row">
+        <select value={atual} aria-label="Agente do projeto" onChange={(e) => trocar(e.target.value)} style={{ maxWidth: 320 }}>
+          {!agentes.some((a) => a.slug === atual) && <option value={atual}>{projeto.area?.name ?? atual}</option>}
+          {agentes.map((a) => (
+            <option key={a.id} value={a.slug}>{a.name}</option>
+          ))}
+        </select>
+      </div>
+      <span className="muted small">Muda o jeito de trabalhar (as regras da base do agente). Seus arquivos, a memória e o histórico do projeto continuam. As regras próprias do projeto também ficam.</span>
+      {msg && <span className="ok small">{msg}</span>}
+      {erro && <span className="erro small">{erro}</span>}
     </div>
   );
 }

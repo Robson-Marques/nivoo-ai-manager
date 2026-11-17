@@ -178,6 +178,25 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('upload grande (vários pedaços) chega inteiro; corpo vazio é recusado com dica de proxy; resto de 0 byte some da lista', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Upload grande' }).expect(201)).body;
+    // ~6 MB enviados pelo mesmo endpoint de streaming: tem de chegar byte a byte, sem perder pedaço.
+    const grande = Buffer.alloc(6 * 1024 * 1024, 7);
+    const env = await h.http().post(`/api/projects/${p.id}/videos`).query({ nome: 'cena-grande.mp4' }).set('Content-Type', 'application/octet-stream').send(grande).expect(201);
+    expect(env.body.bytes).toBe(grande.length);
+    expect((await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos.find((v: any) => v.caminho === env.body.caminho)?.bytes).toBe(grande.length);
+    // Corpo vazio (o que um proxy mal configurado entrega): recusado, com a dica de liberar o tamanho no proxy.
+    const vazio = await h.http().post(`/api/projects/${p.id}/videos`).query({ nome: 'vazia.mp4' }).set('Content-Type', 'application/octet-stream').send(Buffer.alloc(0)).expect(400);
+    expect(JSON.stringify(vazio.body)).toMatch(/vazio|proxy|client_max_body_size/i);
+    // Um resto de 0 byte largado na pasta (envio que falhou antes) não aparece na lista nem para a IA.
+    const midia = path.join(p.workspacePath, 'midia', 'entrada');
+    fs.mkdirSync(midia, { recursive: true });
+    fs.writeFileSync(path.join(midia, 'resto-vazio.mp4'), '');
+    const lista = (await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos;
+    expect(lista.some((v: any) => v.caminho.endsWith('resto-vazio.mp4'))).toBe(false);
+    expect(lista.find((v: any) => v.caminho === env.body.caminho)?.bytes).toBe(grande.length);
+  });
+
   it('análise do vídeo (nivoo-analisar-video): extrai quadros e aponta trecho escuro e silêncio, para a IA sugerir cortes', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Análise' }).expect(201)).body;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'analise-'));

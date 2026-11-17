@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 /**
@@ -43,30 +43,36 @@ export async function gravarVideoEnviado(midia: string, nome: string, corpo: Rea
   const dir = entradaDir(midia);
   fs.mkdirSync(dir, { recursive: true });
   const destino = path.join(dir, id);
-  // Limite de tamanho enquanto grava: aborta e apaga se passar.
+  // Conta os bytes DENTRO do pipeline (respeitando a contrapressão): nada de ouvir 'data' por fora, que colocaria o
+  // fluxo em modo corrente e poderia perder pedaços de arquivos grandes. Passou do limite → erra o pipeline e apaga.
   let bytes = 0;
-  let estourou = false;
-  corpo.on('data', (c: Buffer) => {
-    bytes += c.length;
-    if (bytes > MAX_VIDEO_BYTES) {
-      estourou = true;
-      corpo.destroy();
-    }
+  const limite = MAX_VIDEO_BYTES;
+  const contador = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      bytes += chunk.length;
+      if (bytes > limite) {
+        cb(Object.assign(new Error('LIMITE'), { estourou: true }));
+        return;
+      }
+      cb(null, chunk);
+    },
   });
   try {
-    await pipeline(corpo, fs.createWriteStream(destino));
-  } catch (err) {
+    await pipeline(corpo, contador, fs.createWriteStream(destino));
+  } catch (err: any) {
     fs.rmSync(destino, { force: true });
-    if (estourou) throw new BadRequestException(`O vídeo passa do limite de ${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)} MB`);
+    if (err?.estourou) throw new BadRequestException(`O vídeo passa do limite de ${Math.round(limite / 1024 / 1024)} MB`);
     throw err;
   }
-  if (estourou || !fs.existsSync(destino) || !fs.statSync(destino).size) {
+  const salvo = fs.existsSync(destino) ? fs.statSync(destino).size : 0;
+  if (!salvo) {
     fs.rmSync(destino, { force: true });
-    throw new BadRequestException(estourou ? `O vídeo passa do limite de ${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)} MB` : 'Vídeo vazio');
+    // Chegou ao servidor sem corpo: quase sempre um proxy/Cloudflare/nginx na frente que não repassa o envio grande.
+    throw new BadRequestException('O vídeo chegou vazio (0 byte). Se há um proxy/Cloudflare/nginx na frente, libere o tamanho do upload (ex.: client_max_body_size no nginx).');
   }
   // Guarda o nome original ao lado (para mostrar na tela), sem afetar o arquivo.
   fs.writeFileSync(path.join(dir, `${id}.nome`), nomeOk);
-  return { id, nome: nomeOk, bytes: fs.statSync(destino).size, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
+  return { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
 }
 
 /** Lista os vídeos enviados (entrada) e os editados (saida). */
@@ -82,6 +88,7 @@ export function listarVideos(midia: string): VideoDaMidia[] {
         const nome = pasta === 'entrada' && fs.existsSync(nomeArq) ? fs.readFileSync(nomeArq, 'utf8').trim() : f;
         return { id: f, nome, bytes: fs.statSync(path.join(dir, f)).size, caminho: `midia/${pasta}/${f}`, pasta };
       })
+      .filter((v) => v.bytes > 0) // ignora restos de 0 byte (envio que falhou): não confundem a IA nem a tela
       .sort((a, b) => a.nome.localeCompare(b.nome));
   };
   return [...ler('entrada'), ...ler('saida')];

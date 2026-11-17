@@ -225,8 +225,16 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
   software) e **enxerga a origem**: `Project.projetoOrigemId`; o contexto da IA (conversa e trabalhos) ganha o nome, a
   descrição, as regras, o conhecimento e os arquivos/telas da origem (`contextoDaOrigem`), para fazer o vídeo do app de
   verdade. Vínculo apagado se a origem for removida (ON DELETE SET NULL).
-* Testes `13` (projeto de vídeo separado enxerga nome/descrição/regras da origem; origem inexistente recusada) e tela
-  (`chat-smoke`: criar projeto no agente Design de Vídeo escolhendo a origem; foto `4b-projeto-video`).
+* **A montagem não gasta o Gemini.** Em projetos de vídeo (`design-video`, `video-veo`), a IA que **monta** (roteiro,
+  estrutura, divisão em cenas, texto de legenda/narração, código do motion) é **Claude ou ChatGPT** — nunca o Gemini.
+  Se o pedido escolher o Gemini (`gemini-api`), o `create`/`update` troca pela primeira IA não-Gemini (Claude de
+  preferência, senão ChatGPT). A **chave do Gemini** fica reservada para **gerar** a mídia (Veo/Omni, Lyria, TTS), que é
+  o que custa caro. A tela do Novo projeto esconde o Gemini na escolha da IA do vídeo e explica o porquê; o planejador e o
+  template do agente orientam o mesmo. Projeto comum (não de vídeo) continua aceitando o Gemini como IA de trabalho.
+* Testes `13` (projeto de vídeo separado enxerga nome/descrição/regras da origem; origem inexistente recusada; Gemini
+  pedido para o vídeo cai em IA não-Gemini, inclusive ao trocar em Ajustes; projeto comum mantém Gemini) e tela
+  (`chat-smoke`: criar projeto no agente Design de Vídeo escolhendo a origem e conferindo o aviso de que o Gemini não é a
+  IA de montagem; fotos `4b-projeto-video` e `4c-voz-narracao`).
 
 ## Motion Design: animação de código vira vídeo, sem Veo (2026-11-17)
 
@@ -265,6 +273,20 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * API: `GET /projects/:id/videos`, `POST /projects/:id/videos` (streaming), `DELETE /projects/:id/videos/:id`,
   `GET /projects/:id/midia/content`. Testes `26` (enviar por streaming → editar → baixar; nada de mídia no git) e tela
   (`chat-smoke`: arrastar vídeo vira chip e não vira anexo; foto `9a2-video-para-editar`).
+* **Robustez do envio (2026-11-17):** a contagem de bytes/limite virou um `Transform` DENTRO do pipeline (respeitando a
+  contrapressão) — antes um `on('data')` por fora punha o fluxo em modo corrente e, atrás de um proxy, podia perder
+  pedaços e salvar o vídeo com **0 byte**. Corpo vazio agora é recusado com a dica de liberar o tamanho no proxy (nginx
+  `client_max_body_size`, Cloudflare 100 MB — ver `docs/OPERACAO.md`), e `listarVideos` **ignora restos de 0 byte** para
+  não confundir a IA nem a tela. Teste `26` (upload de ~6 MB chega inteiro; corpo vazio recusado; resto de 0 byte some).
+
+## Trocar o agente (área) de um projeto (2026-11-17)
+
+* Em **Ajustes → "Agente do projeto"**, um seletor migra o projeto para outro agente. `PATCH /projects/:id` passou a
+  aceitar `base` (slug do agente): muda só **quais regras da base valem** daqui para a frente; a **pasta** do projeto
+  (`dirKey`), os **arquivos**, a **memória**, o **histórico** e as **regras próprias** continuam. Migrar para um agente de
+  vídeo (`design-video`/`video-veo`) também **tira o Gemini da montagem** (ver seção acima). Agente inexistente é recusado.
+* Teste `13` (migrar `geral`→`design-video` mantém regras e pasta e troca a IA de montagem; voltar para `geral`; agente
+  inexistente recusado) e tela (`chat-smoke`: migrar o projeto de vídeo para outro agente pelo seletor).
 
 ## Modo edição de vídeo, etapa 1: recorte e velocidade por clipe (2026-11-17)
 

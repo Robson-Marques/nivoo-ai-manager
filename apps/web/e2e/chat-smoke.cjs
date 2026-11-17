@@ -223,6 +223,8 @@ const plano = {
     await selOrigem.waitFor();
     const valOrigem = await selOrigem.locator('option', { hasText: nome }).first().getAttribute('value');
     await selOrigem.selectOption(valOrigem);
+    // A montagem do vídeo não usa o Gemini: a tela avisa e o Gemini não é oferecido como IA de montagem.
+    await page.getByText(/O Gemini não aparece aqui de propósito/).waitFor();
     await page.locator('.modal .tipo', { hasText: 'Claude (conta)' }).click();
     await shot(page, '4b-projeto-video');
     await page.getByRole('button', { name: 'Criar projeto' }).click();
@@ -244,6 +246,14 @@ const plano = {
     if ((await page.locator('#voz-narracao').inputValue()) !== vozMasc) throw new Error('a voz escolhida não ficou guardada');
     void urlVideo;
     passo('seletor de voz da narração: feminina/masculina, escolha masculina guardada no projeto de vídeo');
+    // Trocar de agente: migrar este projeto para outro agente pela tela (o trabalho continua).
+    const selAgente = page.locator('select[aria-label="Agente do projeto"]');
+    await selAgente.waitFor();
+    const geralVal = await selAgente.locator('option', { hasText: 'Geral' }).first().getAttribute('value');
+    page.once('dialog', (d) => d.accept());
+    await selAgente.selectOption(geralVal);
+    await page.getByText(/Agora este projeto é do agente/).waitFor();
+    passo('trocar de agente: projeto migrado para outro agente pela tela, sem perder o trabalho');
     // Volta para o projeto de origem (pizzaria) para seguir o roteiro; o de vídeo é um projeto à parte.
     await page.getByRole('link', { name: nome, exact: true }).first().click();
     await page.getByRole('heading', { name: nome, exact: true }).waitFor();

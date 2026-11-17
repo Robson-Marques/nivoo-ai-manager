@@ -306,6 +306,34 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(prompt).toContain('ORIGEM-77'); // regras da origem
     // Projeto de vídeo com origem inexistente é recusado.
     await h.http().post('/api/projects').send({ name: 'xv', base: 'design-video', projetoOrigemId: '00000000-0000-0000-0000-000000000000' }).expect(400);
+    // A montagem do vídeo NUNCA usa o Gemini (a chave do Gemini é só para gerar vídeo/voz): se pedir Gemini, cai numa IA não-Gemini.
+    const semGemini = (await h.http().post('/api/projects').send({ name: 'App de Entregas — Vídeo 2', base: 'design-video', provider: 'gemini-api', projetoOrigemId: origem.id }).expect(201)).body;
+    expect(semGemini.provider).not.toBe('gemini-api');
+    expect(['claude-code-cli', 'codex-cli', 'claude-api', 'codex-api']).toContain(semGemini.provider);
+    // Trocar depois para Gemini em Ajustes também é barrado: volta para não-Gemini.
+    const trocado = (await h.http().patch(`/api/projects/${semGemini.id}`).send({ provider: 'gemini-api' }).expect(200)).body;
+    expect(trocado.provider).not.toBe('gemini-api');
+    // Num projeto comum (não de vídeo), o Gemini continua valendo como IA de trabalho.
+    const comum = (await h.http().post('/api/projects').send({ name: 'Projeto comum', base: 'geral', provider: 'gemini-api' }).expect(201)).body;
+    expect(comum.provider).toBe('gemini-api');
+  });
+
+  it('trocar o agente (área) de um projeto mantém o trabalho; migrar para agente de vídeo tira o Gemini da montagem', async () => {
+    const p = await projeto('App para migrar', 'geral', { provider: 'gemini-api', rules: 'Identidade do app. Código AGENTE-MIG-9.' });
+    expect(p.area.slug).toBe('geral');
+    expect(p.provider).toBe('gemini-api'); // projeto comum aceita o Gemini como IA
+    const dirKey = p.dirKey;
+    // Migra para o agente de vídeo: a área muda, as regras próprias continuam, a pasta (dirKey) não se move e a IA de montagem deixa de ser Gemini.
+    const migrado = (await h.http().patch(`/api/projects/${p.id}`).send({ base: 'design-video' }).expect(200)).body;
+    expect(migrado.area.slug).toBe('design-video');
+    expect(migrado.dirKey).toBe(dirKey); // não mexeu nos arquivos
+    expect(migrado.rules?.text).toMatch(/AGENTE-MIG-9/); // regras próprias preservadas
+    expect(migrado.provider).not.toBe('gemini-api'); // montagem de vídeo nunca é o Gemini
+    // Voltar para um agente comum é permitido.
+    const devolta = (await h.http().patch(`/api/projects/${p.id}`).send({ base: 'geral' }).expect(200)).body;
+    expect(devolta.area.slug).toBe('geral');
+    // Agente inexistente é recusado.
+    await h.http().patch(`/api/projects/${p.id}`).send({ base: 'agente-que-nao-existe' }).expect(404);
   });
 
   it('conversa: plano com a IA do projeto; aprovação vira trabalho com conferência; recusa fora do escopo está no prompt', async () => {

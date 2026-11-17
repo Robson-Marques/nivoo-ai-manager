@@ -56,6 +56,12 @@
 15. **Acesso pela internet** — `nivoo dominio nivoo.suaempresa.com.br` (como root) publica o Nivoo num domínio
     seu pela Cloudflare (túnel, HTTPS, sem abrir portas) e liga o token; depois ligue o Cloudflare Access
     (login por e-mail) no painel da Cloudflare. Ver `docs/INSTALACAO-DEBIAN.md`, seção 3b.
+    - **Enviar vídeos grandes pela internet:** o envio vai por streaming direto ao Nivoo (limite
+      `NIVOO_MAX_VIDEO_MB`, padrão 2048 MB). Se houver um **proxy na frente** (nginx, Apache, Cloudflare), ele
+      precisa deixar passar o corpo grande, senão o vídeo chega vazio (0 byte) e o Nivoo recusa com essa dica.
+      No **nginx**: `client_max_body_size 2048m;` (e, para não encher o disco de temporário, `proxy_request_buffering off;`)
+      na location do Nivoo. Na **Cloudflare** (Free/Pro) o limite do upload é 100 MB por requisição — para arquivos
+      maiores, envie cada cena separada abaixo de 100 MB, ou use o acesso direto/túnel SSH sem passar pela borda.
 16. **Git** — em **Contas**, seção Git, cadastre o GitHub ou o seu GitLab (endereço + token; GitHub: token
     com acesso a "Contents" de leitura e escrita; GitLab: escopos `read_repository` e `write_repository`).
     Pode cadastrar o GitHub e o GitLab ao mesmo tempo (e mais de uma conta de cada). Para **criar**

@@ -26,6 +26,20 @@ import { checkBranch, GitService, normalizeRepoUrl } from '../git/git.service';
 
 /** IAs que conversam e trabalham num projeto: agentes que leem e editam arquivos (o executor local não é IA). */
 
+/** Áreas que PRODUZEM vídeo: a montagem/roteiro é feita pela IA do projeto; o Gemini (chave de API, caro) fica
+ *  reservado para GERAR o vídeo, a voz e a legenda — nunca para pensar/montar. Por isso a IA de montagem destes
+ *  projetos nunca é o Gemini. */
+const AREAS_DE_VIDEO = new Set(['design-video', 'video-veo']);
+/** Primeira IA não-Gemini para a montagem (Claude de preferência, senão ChatGPT); nunca o Gemini. */
+function iaDeMontagemNaoGemini(provider: string, areaSlug: string): string {
+  if (!AREAS_DE_VIDEO.has(areaSlug) || tipoDe(provider) !== 'gemini-api') return provider;
+  const conexoes = listarConexoes();
+  for (const t of ['claude-code-cli', 'codex-cli', 'claude-api', 'codex-api']) {
+    const c = conexoes.find((x) => x.tipo === t);
+    if (c) return c.id;
+  }
+  return 'claude-code-cli';
+}
 
 /**
  * Projeto = pasta de trabalho + "fine-tune do projeto": base escolhida, regras próprias (versionadas),
@@ -50,7 +64,8 @@ export class ProjectsService {
     if (!slug) throw new BadRequestException('Nome inválido');
     if (await this.prisma.project.findUnique({ where: { slug } })) throw new ConflictException(`Já existe um projeto com o nome "${name}"`);
     const area = await this.resolveArea(optString(body, 'base', 60) ?? DEFAULT_AREA);
-    const provider = this.checkProvider(optString(body, 'provider', 60) ?? listarConexoes().find((c) => c.padrao)?.id ?? 'claude-code-cli');
+    // Projeto de vídeo nunca usa o Gemini para a montagem/roteiro (a chave do Gemini é só para gerar vídeo/voz/legenda).
+    const provider = iaDeMontagemNaoGemini(this.checkProvider(optString(body, 'provider', 60) ?? listarConexoes().find((c) => c.padrao)?.id ?? 'claude-code-cli'), area.slug);
     const dirKey = `areas/${area.slug}/projetos/${slug}`;
     // Projeto a partir de um repositório Git existente: clona primeiro; a branch escolhida vira a pasta principal.
     let git: { url: string; branch: string; accountId: string | null } | null = null;
@@ -130,8 +145,26 @@ export class ProjectsService {
     if (name) data.name = name;
     const description = optString(body, 'description', 20000);
     if (description !== undefined) data.description = description;
+    // Trocar o AGENTE (área) do projeto — sem mexer nos arquivos, trabalhos nem memória: só muda quais regras da base
+    // valem daqui para a frente. E trocar a IA do projeto. Os dois interagem (agente de vídeo nunca usa o Gemini na montagem).
+    const novaBase = optString(body, 'base', 60);
     const provider = optString(body, 'provider', 60);
-    if (provider) data.provider = this.checkProvider(provider);
+    if (novaBase || provider) {
+      const p = await this.prisma.project.findUniqueOrThrow({ where: { id }, include: { area: { select: { slug: true } } } });
+      let areaSlug = p.area.slug;
+      if (novaBase) {
+        const area = await this.resolveArea(novaBase);
+        data.areaId = area.id;
+        areaSlug = area.slug;
+      }
+      if (provider) {
+        data.provider = iaDeMontagemNaoGemini(this.checkProvider(provider), areaSlug);
+      } else if (novaBase && AREAS_DE_VIDEO.has(areaSlug)) {
+        // Migrou para um agente de vídeo e a IA atual é o Gemini: troca para não queimar o crédito do Gemini na montagem.
+        const trocado = iaDeMontagemNaoGemini(p.provider, areaSlug);
+        if (trocado !== p.provider) data.provider = trocado;
+      }
+    }
     // Modelo da IA (por IA: trocar de IA e voltar mantém a escolha). null/"" = padrão da IA.
     if (body && 'model' in body) {
       const atual = await this.prisma.project.findUniqueOrThrow({ where: { id }, select: { provider: true, aiModels: true } });
