@@ -80,8 +80,8 @@ describe('Modelos, fine-tune do projeto, conferência das regras, conversa e con
 
   it('modelos: prontos sem Mercado; texto de funcionamento exato e versionado; nome editável', async () => {
     const prontos = (await h.http().get('/api/areas/templates').expect(200)).body.map((t: any) => t.key);
-    expect(prontos).toEqual(['geral', 'software', 'atendimento', 'imagem', 'video', 'video-veo', 'studio-workflow']);
-    expect((await h.http().get('/api/areas').expect(200)).body.map((a: any) => a.slug)).toEqual(['geral', 'studio-workflow', 'video-veo']); // padrão + modelos prontos instalados
+    expect(prontos).toEqual(['geral', 'software', 'atendimento', 'imagem', 'video', 'video-veo', 'design-video', 'studio-workflow']);
+    expect((await h.http().get('/api/areas').expect(200)).body.map((a: any) => a.slug).sort()).toEqual(['design-video', 'geral', 'studio-workflow', 'video-veo']); // padrão + agentes prontos instalados
     const texto = 'Você é engenheiro de sistemas ERP. Código de rastreio MOD-ERP-11. Nunca use JSON na interface.';
     const m = await modelo('Sistemas ERP / SaaS', 'software', texto);
     expect(m.slug).toBe('sistemas-erp-saas');
