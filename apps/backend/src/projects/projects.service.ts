@@ -17,6 +17,7 @@ import { optNumber, optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkModelName } from '../providers/model-catalog.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { VOZES_NARRACAO, vozConhecida } from '../providers/vozes';
 import { WorkspaceService } from '../storage/workspace.service';
 import { BlockedReason } from '../common/status';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -152,6 +153,13 @@ export class ProjectsService {
     }
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (typeof body?.seguirSozinho === 'boolean') data.seguirSozinho = body.seguirSozinho;
+    // Voz padrão da narração dos vídeos deste projeto (o seletor de voz da tela).
+    const vozNarracao = optString(body, 'vozNarracao', 40);
+    if (vozNarracao) {
+      const v = vozConhecida(vozNarracao);
+      if (!v) throw new BadRequestException(`Voz "${vozNarracao}" não existe. Vozes: ${VOZES_NARRACAO.map((x) => `${x.id} (${x.genero})`).join(', ')}`);
+      data.vozNarracao = v.id;
+    }
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
     if (data.provider) await moverTrabalhoParaIa(this.prisma, id, String(data.provider));

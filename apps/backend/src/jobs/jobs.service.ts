@@ -9,6 +9,7 @@ import { BlockedReason } from '../common/status';
 import { oneOf, optNumber, optString, reqString } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { VOZES_NARRACAO, vozConhecida } from '../providers/vozes';
 import { QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
@@ -597,6 +598,30 @@ export function operacoesDeArquivos(key: string, o: any): { remover: string[]; m
 export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'slideup', 'circleopen', 'circleclose', 'smoothleft', 'zoomin', 'corte'];
 
 /** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
+/** Narração (voz): texto para a Gemini locutar OU um áudio do projeto; voz e volume do fundo sob a voz. */
+function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } {
+  if (!n || typeof n !== 'object') throw new BadRequestException(`Etapa ${key}: narracao deve ser {"texto":"..."} ou {"arquivo":"audio/voz.mp3"}`);
+  const out: { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } = {};
+  if (n.arquivo !== undefined) {
+    const a = caminhoDoProjeto(n.arquivo);
+    if (!a || !/\.(mp3|wav|m4a|aac|ogg)$/i.test(a)) throw new BadRequestException(`Etapa ${key}: narracao.arquivo deve ser um áudio do projeto (mp3, wav, m4a, aac, ogg)`);
+    out.arquivo = a;
+  }
+  if (n.texto !== undefined && String(n.texto).trim()) out.texto = String(n.texto).trim().slice(0, 5000);
+  if (!out.arquivo && !out.texto) throw new BadRequestException(`Etapa ${key}: narracao precisa de "texto" (voz gerada) ou "arquivo" (áudio do projeto)`);
+  if (n.voz !== undefined && String(n.voz).trim()) {
+    const v = vozConhecida(String(n.voz).trim());
+    if (!v) throw new BadRequestException(`Etapa ${key}: narracao.voz "${String(n.voz).trim()}" não existe. Vozes: ${VOZES_NARRACAO.map((x) => `${x.id} (${x.genero})`).join(', ')}`);
+    out.voz = v.id;
+  }
+  if (n.volumeFundoSobVoz !== undefined) {
+    const v = Number(n.volumeFundoSobVoz);
+    if (!(v >= 0 && v <= 1)) throw new BadRequestException(`Etapa ${key}: narracao.volumeFundoSobVoz deve ser entre 0 e 1`);
+    out.volumeFundoSobVoz = v;
+  }
+  return out;
+}
+
 function trilhaValida(key: string, t: any): { arquivo?: string; descricao?: string; volume?: number } {
   if (!t || typeof t !== 'object') throw new BadRequestException(`Etapa ${key}: trilha deve ser {"descricao":"..."} ou {"arquivo":"audio/musica.mp3"}`);
   const out: { arquivo?: string; descricao?: string; volume?: number } = {};
@@ -621,7 +646,7 @@ function transicaoValida(key: string, t: unknown): string {
   return v;
 }
 
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null> } {
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida> } {
   const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
@@ -660,6 +685,7 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
     });
     if (!cortes.every((c: unknown) => c === null)) out.cortes = cortes;
   }
+  if (o.narracao !== undefined) out.narracao = narracaoValida(key, o.narracao);
   return out;
 }
 

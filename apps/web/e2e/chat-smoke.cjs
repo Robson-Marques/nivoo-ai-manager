@@ -227,6 +227,23 @@ const plano = {
     await shot(page, '4b-projeto-video');
     await page.getByRole('button', { name: 'Criar projeto' }).click();
     await page.getByRole('heading', { name: nomeVideo }).waitFor();
+    // Seletor de voz da narração: mostra feminina/masculina; escolher uma voz masculina e conferir que ficou guardada.
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    const selVoz = page.locator('#voz-narracao');
+    await selVoz.waitFor();
+    if (!(await selVoz.locator('optgroup[label="Feminina"] option').count())) throw new Error('faltam vozes femininas no seletor');
+    if (!(await selVoz.locator('optgroup[label="Masculina"] option').count())) throw new Error('faltam vozes masculinas no seletor');
+    if ((await selVoz.inputValue()) !== 'Kore') throw new Error('a voz padrão deveria ser Kore');
+    const vozMasc = await selVoz.locator('optgroup[label="Masculina"] option').first().getAttribute('value');
+    await selVoz.selectOption(vozMasc);
+    await shot(page, '4c-voz-narracao');
+    const urlVideo = page.url();
+    await page.reload();
+    await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+    await page.locator('#voz-narracao').waitFor();
+    if ((await page.locator('#voz-narracao').inputValue()) !== vozMasc) throw new Error('a voz escolhida não ficou guardada');
+    void urlVideo;
+    passo('seletor de voz da narração: feminina/masculina, escolha masculina guardada no projeto de vídeo');
     // Volta para o projeto de origem (pizzaria) para seguir o roteiro; o de vídeo é um projeto à parte.
     await page.getByRole('link', { name: nome, exact: true }).first().click();
     await page.getByRole('heading', { name: nome, exact: true }).waitFor();

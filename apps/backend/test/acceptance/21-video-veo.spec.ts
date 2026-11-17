@@ -56,6 +56,10 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
         if (u.pathname === '/v1beta/models/lyria-3-pro-preview:generateContent' && req.method === 'POST') {
           return json(200, { candidates: [{ content: { parts: [{ text: 'trilha' }, { inlineData: { mimeType: 'audio/mpeg', data: MUSICA.toString('base64') } }] } }] });
         }
+        // Voz (TTS, generateContent com speechConfig): devolve a locução em base64 (aqui, um tom mp3).
+        if (u.pathname === '/v1beta/models/gemini-2.5-flash-preview-tts:generateContent' && req.method === 'POST') {
+          return json(200, { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/mpeg', data: MUSICA.toString('base64') } }] } }] });
+        }
         // Gemini Omni Flash (Interactions): cria em segundo plano, consulta o andamento, devolve o vídeo por endereço.
         if (u.pathname === '/v1beta/interactions' && req.method === 'POST') {
           const corpo = JSON.parse(d);
@@ -314,5 +318,39 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     expect(y.status).toBe('CONCLUIDO');
     expect(y.attempts[0].output).toMatch(/reaproveitada/);
     expect(pedidos.filter((r) => r.url.includes('lyria')).length).toBe(antes + 1);
+  });
+
+  it('narração gerada pela Gemini (TTS) para o vídeo; juntar de novo reaproveita a mesma voz sem pagar outra', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Com voz' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 'v'), { recursive: true });
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=blue:size=640x360:rate=24:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=200:duration=3', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(repo, 'videos/v/cena-01.mp4')]);
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cena'], { cwd: repo });
+    const narrar = async () => {
+      const j = (
+        await h.http().post(`/api/projects/${p.id}/jobs`).send({
+          title: 'narrar', objective: 'x', defaultProvider: 'juntar-videos',
+          steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'junta', providerOptions: { cenas: ['videos/v/cena-01.mp4'], arquivo: 'videos/v/v-completo.mp4', narracao: { texto: 'Bem-vindo ao nosso app.', voz: 'Kore' } } }],
+          criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/v/v-completo.mp4' } }],
+        }).expect(201)
+      ).body;
+      await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+      return fim(p.id, j.id);
+    };
+    const antes = pedidos.filter((x) => x.url.includes('tts')).length;
+    const x = await narrar();
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts[0].output).toMatch(/narração gerada \(gemini-2\.5-flash-preview-tts\) em videos\/v\/v-completo-narracao\.mp3/);
+    const pedido = pedidos.filter((r) => r.url.includes('tts')).pop()!;
+    expect(pedido.chave).toBe(CHAVE);
+    expect(pedido.corpo.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
+    expect(pedido.corpo.contents[0].parts[0].text).toMatch(/Bem-vindo ao nosso app/);
+    expect(execFileSync('git', ['ls-tree', '-r', '--name-only', 'main', 'videos/v'], { cwd: repo }).toString()).toContain('v-completo-narracao.mp3');
+    // Juntar de novo com o mesmo texto: reaproveita a voz, sem novo pedido.
+    const y = await narrar();
+    expect(y.status).toBe('CONCLUIDO');
+    expect(y.attempts[0].output).toMatch(/narração videos\/v\/v-completo-narracao\.mp3 \(reaproveitada\)/);
+    expect(pedidos.filter((r) => r.url.includes('tts')).length).toBe(antes + 1);
   });
 });

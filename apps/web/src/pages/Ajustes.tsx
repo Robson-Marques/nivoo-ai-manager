@@ -208,7 +208,7 @@ function IasReserva({ projeto, contas, onSalvar }: { projeto: any; contas: any[]
   );
 }
 
-/** Vídeo do Google (Gemini Omni): conexão usada, modelo escolhido (lista da própria chave) e aviso de custo. */
+/** Vídeo do Google (Gemini Omni): conexão usada, modelo escolhido (lista da própria chave), voz da narração e aviso de custo. */
 function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
   const [st, setSt] = useState<any>(null);
   useEffect(() => {
@@ -228,6 +228,47 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
           <SeletorModelo projeto={projeto} onMudou={onMudou} ia="gemini-video" mostrarAviso />
         </div>
       )}
+      <SeletorDeVoz projeto={projeto} onMudou={onMudou} />
+    </div>
+  );
+}
+
+/** Seletor da voz da narração (locução): voz da Gemini TTS, mostrando se é feminina ou masculina. */
+function SeletorDeVoz({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
+  const [vozes, setVozes] = useState<Array<{ id: string; genero: string; estilo: string }>>([]);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(() => {
+    api<any[]>('/projects/vozes-narracao').then(setVozes).catch(() => undefined);
+  }, []);
+  const femininas = vozes.filter((v) => v.genero === 'feminina');
+  const masculinas = vozes.filter((v) => v.genero === 'masculina');
+  const atual = projeto.vozNarracao ?? 'Kore';
+  const salvar = async (voz: string) => {
+    setErro(null);
+    try {
+      await api(`/projects/${projeto.id}`, 'PATCH', { vozNarracao: voz });
+      onMudou();
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  };
+  return (
+    <div className="row small" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 6 }}>
+      <label htmlFor="voz-narracao"><b>Voz da narração</b></label>
+      <select id="voz-narracao" aria-label="Voz da narração" value={atual} onChange={(e) => salvar(e.target.value)} style={{ maxWidth: 320 }}>
+        <optgroup label="Feminina">
+          {femininas.map((v) => (
+            <option key={v.id} value={v.id}>{v.id} — feminina ({v.estilo})</option>
+          ))}
+        </optgroup>
+        <optgroup label="Masculina">
+          {masculinas.map((v) => (
+            <option key={v.id} value={v.id}>{v.id} — masculina ({v.estilo})</option>
+          ))}
+        </optgroup>
+      </select>
+      <span className="muted small">A voz que o Google usa quando o vídeo tem locução (texto falado por cima). A IA usa esta por padrão; você pode pedir outra na conversa.</span>
+      {erro && <span className="erro small">{erro}</span>}
     </div>
   );
 }

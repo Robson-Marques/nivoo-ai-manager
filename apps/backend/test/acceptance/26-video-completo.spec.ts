@@ -254,6 +254,62 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('narração (voz) de um áudio do projeto: entra por cima e o fundo abaixa sob a voz', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Narração' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    const pasta = path.join(repo, 'videos', 'n');
+    fs.mkdirSync(pasta, { recursive: true });
+    fs.mkdirSync(path.join(repo, 'audio'), { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    ff('-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=24:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=3', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(pasta, 'cena-01.mp4'));
+    // "Narração": um áudio de voz (aqui um tom) que o usuário já tem no projeto.
+    ff('-f', 'lavfi', '-i', 'sine=frequency=550:duration=2', '-c:a', 'libmp3lame', path.join(repo, 'audio', 'voz.mp3'));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cena e voz'], { cwd: repo });
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'narrar', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'junta', providerOptions: {
+          cenas: ['videos/n/cena-01.mp4'], arquivo: 'videos/n/n-completo.mp4',
+          trilha: { arquivo: 'audio/voz.mp3', volume: 0.2 }, // só para testar junto; a voz é a de baixo
+          narracao: { arquivo: 'audio/voz.mp3', volumeFundoSobVoz: 0.3 },
+        } }],
+        criteria: [{ key: 'v', description: 'x', kind: 'FILE_EXISTS', config: { path: 'videos/n/n-completo.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    expect(fim.attempts[0].output).toMatch(/narração audio\/voz\.mp3/);
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'narr-'));
+    const final = path.join(tmp, 'f.mp4');
+    fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/n/n-completo.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
+    expect(ffprobe(final, '-select_streams', 'a', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0')).toBe('aac'); // tem áudio
+    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(3, 0);
+    // Narração inválida (nem texto nem arquivo) é recusada.
+    await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 'x', objective: 'x', defaultProvider: 'juntar-videos', steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'x', providerOptions: { cenas: ['videos/n/cena-01.mp4'], arquivo: 'a.mp4', narracao: { voz: 'Kore' } } }], criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }] }).expect(400);
+    // Voz inexistente no catálogo é recusada, com a lista das vozes.
+    await h.http().post(`/api/projects/${p.id}/jobs`).send({ title: 'x', objective: 'x', defaultProvider: 'juntar-videos', steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'x', providerOptions: { cenas: ['videos/n/cena-01.mp4'], arquivo: 'a.mp4', narracao: { texto: 'oi', voz: 'VozQueNaoExiste' } } }], criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }] }).expect(400);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('seletor de voz: catálogo com gênero (feminina/masculina) e voz padrão do projeto guardada', async () => {
+    const vozes = (await h.http().get('/api/projects/vozes-narracao').expect(200)).body as Array<{ id: string; genero: string; estilo: string }>;
+    expect(vozes.find((v) => v.id === 'Kore')?.genero).toBe('feminina');
+    expect(vozes.some((v) => v.genero === 'masculina')).toBe(true);
+    expect(vozes.every((v) => v.id && v.estilo && (v.genero === 'feminina' || v.genero === 'masculina'))).toBe(true);
+    const p = (await h.http().post('/api/projects').send({ name: 'Voz padrão' }).expect(201)).body;
+    expect(p.vozNarracao).toBe('Kore'); // padrão
+    const masc = vozes.find((v) => v.genero === 'masculina')!;
+    const atualizado = (await h.http().patch(`/api/projects/${p.id}`).send({ vozNarracao: masc.id }).expect(200)).body;
+    expect(atualizado.vozNarracao).toBe(masc.id);
+    await h.http().patch(`/api/projects/${p.id}`).send({ vozNarracao: 'NaoExiste' }).expect(400);
+    expect((await h.http().get(`/api/projects/${p.id}`).expect(200)).body.vozNarracao).toBe(masc.id); // não mudou
+  });
+
   it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
     const plano = comVideoCompleto(
       [

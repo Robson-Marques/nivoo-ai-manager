@@ -216,6 +216,8 @@ model Project {
   sshPedidos    SshPedido[]
   /// Plano que continua um pedido já aprovado começa sozinho (sem esperar o "Fazer")
   seguirSozinho  Boolean   @default(true)
+  /// Voz padrão da narração/locução dos vídeos deste projeto (nome da voz da Gemini TTS; ver providers/vozes.ts)
+  vozNarracao    String    @default("Kore")
 }
 
 model Job {

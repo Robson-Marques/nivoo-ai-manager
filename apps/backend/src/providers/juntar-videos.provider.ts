@@ -6,11 +6,13 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
+import { VOZ_PADRAO } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
 
 /** Modelos de música do Google (Lyria), do mais completo ao clipe de 30 s. */
 const MODELOS_MUSICA = ['lyria-3-pro-preview', 'lyria-3-clip-preview'];
+const MODELOS_VOZ = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'];
 
 /**
  * Junta as cenas geradas (Veo gera 4–8 s por vez) num vídeo só, na ordem do plano, com o ffmpeg do servidor.
@@ -43,7 +45,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null> };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -136,6 +138,7 @@ export class JuntarVideosProvider implements AiProvider {
       // entra/sai em fade. Gerada pelo Google (Lyria) a partir da descrição, ou um áudio do projeto.
       let custo = 0;
       let trilhaInfo = '';
+      let narracaoInfo = '';
       if (o.trilha || (o.volumeCenas !== undefined && o.volumeCenas < 1)) {
         const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
         let musica: string | null = null;
@@ -181,6 +184,52 @@ export class JuntarVideosProvider implements AiProvider {
         if (!trilhaInfo) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
         req.onLog(`Áudio: ${trilhaInfo}; música abaixa sob as falas`);
       }
+      // NARRAÇÃO (voz): locução por cima do vídeo; o fundo (cenas + música) abaixa sob a voz. Gerada pela Gemini (TTS)
+      // a partir do texto, ou um áudio do projeto. Reaproveitada quando o texto não muda (não paga de novo).
+      if (o.narracao?.texto?.trim() || o.narracao?.arquivo) {
+        const total = Number((await probe(saida, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
+        let voz: string | null = null;
+        let vozInfo = '';
+        if (o.narracao.arquivo) {
+          voz = this.resolver(req, o.narracao.arquivo);
+          if (!fs.existsSync(voz)) return { exitCode: 1, output: '', error: `narração não encontrada no projeto: ${o.narracao.arquivo}`, costUsd: custo, costEstimated: !!custo };
+          vozInfo = `narração ${o.narracao.arquivo}`;
+        } else if (o.narracao.texto?.trim()) {
+          const guardada = o.arquivo.replace(/\.mp4$/i, '-narracao.mp3');
+          const meta = o.arquivo.replace(/\.mp4$/i, '-narracao.txt');
+          const absG = this.resolver(req, guardada);
+          const absM = this.resolver(req, meta);
+          const chaveCache = `${o.narracao.voz ?? VOZ_PADRAO}\n${o.narracao.texto.trim()}`;
+          if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
+            voz = absG;
+            vozInfo = `narração ${guardada} (reaproveitada)`;
+          } else {
+            req.onLog(`Gerando a narração com a Gemini (voz ${o.narracao.voz ?? VOZ_PADRAO}): ${o.narracao.texto.slice(0, 120)}`);
+            const g = await this.gerarNarracao(o.narracao.texto.trim(), o.narracao.voz ?? VOZ_PADRAO, req);
+            if ('erro' in g) return { exitCode: 1, output: '', error: `não consegui gerar a narração: ${g.erro}`, resourceUnavailable: g.indisponivel, costUsd: custo, costEstimated: !!custo };
+            fs.mkdirSync(path.dirname(absG), { recursive: true });
+            const conv = await this.audioParaMp3(g.bytes, g.mime, absG, tmp);
+            if (!conv) return { exitCode: 1, output: '', error: 'não consegui converter a narração para mp3', costUsd: custo, costEstimated: !!custo };
+            fs.writeFileSync(absM, `${chaveCache.trim()}\n`);
+            voz = absG;
+            custo += g.custo;
+            vozInfo = `narração gerada (${g.modelo}) em ${guardada}`;
+          }
+        }
+        if (voz) {
+          const volFundo = Number.isFinite(o.narracao.volumeFundoSobVoz) ? Math.max(0, Math.min(1, Number(o.narracao.volumeFundoSobVoz))) : 0.35;
+          // Voz em primeiro plano; o fundo (cenas+música) abaixa sob a voz (ducking) e volta nos silêncios.
+          const filtros = `[1:a]aresample=48000,asetpts=PTS-STARTPTS[narr];[narr]asplit=2[nv][nk];` +
+            `[0:a]volume=${volFundo}[bg];[bg][nk]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[bgd];` +
+            `[nv][bgd]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`;
+          const comVoz = path.join(tmp, 'com-voz.mp4');
+          const m = await ff(['-i', saida, '-i', voz, '-filter_complex', filtros, '-map', '0:v', '-map', '[a]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', total.toFixed(2), '-movflags', '+faststart', comVoz], 1_800_000);
+          if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui misturar a narração: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: !!custo };
+          fs.renameSync(comVoz, saida);
+          narracaoInfo = vozInfo;
+          req.onLog(`Áudio: ${vozInfo}; o fundo abaixa sob a voz`);
+        }
+      }
       // Legendas: o texto de cada cena no tempo exato dela no vídeo final; gravadas na imagem e salvas em .srt.
       let srtTexto: string | null = null;
       let legendado = false;
@@ -210,7 +259,7 @@ export class JuntarVideosProvider implements AiProvider {
       if (srtArquivo && srtTexto) fs.writeFileSync(this.resolver(req, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());
       const mb = (fs.statSync(destino).size / 1024 / 1024).toFixed(1);
-      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}`;
+      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}${narracaoInfo ? `; ${narracaoInfo}` : ''}`;
       req.onLog(resumo);
       return { exitCode: 0, output: resumo, stopReason: 'completed', ...(custo ? { costUsd: custo, costEstimated: true } : {}) };
     } finally {
@@ -252,6 +301,57 @@ export class JuntarVideosProvider implements AiProvider {
       return { bytes: Buffer.from(dados, 'base64'), modelo, custo: Number(process.env.NIVOO_LYRIA_USD_POR_MUSICA ?? 0.08) };
     }
     return { erro: `nenhum modelo de música aceitou o pedido com esta chave (${recusados.join(', ')})` };
+  }
+
+  /**
+   * Narração (voz) pela Gemini (TTS, generateContent com responseModalities AUDIO + speechConfig): devolve o áudio da
+   * locução do texto, na voz escolhida. Custo estimado por narração.
+   */
+  private async gerarNarracao(texto: string, voz: string, req: ExecutionRequest): Promise<{ bytes: Buffer; mime: string; modelo: string; custo: number } | { erro: string; indisponivel?: boolean }> {
+    const k = this.video.chave();
+    if (!k) return { erro: 'sem conexão "Gemini — chave de API" com chave salva (crie em Conexões)', indisponivel: true };
+    const base = (process.env.NIVOO_GEMINI_API_BASE ?? 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');
+    const recusados: string[] = [];
+    for (const modelo of MODELOS_VOZ) {
+      let res: Response;
+      try {
+        res = await fetch(`${base}/v1beta/models/${modelo}:generateContent`, {
+          method: 'POST',
+          headers: { 'x-goog-api-key': k.chave, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: `Narre em português do Brasil, com naturalidade:\n${texto}` }] }],
+            generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz } } } },
+          }),
+          signal: AbortSignal.any([req.signal, AbortSignal.timeout(600_000)]),
+        });
+      } catch (e: any) {
+        return { erro: `não foi possível falar com o Google: ${e?.cause?.code ?? e?.message}`, indisponivel: true };
+      }
+      const j: any = await res.json().catch(() => ({}));
+      if (res.status === 404 || (res.status === 400 && /not found|not supported/i.test(String(j?.error?.message ?? '')))) {
+        recusados.push(`${modelo} (${res.status})`);
+        continue;
+      }
+      if (!res.ok) return { erro: `o Google respondeu ${res.status}: ${String(j?.error?.message ?? '').slice(0, 300)}`, indisponivel: [401, 402, 403, 429].includes(res.status) || res.status >= 500 };
+      const parte = (j?.candidates?.[0]?.content?.parts ?? []).find((p: any) => /^audio\//.test(p?.inlineData?.mimeType ?? p?.inline_data?.mime_type ?? ''));
+      const dados = parte?.inlineData?.data ?? parte?.inline_data?.data;
+      const mime = parte?.inlineData?.mimeType ?? parte?.inline_data?.mime_type ?? '';
+      if (!dados) return { erro: `o Google não devolveu áudio (${JSON.stringify(j).slice(0, 200)})` };
+      return { bytes: Buffer.from(dados, 'base64'), mime, modelo, custo: Number(process.env.NIVOO_TTS_USD_POR_NARRACAO ?? 0.03) };
+    }
+    return { erro: `nenhum modelo de voz aceitou o pedido com esta chave (${recusados.join(', ')})` };
+  }
+
+  /** Converte o áudio devolvido pela TTS (PCM "L16" ou já em formato com cabeçalho) para mp3 no destino. */
+  private async audioParaMp3(bytes: Buffer, mime: string, destino: string, tmp: string): Promise<boolean> {
+    const bruto = path.join(tmp, `tts-${Date.now()}.bin`);
+    fs.writeFileSync(bruto, bytes);
+    const pcm = /l16|pcm|s16le/i.test(mime);
+    const rate = Number(/rate=(\d+)/i.exec(mime)?.[1] ?? 24000) || 24000;
+    const entrada = pcm ? ['-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', bruto] : ['-i', bruto];
+    const r = await runProcess('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...entrada, '-c:a', 'libmp3lame', '-q:a', '3', destino], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 }).catch(() => ({ exitCode: 1 }) as any);
+    fs.rmSync(bruto, { force: true });
+    return (r as any).exitCode === 0 && fs.existsSync(destino) && fs.statSync(destino).size > 0;
   }
 }
 

@@ -93,6 +93,29 @@ reaproveitada ao juntar de novo com a mesma descrição (sem pagar outra). Chat 
 m4a, aac, ogg). Tudo da montagem roda no servidor, sem IA e sem custo; só cena e música usam o Google. Testes
 em `21` (Lyria simulado, reaproveitamento) e `26` (trilha do projeto contínua).
 
+## Vídeo: narração (voz) pela Gemini TTS, com o fundo abaixando sob a voz (2026-11-17)
+
+Pedido do usuário: "consumo de Gemini para fazer voz". O vídeo agora pode ter **locução por cima**: `narracao` na
+primeira cena, ou na etapa que junta/edita — `{"texto":"o que a voz diz"}` (o Google fala com a Gemini TTS,
+`gemini-2.5-flash-preview-tts` e, se não houver, `gemini-2.5-pro-preview-tts`; estimativa
+`NIVOO_TTS_USD_POR_NARRACAO` = 0,03) ou `{"arquivo":"audio/locucao.mp3"}` (voz que o usuário já gravou e pôs no
+projeto: grátis). Escolhe-se a voz com `"voz":"Kore"` (padrão `Kore`) e o quanto o fundo fica sob ela com
+`"volumeFundoSobVoz"` (0–1, padrão 0,35). O áudio devolvido pela TTS (PCM "L16" ou já com cabeçalho) é convertido
+para mp3; na mistura, a voz fica em **primeiro plano** e o fundo (cenas + trilha) abaixa sozinho enquanto ela fala
+e volta nos silêncios (sidechaincompress + alimiter). A locução gerada por texto fica em `<nome>-completo-narracao.mp3`
+(com `<nome>-completo-narracao.txt` guardando voz+texto) e é **reaproveitada** ao juntar de novo com o mesmo texto,
+sem pagar outra. Narração (voz falada) e legenda (texto escrito na tela) podem ser usadas juntas. Tudo da mistura
+roda no servidor, sem IA e sem custo; só gerar a voz usa o Google. Testes em `21` (TTS simulado, voz Kore, texto
+enviado, reaproveitamento) e `26` (narração de um áudio do projeto com ducking).
+
+**Seletor de voz (feminina/masculina).** As vozes ficam num catálogo único (`providers/vozes.ts`), cada uma com o
+gênero (feminina/masculina) e um estilo curto; a tela lê de `GET /projects/vozes-narracao`. Em **Ajustes → Vídeos**
+há um seletor "Voz da narração" que mostra, por grupo, as vozes **femininas** (Kore, Zephyr, Aoede, Leda) e
+**masculinas** (Charon, Puck, Orus, Fenrir). A escolha fica guardada no projeto (`Project.vozNarracao`, padrão
+`Kore`) e vai ao planejador, que a usa na narração — o usuário ainda pode pedir outra voz na conversa. Uma voz fora
+do catálogo é recusada com a lista das válidas. Teste em `26` (catálogo com gênero, voz padrão guardada, voz
+inexistente recusada) e no fumaça da tela (escolher uma voz masculina no projeto de vídeo e conferir que ficou).
+
 ## Vídeo: legendas e estilo de transição (2026-11-15)
 
 * **Legendas**: cada cena pode ter `legenda` (texto curto, escrito pela IA no plano); a junção calcula o tempo

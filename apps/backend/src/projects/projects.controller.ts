@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
 import { PreviaService } from '../previa/previa.service';
+import { VOZES_NARRACAO } from '../providers/vozes';
 
 @Controller('projects')
 export class ProjectsController {
@@ -20,6 +21,12 @@ export class ProjectsController {
   @Post()
   create(@Body() body: any) {
     return this.projects.create(body);
+  }
+
+  /** Catálogo de vozes da narração (para o seletor da tela): nome, gênero (feminina/masculina) e estilo. */
+  @Get('vozes-narracao')
+  vozes() {
+    return VOZES_NARRACAO;
   }
 
   @Get(':pid')

@@ -17,6 +17,7 @@ import { AGENT_RULES } from '../security/policy';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { listarVideos } from '../projects/midia';
 import { contextoDaOrigem } from '../projects/origem-context';
+import { descreverVoz } from '../providers/vozes';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -370,7 +371,7 @@ export class PlannerService {
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null; projetoOrigemId?: string | null }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null; projetoOrigemId?: string | null; vozNarracao: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null, camada: 'PROJETO' } }),
@@ -409,6 +410,7 @@ export class PlannerService {
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
+      `Voz padrão da narração/locução deste projeto: ${descreverVoz(project.vozNarracao)}. Quando houver narração, use ESTA voz (narracao.voz), a não ser que o usuário peça outra na conversa.`,
       ...(await contextoDaOrigem(this.prisma, this.workspace, project.projetoOrigemId)),
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
@@ -500,7 +502,13 @@ export class PlannerService {
             '  PRIMEIRA cena "trilha":{"arquivo":"audio/musica.mp3"} (música do usuário, anexada no chat e posta no projeto com',
             '  "anexosNoProjeto": GRÁTIS) ou "trilha":{"descricao":"estilo, instrumentos, clima, andamento"} (o Google compõe: custa',
             '  cerca de US$ 0,08). Com trilha, o sistema pede cada cena SEM música própria. Se ele não disse, use a trilha composta pelo Google e conte no texto.',
-            '  Tudo da montagem (juntar, transição, legenda, trilha, volume) é feito pelo servidor, sem IA e sem custo; só gerar',
+            '  NARRAÇÃO / LOCUÇÃO (voz por cima do vídeo inteiro): coloque na PRIMEIRA cena, ou na etapa que junta/edita,',
+            '  "narracao":{"texto":"o que a voz vai dizer, em português"} (o Google fala com a Gemini TTS: custa cerca de US$ 0,03) —',
+            '  ou "narracao":{"arquivo":"audio/locucao.mp3"} para uma voz que o usuário já gravou e pôs no projeto (GRÁTIS). A voz entra',
+            '  em PRIMEIRO plano e o fundo (cenas + trilha) abaixa sozinho enquanto ela fala e volta nos silêncios. Escolha a voz com',
+            '  "voz":"Kore" (vozes da Gemini; Kore é o padrão) e, se quiser, "volumeFundoSobVoz":0.35 (0–1: quanto do fundo fica sob a voz).',
+            '  Juntar de novo com o MESMO texto reaproveita a locução já gerada, sem pagar outra. Narração é a VOZ falada; legenda é o texto escrito na tela — dá para usar as duas.',
+            '  Tudo da montagem (juntar, transição, legenda, trilha, narração, volume) é feito pelo servidor, sem IA e sem custo; só gerar',
             '  cena e gerar música usa o Google. Prefira sempre o caminho sem custo quando ele atender.',
             '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',
             '  diga no "texto" quantos vídeos e quantos segundos serão. Imagem anexada no chat como primeiro quadro: coloque-a no projeto',
@@ -514,7 +522,7 @@ export class PlannerService {
             '  "refaça a montagem", ou depois de refazer só uma cena), use uma etapa do sistema:',
             '  {"key":"juntar","title":"Juntar as cenas no vídeo completo","provider":"juntar-videos","instructions":"junta as cenas na ordem",',
             '   "providerOptions":{"cenas":["videos/<nome>/cena-01.mp4","videos/<nome>/cena-02.mp4"],"arquivo":"videos/<nome>/<nome>-completo.mp4",',
-            '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"volumeCenas":1}}',
+            '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"narracao":{"texto":"...","voz":"Kore"},"volumeCenas":1}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
             '  EDIÇÃO (vídeos que o usuário JÁ ENVIOU, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Os vídeos enviados',
@@ -536,7 +544,7 @@ export class PlannerService {
             '  arquivo, sem internet; declare a duração em window.__motionSegundos e, no fim, window.__motionFim=true). Uma etapa de',
             '  sistema (provider "local-shell") renderiza para vídeo:',
             '  {"key":"render","provider":"local-shell","instructions":"nivoo-renderizar-motion motion/<nome> --saida midia/saida/<nome>.mp4 --segundos 15 --tamanho 1920x1080","verifyCommand":"true"}.',
-            '  Depois dá para somar MÚSICA de fundo, LEGENDA e juntar com outras cenas na etapa juntar-videos (cenas:["midia/saida/<nome>.mp4"]).',
+            '  Depois dá para somar MÚSICA de fundo, NARRAÇÃO (voz), LEGENDA e juntar com outras cenas na etapa juntar-videos (cenas:["midia/saida/<nome>.mp4"]).',
             '  Prefira Motion Design (barato) a Veo quando o pedido é animação/apresentação; o Veo é para filmagem realista.',
           ]
         : []),
