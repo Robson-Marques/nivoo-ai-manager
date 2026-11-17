@@ -159,17 +159,17 @@ const plano = {
     }
     passo('Conexões: duas contas do mesmo tipo com nomes e chaves próprios, renomear, padrão, excluir');
 
-    // 2. Modelos
-    await page.getByRole('link', { name: 'Modelos' }).click();
+    // 2. Agentes
+    await page.getByRole('link', { name: 'Agentes' }).click();
     await page.getByText('Software — Studio Workflow').first().waitFor(); // modelo pronto instalado
     await shot(page, '2a-modelos');
-    await page.getByRole('button', { name: '+ Novo modelo' }).click();
+    await page.getByRole('button', { name: '+ Novo agente' }).click();
     const modelo = `Sistemas ERP ${stamp}`;
-    await page.getByLabel('Nome do modelo').fill(modelo);
+    await page.getByLabel('Nome do agente').fill(modelo);
     await page.getByRole('button', { name: /^Software Sistemas/ }).click();
     await page.getByLabel(/Como a IA deve funcionar/).fill(`Você é engenheiro de sistemas ERP. Código MOD-${stamp}.`);
     await shot(page, '2-novo-modelo');
-    await page.getByRole('button', { name: 'Criar modelo' }).click();
+    await page.getByRole('button', { name: 'Criar agente' }).click();
     await page.getByRole('heading', { name: modelo }).waitFor();
     const editor = page.locator('.editor-regras').first();
     await editor.locator('input[type=file]').setInputFiles(pdf);

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, nomeUsuario } from '../api';
 import { CamposNovoRepo, EscolherRepo, NovoRepo, nomeRepoPadrao, SeletorContaGit } from './Git';
 
-/** Novo projeto: nome, do que se trata, modelo e qual IA vai trabalhar nele. */
+/** Novo projeto: nome, do que se trata, agente e qual IA vai trabalhar nele. */
 export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCriado: (id: string) => void }) {
   const [nome, setNome] = useState('');
   const [sobre, setSobre] = useState('');
@@ -86,7 +86,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
           )}
         </div>
         <div className="campo">
-          <span>Modelo</span>
+          <span>Agente</span>
           <div className="tipos">
             {modelos.map((m) => (
               <button type="button" key={m.id} className={modelo === m.slug ? 'tipo on' : 'tipo'} onClick={() => setModelo(m.slug)}>
@@ -96,7 +96,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
             ))}
           </div>
           <span className="muted small">
-            Falta um modelo? <Link to="/modelos" onClick={onFechar}>Crie em Modelos</Link>.
+            Falta um agente? <Link to="/agentes" onClick={onFechar}>Crie em Agentes</Link>.
           </span>
         </div>
         <div className="campo">

@@ -32,7 +32,7 @@ export function FerramentasMcp() {
         servidor com o que você liberar; use só as que você confia. Tokens e senhas ficam guardados no servidor e nunca vão para o texto da IA.
       </p>
       {dados === null && <p className="muted small">Carregando…</p>}
-      {dados?.ferramentas.length === 0 && <p className="muted small">Nenhuma ferramenta ainda. Comece por um modelo pronto em “Nova ferramenta”.</p>}
+      {dados?.ferramentas.length === 0 && <p className="muted small">Nenhuma ferramenta ainda. Comece por um exemplo pronto em “Nova ferramenta”.</p>}
       {dados?.ferramentas.map((m) => <LinhaMcp key={m.id} m={m} projetos={projetos} onEditar={() => setEditando(m)} onMudou={carregar} />)}
       {editando && dados && (
         <FormMcp
@@ -162,7 +162,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
         <h2>{atual ? `Editar ${atual.nome}` : 'Nova ferramenta (MCP)'}</h2>
         {!atual && (
           <>
-            <span className="muted small">Modelos prontos (ou preencha à mão abaixo):</span>
+            <span className="muted small">Exemplos prontos (ou preencha à mão abaixo):</span>
             <div className="tipos-conexao">
               {prontos.map((p) => (
                 <button type="button" key={p.chave} className="tipo-conexao" onClick={() => usarPronto(p)}>

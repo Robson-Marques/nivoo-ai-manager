@@ -2,7 +2,7 @@ import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { api, enviarArquivos, lerArquivo, textoDoArquivo } from './api';
 
 /**
- * Peças compartilhadas pelas telas de Modelos e de Ajustes do projeto: o editor de regras em texto livre
+ * Peças compartilhadas pelas telas de Agentes e de Ajustes do projeto: o editor de regras em texto livre
  * (com importação de PDF/Word/texto) e a lista de materiais de referência (envio de arquivos ou pasta).
  */
 

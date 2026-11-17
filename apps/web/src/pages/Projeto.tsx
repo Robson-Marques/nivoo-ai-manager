@@ -11,7 +11,7 @@ import { BotaoDiagnostico } from './Diagnostico';
 import { SeletorModelo } from '../Pecas';
 
 /**
- * Projeto: conversa com a IA escolhida, presa ao "fine-tune do projeto" (regras do modelo + regras do
+ * Projeto: conversa com a IA escolhida, presa ao "fine-tune do projeto" (regras do agente + regras do
  * projeto + conhecimento + memória). Pedido de trabalho vira plano; com "Fazer", é executado, conferido
  * por uma IA separada contra as regras e só então entra na pasta do projeto.
  */
@@ -525,7 +525,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             <div className="dica">
               <p>Nova conversa. A IA já conhece as regras, o conhecimento, os arquivos e a memória deste projeto.</p>
               <p>Conte o que você quer. Exemplos:</p>
-              {['Crie a estrutura inicial do projeto seguindo o modelo', 'O que você sabe sobre este projeto?', 'Quais regras você segue aqui?'].map((s) => (
+              {['Crie a estrutura inicial do projeto seguindo o agente', 'O que você sabe sobre este projeto?', 'Quais regras você segue aqui?'].map((s) => (
                 <button key={s} className="chip" onClick={() => setTexto(s)}>{s}</button>
               ))}
             </div>
@@ -680,7 +680,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
         <div className="plano">
           <b>Posso fazer isto:</b>
           <ol>{(m.plan.steps ?? []).map((s: any, i: number) => <li key={i}>{s.title || s.key}</li>)}</ol>
-          <p className="muted small">No fim, uma IA separada confere se tudo seguiu as regras do modelo e do projeto. Só então fica pronto.</p>
+          <p className="muted small">No fim, uma IA separada confere se tudo seguiu as regras do agente e do projeto. Só então fica pronto.</p>
           {m.jobId ? (
             <Progresso projetoId={projetoId} jobId={m.jobId} onMudou={onMudou} />
           ) : podeFazer ? (

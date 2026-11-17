@@ -24,7 +24,7 @@ const ProjetosCtx = createContext<Ctx>({
 export const useProjetos = () => useContext(ProjetosCtx);
 
 /**
- * Estrutura de todas as telas: projetos na lateral (agrupados por modelo); no projeto aberto, as suas
+ * Estrutura de todas as telas: projetos na lateral (agrupados por agente); no projeto aberto, as suas
  * conversas (como no ChatGPT), com "+" na linha do projeto para uma conversa nova. O que foi arquivado (projetos e
  * conversas) fica num lugar só: o botão "Arquivados" no rodapé do menu.
  */
@@ -171,7 +171,7 @@ export function Layout() {
             <button className="side-botao" onClick={() => setVerArquivados(true)}>
               <IconeArquivo /> Arquivados
             </button>
-            <NavLink to="/modelos">Modelos</NavLink>
+            <NavLink to="/agentes">Agentes</NavLink>
             <NavLink to="/contas">Conexões</NavLink>
             <NavLink to="/diagnostico">Diagnóstico</NavLink>
           </div>

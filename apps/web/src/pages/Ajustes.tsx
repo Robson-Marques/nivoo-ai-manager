@@ -42,7 +42,7 @@ export function Ajustes({ projeto, onMudou }: { projeto: any; onMudou: () => voi
     <div className="lista ajustes">
       <EditorDeRegras
         titulo="Regras deste projeto"
-        ajuda={`Escreva como a IA deve se comportar NESTE projeto: escopo, o que pode e o que não pode, padrões, tom. Vale junto com as regras do modelo "${projeto.area?.name}". Em todo trabalho, uma IA separada confere se as regras foram seguidas.`}
+        ajuda={`Escreva como a IA deve se comportar NESTE projeto: escopo, o que pode e o que não pode, padrões, tom. Vale junto com as regras do agente "${projeto.area?.name}". Em todo trabalho, uma IA separada confere se as regras foram seguidas.`}
         placeholder={'Ex.: Este é o sistema da Pizzaria do Zé.\nSó trate de pedidos, cardápio e entregas.\nNunca altere preços sem eu pedir.'}
         inicial={projeto.rules?.text ?? ''}
         versao={projeto.rules?.version}
