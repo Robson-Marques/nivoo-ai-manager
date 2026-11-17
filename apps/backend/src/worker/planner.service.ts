@@ -500,6 +500,11 @@ export class PlannerService {
             '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"volumeCenas":1}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
+            '  EDIÇÃO (vídeos que o usuário JÁ TEM, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Em "cenas" ponha os',
+            '  vídeos dele na ordem e, para RECORTAR/ACELERAR cada um, "cortes":[{"inicio":1.5,"fim":8},{"velocidade":2}] (alinhado com',
+            '  "cenas"; inicio/fim em segundos, velocidade 0.25–8; null ou {} = clipe inteiro). Reordenar = mudar a ordem de "cenas".',
+            '  Tudo isso (cortar, juntar, transição, legenda, trilha, acelerar) é ffmpeg no servidor: SEM Veo e SEM custo. Só use o',
+            '  Veo para gerar um trecho NOVO quando o usuário pedir de verdade; para "editar o que já tenho", nunca gere com o Veo.',
           ]
         : []),
       ...(resultados.length

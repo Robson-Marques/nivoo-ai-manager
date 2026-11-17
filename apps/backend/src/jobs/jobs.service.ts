@@ -620,7 +620,7 @@ function transicaoValida(key: string, t: unknown): string {
   return v;
 }
 
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number } {
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null> } {
   const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
@@ -638,6 +638,26 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
   if (o.transicao !== undefined || Array.isArray(o.transicoes)) {
     const lista = Array.isArray(o.transicoes) ? o.transicoes : [];
     out.transicoes = cenas.slice(1).map((_: string, i: number) => transicaoValida(key, lista[i] ?? o.transicao ?? 'fade'));
+  }
+  // Recorte/velocidade por clipe (edição): cortes[i] = { inicio, fim, velocidade } alinhado com cenas.
+  if (Array.isArray(o.cortes) && o.cortes.some((c: unknown) => c && typeof c === 'object')) {
+    const cortes = cenas.map((_: string, i: number) => {
+      const c = o.cortes[i];
+      if (!c || typeof c !== 'object') return null;
+      const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
+      const inicio = n(c.inicio);
+      const fim = n(c.fim);
+      const velocidade = n(c.velocidade);
+      if (inicio !== undefined && inicio < 0) throw new BadRequestException(`Etapa ${key}: corte ${i + 1} tem início negativo`);
+      if (fim !== undefined && inicio !== undefined && fim <= inicio) throw new BadRequestException(`Etapa ${key}: corte ${i + 1} tem fim menor ou igual ao início`);
+      if (velocidade !== undefined && !(velocidade >= 0.25 && velocidade <= 8)) throw new BadRequestException(`Etapa ${key}: velocidade do corte ${i + 1} deve ser entre 0.25 e 8`);
+      const r: { inicio?: number; fim?: number; velocidade?: number } = {};
+      if (inicio) r.inicio = inicio;
+      if (fim !== undefined) r.fim = fim;
+      if (velocidade !== undefined && velocidade !== 1) r.velocidade = velocidade;
+      return Object.keys(r).length ? r : null;
+    });
+    if (!cortes.every((c: unknown) => c === null)) out.cortes = cortes;
   }
   return out;
 }

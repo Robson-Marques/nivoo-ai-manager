@@ -193,6 +193,17 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Modo edição de vídeo, etapa 1: recorte e velocidade por clipe (2026-11-17)
+
+* A mesma etapa do sistema `juntar-videos` (ffmpeg, SEM IA e SEM custo) passa a EDITAR, não só juntar cenas geradas pelo Veo:
+  `cortes:[{inicio,fim,velocidade}|null]` alinhado com `cenas` corta início/fim (segundos) e acelera/desacelera (0.25–8)
+  cada clipe; reordenar = mudar a ordem de `cenas`. Junção, transições, legendas e trilha continuam como antes.
+* Validado em `opcoesDeJuncao` (início ≥ 0, fim > início, velocidade 0.25–8). O planejador ganhou a orientação de EDIÇÃO:
+  para "editar o que já tenho", use `juntar-videos` com `cortes`, NUNCA gere com o Veo (o Veo só para um trecho novo pedido).
+* Teste `26` (corta um clipe para [1,3] e acelera outro 2x; a duração final confere, ~4 s em vez de ~9 s).
+* Próximas etapas (em construção): upload de vídeo pelo app por streaming (arquivo grande) com a mídia fora do git; a IA
+  analisar o vídeo por quadros + transcrição e sugerir cortes.
+
 ## Token de registro privado: 401 para na hora e vai nas Variáveis da conferência (2026-11-17)
 
 * **Caso real (financas-pessoais)**: depois da cura do `npm ci`, o `npm install` do `admin-panel` levou `401 Unauthorized`

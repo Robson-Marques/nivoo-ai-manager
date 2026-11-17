@@ -37,7 +37,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null> };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -63,11 +63,19 @@ export class JuntarVideosProvider implements AiProvider {
         if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
         const temSom = (await probe(entradas[i], ['-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0'])).stdout.trim() !== '';
         const parte = path.join(tmp, `parte-${String(i).padStart(3, '0')}.mp4`);
-        const video = `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=24,format=yuv420p`;
+        // Recorte (cortar início/fim) e velocidade deste clipe, se o plano pediu. Tudo reencoda igual; sem custo.
+        const corte = o.cortes?.[i] ?? null;
+        const ini = Number.isFinite(corte?.inicio) && (corte!.inicio as number) > 0 ? Number(corte!.inicio) : 0;
+        const fim = Number.isFinite(corte?.fim) && (corte!.fim as number) > ini ? Number(corte!.fim) : null;
+        const vel = Number.isFinite(corte?.velocidade) && (corte!.velocidade as number) > 0 ? Number(corte!.velocidade) : 1;
+        const corteIn = ini > 0 ? ['-ss', ini.toFixed(3)] : [];
+        const corteDur = fim !== null ? ['-t', (fim - ini).toFixed(3)] : [];
+        const vf = [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`, 'setsar=1', ...(vel !== 1 ? [`setpts=PTS/${vel}`] : []), 'fps=24', 'format=yuv420p'].join(',');
+        const af = vel !== 1 ? ['-af', filtroVelocidadeAudio(vel)] : [];
         const args = temSom
-          ? ['-i', entradas[i], '-map', '0:v:0', '-map', '0:a:0']
-          : ['-i', entradas[i], '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000', '-map', '0:v:0', '-map', '1:a:0', '-shortest'];
-        const r = await ff([...args, '-vf', video, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', parte]);
+          ? [...corteIn, '-i', entradas[i], ...corteDur, '-map', '0:v:0', '-map', '0:a:0']
+          : [...corteIn, '-i', entradas[i], ...corteDur, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000', '-map', '0:v:0', '-map', '1:a:0', '-shortest'];
+        const r = await ff([...args, '-vf', vf, ...af, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', parte]);
         if (r.exitCode !== 0) {
           if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
           return { exitCode: 1, output: '', error: `não consegui preparar ${cenas[i]}: ${r.stderr.trim().slice(-300)}` };
@@ -242,6 +250,22 @@ export class JuntarVideosProvider implements AiProvider {
 }
 
 /** 12.5 → "00:00:12,500" (tempo do arquivo .srt). */
+/** atempo do ffmpeg vale de 0,5 a 2,0; para acelerar/desacelerar mais, encadeia (ex.: 4x = 2,0 * 2,0). */
+function filtroVelocidadeAudio(vel: number): string {
+  const fatores: number[] = [];
+  let resto = vel;
+  while (resto > 2) {
+    fatores.push(2);
+    resto /= 2;
+  }
+  while (resto < 0.5) {
+    fatores.push(0.5);
+    resto /= 0.5;
+  }
+  fatores.push(Number(resto.toFixed(4)));
+  return fatores.map((f) => `atempo=${f}`).join(',');
+}
+
 function tempoSrt(seg: number): string {
   const ms = Math.max(0, Math.round(seg * 1000));
   const h = Math.floor(ms / 3_600_000);

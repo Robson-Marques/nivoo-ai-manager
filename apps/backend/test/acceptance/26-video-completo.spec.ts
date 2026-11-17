@@ -89,6 +89,43 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('edição: corta início/fim de um clipe e acelera outro (ffmpeg, sem IA) — duração final confere', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Edição' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    const pasta = path.join(repo, 'videos', 'corte');
+    fs.mkdirSync(pasta, { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    // Clipe 1: 5 s (vou cortar para [1,3] = 2 s). Clipe 2: 4 s (vou acelerar 2x = 2 s). Os dois 1280x720 com som.
+    ff('-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=24:duration=5', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=5', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(pasta, 'a.mp4'));
+    ff('-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=24:duration=4', '-f', 'lavfi', '-i', 'sine=frequency=660:duration=4', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(pasta, 'b.mp4'));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'clipes'], { cwd: repo });
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'editar', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'final', provider: 'juntar-videos', instructions: 'edita', providerOptions: {
+          cenas: ['videos/corte/a.mp4', 'videos/corte/b.mp4'],
+          cortes: [{ inicio: 1, fim: 3 }, { velocidade: 2 }],
+          transicoes: ['corte'],
+          arquivo: 'videos/corte/final.mp4',
+        } }],
+        criteria: [{ key: 'v', description: 'final existe', kind: 'FILE_EXISTS', config: { path: 'videos/corte/final.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'edicao-'));
+    const final = path.join(tmp, 'final.mp4');
+    fs.writeFileSync(final, execFileSync('git', ['show', 'main:videos/corte/final.mp4'], { cwd: repo, maxBuffer: 50 * 1024 * 1024 }));
+    // 2 s (clipe 1 cortado) + 2 s (clipe 2 acelerado) com corte seco entre eles ≈ 4 s (não os ~9 s sem edição).
+    expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(4, 0);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
   it('legendas de cada cena gravadas no vídeo (e .srt ao lado, no tempo certo) e transição escolhida', async () => {
     const plano = comVideoCompleto(
       [
