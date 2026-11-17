@@ -430,3 +430,4 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .video-chip .link { padding: 0 2px; font-size: 16px; line-height: 1; }
 .video-chip.enviando { border-color: var(--accent); }
 .video-chip.erro { border-color: var(--bad); color: var(--bad); }
+.origem-video select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }

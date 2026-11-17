@@ -214,6 +214,24 @@ const plano = {
     await confenv.locator('.confenv-chip', { hasText: 'GITLAB_PACKAGE_TOKEN' }).waitFor({ state: 'detached' });
     passo('projeto criado no modelo, com regras próprias, conhecimento e variável da conferência (valor fora da tela)');
 
+    // 3b. Agente "Design de Vídeo": cria um projeto de vídeo SEPARADO, ligado ao projeto de origem (a pizzaria).
+    const nomeVideo = `Motion ${stamp}`;
+    await page.getByRole('button', { name: '+ Novo projeto' }).click();
+    await page.getByLabel('Nome do projeto').fill(nomeVideo);
+    await page.locator('.modal .tipo', { hasText: 'Design de Vídeo' }).click();
+    const selOrigem = page.locator('.origem-video select');
+    await selOrigem.waitFor();
+    const valOrigem = await selOrigem.locator('option', { hasText: nome }).first().getAttribute('value');
+    await selOrigem.selectOption(valOrigem);
+    await page.locator('.modal .tipo', { hasText: 'Claude (conta)' }).click();
+    await shot(page, '4b-projeto-video');
+    await page.getByRole('button', { name: 'Criar projeto' }).click();
+    await page.getByRole('heading', { name: nomeVideo }).waitFor();
+    // Volta para o projeto de origem (pizzaria) para seguir o roteiro; o de vídeo é um projeto à parte.
+    await page.getByRole('link', { name: nome, exact: true }).first().click();
+    await page.getByRole('heading', { name: nome, exact: true }).waitFor();
+    passo('agente Design de Vídeo: projeto de vídeo separado, ligado ao projeto de origem');
+
     // 4. Conversa → plano → Fazer → conferência → pronto
     fs.writeFileSync(path.join(ctl, 'mode'), 'texto');
     fs.writeFileSync(path.join(ctl, 'resposta.txt'), '```json\n' + JSON.stringify(plano) + '\n```');

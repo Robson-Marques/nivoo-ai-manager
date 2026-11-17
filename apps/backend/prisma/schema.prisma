@@ -200,6 +200,11 @@ model Project {
   rulesVersion  Int       @default(0)
   maxCostUsd    Decimal?  @db.Decimal(12, 4) // orçamento total do projeto (soma dos jobs); null = sem limite
   archivedAt    DateTime? // arquivado: some da lista principal de projetos
+  /// Projeto de ORIGEM: quando este projeto é de vídeo/design feito a partir de outro (o agente Design de Vídeo cria um
+  /// projeto separado para produzir o vídeo de um projeto de software, sem embolar os dois).
+  projetoOrigemId String?
+  projetoOrigem   Project?  @relation("origem", fields: [projetoOrigemId], references: [id], onDelete: SetNull)
+  derivados       Project[] @relation("origem")
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

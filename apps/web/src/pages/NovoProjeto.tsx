@@ -18,10 +18,13 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
   const [branch, setBranch] = useState('main');
   const [contaGit, setContaGit] = useState('');
   const [contasGit, setContasGit] = useState<any[]>([]);
+  const [projetoOrigemId, setProjetoOrigemId] = useState('');
+  const [projetos, setProjetos] = useState<any[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   useEffect(() => {
     api<any[]>('/areas').then(setModelos).catch(() => undefined);
+    api<any[]>('/projects').then(setProjetos).catch(() => undefined);
     api<any[]>('/git/accounts').then(setContasGit).catch(() => undefined);
     api<any[]>('/accounts')
       .then((c) => {
@@ -37,7 +40,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
     setErro(null);
     try {
       const git = origem === 'git' ? { url: repo, branch, accountId: contaGit || undefined } : undefined;
-      const p = await api('/projects', 'POST', { name: nome, description: sobre, base: modelo, provider: ia, author: nomeUsuario(), git });
+      const p = await api('/projects', 'POST', { name: nome, description: sobre, base: modelo, provider: ia, author: nomeUsuario(), git, ...(modelo === 'design-video' && projetoOrigemId ? { projetoOrigemId } : {}) });
       if (origem === 'novo') {
         try {
           await api(`/projects/${p.id}/git/create`, 'POST', { ...novoRepo, nome: novoRepo.nome || nomeRepoPadrao(nome) });
@@ -98,6 +101,26 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
           <span className="muted small">
             Falta um agente? <Link to="/agentes" onClick={onFechar}>Crie em Agentes</Link>.
           </span>
+          {modelo === 'design-video' && (
+            <div className="campo origem-video">
+              <span>Projeto de origem (de qual projeto é o vídeo)</span>
+              <select
+                value={projetoOrigemId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setProjetoOrigemId(id);
+                  const o = projetos.find((x) => x.id === id);
+                  if (o && !nome.trim()) setNome(`${o.name} — Vídeo`);
+                }}
+              >
+                <option value="">Escolha um projeto…</option>
+                {projetos.filter((x) => x.slug !== 'design-video' && x.area?.slug !== 'design-video').map((x) => (
+                  <option key={x.id} value={x.id}>{x.name}{x.area?.name ? ` (${x.area.name})` : ''}</option>
+                ))}
+              </select>
+              <span className="muted small">O projeto de vídeo fica separado e enxerga o nome, a descrição, as regras, o conhecimento e as telas da origem.</span>
+            </div>
+          )}
         </div>
         <div className="campo">
           <span>Qual IA vai trabalhar neste projeto?</span>

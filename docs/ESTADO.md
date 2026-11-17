@@ -193,6 +193,18 @@ trabalho devolve `ultimaAtividade`. Teste de tela (`chat-smoke`, foto `6b-andame
 * Testes `32` (campo que perde o foco → corrige → passa) e reais `real-10`: Claude e ChatGPT corrigiram um campo que
   perdia o foco, planejando sozinhos a conferência com `nivoo-roteiro`, comprovado no computador e no celular.
 
+## Agente "Design de Vídeo": projeto de vídeo separado, ligado a um projeto de origem (2026-11-17)
+
+* Na interface, "Modelo" (o jeito de trabalhar de um tipo de projeto) agora se chama **Agente**; o "modelo da IA"
+  (Opus/Sonnet, o motor) continua "modelo". Rotas/banco mantêm `areas`; `/agentes` e `/modelos` abrem a mesma tela.
+* Novo agente **Design de Vídeo** (`design-video`, instalado): reúne motion, edição, música, legenda e corte por cena.
+* Ao criar um projeto nesse agente, você escolhe um **projeto de origem**. O projeto de vídeo é SEPARADO (não embola com o
+  software) e **enxerga a origem**: `Project.projetoOrigemId`; o contexto da IA (conversa e trabalhos) ganha o nome, a
+  descrição, as regras, o conhecimento e os arquivos/telas da origem (`contextoDaOrigem`), para fazer o vídeo do app de
+  verdade. Vínculo apagado se a origem for removida (ON DELETE SET NULL).
+* Testes `13` (projeto de vídeo separado enxerga nome/descrição/regras da origem; origem inexistente recusada) e tela
+  (`chat-smoke`: criar projeto no agente Design de Vídeo escolhendo a origem; foto `4b-projeto-video`).
+
 ## Motion Design: animação de código vira vídeo, sem Veo (2026-11-17)
 
 * Capacidade chamável de QUALQUER projeto (não é um modelo à parte): a IA escreve uma ANIMAÇÃO em código

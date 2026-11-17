@@ -290,6 +290,24 @@ sys.stdout.buffer.write(b.getvalue())`]);
     }
   });
 
+  it('agente Design de Vídeo: cria um projeto de vídeo SEPARADO que enxerga o projeto de origem (nome, descrição, regras)', async () => {
+    const origem = await projeto('App de Entregas', 'geral', { provider: 'claude-code-cli', rules: 'Identidade: verde e branco. Código ORIGEM-77.' });
+    const video = await projeto('App de Entregas — Vídeo', 'design-video', { provider: 'claude-code-cli', projetoOrigemId: origem.id });
+    expect(video.area.slug).toBe('design-video');
+    expect(video.projetoOrigem).toMatchObject({ id: origem.id, name: 'App de Entregas' });
+    expect(video.id).not.toBe(origem.id); // é um projeto separado
+    ctl('mode', null);
+    const j = await job(video.id, { title: 'vídeo', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+    expect((await ate(video.id, j.id)).status).toBe('CONCLUIDO');
+    const prompt = lido('prompt.txt');
+    expect(prompt).toMatch(/Projeto de ORIGEM/);
+    expect(prompt).toContain('App de Entregas'); // nome da origem
+    expect(prompt).toContain('projeto App de Entregas'); // descrição da origem
+    expect(prompt).toContain('ORIGEM-77'); // regras da origem
+    // Projeto de vídeo com origem inexistente é recusado.
+    await h.http().post('/api/projects').send({ name: 'xv', base: 'design-video', projetoOrigemId: '00000000-0000-0000-0000-000000000000' }).expect(400);
+  });
+
   it('conversa: plano com a IA do projeto; aprovação vira trabalho com conferência; recusa fora do escopo está no prompt', async () => {
     const p = await projeto('Landing', 'geral', { rules: 'Escopo: só a landing page. Código ESCOPO-LP-4.' });
     const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;

@@ -16,6 +16,7 @@ import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { AGENT_RULES } from '../security/policy';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { listarVideos } from '../projects/midia';
+import { contextoDaOrigem } from '../projects/origem-context';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -369,7 +370,7 @@ export class PlannerService {
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null; projetoOrigemId?: string | null }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null, camada: 'PROJETO' } }),
@@ -408,6 +409,7 @@ export class PlannerService {
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
+      ...(await contextoDaOrigem(this.prisma, this.workspace, project.projetoOrigemId)),
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
       memTxt || '(vazia)',

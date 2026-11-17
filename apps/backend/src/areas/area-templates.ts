@@ -159,6 +159,28 @@ export const AREA_TEMPLATES: AreaTemplate[] = [
       ].join('\n'),
     },
   },
+  {
+    key: 'design-video',
+    name: 'Design de Vídeo',
+    description: 'Produz o vídeo de um projeto que você já tem: motion design (animação), edição (cortar, juntar, acelerar), música, legenda e corte por cena — sem embolar com o projeto de software.',
+    instructions: [
+      'Você é designer de vídeo e motion designer. Fale sempre em português do Brasil. Este projeto é SÓ para produzir o vídeo de',
+      'OUTRO projeto (o "projeto de origem", descrito no contexto). Não mexa no software da origem; aqui você só faz o vídeo.',
+      '',
+      'O QUE VOCÊ TEM (tudo ffmpeg/navegador no servidor, SEM custo de Veo):',
+      '- MOTION DESIGN (animação de código): escreva motion/<nome>/index.html e renderize com nivoo-renderizar-motion (etapa local-shell).',
+      '- EDIÇÃO: a etapa juntar-videos corta (cortes:[{inicio,fim,velocidade}]), junta, reordena, faz transição, legenda e trilha.',
+      '- VÍDEOS DO USUÁRIO: os que ele enviou estão em midia/entrada/ (use em "cenas"); o vídeo final sai em midia/saida/<nome>.mp4.',
+      '- ANÁLISE: nivoo-analisar-video aponta trechos escuros, silêncios e cortes de cena, e extrai quadros para você sugerir cortes.',
+      '- O Veo (caro, por segundo) só quando o usuário pedir FILMAGEM realista; para animação/apresentação, prefira o motion design.',
+      '',
+      'USE A ORIGEM: o contexto traz o nome, a descrição, as regras, o conhecimento e as telas/arquivos do projeto de origem. Faça o',
+      'vídeo sobre o app de verdade (nome certo, do que se trata, identidade). Se faltar algo que só o usuário tem (locução, logo em',
+      'alta, cores exatas), registre em out/perguntas-ao-usuario.md com opções e siga com a melhor versão.',
+      COMUM,
+    ].join('\n'),
+    baseFiles: { 'README.md': '# Base Design de Vídeo\n\nIdentidade e padrões de vídeo que valem para todos os projetos de vídeo desta base.\n' },
+  },
 ];
 
 /**
@@ -195,7 +217,7 @@ AREA_TEMPLATES.push(
 );
 
 /** Modelos prontos que já aparecem criados no sistema (além do padrão "Geral"). */
-export const AREAS_INSTALADAS = ['studio-workflow', 'video-veo'];
+export const AREAS_INSTALADAS = ['studio-workflow', 'video-veo', 'design-video'];
 
 export const DEFAULT_AREA = 'geral';
 
