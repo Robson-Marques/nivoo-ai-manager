@@ -353,8 +353,31 @@ export class PlannerService {
 
   /** O que a IA precisa para apresentar a entrega: o trabalho e os arquivos que ele criou/alterou/apagou. */
   private async dadosDaEntrega(jobId: string, dirKey: string): Promise<string> {
-    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: true } });
+    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: { include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } }, attempts: { orderBy: { number: 'desc' }, take: 6 } } });
     if (!job) return '';
+    // Trabalho que PAROU (bloqueado/falhou): a IA recebe o erro para DIAGNOSTICAR e PROPOR UM PLANO que conserta.
+    if (job.status === 'BLOQUEADO' || job.status === 'FALHOU') {
+      const logs = await this.prisma.logEntry.findMany({ where: { jobId }, orderBy: { id: 'desc' }, take: 18 });
+      const etapaRuim = job.steps.find((s) => s.status === 'BLOQUEADO' || s.status === 'FALHOU') ?? job.steps[job.steps.length - 1];
+      const tentativasDaEtapa = job.attempts.filter((a) => a.stepId === etapaRuim?.id).slice(0, 3);
+      return [
+        `O TRABALHO PAROU COM ERRO (não concluiu): "${job.title}" — status ${job.status}${job.blockedReason ? ` (${job.blockedReason})` : ''}.`,
+        `Objetivo do trabalho: ${job.objectives[0]?.text ?? ''}`,
+        `Motivo da parada: ${(job.statusDetail ?? '').replace(/\s+/g, ' ').slice(0, 800) || '(sem detalhe)'}`,
+        `Etapa com problema: "${etapaRuim?.title || etapaRuim?.key}" (executor ${etapaRuim?.provider ?? job.defaultProvider}).`,
+        ...tentativasDaEtapa.map((a) => `- tentativa #${a.number}: ${a.status}${a.error ? ` — ${a.error.replace(/\s+/g, ' ').slice(0, 400)}` : ''}`),
+        ...job.criteria.filter((c) => c.status !== 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}) ${c.status}: ${c.description.slice(0, 150)}${c.checks[0] ? ` — evidência: ${JSON.stringify(c.checks[0].evidence).slice(0, 300)}` : ''}`),
+        `Últimas linhas do log:\n${logs.reverse().map((l) => `${l.level} ${l.source}: ${l.message.replace(/\s+/g, ' ').slice(0, 220)}`).join('\n')}`,
+        '',
+        'SUA TAREFA AGORA (auto-correção): explique ao usuário, em uma frase simples, o que deu errado; e PROPONHA UM PLANO que',
+        'conserta a causa (um rascunho de trabalho novo, como qualquer plano), ajustando o que falhou. Como é a continuação de',
+        'algo que o usuário já aprovou, marque o plano com "continuacao": true (assim ele começa sozinho se o usuário ativou',
+        '"seguir sozinho"). Se o erro for de algo que só o usuário resolve (falta um arquivo, uma conexão, uma decisão), NÃO',
+        'proponha plano: diga o que você precisa dele.',
+        'Se este MESMO erro já apareceu numa tentativa de correção anterior (veja a conversa), NÃO repita o mesmo plano: tente',
+        'uma abordagem diferente ou, se não houver, peça ajuda ao usuário.',
+      ].join('\n');
+    }
     const arquivos = job.mergedCommit ? await this.workspace.arquivosDoCommit(dirKey, job.mergedCommit) : [];
     const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
     return [

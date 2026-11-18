@@ -105,8 +105,9 @@ describe('Auditoria preventiva', () => {
     expect(x.attempts[0].error).toMatch(/ERRO-NO-FIM$/);
   });
 
-  it('trabalho da conversa que para avisa na conversa', async () => {
-    const p = (await h.http().post('/api/projects').send({ name: 'Aviso', provider: 'claude-code-cli' }).expect(201)).body;
+  it('trabalho da conversa que para volta para a conversa (auto-correção: a IA recebe o erro para consertar)', async () => {
+    // "seguir sozinho" desligado para o conserto ficar como plano (determinístico), não rodar em loop no teste.
+    const p = (await h.http().post('/api/projects').send({ name: 'Aviso', provider: 'claude-code-cli', seguirSozinho: false }).expect(201)).body;
     const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
     ctl('mode', 'texto');
     ctl('resposta.txt', '```json\n' + JSON.stringify({
@@ -118,12 +119,12 @@ describe('Auditoria preventiva', () => {
     }) + '\n```');
     await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'faça' }).expect(201);
     const plano = await waitFor(async () => (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages.find((m: any) => m.kind === 'plano' && m.status === 'PRONTA') ?? null);
-    ctl('mode', 'bash');
     await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages/${plano.id}/approve`).send({ decidedBy: 'Robson' }).expect(201);
-    const aviso = await waitFor(async () => (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages.find((m: any) => m.kind === 'sistema' && /parou:/.test(m.content)) ?? null, 60_000);
+    // O trabalho para (o programa da conferência não existe) e a conversa recebe o ERRO como "entrega" para a IA consertar.
+    const aviso = await waitFor(async () => (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages.find((m: any) => m.kind === 'entrega' && m.jobId) ?? null, 60_000);
     ctl('mode', null);
     ctl('resposta.txt', null);
-    expect(aviso.content).toMatch(/O trabalho "Impossível" parou: .*programa-que-nao-existe-abc/);
+    expect(aviso).toBeTruthy();
   });
   it('cache do corepack quebrado no servidor: o sistema refaz e confere de novo, sem gastar sessão da IA', async () => {
     const cache = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'corepack-'));

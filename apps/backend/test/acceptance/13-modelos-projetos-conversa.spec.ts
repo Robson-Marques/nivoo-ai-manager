@@ -378,6 +378,30 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('resposta.txt', null);
   });
 
+  it('auto-correção: trabalho que para vira diagnóstico + plano de conserto na conversa, sem o usuário pedir', async () => {
+    // "seguir sozinho" desligado para o teste ficar determinístico (o conserto fica como plano, não roda sozinho).
+    const p = await projeto('Auto conserto', 'geral', { provider: 'claude-code-cli', seguirSozinho: false });
+    const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    const plano = { tipo: 'plano', texto: 'Vou rodar a tarefa.', job: { title: 'Tarefa que falha', objective: 'o', steps: [{ key: 'a', provider: 'local-shell', instructions: 'exit 1' }], criteria: [{ key: 'c', description: 'c', kind: 'COMMAND', config: { command: 'true' } }] } };
+    ctl('mode', 'texto');
+    ctl('resposta.txt', `Ok.\n\`\`\`json\n${JSON.stringify(plano)}\n\`\`\``);
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages`).send({ content: 'Rode a tarefa' }).expect(201);
+    const r1 = await resposta(p.id, conv.id, 1);
+    expect(r1.kind).toBe('plano');
+    await h.http().post(`/api/projects/${p.id}/conversations/${conv.id}/messages/${r1.id}/approve`).send({ decidedBy: 'Robson' }).expect(201);
+    // O trabalho trava (exit 1 repetido → REPETICAO_IMPRODUTIVA). A conversa recebe o ERRO como "entrega" e a IA,
+    // sozinha, diagnostica e propõe um PLANO de conserto — sem o usuário mandar nada.
+    const entrega = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/conversations/${conv.id}`)).body;
+      return x.messages.find((m: any) => m.kind === 'entrega' && m.jobId && m.status !== 'PENDENTE') ?? null;
+    }, 60000);
+    expect(entrega).toBeTruthy();
+    const planos = (await h.http().get(`/api/projects/${p.id}/conversations/${conv.id}`)).body.messages.filter((m: any) => m.kind === 'plano');
+    expect(planos.length).toBeGreaterThanOrEqual(2); // o plano original + o plano de conserto proposto sozinho
+    ctl('mode', null);
+    ctl('resposta.txt', null);
+  });
+
   it('memória da conversa: sem duplicar e pode ser esquecida', async () => {
     const p = await projeto('Memória', 'geral');
     const conv = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;

@@ -3,6 +3,17 @@
 > Atualizado em 2026-11-16. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Auto-correção: a conversa conserta sozinha o trabalho que parou (2026-11-18)
+
+Quando um trabalho **para** (bloqueado ou falhou), a conversa de onde ele veio recebe o **erro** como uma "entrega"
+pendente, e a IA do projeto **diagnostica e propõe um plano de conserto sozinha** — sem o usuário precisar pedir. Se o
+projeto está em **"seguir sozinho"**, o conserto **roda automático** (dentro do teto de 8 planos seguidos e do limite de
+gasto do projeto). Para não gastar à toa, só tenta `NIVOO_AUTOCORRIGIR_MAX` (padrão **3**) vezes sem o usuário falar;
+passado disso, para e pede ajuda no chat. Parada **pedida pelo usuário** (pausar/interromper) nunca dispara correção.
+O `dadosDaEntrega` (planner) passou a montar, para trabalho parado, o motivo + a etapa/erro + critérios + últimas linhas
+do log, e orienta a IA a explicar em uma frase e propor o conserto (com `continuacao:true`). Teste `13` (trabalho que
+falha vira diagnóstico + plano de conserto sozinho) e `32` (trabalho da conversa que para volta para a conversa).
+
 ## Revisão "não conforme" volta para correção, sem loop (2026-11-15)
 
 Caso real (diagnóstico do ConnectChat): a etapa de auditoria foi dada como concluída com o inventário vazio (o ChatGPT
