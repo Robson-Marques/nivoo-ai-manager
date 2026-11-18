@@ -164,8 +164,12 @@ export function mcpDoProjeto(projectId: string, origem: { jobId?: string; mensag
 
 /** A ferramenta "servidores-ssh" (sem chave: quem roda o comando, depois do Permitir, é a API). */
 function ferramentaSsh(projectId: string, ssh: ServidorSsh[], origem: { jobId?: string; mensagemId?: string }): McpResolvido {
-  const js = path.join(__dirname, 'ssh-mcp.js');
-  const args = fs.existsSync(js) ? [js] : ['-r', 'ts-node/register/transpile-only', path.join(__dirname, 'ssh-mcp.ts')];
+  // Em produção, __dirname é dist/mcp e o .js está ao lado. Nos testes, __dirname é src/mcp; se o projeto já foi
+  // compilado (dist/mcp/ssh-mcp.js), roda o .js compilado (rápido e estável) em vez de transpilar com ts-node a cada
+  // chamada — ts-node a cada spawn num runner lento pode estourar o tempo do teste.
+  const candidatos = [path.join(__dirname, 'ssh-mcp.js'), path.join(__dirname.replace(/(^|\/)src(\/|$)/, '$1dist$2'), 'ssh-mcp.js')];
+  const js = candidatos.find((c) => fs.existsSync(c));
+  const args = js ? [js] : ['-r', 'ts-node/register/transpile-only', path.join(__dirname, 'ssh-mcp.ts')];
   return {
     nome: 'servidores-ssh',
     tipo: 'comando',

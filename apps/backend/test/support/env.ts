@@ -18,5 +18,8 @@ export function applyTestEnv(): void {
     process.env.CODEX_HOME = path.join(TEST_ROOT, 'home-codex');
     process.env.CLAUDE_CONFIG_DIR = path.join(TEST_ROOT, 'home-claude');
     process.env.GEMINI_CLI_HOME = path.join(TEST_ROOT, 'home-gemini');
+    // O Gemini CLI vira um stub (sem Google de verdade): assim a conexão "Gemini — chave de API" aparece como
+    // conectada mesmo numa máquina sem o `gemini` instalado (o CI), em vez de depender do binário real da máquina.
+    process.env.NIVOO_GEMINI_BIN = process.env.NIVOO_GEMINI_BIN ?? path.join(__dirname, 'stubs', 'gemini-stub.sh');
   }
 }
