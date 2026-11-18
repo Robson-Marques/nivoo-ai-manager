@@ -412,6 +412,12 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   };
   const enviarVideos = async (lista: File[]) => {
     for (const f of lista) {
+      // Não sobe o mesmo arquivo duas vezes: se já está subindo ou já está na lista, avisa e pula (era isso que
+      // deixava um segundo chip "enviando" preso). Para reenviar, o usuário tira o atual primeiro.
+      if (enviandoVideos.some((x) => x.nome === f.name && !x.erro) || videos.some((v: any) => v.nome === f.name)) {
+        setErro(`"${f.name}" já está no projeto (ou subindo). Para reenviar, tire o atual primeiro com o "×".`);
+        continue;
+      }
       const item = { nome: f.name, pct: 0 };
       setEnviandoVideos((a) => [...a, item]);
       try {

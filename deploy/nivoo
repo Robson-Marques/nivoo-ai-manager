@@ -80,6 +80,7 @@ server {
     listen 80;
     listen [::]:80;
     server_name $dom;
+    http2 on;                              # multiplexa tudo numa conexão: upload não trava por falta de conexão (HTTP/1.1 limita a ~6)
     client_max_body_size 2048m;            # upload de vídeo sem o limite de 100 MB da Cloudflare
     location / {
         proxy_pass http://127.0.0.1:$PORT;
