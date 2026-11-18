@@ -25,7 +25,12 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # Mesmas dependências de sistema que o instalador usa (ffmpeg para vídeo; poppler/tesseract para texto e OCR;
+      # DejaVu para as legendas; zip para os testes de .zip; ripgrep).
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg poppler-utils tesseract-ocr tesseract-ocr-por fonts-dejavu-core zip unzip ripgrep
       - run: npm ci
+      # Navegador do Playwright (motion design, fotos das telas, roteiros): o core não baixa sozinho.
+      - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: git config --global user.email ci@localhost && git config --global user.name ci
       - run: npm test
       - run: npm run build -w apps/web
