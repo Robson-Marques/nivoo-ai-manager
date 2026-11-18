@@ -350,6 +350,33 @@ describe('Vídeo completo (cenas juntadas)', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
+  it('etapa local-shell e critério COMMAND acham midia/ (bash no worktree), como o juntar-videos — não travam', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Midia no bash' }).expect(201)).body;
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 'w'), { recursive: true });
+    const ff = (...a: string[]) => execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...a]);
+    ff('-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=12:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=200:duration=1', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', path.join(repo, 'videos', 'w', 'cena-01.mp4'));
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cena'], { cwd: repo });
+    const j = (
+      await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'montar e conferir com bash', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [
+          { key: 'juntar', provider: 'juntar-videos', instructions: 'junta', providerOptions: { cenas: ['videos/w/cena-01.mp4'], arquivo: 'midia/saida/w-completo.mp4' } },
+          // Como a IA às vezes monta: uma etapa local-shell (bash) que confere midia/saida no worktree. Tem de achar.
+          { key: 'conferir', provider: 'local-shell', instructions: 'test -s midia/saida/w-completo.mp4 && ffprobe -v error -show_entries format=duration -of csv=p=0 midia/saida/w-completo.mp4', dependsOn: ['juntar'], verifyCommand: 'true' },
+        ],
+        criteria: [{ key: 'v', description: 'o mp4 final existe na mídia', kind: 'COMMAND', config: { command: 'test -s midia/saida/w-completo.mp4' } }],
+      }).expect(201)
+    ).body;
+    await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+    const fim = await waitFor(async () => {
+      const x = (await h.http().get(`/api/projects/${p.id}/jobs/${j.id}`)).body;
+      return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
+    }, 90_000);
+    expect(fim.status).toBe('CONCLUIDO'); // antes: "Fonte indisponível / Arquivo ausente" porque midia/ não estava no worktree
+  });
+
   it('vídeo pronto SEM áudio + narração mais longa: ganha som e segura o último quadro até a fala acabar (não corta)', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Prévia pronta' }).expect(201)).body;
     const repo = path.join(p.workspacePath, 'repo');

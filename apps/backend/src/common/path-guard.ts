@@ -25,6 +25,16 @@ export function resolveInside(root: string, relative: string): string {
   return candidate;
 }
 
+/**
+ * Caminho que pode ser da MÍDIA do projeto (fora do git): "midia/..." resolve na pasta de mídia durável; o resto, na
+ * pasta de trabalho (cwd/worktree). Usado por todos os executores e pela cópia de anexos, para "midia/..." significar
+ * sempre o mesmo lugar (a mídia real), nunca a cópia do git.
+ */
+export function resolveMidiaOuTrabalho(midiaDir: string | undefined, cwd: string, rel: string): string {
+  if (midiaDir && /^midia\//i.test(String(rel))) return resolveInside(midiaDir, String(rel).replace(/^midia\//i, ''));
+  return resolveInside(cwd, rel);
+}
+
 export function assertInside(root: string, candidate: string): void {
   const rel = path.relative(root, candidate);
   if (rel === '' ) return;

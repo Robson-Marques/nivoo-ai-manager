@@ -278,8 +278,25 @@ export class WorkspaceService {
     // contexto/: cópias de leitura (padrões da base e conhecimento do projeto); .nivoo/: notas e memória
     // (já gravadas no banco). Nada disso entra no git, para não conflitar ao integrar jobs na pasta principal.
     // node_modules/, __pycache__/…: dependências e caches da conferência (npm ci, testes, build) — nunca vão para o commit.
-    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/', 'out/', ...WorkspaceService.LIXO_DE_EXECUCAO.map((d) => `${d}/`)].filter((l) => !current.split('\n').includes(l));
+    const missing = [`${SESSION_CONTEXT_DIR}/`, '.nivoo/', 'out/', '/midia', 'midia', ...WorkspaceService.LIXO_DE_EXECUCAO.map((d) => `${d}/`)].filter((l) => !current.split('\n').includes(l));
     if (missing.length) fs.appendFileSync(exclude, `${current.endsWith('\n') || !current ? '' : '\n'}${missing.join('\n')}\n`);
+    // A mídia durável (vídeos, fora do git) aparece como "midia/" DENTRO do worktree por um link, para que os comandos
+    // bash das etapas (local-shell) e as conferências achem "midia/entrada|saida/..." — o git a ignora (acima). Nada do
+    // código resolve "midia/..." pelo worktree (anexos, providers e critérios vão direto na mídia real), então o link
+    // não dispara a proteção de caminho.
+    fs.mkdirSync(path.join(dirs.midia, 'entrada'), { recursive: true });
+    fs.mkdirSync(path.join(dirs.midia, 'saida'), { recursive: true });
+    const linkMidia = path.join(wt, 'midia');
+    try {
+      const st = fs.existsSync(linkMidia) || this.isLink(linkMidia) ? fs.lstatSync(linkMidia) : null;
+      if (!st) fs.symlinkSync(dirs.midia, linkMidia);
+      else if (!st.isSymbolicLink() || fs.realpathSync(linkMidia) !== fs.realpathSync(dirs.midia)) {
+        fs.rmSync(linkMidia, { force: true, recursive: true });
+        fs.symlinkSync(dirs.midia, linkMidia);
+      }
+    } catch {
+      /* não deu para linkar: os providers de mídia usam a mídia real por projectMediaDir mesmo assim */
+    }
     return wt;
   }
 

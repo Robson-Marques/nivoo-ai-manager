@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
+import { caminhoDoProjeto, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { WorkspaceService } from '../storage/workspace.service';
 import { Anexo, gravarAnexos, lerAnexo, prepararAnexos } from './attachments';
 
@@ -161,21 +161,23 @@ export class ConversationsService {
   private async copiarAnexosParaOProjeto(projectId: string, conversationId: string, jobId: string, pedidos: unknown) {
     if (!Array.isArray(pedidos) || !pedidos.length) return;
     const projeto = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { dirKey: true } });
-    const raiz = this.workspace.projectDirs(projeto.dirKey).root;
+    const dirs = this.workspace.projectDirs(projeto.dirKey);
+    const raiz = dirs.root;
     const worktree = await this.workspace.ensureJobWorktree(projeto.dirKey, jobId);
-    const copiados: string[] = [];
+    const noGit: string[] = [];
     for (const p of pedidos as Array<{ anexo: string; para: string }>) {
       const [mensagem, nome] = String(p.anexo ?? '').replace(/^contexto\/anexos\//, '').split('/');
       const msg = mensagem ? await this.prisma.conversationMessage.findFirst({ where: { id: mensagem, conversationId } }) : null;
       const conteudo = msg && nome ? lerAnexo(raiz, conversationId, msg.id, nome) : null;
       const para = caminhoDoProjeto(p.para);
       if (!conteudo || !para) continue; // caminho vazio, fora do projeto ou protegido: não copia
-      const destino = resolveInside(worktree, para);
+      // "midia/..." vai para a MÍDIA durável (fora do git); o resto, para a pasta de trabalho (worktree).
+      const destino = resolveMidiaOuTrabalho(dirs.midia, worktree, para);
       fs.mkdirSync(path.dirname(destino), { recursive: true });
       fs.writeFileSync(destino, conteudo);
-      copiados.push(path.relative(worktree, destino));
+      if (destino.startsWith(worktree)) noGit.push(path.relative(worktree, destino));
     }
-    if (copiados.length) await this.workspace.commitCheckpoint(worktree, `anexos da conversa colocados no projeto: ${copiados.join(', ')}`);
+    if (noGit.length) await this.workspace.commitCheckpoint(worktree, `anexos da conversa colocados no projeto: ${noGit.join(', ')}`);
   }
 
   /** Arquivo anexado a uma mensagem (para mostrar no chat). */

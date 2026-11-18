@@ -4,7 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ehAdicional, listarConexoes } from '../accounts/connections';
 import { segredoDaConexao } from '../accounts/secrets';
-import { resolveInside } from '../common/path-guard';
+import { resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
@@ -188,7 +188,7 @@ export class GeminiVideoProvider implements AiProvider {
     const arquivo = String(o.arquivo ?? 'videos/video.mp4');
     let destino: string;
     try {
-      destino = resolveInside(req.cwd, arquivo);
+      destino = resolveMidiaOuTrabalho(req.projectMediaDir, req.cwd, arquivo);
     } catch {
       return { exitCode: 1, output: '', error: `caminho inválido para o vídeo: ${arquivo}` };
     }
@@ -208,7 +208,7 @@ export class GeminiVideoProvider implements AiProvider {
     const instancia: Record<string, unknown> = { prompt: descricao };
     if (o.imagem) {
       try {
-        const img = resolveInside(req.cwd, o.imagem);
+        const img = resolveMidiaOuTrabalho(req.projectMediaDir, req.cwd, o.imagem);
         instancia.image = { bytesBase64Encoded: fs.readFileSync(img).toString('base64'), mimeType: MIME_IMAGEM[path.extname(img).toLowerCase()] ?? 'image/png' };
       } catch {
         return { exitCode: 1, output: '', error: `imagem inicial não encontrada no projeto: ${o.imagem}` };
