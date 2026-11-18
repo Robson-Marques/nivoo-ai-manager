@@ -165,9 +165,15 @@ describe('Vídeo completo (cenas juntadas)', () => {
       res.on('end', () => cb(null, Buffer.concat(partes)));
     }).expect(200);
     expect(baixado.headers['content-type']).toMatch(/^video\/mp4/);
+    expect(baixado.headers['accept-ranges']).toBe('bytes');
     const final = path.join(tmp, 'baixado.mp4');
     fs.writeFileSync(final, baixado.body as Buffer);
     expect(Number(ffprobe(final, '-show_entries', 'format=duration', '-of', 'csv=p=0'))).toBeCloseTo(2, 0);
+    // Player pede somente um intervalo: o servidor responde 206 sem baixar o vídeo inteiro.
+    const trecho = await h.http().get(`/api/projects/${p.id}/midia/content`).query({ path: 'midia/saida/final.mp4' }).set('Range', 'bytes=10-109').expect(206);
+    expect(trecho.headers['content-range']).toBe(`bytes 10-109/${fs.statSync(final).size}`);
+    expect(trecho.headers['content-length']).toBe('100');
+    expect((trecho.body as Buffer).length).toBe(100);
     // Nada de mídia foi para o git (vídeo é pesado): o repo não tem a pasta midia.
     const repo = path.join(p.workspacePath, 'repo');
     const noGit = execFileSync('git', ['ls-files'], { cwd: repo }).toString();

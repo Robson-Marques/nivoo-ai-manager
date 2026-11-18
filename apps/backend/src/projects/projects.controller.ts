@@ -5,6 +5,7 @@ import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
 import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
+import { streamMedia } from '../common/media-stream';
 
 @Controller('projects')
 export class ProjectsController {
@@ -93,11 +94,10 @@ export class ProjectsController {
   }
 
   @Get(':pid/midia/content')
-  async midiaContent(@Param('pid', ParseUUIDPipe) pid: string, @Query('path') caminho: string, @Res() res: Response) {
+  async midiaContent(@Param('pid', ParseUUIDPipe) pid: string, @Query('path') caminho: string, @Req() req: Request, @Res() res: Response) {
     const abs = await this.projects.arquivoDeMidia(pid, caminho);
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.type(/\.webm$/i.test(abs) ? 'video/webm' : /\.mov$/i.test(abs) ? 'video/quicktime' : 'video/mp4');
-    fs.createReadStream(abs).pipe(res);
+    const tipo = /\.webm$/i.test(abs) ? 'video/webm' : /\.mov$/i.test(abs) ? 'video/quicktime' : /\.mp3$/i.test(abs) ? 'audio/mpeg' : /\.(wav|flac)$/i.test(abs) ? 'audio/wav' : /\.(m4a|aac)$/i.test(abs) ? 'audio/mp4' : /\.ogg$/i.test(abs) ? 'audio/ogg' : 'video/mp4';
+    streamMedia(req, res, abs, tipo);
   }
 
   @Get(':pid/conferencia-env')

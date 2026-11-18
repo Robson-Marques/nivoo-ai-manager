@@ -1,7 +1,7 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { BotaoDitado } from '../Ditado';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, enviarVideo, enviarZipDeVideos, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, copiarTexto } from '../api';
+import { api, enviarVideo, enviarZipDeVideos, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, urlAutenticada, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -1331,15 +1331,23 @@ function VideosDoTrabalho({ projetoId, steps }: { projetoId: string; steps: any[
 
 /** Vídeo da pasta do projeto, com player (o arquivo vem pela API com o token, se houver). */
 export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; caminho: string }) {
+  const [ativo, setAtivo] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
   const [falhou, setFalhou] = useState(false);
   useEffect(() => {
+    if (!ativo) return;
     let u: string | null = null;
     let saiu = false;
     // A mídia (vídeos enviados/editados) fica fora do git: vem por /midia/content; o resto (cenas no git) por /files/content.
     const rota = /^midia\//.test(caminho)
       ? `/projects/${projetoId}/midia/content?path=${encodeURIComponent(caminho)}`
       : `/projects/${projetoId}/files/content?path=${encodeURIComponent(caminho)}`;
+    // Mídia grande usa o player nativo + HTTP Range: baixa só os trechos necessários. Arquivo legado no git ainda
+    // vira Blob, mas apenas depois do clique — nunca todos os vídeos da conversa ao abrir a página.
+    if (/^midia\//.test(caminho)) {
+      setSrc(urlAutenticada(rota));
+      return;
+    }
     urlDoArquivo(rota, 'video/mp4').then((x) => {
       if (saiu) {
         if (x) URL.revokeObjectURL(x);
@@ -1353,10 +1361,16 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
       saiu = true;
       if (u) URL.revokeObjectURL(u);
     };
-  }, [projetoId, caminho]);
+  }, [ativo, projetoId, caminho]);
   return (
     <div className="video-pronto">
-      {src ? <video src={src} controls playsInline preload="metadata" /> : <span className="muted small">{falhou ? `Não foi possível abrir ${caminho}.` : 'Carregando o vídeo…'}</span>}
+      {!ativo ? (
+        <button type="button" className="secondary" onClick={() => setAtivo(true)}>▶ Carregar vídeo</button>
+      ) : src ? (
+        <video src={src} controls playsInline preload="metadata" onError={() => setFalhou(true)} />
+      ) : (
+        <span className="muted small">{falhou ? `Não foi possível abrir ${caminho}.` : 'Carregando o vídeo…'}</span>
+      )}
       {src && (
         <a className="small" href={src} download={caminho.split('/').pop()}>
           baixar {caminho}

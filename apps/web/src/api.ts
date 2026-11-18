@@ -377,6 +377,12 @@ export async function urlDoArquivo(url: string, tipo?: string): Promise<string |
   return URL.createObjectURL(tipo ? new Blob([await res.arrayBuffer()], { type: tipo }) : await res.blob());
 }
 
+/** URL para player/download nativo. O guard já aceita token na query para elementos que não permitem cabeçalho. */
+export function urlAutenticada(url: string): string {
+  const token = getToken();
+  return `/api${url}${token ? `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : ''}`;
+}
+
 /** Copia texto (também em http sem HTTPS, onde o navegador não libera a área de transferência moderna). */
 export async function copiarTexto(texto: string): Promise<void> {
   if (window.isSecureContext && navigator.clipboard) {
