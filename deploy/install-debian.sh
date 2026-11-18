@@ -324,7 +324,10 @@ IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "${c_b}Instalação concluída.${c_0}"
 echo
-if [ "${HOST}" = 127.0.0.1 ]; then
+LOGIN_USR="$(sed -n 's/^NIVOO_LOGIN_USUARIO=//p' "$ENV_FILE" 2>/dev/null)"
+if [ -n "$LOGIN_USR" ]; then
+  echo "  Interface: acesse pelo seu domínio e entre com usuário (\"$LOGIN_USR\") e senha."
+elif [ "${HOST}" = 127.0.0.1 ]; then
   echo "  Interface (só local). No SEU computador, abra um túnel SSH:"
   echo "      ssh -N -L $PORT:127.0.0.1:$PORT root@${IP:-SEU_SERVIDOR}"
   echo "  e acesse: http://localhost:$PORT"
