@@ -849,7 +849,7 @@ function BlocoDeComando({ comando }: { comando: string }) {
   return (
     <div className="bloco-comando">
       <div className="bloco-comando-topo">
-        <span>Comando</span>
+        <span>{comando.includes('\n') ? 'Comandos' : 'Comando'}</span>
         <button
           type="button"
           className="link"
@@ -868,9 +868,19 @@ function BlocoDeComando({ comando }: { comando: string }) {
 }
 
 function TextoDaIa({ texto }: { texto: string }) {
+  const trechos = separarComandos(String(texto ?? ''));
+  const comandos = trechos.filter((t) => t.tipo === 'comando').map((t) => t.conteudo);
+  // Resposta antiga que espalhou a sequência pelo parágrafo: preserva as explicações e reúne os comandos
+  // numa única caixa para copiar/colar tudo de uma vez, na ordem em que a IA os enviou.
+  const agrupados: TrechoDaIa[] = comandos.length > 1
+    ? [
+        { tipo: 'texto', conteudo: trechos.filter((t) => t.tipo === 'texto').map((t) => t.conteudo).join('') },
+        { tipo: 'comando', conteudo: comandos.join('\n') },
+      ]
+    : trechos;
   return (
     <div className="texto texto-ia">
-      {separarComandos(String(texto ?? '')).map((t, i) =>
+      {agrupados.map((t, i) =>
         t.tipo === 'comando'
           ? <BlocoDeComando key={i} comando={t.conteudo} />
           : <span key={i} className="texto-comum">{t.conteudo}</span>,

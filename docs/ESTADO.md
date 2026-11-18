@@ -5,9 +5,9 @@
 
 ## Comandos em caixa copiável (2026-11-18)
 
-As regras de todos os agentes exigem que comandos destinados ao usuário saiam em blocos Markdown próprios. O chat
-transforma esses blocos em caixas monoespaçadas com botão **Copiar** e reconhece também o formato antigo em que o
-comando vinha entre crases ou aspas no meio do parágrafo.
+As regras de todos os agentes exigem que uma sequência de comandos destinada ao usuário saia em um único bloco
+Markdown, um comando por linha e na ordem. O chat transforma o conjunto numa caixa monoespaçada com um botão
+**Copiar** e reúne também respostas antigas que espalharam comandos por linhas, crases ou aspas no parágrafo.
 
 ## Prompt longo vira anexo automaticamente (2026-11-18)
 
