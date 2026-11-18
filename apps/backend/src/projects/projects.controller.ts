@@ -68,10 +68,11 @@ export class ProjectsController {
     @Query('nome') nome: string,
     @Query('id') id: string,
     @Query('offset') offset: string,
+    @Query('tamanho') tamanho: string | undefined,
     @Query('final') final: string,
     @Req() req: Request,
   ) {
-    return this.projects.salvarPedacoDeVideo(pid, nome, id, Number(offset), final === '1' || final === 'true', req);
+    return this.projects.salvarPedacoDeVideo(pid, nome, id, Number(offset), tamanho === undefined ? undefined : Number(tamanho), final === '1' || final === 'true', req);
   }
 
   /** Envia um .zip (streaming) e o servidor extrai todos os vídeos de dentro para a mídia do projeto. */

@@ -328,8 +328,8 @@ export class ProjectsService {
   }
 
   /** Um pedaço do upload em partes (arquivo grande): grava no temporário e, no último, fecha o vídeo. */
-  async salvarPedacoDeVideo(id: string, nome: string, uploadId: string, offset: number, isFinal: boolean, corpo: Readable) {
-    return gravarPedacoDeVideo(await this.midiaDir(id), nome, uploadId, offset, isFinal, corpo);
+  async salvarPedacoDeVideo(id: string, nome: string, uploadId: string, offset: number, tamanho: number | undefined, isFinal: boolean, corpo: Readable) {
+    return gravarPedacoDeVideo(await this.midiaDir(id), nome, uploadId, offset, tamanho, isFinal, corpo);
   }
 
   /** Recebe um .zip (streaming) e extrai TODOS os vídeos de dentro para a mídia do projeto. */

@@ -197,26 +197,63 @@ function enviarPorStreaming<T>(url: string, file: File, onProgresso: (pct: numbe
   });
 }
 
-/** Envia UM pedaço (octet-stream) com um nº de tentativas — pedaço pequeno quase nunca trava, e se travar reenvia só ele. */
-async function enviarPedaco(url: string, corpo: Blob, tentativas = 3): Promise<any> {
+/**
+ * Envia UM pedaço com progresso real e vigia de INATIVIDADE. Um tempo total fixo penalizava conexão lenta: mesmo
+ * avançando, o pedido era abortado aos 45 s. O XHR permite renovar a vigia a cada byte enviado e distinguir uma
+ * conexão lenta de uma conexão realmente parada.
+ */
+function enviarPedacoUmaVez(url: string, corpo: Blob, offset: number, total: number, onProgresso: (pct: number) => void): Promise<any> {
+  return new Promise((ok, erro) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    const token = getToken();
+    if (token) xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('content-type', 'application/octet-stream');
+    let ultimoAvanco = Date.now();
+    let ultimoCarregado = 0;
+    let encerrado = false;
+    const terminar = () => {
+      if (encerrado) return false;
+      encerrado = true;
+      window.clearInterval(vigia);
+      return true;
+    };
+    const vigia = window.setInterval(() => {
+      if (Date.now() - ultimoAvanco <= STALL_MS || !terminar()) return;
+      try { xhr.abort(); } catch { /* já encerrado */ }
+      erro(new ApiError(0, 'Um pedaço do vídeo ficou sem avançar por 45 segundos. Tentando novamente.'));
+    }, 5_000);
+    xhr.upload.onprogress = (e) => {
+      if (e.loaded > ultimoCarregado) {
+        ultimoCarregado = e.loaded;
+        ultimoAvanco = Date.now();
+      }
+      onProgresso(Math.min(99, Math.round(((offset + e.loaded) / Math.max(1, total)) * 100)));
+    };
+    xhr.onload = () => {
+      if (!terminar()) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { ok(JSON.parse(xhr.responseText)); } catch { erro(new ApiError(xhr.status, 'Resposta inesperada do servidor.')); }
+        return;
+      }
+      let m = xhr.statusText;
+      try {
+        const d = JSON.parse(xhr.responseText);
+        m = Array.isArray(d?.message) ? d.message.join('; ') : d?.message ?? m;
+      } catch { /* corpo não-JSON */ }
+      erro(new ApiError(xhr.status, m));
+    };
+    xhr.onerror = () => { if (terminar()) erro(new ApiError(0, 'A conexão caiu durante este pedaço.')); };
+    xhr.onabort = () => { if (terminar()) erro(new ApiError(0, 'O envio deste pedaço foi interrompido.')); };
+    xhr.send(corpo);
+  });
+}
+
+/** Envia um pedaço com novas tentativas; o servidor reconhece repetição do mesmo offset sem duplicar os bytes. */
+async function enviarPedaco(url: string, corpo: Blob, offset: number, total: number, onProgresso: (pct: number) => void, tentativas = 3): Promise<any> {
   for (let i = 1; ; i++) {
     try {
-      const token = getToken();
-      const ctrl = new AbortController();
-      const t = window.setTimeout(() => ctrl.abort(), STALL_MS); // pedaço que não responde em 45s: corta e tenta de novo
-      let res: Response;
-      try {
-        res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/octet-stream', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: corpo, signal: ctrl.signal });
-      } finally {
-        window.clearTimeout(t);
-      }
-      if (!res.ok) {
-        let m = res.statusText;
-        try { const d = await res.json(); m = Array.isArray(d?.message) ? d.message.join('; ') : d?.message ?? m; } catch { /* não-JSON */ }
-        // Erro do próprio pedido (ex.: 400 fora de ordem, limite): não adianta repetir.
-        throw new ApiError(res.status, m);
-      }
-      return await res.json();
+      return await enviarPedacoUmaVez(url, corpo, offset, total, onProgresso);
     } catch (e: any) {
       if (e instanceof ApiError && e.status >= 400 && e.status < 500) throw e; // erro do servidor sobre o conteúdo: não repete
       if (i >= tentativas) throw new ApiError(0, `O envio do vídeo falhou (${e?.message ?? e}). Tente de novo.`);
@@ -239,7 +276,8 @@ export async function enviarVideo(projetoId: string, file: File, onProgresso: (p
   do {
     const fim = Math.min(offset + PEDACO, file.size);
     const ehFinal = fim >= file.size;
-    ultimo = await enviarPedaco(`${base}&offset=${offset}&final=${ehFinal ? 1 : 0}`, file.slice(offset, fim));
+    const tamanho = fim - offset;
+    ultimo = await enviarPedaco(`${base}&offset=${offset}&tamanho=${tamanho}&final=${ehFinal ? 1 : 0}`, file.slice(offset, fim), offset, file.size, onProgresso);
     offset = fim;
     onProgresso(Math.min(100, Math.round((offset / Math.max(1, file.size)) * 100)));
   } while (offset < file.size);

@@ -3,7 +3,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { Readable, Transform } from 'node:stream';
+import { Readable, Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as yauzl from 'yauzl';
 
@@ -46,6 +46,22 @@ export function nomeSeguroVideo(raw: unknown): string {
 
 const entradaDir = (midia: string) => path.join(midia, 'entrada');
 const saidaDir = (midia: string) => path.join(midia, 'saida');
+
+/** Consome um corpo repetido sem guardá-lo, conferindo que é exatamente o pedaço que o cliente declarou. */
+async function consumirCorpoExato(corpo: Readable, tamanho: number): Promise<void> {
+  let recebidos = 0;
+  try {
+    await pipeline(corpo, new Writable({
+      write(chunk: Buffer, _enc, cb) {
+        recebidos += chunk.length;
+        cb(recebidos > tamanho ? new Error('TAMANHO') : undefined);
+      },
+    }));
+  } catch {
+    throw new BadRequestException('Repetição do pedaço chegou com tamanho diferente');
+  }
+  if (recebidos !== tamanho) throw new BadRequestException('Repetição do pedaço chegou com tamanho diferente');
+}
 
 /** Grava o vídeo enviado (streaming, sem carregar na memória) em midia/entrada/<id>.<ext>. */
 export async function gravarVideoEnviado(midia: string, nome: string, corpo: Readable): Promise<VideoDaMidia> {
@@ -102,21 +118,58 @@ export async function gravarPedacoDeVideo(
   nome: string,
   uploadId: string,
   offset: number,
+  tamanhoEsperado: number | undefined,
   isFinal: boolean,
   corpo: Readable,
 ): Promise<VideoDaMidia | { ok: true; bytes: number }> {
   const nomeOk = nomeSeguroVideo(nome); // valida a extensão (vídeo/áudio) antes de aceitar pedaços
   if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(uploadId))) throw new BadRequestException('uploadId inválido');
   if (!Number.isInteger(offset) || offset < 0) throw new BadRequestException('offset inválido');
+  if (tamanhoEsperado !== undefined && (!Number.isInteger(tamanhoEsperado) || tamanhoEsperado < 0 || tamanhoEsperado > MAX_VIDEO_BYTES)) {
+    throw new BadRequestException('tamanho do pedaço inválido');
+  }
   const dir = entradaDir(midia);
   const tmpDir = path.join(dir, '.partes');
   fs.mkdirSync(tmpDir, { recursive: true });
   limparPartesVelhas(tmpDir);
   const part = path.join(tmpDir, `${uploadId}.part`);
-  const atual = fs.existsSync(part) ? fs.statSync(part).size : 0;
+  const concluido = path.join(tmpDir, `${uploadId}.done.json`);
+
+  // O último pedaço também é idempotente: se a resposta final se perdeu, devolve o MESMO arquivo/caminho em vez de
+  // tentar criar outro ou deixar o compositor preso em 99%.
+  if (isFinal && tamanhoEsperado !== undefined && fs.existsSync(concluido)) {
+    try {
+      const salvo = JSON.parse(fs.readFileSync(concluido, 'utf8')) as { nome: string; offset: number; tamanho: number; resultado: VideoDaMidia };
+      if (salvo.nome === nomeOk && salvo.offset === offset && salvo.tamanho === tamanhoEsperado && salvo.resultado?.caminho) {
+        await consumirCorpoExato(corpo, tamanhoEsperado);
+        LOG_MIDIA.log(`upload (pedaços) final repetido confirmado "${nomeOk}" → ${salvo.resultado.bytes} bytes`);
+        return salvo.resultado;
+      }
+    } catch (err) {
+      if (err instanceof BadRequestException) throw err;
+      // Marcador corrompido/incompatível: segue para a validação normal, que dará um erro claro de offset.
+    }
+  }
+  let atual = fs.existsSync(part) ? fs.statSync(part).size : 0;
+
+  // A resposta do pedido anterior pode ter se perdido depois que o servidor já gravou tudo. Nesse caso o navegador
+  // repete o MESMO pedaço: consumimos o corpo e confirmamos o offset atual, sem anexar os bytes pela segunda vez.
+  if (tamanhoEsperado !== undefined && offset < atual && offset + tamanhoEsperado === atual) {
+    await consumirCorpoExato(corpo, tamanhoEsperado);
+    LOG_MIDIA.log(`upload (pedaços) repetido confirmado "${nomeOk}" offset ${offset} → ${atual} bytes`);
+    return { ok: true, bytes: atual };
+  }
+
+  // Processo/servidor caiu no meio do pedaço: descarta somente a parte incompleta dele e retoma do offset pedido.
+  if (tamanhoEsperado !== undefined && offset < atual && atual < offset + tamanhoEsperado) {
+    fs.truncateSync(part, offset);
+    atual = offset;
+  }
   if (offset !== atual) throw new BadRequestException(`Pedaço fora de ordem: esperava offset ${atual}, veio ${offset}`);
   let bytes = atual;
   const limite = MAX_VIDEO_BYTES;
+  const t0 = Date.now();
+  LOG_MIDIA.log(`upload (pedaços) recebendo "${nomeOk}" offset ${offset}${tamanhoEsperado === undefined ? '' : ` + ${tamanhoEsperado}`}`);
   const contador = new Transform({
     transform(chunk: Buffer, _enc, cb) {
       bytes += chunk.length;
@@ -130,11 +183,18 @@ export async function gravarPedacoDeVideo(
   try {
     await pipeline(corpo, contador, fs.createWriteStream(part, { flags: 'a' }));
   } catch (err: any) {
-    fs.rmSync(part, { force: true });
+    // Nunca perde os pedaços anteriores por uma queda no pedaço atual: volta exatamente ao tamanho confirmado.
+    try { fs.truncateSync(part, atual); } catch { /* o erro original é mais útil */ }
+    LOG_MIDIA.warn(`upload (pedaços) FALHOU "${nomeOk}" offset ${offset} em ${Date.now() - t0}ms: ${String(err?.message ?? err).slice(0, 160)}`);
     if (err?.estourou) throw new BadRequestException(`O vídeo passa do limite de ${Math.round(limite / 1024 / 1024)} MB`);
     if (err?.code === 'ENOSPC') throw new BadRequestException('Sem espaço em disco no servidor para gravar o vídeo. Libere espaço (ex.: backups antigos) e tente de novo.');
     throw err;
   }
+  if (tamanhoEsperado !== undefined && bytes - atual !== tamanhoEsperado) {
+    fs.truncateSync(part, atual);
+    throw new BadRequestException(`Pedaço incompleto: esperava ${tamanhoEsperado} bytes, recebeu ${bytes - atual}`);
+  }
+  LOG_MIDIA.log(`upload (pedaços) OK "${nomeOk}" offset ${offset} → ${bytes} bytes em ${Date.now() - t0}ms`);
   if (!isFinal) return { ok: true, bytes };
   // Último pedaço: o .part vira o vídeo de verdade em midia/entrada/<id>.
   const e = ext(nomeOk);
@@ -148,7 +208,10 @@ export async function gravarPedacoDeVideo(
     throw new BadRequestException('O vídeo chegou vazio (0 byte).');
   }
   fs.writeFileSync(path.join(dir, `${id}.nome`), nomeOk);
-  return { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
+  const resultado: VideoDaMidia = { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
+  // Pequeno marcador fora da listagem de mídia, limpo junto com restos de upload após 6h.
+  fs.writeFileSync(concluido, JSON.stringify({ nome: nomeOk, offset, tamanho: bytes - atual, resultado }));
+  return resultado;
 }
 
 /** Remove restos de upload em pedaços parados há mais de 6h (envio abandonado). */

@@ -208,16 +208,25 @@ describe('Vídeo completo (cenas juntadas)', () => {
     let fim: any = null;
     for (let i = 0; i < partes.length; i++) {
       const ehFinal = i === partes.length - 1;
-      const r = await chunk({ nome: 'comercial.mp4', id: 'upload-ABC-123', offset: String(off), final: ehFinal ? '1' : '0' }, partes[i]).expect(201);
+      const q = { nome: 'comercial.mp4', id: 'upload-ABC-123', offset: String(off), tamanho: String(partes[i].length), final: ehFinal ? '1' : '0' };
+      const r = await chunk(q, partes[i]).expect(201);
       off += partes[i].length;
       if (ehFinal) fim = r.body;
-      else expect(r.body).toEqual({ ok: true, bytes: off });
+      else {
+        expect(r.body).toEqual({ ok: true, bytes: off });
+        // A resposta pode se perder depois da gravação. Repetir o mesmo pedaço confirma o offset sem duplicá-lo.
+        expect((await chunk(q, partes[i]).expect(201)).body).toEqual({ ok: true, bytes: off });
+      }
     }
     expect(fim.caminho).toMatch(/^midia\/entrada\/[0-9a-f-]+\.mp4$/);
     expect(fim.bytes).toBe(total);
+    // Se só a resposta final se perder, repetir o último pedaço devolve o mesmo resultado (não outro arquivo).
+    const offsetFinal = total - partes[partes.length - 1].length;
+    const finalRepetido = (await chunk({ nome: 'comercial.mp4', id: 'upload-ABC-123', offset: String(offsetFinal), tamanho: String(partes[partes.length - 1].length), final: '1' }, partes[partes.length - 1]).expect(201)).body;
+    expect(finalRepetido).toEqual(fim);
     expect((await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos.find((v: any) => v.caminho === fim.caminho)?.bytes).toBe(total);
     // Pedaço fora de ordem (offset errado) é recusado.
-    await chunk({ nome: 'x.mp4', id: 'upload-XYZ-999', offset: '50', final: '0' }, Buffer.alloc(10)).expect(400);
+    await chunk({ nome: 'x.mp4', id: 'upload-XYZ-999', offset: '50', tamanho: '10', final: '0' }, Buffer.alloc(10)).expect(400);
     // Extensão não-mídia é recusada já no primeiro pedaço.
     await chunk({ nome: 'x.txt', id: 'upload-TXT-000', offset: '0', final: '1' }, Buffer.alloc(10)).expect(400);
   });
