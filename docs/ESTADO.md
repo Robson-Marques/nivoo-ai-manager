@@ -3,6 +3,14 @@
 > Atualizado em 2026-11-18. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Movimentação segura entre trabalho e mídia (2026-11-18)
+
+O processador de `.nivoo/remover.txt` reconhece `midia/...` como a pasta durável oficial do projeto, sem tentar
+validar seu link simbólico como parte física do worktree. Assim a IA pode publicar um SRT em `midia/saida` ou trazer
+um artefato da mídia para o projeto. Se worktree e mídia estiverem em discos distintos, a movimentação usa cópia e
+remoção; caminhos absolutos, protegidos ou fora das duas raízes continuam recusados. Um pedido ruim é registrado como
+recusado e não lança exceção que derrube o worker ou expire sua lease.
+
 ## Comandos em caixa copiável (2026-11-18)
 
 As regras de todos os agentes exigem que uma sequência de comandos destinada ao usuário saia em um único bloco

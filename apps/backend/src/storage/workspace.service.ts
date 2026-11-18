@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { minimalEnv, runProcess } from '../common/exec';
-import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
+import { caminhoDoProjeto, resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -423,9 +423,10 @@ export class WorkspaceService {
 
   /**
    * Remoções e movimentações pedidas pela IA em .nivoo/remover.txt ("caminho" apaga; "mover a -> b" move). Só dentro
-   * da pasta do trabalho, nunca .git/, contexto/, .nivoo/ (caminhoDoProjeto recusa). O arquivo é consumido.
+   * da pasta do trabalho ou da mídia durável do projeto (midia/...), nunca .git/, contexto/, .nivoo/
+   * (caminhoDoProjeto recusa). O arquivo é consumido.
    */
-  aplicarRemocoesPedidas(worktree: string): { feitos: string[]; recusados: string[] } {
+  aplicarRemocoesPedidas(worktree: string, midiaDir?: string): { feitos: string[]; recusados: string[] } {
     const arq = path.join(worktree, '.nivoo', 'remover.txt');
     const feitos: string[] = [];
     const recusados: string[] = [];
@@ -433,33 +434,45 @@ export class WorkspaceService {
     const linhas = fs.readFileSync(arq, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
     fs.rmSync(arq, { force: true });
     for (const linha of linhas.slice(0, 2000)) {
-      const mv = /^mover\s+(.+?)\s*->\s*(.+)$/i.exec(linha);
-      if (mv) {
-        const de = caminhoDoProjeto(mv[1]);
-        const para = caminhoDoProjeto(mv[2]);
-        const origem = de ? resolveInside(worktree, de) : null;
-        if (!de || !para || !origem || !fs.existsSync(origem)) {
+      try {
+        const mv = /^mover\s+(.+?)\s*->\s*(.+)$/i.exec(linha);
+        if (mv) {
+          const de = caminhoDoProjeto(mv[1]);
+          const para = caminhoDoProjeto(mv[2]);
+          const origem = de ? resolveMidiaOuTrabalho(midiaDir, worktree, de) : null;
+          if (!de || !para || !origem || !fs.existsSync(origem)) {
+            recusados.push(linha);
+            continue;
+          }
+          const destino = resolveMidiaOuTrabalho(midiaDir, worktree, para);
+          if (fs.existsSync(destino)) {
+            recusados.push(`${linha} (destino já existe)`);
+            continue;
+          }
+          fs.mkdirSync(path.dirname(destino), { recursive: true });
+          try {
+            fs.renameSync(origem, destino);
+          } catch (e: any) {
+            // Mídia e worktree podem estar em discos diferentes no servidor.
+            if (e?.code !== 'EXDEV') throw e;
+            fs.cpSync(origem, destino, { recursive: true, errorOnExist: true });
+            fs.rmSync(origem, { recursive: true, force: true });
+          }
+          feitos.push(`${de} → ${para}`);
+          continue;
+        }
+        const alvo = caminhoDoProjeto(linha.replace(/^apagar\s+/i, ''));
+        const abs = alvo ? resolveMidiaOuTrabalho(midiaDir, worktree, alvo) : null;
+        if (!alvo || !abs || !fs.existsSync(abs)) {
           recusados.push(linha);
           continue;
         }
-        const destino = resolveInside(worktree, para);
-        if (fs.existsSync(destino)) {
-          recusados.push(`${linha} (destino já existe)`);
-          continue;
-        }
-        fs.mkdirSync(path.dirname(destino), { recursive: true });
-        fs.renameSync(origem, destino);
-        feitos.push(`${de} → ${para}`);
-        continue;
-      }
-      const alvo = caminhoDoProjeto(linha.replace(/^apagar\s+/i, ''));
-      const abs = alvo ? resolveInside(worktree, alvo) : null;
-      if (!alvo || !abs || !fs.existsSync(abs)) {
+        fs.rmSync(abs, { recursive: true, force: true });
+        feitos.push(alvo);
+      } catch {
+        // Um pedido inválido nunca pode derrubar o worker nem fazer a lease expirar.
         recusados.push(linha);
-        continue;
       }
-      fs.rmSync(abs, { recursive: true, force: true });
-      feitos.push(alvo);
     }
     return { feitos, recusados };
   }

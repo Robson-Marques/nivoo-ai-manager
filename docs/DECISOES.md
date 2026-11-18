@@ -2,6 +2,7 @@
 
 | # | Data | Decisão | Motivo |
 |---|---|---|---|
+| 112 | 2026-11-18 | Pedidos em `.nivoo/remover.txt` resolvem `midia/...` pela pasta de mídia durável oficial, inclusive para mover arquivos entre worktree e mídia; movimentação entre discos usa cópia seguida de remoção. Caminho inválido ou protegido é recusado por item e nunca derruba o worker | Correção real do Reel Finanças: ao publicar o SRT em `midia/saida`, o link seguro de mídia era interpretado como saída do worktree, lançava `ForbiddenException`, expirava a lease e repetia o erro interno cinco vezes |
 | 001 | 2026-10-27 | Monorepo npm workspaces: `apps/backend` (NestJS, API + worker) e `apps/web` (React/Vite) | Compartilhar Prisma/serviços entre API e worker sem duplicar código |
 | 002 | 2026-10-27 | Fila persistente em PostgreSQL (`FOR UPDATE SKIP LOCKED` + lease/heartbeat) | Estado e fila na mesma transação; sem dependência extra (Redis); recuperação após queda por expiração de lease |
 | 003 | 2026-10-27 | Prisma 6 (`prisma-client-js`) | Versão estável conhecida; migrações versionadas |

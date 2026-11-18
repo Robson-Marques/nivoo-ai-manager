@@ -333,7 +333,7 @@ export class StepExecutorService {
 
     if (isAi && !result.interrupted) {
       // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
-      const rem = this.workspace.aplicarRemocoesPedidas(worktree);
+      const rem = this.workspace.aplicarRemocoesPedidas(worktree, this.pastaDeMidia(job.project.dirKey));
       if (rem.feitos.length) await L(`Pedido da IA: ${rem.feitos.length} item(ns) apagado(s)/movido(s): ${rem.feitos.slice(0, 50).join(', ')}`, 'INFO', attempt.id);
       if (rem.recusados.length) await L(`Pedidos de remoção recusados (caminho inválido, protegido ou inexistente): ${rem.recusados.slice(0, 30).join('; ')}`, 'WARN', attempt.id);
     }

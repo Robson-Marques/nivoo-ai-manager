@@ -65,12 +65,12 @@ describe('Auditoria preventiva', () => {
     const x = await rodar(p.id, {
       title: 'limpar',
       steps: [
-        { key: 'cria', instructions: 'echo velho > velho.txt && mkdir -p morta && echo x > morta/a.js && echo a > a.txt', verifyCommand: 'test -f a.txt' },
+        { key: 'cria', instructions: 'echo velho > velho.txt && mkdir -p morta && echo x > morta/a.js && echo a > a.txt && echo publicar > publicar.txt', verifyCommand: 'test -f a.txt' },
         {
           key: 'limpa', dependsOn: ['cria'],
           // A IA não tem como apagar: pede ao sistema. A conferência roda DEPOIS das remoções.
-          instructions: "mkdir -p .nivoo && printf 'velho.txt\\nmorta\\nmover a.txt -> docs/a.txt\\n../../fora\\n.git/config\\n' > .nivoo/remover.txt",
-          verifyCommand: 'test ! -e velho.txt && test ! -e morta && test -f docs/a.txt && test ! -e a.txt',
+          instructions: "mkdir -p .nivoo && printf 'velho.txt\\nmorta\\nmover a.txt -> docs/a.txt\\nmover publicar.txt -> midia/saida/publicar.txt\\n../../fora\\n.git/config\\n' > .nivoo/remover.txt",
+          verifyCommand: 'test ! -e velho.txt && test ! -e morta && test -f docs/a.txt && test ! -e a.txt && test -f midia/saida/publicar.txt && test ! -e publicar.txt',
         },
       ],
       criteria: [{ key: 'd', description: 'd', kind: 'FILE_EXISTS', config: { path: 'docs/a.txt' } }],
@@ -78,11 +78,12 @@ describe('Auditoria preventiva', () => {
     ctl('mode', null);
     expect(x.status).toBe('CONCLUIDO');
     const logs = (await h.http().get(`/api/projects/${p.id}/jobs/${x.id}/logs`)).body.map((l: any) => l.message).join('\n');
-    expect(logs).toMatch(/Pedido da IA: 3 item\(ns\) apagado\(s\)\/movido\(s\): velho\.txt, morta, a\.txt → docs\/a\.txt/);
+    expect(logs).toMatch(/Pedido da IA: 4 item\(ns\) apagado\(s\)\/movido\(s\): velho\.txt, morta, a\.txt → docs\/a\.txt, publicar\.txt → midia\/saida\/publicar\.txt/);
     expect(logs).toMatch(/Pedidos de remoção recusados[^\n]*\.\.\/\.\.\/fora[^\n]*\.git\/config/);
     const repo = path.join(p.workspacePath, 'repo');
     expect(fs.existsSync(path.join(repo, 'velho.txt'))).toBe(false);
     expect(fs.readFileSync(path.join(repo, 'docs', 'a.txt'), 'utf8')).toBe('a\n');
+    expect(fs.readFileSync(path.join(p.workspacePath, 'midia', 'saida', 'publicar.txt'), 'utf8')).toBe('publicar\n');
   });
 
   it('a próxima sessão recebe a saída inteira da conferência; instrução com "rm -rf" no texto não pede aprovação', async () => {

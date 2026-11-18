@@ -19,7 +19,8 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
   extras.push(
     '- APAGAR OU MOVER arquivos do projeto (código morto, arquivo esquecido, reorganização): escreva em .nivoo/remover.txt uma',
     '  linha por item — "caminho/do/arquivo-ou-pasta" para apagar, ou "mover antigo/caminho -> novo/caminho". O SISTEMA executa ao',
-    '  fim desta sessão (o git guarda tudo, dá para voltar) e a conferência roda depois. Ajuste as referências (imports, índices) você mesmo.',
+    '  fim desta sessão (o git guarda tudo, dá para voltar) e a conferência roda depois. Caminhos midia/... apontam para a mídia durável',
+    '  do projeto e podem ser origem ou destino. Ajuste as referências (imports, índices) você mesmo.',
   );
   const tipo = tipoDe(providerId);
   const titulo = '## Suas ferramentas nesta sessão (vale sobre qualquer regra do perfil ou instrução da etapa que proíba "terminal" ou "comandos")';
