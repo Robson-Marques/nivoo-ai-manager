@@ -51,6 +51,12 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
           res.writeHead(st, { 'content-type': 'application/json' });
           res.end(JSON.stringify(b));
         };
+        // Kokoro local (OpenAI-compatible): catálogo e síntese mp3, sem chave do Google.
+        if (u.pathname === '/v1/audio/voices' && req.method === 'GET') return json(200, { voices: [{ id: 'pf_dora' }, { id: 'pm_alex' }, { id: 'pm_santa' }] });
+        if (u.pathname === '/v1/audio/speech' && req.method === 'POST') {
+          res.writeHead(200, { 'content-type': 'audio/mpeg' });
+          return res.end(MUSICA);
+        }
         if (chave !== CHAVE) return json(400, { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } });
         // Música (Lyria, generateContent): devolve um mp3 de verdade em base64.
         if (u.pathname === '/v1beta/models/lyria-3-pro-preview:generateContent' && req.method === 'POST') {
@@ -114,6 +120,7 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     });
     await new Promise<void>((ok) => google.listen(0, '127.0.0.1', ok));
     process.env.NIVOO_GEMINI_API_BASE = `http://127.0.0.1:${(google.address() as AddressInfo).port}`;
+    process.env.NIVOO_KOKORO_URL = `http://127.0.0.1:${(google.address() as AddressInfo).port}`;
     h = await createHarness();
     await truncateAll(h.prisma);
     h.worker.start();
@@ -352,5 +359,40 @@ describe('Vídeo com o Veo (API do Gemini simulada)', () => {
     expect(y.status).toBe('CONCLUIDO');
     expect(y.attempts[0].output).toMatch(/narração videos\/v\/v-completo-narracao\.mp3 \(reaproveitada\)/);
     expect(pedidos.filter((r) => r.url.includes('tts')).length).toBe(antes + 1);
+  });
+
+  it('locução Kokoro local usa voz pt-BR, velocidade e pronúncia sem custo nem token; remontagem reaproveita', async () => {
+    const status = (await h.http().get('/api/projects/narracao/status').expect(200)).body;
+    expect(status).toMatchObject({ disponivel: true, vozes: ['pf_dora', 'pm_alex', 'pm_santa'] });
+    const p = (await h.http().post('/api/projects').send({ name: 'Com voz local' }).expect(201)).body;
+    expect(p).toMatchObject({ motorNarracao: 'kokoro', vozNarracao: 'pf_dora', velocidadeNarracao: 1, modoTrilha: 'sem-trilha' });
+    await h.http().patch(`/api/projects/${p.id}`).send({ vozNarracao: 'pm_alex', velocidadeNarracao: 1.05, pronunciasNarracao: { 'Nivoo Dev': 'Nívoo Dév' }, modoTrilha: 'sem-trilha' }).expect(200);
+    const repo = path.join(p.workspacePath, 'repo');
+    fs.mkdirSync(path.join(repo, 'videos', 'k'), { recursive: true });
+    execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=green:size=640x360:rate=24:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path.join(repo, 'videos/k/cena-01.mp4')]);
+    execFileSync('git', ['add', '-A'], { cwd: repo });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'cena'], { cwd: repo });
+    const narrar = async () => {
+      const j = (await h.http().post(`/api/projects/${p.id}/jobs`).send({
+        title: 'narrar localmente', objective: 'x', defaultProvider: 'juntar-videos',
+        steps: [{ key: 'f', provider: 'juntar-videos', instructions: 'junta', providerOptions: { cenas: ['videos/k/cena-01.mp4'], arquivo: 'videos/k/k-completo.mp4', volumeCenas: 0, narracao: { texto: 'Nivoo Dev transforma ideias.', motor: 'kokoro', voz: 'pm_alex', velocidade: 1.05, pronuncias: { 'Nivoo Dev': 'Nívoo Dév' } } } }],
+        criteria: [{ key: 'v', description: 'v', kind: 'FILE_EXISTS', config: { path: 'videos/k/k-completo.mp4' } }],
+      }).expect(201)).body;
+      await h.http().post(`/api/projects/${p.id}/jobs/${j.id}/start`).expect(201);
+      return fim(p.id, j.id);
+    };
+    const antes = pedidos.filter((x) => x.url.includes('/v1/audio/speech')).length;
+    const x = await narrar();
+    expect(x.status).toBe('CONCLUIDO');
+    expect(x.attempts[0].output).toMatch(/Kokoro-82M local, sem token/);
+    expect(Number(x.costSpentUsd)).toBe(0);
+    const pedido = pedidos.filter((r) => r.url.includes('/v1/audio/speech')).pop()!;
+    expect(pedido.chave).toBe('');
+    expect(pedido.corpo).toMatchObject({ model: 'kokoro', voice: 'pm_alex', speed: 1.05, response_format: 'mp3' });
+    expect(pedido.corpo.input).toContain('Nívoo Dév');
+    const y = await narrar();
+    expect(y.status).toBe('CONCLUIDO');
+    expect(y.attempts[0].output).toMatch(/reaproveitada/);
+    expect(pedidos.filter((r) => r.url.includes('/v1/audio/speech')).length).toBe(antes + 1);
   });
 });

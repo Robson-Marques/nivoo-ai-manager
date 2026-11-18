@@ -39,9 +39,9 @@ describe('Modelo pronto Studio Workflow', () => {
     expect(perfil.text).toContain('contexto/base/prompt-alinhamento.md');
   });
 
-  it('modelo pronto "Vídeo com IA (Veo)": instalado, com regras de cenas e o guia; projeto nele recebe as regras', async () => {
+  it('modelo pronto "Vídeo com IA (Omni)": instalado, com regras de cenas e o guia; projeto nele recebe as regras', async () => {
     const m = (await h.http().get('/api/areas/video-veo').expect(200)).body;
-    expect(m.name).toBe('Vídeo com IA (Veo)');
+    expect(m.name).toBe('Vídeo com IA (Omni)');
     const regras = m.instructions[m.instructions.length - 1].text;
     expect(regras).toContain('provider "gemini-video"');
     expect(regras).toContain('contexto/base/guia-de-cenas.md');

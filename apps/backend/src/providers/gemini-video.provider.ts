@@ -35,6 +35,8 @@ export interface OpcoesVideo {
   conexao?: string;
   /** Vídeo com trilha única na montagem: a cena vem sem música própria (só falas e sons do ambiente). */
   semMusica?: boolean;
+  /** A locução será feita depois: pede uma cena totalmente muda e descarta eventual áudio do gerador na montagem. */
+  semAudio?: boolean;
 }
 
 export interface ModeloVeo {
@@ -92,7 +94,7 @@ const OPERACOES = new Map<string, { nome: string; em: number; modelo: string }>(
 @Injectable()
 export class GeminiVideoProvider implements AiProvider {
   readonly id = 'gemini-video';
-  readonly label = 'Vídeo (Google: Gemini Omni / Veo)';
+  readonly label = 'Vídeo (Google: Gemini Omni)';
   readonly kind = 'executor' as const;
   private cache: { chave: string; at: number; modelos: ModeloVeo[] } | null = null;
 
@@ -202,9 +204,11 @@ export class GeminiVideoProvider implements AiProvider {
     const candidatos = escolhido ? [escolhido, ...automatico.filter((m) => m !== escolhido)] : automatico;
     let modelo = candidatos[0];
 
-    const descricao = o.semMusica
-      ? `${req.instructions}\n\nÁudio desta cena: SEM música de fundo e sem trilha sonora — só as falas/narração e os sons do ambiente (a música é colocada depois, única para o vídeo inteiro).`
-      : req.instructions;
+    const descricao = o.semAudio
+      ? `${req.instructions}\n\nEsta cena deve ser totalmente MUDA: sem fala, sem narração, sem música, sem som ambiente e sem efeitos sonoros. A locução será adicionada localmente depois.`
+      : o.semMusica
+        ? `${req.instructions}\n\nÁudio desta cena: SEM música de fundo e sem trilha sonora — só as falas/narração e os sons do ambiente (a música é colocada depois, única para o vídeo inteiro).`
+        : req.instructions;
     const instancia: Record<string, unknown> = { prompt: descricao };
     if (o.imagem) {
       try {
@@ -233,13 +237,13 @@ export class GeminiVideoProvider implements AiProvider {
       operacao = anterior.nome;
       modelo = anterior.modelo;
       op = { done: false };
-      req.onLog(`Veo: retomando a geração já pedida (operação ${operacao}); nada é cobrado de novo`);
+      req.onLog(`Omni: retomando a geração já pedida (operação ${operacao}); nada é cobrado de novo`);
     } else {
       let r: { status: number; json: any } | null = null;
       const recusados: string[] = [];
       for (const m of candidatos) {
         modelo = m;
-        req.onLog(`Veo: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
+        req.onLog(`Omni: pedindo o vídeo ao Google (modelo ${modelo}, ${parameters.durationSeconds ?? 'duração padrão'} s, ${parameters.aspectRatio ?? 'proporção padrão'}), conexão ${k.conexao}`);
         try {
           r = ehOmni(modelo)
             ? await this.chamar(k.chave, 'POST', `${base()}/v1beta/interactions`, this.pedidoOmni(modelo, descricao, instancia, o), req.signal)
@@ -251,7 +255,7 @@ export class GeminiVideoProvider implements AiProvider {
         const msg = String(r.json?.error?.message ?? '');
         if (r.status === 404 || (r.status === 400 && /not found|not supported|is not available|does not exist/i.test(msg))) {
           recusados.push(`${modelo} (${r.status})`);
-          req.onLog(`Veo: o modelo ${modelo} não está disponível para esta chave; tentando o próximo`, 'WARN');
+          req.onLog(`Omni: o modelo ${modelo} não está disponível para esta chave; tentando o próximo`, 'WARN');
           continue;
         }
         break;
@@ -266,7 +270,7 @@ export class GeminiVideoProvider implements AiProvider {
       OPERACOES.set(pedido, { nome: operacao, em: Date.now(), modelo });
       custo = precoPorSegundo(modelo) * segundos;
       op = ehOmni(modelo) ? { ...r.json, done: terminouOmni(r.json) } : r.json;
-      req.onLog(`Veo: gerando (operação ${operacao}); costuma levar de 1 a 6 minutos`);
+      req.onLog(`Omni: gerando (operação ${operacao}); costuma levar de 1 a 6 minutos`);
     }
     const cobrado = { costUsd: custo, costEstimated: true };
 
@@ -280,7 +284,7 @@ export class GeminiVideoProvider implements AiProvider {
       try {
         const p = await this.chamar(k.chave, 'GET', ehOmni(modelo) ? `${base()}/v1beta/interactions/${encodeURIComponent(operacao)}` : `${base()}/v1beta/${operacao}`, undefined, req.signal);
         if (p.status === 429 || p.status >= 500) {
-          req.onLog(`Veo: o Google respondeu ${p.status} ao consultar o andamento; tentando de novo`, 'WARN');
+          req.onLog(`Omni: o Google respondeu ${p.status} ao consultar o andamento; tentando de novo`, 'WARN');
           continue; // passageiro: a geração continua lá
         }
         const f = this.falhaHttp(p);
@@ -291,7 +295,7 @@ export class GeminiVideoProvider implements AiProvider {
         op = ehOmni(modelo) ? { ...p.json, done: terminouOmni(p.json) } : p.json;
       } catch (e: any) {
         if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true, ...cobrado };
-        req.onLog(`Veo: falha ao consultar o andamento (${e?.message}); tentando de novo`, 'WARN');
+        req.onLog(`Omni: falha ao consultar o andamento (${e?.message}); tentando de novo`, 'WARN');
       }
     }
     let amostra: { data?: string; uri?: string } | null;
@@ -326,7 +330,7 @@ export class GeminiVideoProvider implements AiProvider {
     fs.mkdirSync(path.dirname(destino), { recursive: true });
     fs.writeFileSync(destino, bytes);
     OPERACOES.delete(pedido);
-    req.onLog(`Veo: vídeo salvo em ${arquivo} (${(bytes.length / 1024 / 1024).toFixed(1)} MB); custo estimado US$ ${custo.toFixed(2)}${anterior ? ' (já contado na tentativa anterior)' : ''}`);
+    req.onLog(`Omni: vídeo salvo em ${arquivo} (${(bytes.length / 1024 / 1024).toFixed(1)} MB); custo estimado US$ ${custo.toFixed(2)}${anterior ? ' (já contado na tentativa anterior)' : ''}`);
     return {
       exitCode: 0,
       output: `Vídeo gerado: ${arquivo} (${segundos} s, modelo ${modelo}, ${(bytes.length / 1024 / 1024).toFixed(1)} MB)`,

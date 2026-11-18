@@ -33,5 +33,6 @@ jobs:
       # Navegador do Playwright (motion design, fotos das telas, roteiros): o core não baixa sozinho.
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: git config --global user.email ci@localhost && git config --global user.name ci
+      - run: bash -n deploy/nivoo deploy/install-debian.sh deploy/backup-retention.sh
       - run: npm test
       - run: npm run build -w apps/web

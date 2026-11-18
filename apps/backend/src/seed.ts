@@ -9,7 +9,7 @@ import { PrismaService } from './prisma/prisma.service';
 import { WorkspaceService } from './storage/workspace.service';
 import { limparLicoes } from './worker/limpar-licoes';
 import { MODELO_DESLIGADO } from './providers/gemini-video.provider';
-import { LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO } from './areas/area-templates';
+import { findTemplate, LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO } from './areas/area-templates';
 
 /**
  * Roda na instalação e em cada atualização (idempotente): garante o modelo padrão ("Geral") e converte em
@@ -51,7 +51,21 @@ async function main() {
   const regra = video ? await prisma.areaInstruction.findFirst({ where: { areaId: video.id }, orderBy: { version: 'desc' } }) : null;
   if (video && regra?.text.includes(LINHA_VIDEO_ANTIGA)) {
     await app.get(AreasService).newInstructions(video.id, { text: regra.text.replace(LINHA_VIDEO_ANTIGA, LINHA_VIDEO_COMPLETO), author: 'sistema', reason: 'O sistema agora junta as cenas no vídeo completo' });
-    console.log('Modelo "Vídeo com IA (Veo)": regra do vídeo completo atualizada.');
+    console.log('Modelo "Vídeo com IA (Omni)": regras de vídeo e locução atualizadas.');
+  }
+  // Agentes de vídeo já instalados recebem a integração do Kokoro e os nomes atuais do Omni. O slug técnico
+  // `video-veo` é preservado para não quebrar projetos existentes.
+  for (const slug of ['video-veo', 'design-video']) {
+    const area = await prisma.area.findUnique({ where: { slug } });
+    const template = findTemplate(slug);
+    if (!area || !template) continue;
+    const atual = await prisma.areaInstruction.findFirst({ where: { areaId: area.id }, orderBy: { version: 'desc' } });
+    if (!atual?.text.includes('Kokoro local')) {
+      await app.get(AreasService).newInstructions(area.id, { text: template.instructions, author: 'sistema', reason: 'Omni para vídeo e Kokoro local selecionável para locução' });
+    }
+    if (area.name !== template.name || area.description !== template.description) {
+      await prisma.area.update({ where: { id: area.id }, data: { name: template.name, description: template.description } });
+    }
   }
   // Modelo de vídeo escolhido que o Google desligou (Veo na API do Gemini): volta para o automático.
   for (const p of await prisma.project.findMany({ select: { id: true, aiModels: true } })) {

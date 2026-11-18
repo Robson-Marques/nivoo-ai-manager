@@ -216,8 +216,16 @@ model Project {
   sshPedidos    SshPedido[]
   /// Plano que continua um pedido já aprovado começa sozinho (sem esperar o "Fazer")
   seguirSozinho  Boolean   @default(true)
-  /// Voz padrão da narração/locução dos vídeos deste projeto (nome da voz da Gemini TTS; ver providers/vozes.ts)
-  vozNarracao    String    @default("Kore")
+  /// Motor da locução: Kokoro local (sem token) ou Gemini TTS (paga).
+  motorNarracao       String @default("kokoro")
+  /// Voz padrão do motor selecionado; ver providers/vozes.ts.
+  vozNarracao         String @default("pf_dora")
+  /// Velocidade natural do Kokoro (0,75–1,25).
+  velocidadeNarracao  Float  @default(1)
+  /// Substituições aplicadas só ao sintetizador, sem alterar o texto original: {"Nivoo Dev":"Nívoo Dév"}.
+  pronunciasNarracao  Json   @default("{}")
+  /// sem-trilha (Instagram depois), arquivo (enviado) ou ia (Lyria paga).
+  modoTrilha          String @default("sem-trilha")
 }
 
 model Job {

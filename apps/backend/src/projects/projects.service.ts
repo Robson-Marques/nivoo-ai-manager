@@ -17,7 +17,7 @@ import { optNumber, optString, reqString, slugify } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { checkModelName } from '../providers/model-catalog.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { VOZES_NARRACAO, vozConhecida } from '../providers/vozes';
+import { MotorNarracao, VOZES_NARRACAO, vozConhecida, vozPadraoDoMotor } from '../providers/vozes';
 import { WorkspaceService } from '../storage/workspace.service';
 import { BlockedReason } from '../common/status';
 import { ConversationsService } from '../conversations/conversations.service';
@@ -186,12 +186,38 @@ export class ProjectsService {
     }
     if (typeof body?.archived === 'boolean') data.archivedAt = body.archived ? new Date() : null;
     if (typeof body?.seguirSozinho === 'boolean') data.seguirSozinho = body.seguirSozinho;
-    // Voz padrão da narração dos vídeos deste projeto (o seletor de voz da tela).
+    // Locução é independente da trilha: Kokoro local por padrão ou Gemini paga, com voz, velocidade e pronúncias.
+    if (body && 'motorNarracao' in body) {
+      const motor = String(body.motorNarracao ?? '').trim().toLowerCase();
+      if (motor !== 'kokoro' && motor !== 'gemini') throw new BadRequestException('motorNarracao deve ser "kokoro" ou "gemini"');
+      data.motorNarracao = motor;
+      if (!optString(body, 'vozNarracao', 40)) data.vozNarracao = vozPadraoDoMotor(motor as MotorNarracao);
+    }
     const vozNarracao = optString(body, 'vozNarracao', 40);
     if (vozNarracao) {
       const v = vozConhecida(vozNarracao);
       if (!v) throw new BadRequestException(`Voz "${vozNarracao}" não existe. Vozes: ${VOZES_NARRACAO.map((x) => `${x.id} (${x.genero})`).join(', ')}`);
+      if (data.motorNarracao && data.motorNarracao !== v.motor) throw new BadRequestException(`A voz ${v.id} pertence ao motor ${v.motor}, não ao ${data.motorNarracao}`);
+      data.motorNarracao ??= v.motor;
       data.vozNarracao = v.id;
+    }
+    if (body && 'velocidadeNarracao' in body) data.velocidadeNarracao = optNumber(body, 'velocidadeNarracao', 0.75, 1.25);
+    if (body && 'pronunciasNarracao' in body) {
+      if (!body.pronunciasNarracao || typeof body.pronunciasNarracao !== 'object' || Array.isArray(body.pronunciasNarracao)) throw new BadRequestException('pronunciasNarracao deve ser um objeto {"texto original":"pronúncia"}');
+      const entradas = Object.entries(body.pronunciasNarracao);
+      if (entradas.length > 50) throw new BadRequestException('No máximo 50 substituições de pronúncia');
+      const pronuncias: Record<string, string> = {};
+      for (const [de, para] of entradas) {
+        const d = de.trim().slice(0, 100);
+        const p = String(para).trim().slice(0, 100);
+        if (d && p) pronuncias[d] = p;
+      }
+      data.pronunciasNarracao = pronuncias;
+    }
+    if (body && 'modoTrilha' in body) {
+      const modo = String(body.modoTrilha ?? '').trim();
+      if (!['sem-trilha', 'arquivo', 'ia'].includes(modo)) throw new BadRequestException('modoTrilha deve ser sem-trilha, arquivo ou ia');
+      data.modoTrilha = modo;
     }
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });

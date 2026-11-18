@@ -44,12 +44,14 @@
 12. **Login recusado** — se a IA recusar o login (token expirado ou revogado), a conexão aparece como
     "Login recusado pela IA — reconecte" em **Conexões**; clique em conectar de novo. Enquanto isso, dá
     para continuar a conversa com outra IA. Token do Git vencido: ícone da chave na linha → "Trocar o token".
-13. **Vídeos (Veo)** — crie em Conexões uma "Gemini — chave de API" (AI Studio, com cobrança ativada).
-    Em Ajustes → Vídeos escolha o modelo Veo (a lista vem da sua chave). Peça na conversa ("vídeo vertical
+13. **Vídeos (Gemini Omni)** — crie em Conexões uma "Gemini — chave de API" (AI Studio, com cobrança ativada).
+    Em Ajustes → Vídeos escolha o modelo Gemini Omni (a lista vem da sua chave). Peça na conversa ("vídeo vertical
     de 8 s do meu logo girando"); a IA propõe, você clica Fazer, e o `.mp4` aparece no chat e em Arquivos.
     Cobrança do Google por segundo de vídeo; o Nivoo estima e respeita o limite de gasto do projeto.
-    O modelo pronto **"Vídeo com IA (Veo)"** já vem instalado: crie o projeto nele, conte a ideia (e mande uma
+    O modelo pronto **"Vídeo com IA (Omni)"** já vem instalado: crie o projeto nele, conte a ideia (e mande uma
     imagem, se quiser); a IA confere o briefing, monta as cenas e gera um vídeo por cena.
+    Para locução sem token, rode uma vez `nivoo kokoro instalar`; em Ajustes → Vídeos escolha Kokoro, a voz brasileira,
+    velocidade e pronúncias. A trilha é independente: nenhuma (adicione no Instagram), arquivo próprio ou Lyria paga.
 14. **Trabalho até o fim e IA reserva** — trabalhos aprovados na conversa não têm limite de sessões nem de
     tempo. Em Ajustes → "Se a IA parar…", marque as IAs reserva (em ordem): sem crédito/limite, o trabalho
     continua sozinho na próxima, e a conversa avisa. Defina um limite de gasto se usar chaves de API.

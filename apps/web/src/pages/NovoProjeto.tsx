@@ -55,7 +55,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
       setOcupado(false);
     }
   };
-  // Agente de vídeo: a montagem (roteiro, estrutura, legenda) usa Claude/ChatGPT; o Gemini é só para gerar vídeo e voz.
+  // Agente de vídeo: a montagem usa Claude/ChatGPT; o Gemini gera Omni/Lyria e a voz padrão é Kokoro local.
   const agenteDeVideo = modelo === 'design-video' || modelo === 'video-veo';
   const contasMontagem = agenteDeVideo ? contas.filter((c) => c.tipo !== 'gemini-api') : contas;
   useEffect(() => {
@@ -145,7 +145,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
           </div>
           {agenteDeVideo && (
             <span className="muted small">
-              O Gemini não aparece aqui de propósito: a chave do Gemini é usada só para <b>gerar</b> o vídeo e a voz (custa caro). A montagem usa Claude ou ChatGPT, para não queimar o crédito do Gemini.
+              O Gemini não aparece aqui de propósito: a chave dele é usada só para <b>gerar</b> vídeo Omni e, se você escolher, música Lyria. A montagem usa Claude ou ChatGPT e a locução padrão usa Kokoro local, sem token.
             </span>
           )}
           {contasMontagem.length > 0 && !contasMontagem.find((c) => c.id === ia)?.conectado && (

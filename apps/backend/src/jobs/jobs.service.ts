@@ -9,7 +9,7 @@ import { BlockedReason } from '../common/status';
 import { oneOf, optNumber, optString, reqString } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { VOZES_NARRACAO, vozConhecida } from '../providers/vozes';
+import { MotorNarracao, VOZES_NARRACAO, vozConhecida, vozPadraoDoMotor } from '../providers/vozes';
 import { QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
@@ -63,7 +63,7 @@ export class JobsService {
         if (!Number.isInteger(n) || n < 1 || n > 500) throw new BadRequestException(`Etapa ${key}: maxTurns deve ser inteiro entre 1 e 500`);
         providerOptions.maxTurns = n;
       }
-      // Etapa de vídeo (Veo): a descrição do vídeo é a instrução; o sistema confere que o arquivo saiu.
+      // Etapa de vídeo (Omni): a descrição do vídeo é a instrução; o sistema confere que o arquivo saiu.
       let verificacao = verifyCommand;
       if ((provider ?? defaultProvider) === 'gemini-video') {
         Object.assign(providerOptions, opcoesDeVideo(key, opts));
@@ -575,7 +575,9 @@ export function opcoesDeVideo(key: string, o: any): Record<string, unknown> {
   if (o.transicao !== undefined) out.transicao = transicaoValida(key, o.transicao);
   // Trilha de fundo do vídeo completo (na cena: vai para a junção) e cena sem música própria.
   if (o.trilha !== undefined) out.trilha = trilhaValida(key, o.trilha);
+  if (o.narracao !== undefined) out.narracao = narracaoValida(key, o.narracao);
   if (o.semMusica !== undefined) out.semMusica = o.semMusica === true;
+  if (o.semAudio !== undefined) out.semAudio = o.semAudio === true;
   return out;
 }
 
@@ -598,10 +600,10 @@ export function operacoesDeArquivos(key: string, o: any): { remover: string[]; m
 export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'slideup', 'circleopen', 'circleclose', 'smoothleft', 'zoomin', 'corte'];
 
 /** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
-/** Narração (voz): texto para a Gemini locutar OU um áudio do projeto; voz e volume do fundo sob a voz. */
-function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } {
+/** Narração (voz): Kokoro local por padrão, Gemini paga opcional, ou um áudio pronto do projeto. */
+function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number } {
   if (!n || typeof n !== 'object') throw new BadRequestException(`Etapa ${key}: narracao deve ser {"texto":"..."} ou {"arquivo":"audio/voz.mp3"}`);
-  const out: { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } = {};
+  const out: { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number } = {};
   if (n.arquivo !== undefined) {
     const a = caminhoDoProjeto(n.arquivo);
     if (!a || !/\.(mp3|wav|m4a|aac|ogg)$/i.test(a)) throw new BadRequestException(`Etapa ${key}: narracao.arquivo deve ser um áudio do projeto (mp3, wav, m4a, aac, ogg)`);
@@ -609,10 +611,34 @@ function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string
   }
   if (n.texto !== undefined && String(n.texto).trim()) out.texto = String(n.texto).trim().slice(0, 5000);
   if (!out.arquivo && !out.texto) throw new BadRequestException(`Etapa ${key}: narracao precisa de "texto" (voz gerada) ou "arquivo" (áudio do projeto)`);
+  const motor = n.motor === undefined ? undefined : String(n.motor).trim().toLowerCase();
+  if (motor !== undefined && motor !== 'kokoro' && motor !== 'gemini') throw new BadRequestException(`Etapa ${key}: narracao.motor deve ser "kokoro" ou "gemini"`);
+  if (motor) out.motor = motor as MotorNarracao;
   if (n.voz !== undefined && String(n.voz).trim()) {
     const v = vozConhecida(String(n.voz).trim());
     if (!v) throw new BadRequestException(`Etapa ${key}: narracao.voz "${String(n.voz).trim()}" não existe. Vozes: ${VOZES_NARRACAO.map((x) => `${x.id} (${x.genero})`).join(', ')}`);
+    if (out.motor && v.motor !== out.motor) throw new BadRequestException(`Etapa ${key}: a voz ${v.id} pertence ao motor ${v.motor}, não ao ${out.motor}`);
+    out.motor ??= v.motor;
     out.voz = v.id;
+  } else if (out.motor) {
+    out.voz = vozPadraoDoMotor(out.motor);
+  }
+  if (n.velocidade !== undefined) {
+    const v = Number(n.velocidade);
+    if (!(v >= 0.75 && v <= 1.25)) throw new BadRequestException(`Etapa ${key}: narracao.velocidade deve ficar entre 0.75 e 1.25`);
+    out.velocidade = v;
+  }
+  if (n.pronuncias !== undefined) {
+    if (!n.pronuncias || typeof n.pronuncias !== 'object' || Array.isArray(n.pronuncias)) throw new BadRequestException(`Etapa ${key}: narracao.pronuncias deve ser um objeto {"texto original":"pronúncia"}`);
+    const entradas = Object.entries(n.pronuncias);
+    if (entradas.length > 50) throw new BadRequestException(`Etapa ${key}: narracao.pronuncias aceita no máximo 50 substituições`);
+    const pronuncias: Record<string, string> = {};
+    for (const [de, para] of entradas) {
+      const d = de.trim().slice(0, 100);
+      const p = String(para).trim().slice(0, 100);
+      if (d && p) pronuncias[d] = p;
+    }
+    if (Object.keys(pronuncias).length) out.pronuncias = pronuncias;
   }
   if (n.volumeFundoSobVoz !== undefined) {
     const v = Number(n.volumeFundoSobVoz);
@@ -690,7 +716,7 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
 }
 
 /**
- * Plano com duas ou mais cenas de vídeo ganha, sozinho, a etapa final que junta tudo num vídeo só (o Veo
+ * Plano com duas ou mais cenas de vídeo ganha, sozinho, a etapa final que junta tudo num vídeo só (o Omni
  * gera de 4 a 8 s por vez; quem pediu o vídeo quer o vídeo inteiro). Se o plano já tem a etapa, nada muda.
  * Nome do final: `<pasta das cenas>/<pasta>-completo.mp4` (ex.: videos/pizzaria/pizzaria-completo.mp4).
  */
@@ -703,8 +729,13 @@ export function comVideoCompleto(entrada: unknown, defaultProvider: string): unk
   // Com trilha de fundo, as cenas vêm SEM música própria (só falas e sons do ambiente): a música corre única,
   // de ponta a ponta, na montagem.
   const trilha = cenas.map((s: any) => s.providerOptions?.trilha).find((t: unknown) => t);
+  const narracao = cenas.map((s: any) => s.providerOptions?.narracao).find((n: unknown) => n);
   if (trilha) {
     raw = raw.map((s: any) => (cenas.includes(s) ? { ...s, providerOptions: { ...(s.providerOptions ?? {}), semMusica: true } } : s));
+    cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
+  }
+  if (narracao) {
+    raw = raw.map((s: any) => (cenas.includes(s) ? { ...s, providerOptions: { ...(s.providerOptions ?? {}), semAudio: true } } : s));
     cenas = raw.filter((s: any) => (s?.provider ?? defaultProvider) === 'gemini-video' && typeof s?.key === 'string');
   }
   const arquivos = cenas.map((s: any) => caminhoDoProjeto(s.providerOptions?.arquivo ?? `videos/${s.key}.mp4`));
@@ -732,6 +763,7 @@ export function comVideoCompleto(entrada: unknown, defaultProvider: string): unk
         ...(cenas.some((s: any) => String(s.providerOptions?.legenda ?? '').trim()) ? { legendas: cenas.map((s: any) => String(s.providerOptions?.legenda ?? '').trim()) } : {}),
         ...(cenas.some((s: any) => s.providerOptions?.transicao) ? { transicoes: cenas.slice(0, -1).map((s: any) => String(s.providerOptions?.transicao ?? 'fade')) } : {}),
         ...(trilha ? { trilha } : {}),
+        ...(narracao ? { narracao, volumeCenas: 0 } : {}),
       },
     },
   ];

@@ -1,7 +1,16 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
-> Atualizado em 2026-11-16. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
+> Atualizado em 2026-11-18. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
+
+## Locução Kokoro local e trilha independente (2026-11-18)
+
+O projeto escolhe entre **Kokoro local** (padrão, sem token) e **Gemini TTS** (paga). O Kokoro usa as vozes brasileiras
+`pf_dora`, `pm_alex` e `pm_santa`, aceita velocidade de 0,75× a 1,25× e substituições fonéticas que só alteram a cópia
+enviada ao sintetizador. A tela de Ajustes permite ouvir uma amostra. `juntar-videos` reaproveita a locução já gerada,
+faz ducking, protege contra clipping e segura o último quadro se a fala passar da imagem. Com locução separada, o Omni
+gera cenas mudas e o som residual é descartado. Música é outra escolha: **sem trilha** (para o Instagram), arquivo do
+usuário ou Lyria paga. O serviço é instalado com `nivoo kokoro instalar`, via imagem CPU v0.10.0 presa a 127.0.0.1.
 
 ## Login por usuário e senha; domínio próprio sem limite de upload (2026-11-18)
 
@@ -803,7 +812,7 @@ US$ 5, lições de infraestrutura, projeto ligado ao Git sem versionamento). Cor
   ajuste antigo do Gemini pela conta sai do banco. `nivoo dominio status` sem domínio e túnel existente sem
   credencial no servidor tratados. OCR ausente não recusa PDF que tem algum texto.
 
-## Modelo pronto "Vídeo com IA (Veo)" (2026-11-15)
+## Modelo pronto "Vídeo com IA (Omni)" (criado originalmente para o Veo; atualizado em 2026-11-18)
 
 Já vem instalado. Regras: confere o briefing (objetivo, formato 9:16/16:9, duração, cenas, estilo, falas,
 marca) e pergunta o que faltar; uma etapa de vídeo por cena (4–8 s, `videos/<nome>/cena-NN.mp4`),

@@ -6,16 +6,18 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
-import { VOZ_PADRAO } from './vozes';
+import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias } from './kokoro-tts.service';
+import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
+type Narracao = { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Pronuncias; volumeFundoSobVoz?: number };
 
 /** Modelos de música do Google (Lyria), do mais completo ao clipe de 30 s. */
 const MODELOS_MUSICA = ['lyria-3-pro-preview', 'lyria-3-clip-preview'];
 const MODELOS_VOZ = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'];
 
 /**
- * Junta as cenas geradas (Veo gera 4–8 s por vez) num vídeo só, na ordem do plano, com o ffmpeg do servidor.
+ * Junta as cenas geradas (Omni gera clipes curtos) num vídeo só, na ordem do plano, com o ffmpeg do servidor.
  * Sem IA e sem custo. Cada cena é padronizada (mesmo tamanho da primeira, 24 quadros/s, H.264 + AAC; cena
  * sem som ganha silêncio) e depois as cenas são emendadas sem perder qualidade de novo. As cenas continuam
  * na pasta (dá para trocar uma e juntar de novo).
@@ -26,7 +28,10 @@ export class JuntarVideosProvider implements AiProvider {
   readonly label = 'Juntar cenas em um vídeo (sistema)';
   readonly kind = 'executor' as const;
 
-  constructor(private readonly video: GeminiVideoProvider) {}
+  constructor(
+    private readonly video: GeminiVideoProvider,
+    private readonly kokoro: KokoroTtsService,
+  ) {}
 
   async checkAvailability(): Promise<ProviderStatus> {
     const r = await runProcess('ffmpeg', ['-hide_banner', '-version'], { cwd: os.tmpdir(), env: minimalEnv(), timeoutMs: 15_000 });
@@ -45,7 +50,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: { texto?: string; arquivo?: string; voz?: string; volumeFundoSobVoz?: number } };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -172,7 +177,8 @@ export class JuntarVideosProvider implements AiProvider {
             trilhaInfo = `trilha gerada (${g.modelo}) em ${guardada}`;
           }
         }
-        // 2) NARRAÇÃO (voz): um áudio do projeto, ou gerada pela Gemini TTS (reaproveitada quando texto/voz não mudam).
+        // 2) NARRAÇÃO (voz): áudio do projeto, Kokoro local (grátis) ou Gemini TTS (paga). O cache inclui todas
+        // as escolhas que mudam o som; remontar o vídeo com a mesma locução nunca sintetiza nem cobra de novo.
         let voz: string | null = null;
         let vozInfo = '';
         if (o.narracao?.arquivo) {
@@ -184,13 +190,29 @@ export class JuntarVideosProvider implements AiProvider {
           const meta = o.arquivo.replace(/\.mp4$/i, '-narracao.txt');
           const absG = this.resolver(req, guardada);
           const absM = this.resolver(req, meta);
-          const chaveCache = `${o.narracao.voz ?? VOZ_PADRAO}\n${o.narracao.texto.trim()}`;
+          const vozEscolhida = o.narracao.voz ?? (o.narracao.motor === 'gemini' ? VOZ_PADRAO_GEMINI : VOZ_PADRAO);
+          const motor = o.narracao.motor ?? vozConhecida(vozEscolhida)?.motor ?? 'kokoro';
+          const velocidade = o.narracao.velocidade ?? 1;
+          const pronuncias = o.narracao.pronuncias ?? {};
+          const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: o.narracao.texto.trim() });
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
             voz = absG;
             vozInfo = `narração ${guardada} (reaproveitada)`;
           } else {
-            req.onLog(`Gerando a narração com a Gemini (voz ${o.narracao.voz ?? VOZ_PADRAO}): ${o.narracao.texto!.slice(0, 120)}`);
-            const g = await this.gerarNarracao(o.narracao.texto!.trim(), o.narracao.voz ?? VOZ_PADRAO, req);
+            let g: { bytes: Buffer; mime: string; modelo: string; custo: number } | { erro: string; indisponivel?: boolean };
+            if (motor === 'kokoro') {
+              req.onLog(`Gerando a narração local, sem token, com o Kokoro (voz ${vozEscolhida}, velocidade ${velocidade}): ${o.narracao.texto!.slice(0, 120)}`);
+              try {
+                const local = await this.kokoro.gerar(o.narracao.texto!.trim(), vozEscolhida, velocidade, pronuncias, req.signal);
+                g = { bytes: local.bytes, mime: local.mime, modelo: local.modelo, custo: 0 };
+              } catch (e: any) {
+                const k = e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e?.message ?? e));
+                g = { erro: k.message, indisponivel: k.indisponivel };
+              }
+            } else {
+              req.onLog(`Gerando a narração paga com a Gemini (voz ${vozEscolhida}): ${o.narracao.texto!.slice(0, 120)}`);
+              g = await this.gerarNarracaoGemini(aplicarPronuncias(o.narracao.texto!.trim(), pronuncias), vozEscolhida, req);
+            }
             if ('erro' in g) return { exitCode: 1, output: '', error: `não consegui gerar a narração: ${g.erro}`, resourceUnavailable: g.indisponivel, costUsd: custo, costEstimated: !!custo };
             fs.mkdirSync(path.dirname(absG), { recursive: true });
             const conv = await this.audioParaMp3(g.bytes, g.mime, absG, tmp);
@@ -198,7 +220,7 @@ export class JuntarVideosProvider implements AiProvider {
             fs.writeFileSync(absM, `${chaveCache.trim()}\n`);
             voz = absG;
             custo += g.custo;
-            vozInfo = `narração gerada (${g.modelo}) em ${guardada}`;
+            vozInfo = `narração gerada (${g.modelo}${motor === 'kokoro' ? ', sem token' : ''}) em ${guardada}`;
           }
         }
         const nDur = voz ? await durDe(voz) : 0;
@@ -334,7 +356,7 @@ export class JuntarVideosProvider implements AiProvider {
    * Narração (voz) pela Gemini (TTS, generateContent com responseModalities AUDIO + speechConfig): devolve o áudio da
    * locução do texto, na voz escolhida. Custo estimado por narração.
    */
-  private async gerarNarracao(texto: string, voz: string, req: ExecutionRequest): Promise<{ bytes: Buffer; mime: string; modelo: string; custo: number } | { erro: string; indisponivel?: boolean }> {
+  private async gerarNarracaoGemini(texto: string, voz: string, req: ExecutionRequest): Promise<{ bytes: Buffer; mime: string; modelo: string; custo: number } | { erro: string; indisponivel?: boolean }> {
     const k = this.video.chave();
     if (!k) return { erro: 'sem conexão "Gemini — chave de API" com chave salva (crie em Conexões)', indisponivel: true };
     const base = (process.env.NIVOO_GEMINI_API_BASE ?? 'https://generativelanguage.googleapis.com').replace(/\/+$/, '');

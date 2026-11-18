@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, ServiceUnavailableException } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
@@ -6,12 +6,14 @@ import { ProjectsService } from './projects.service';
 import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
 import { streamMedia } from '../common/media-stream';
+import { KokoroTtsError, KokoroTtsService } from '../providers/kokoro-tts.service';
 
 @Controller('projects')
 export class ProjectsController {
   constructor(
     private readonly projects: ProjectsService,
     private readonly previa: PreviaService,
+    private readonly kokoro: KokoroTtsService,
   ) {}
 
   @Get()
@@ -30,6 +32,12 @@ export class ProjectsController {
     return VOZES_NARRACAO;
   }
 
+  /** Estado do serviço local e vozes pt-BR realmente instaladas. */
+  @Get('narracao/status')
+  statusDaNarracao() {
+    return this.kokoro.status();
+  }
+
   @Get(':pid')
   get(@Param('pid', ParseUUIDPipe) pid: string) {
     return this.projects.get(pid);
@@ -38,6 +46,25 @@ export class ProjectsController {
   @Patch(':pid')
   update(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any) {
     return this.projects.update(pid, body);
+  }
+
+  /** Amostra curta para escolher voz e conferir pronúncia antes de renderizar o vídeo. */
+  @Post(':pid/narracao/teste')
+  async testarNarracao(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any, @Res() res: Response) {
+    const projeto = await this.projects.get(pid);
+    if (projeto.motorNarracao !== 'kokoro') throw new BadRequestException('A amostra local está disponível quando o motor selecionado é Kokoro');
+    const texto = String(body?.texto ?? 'Olá. Esta é uma amostra da narração do seu vídeo.').trim().slice(0, 500);
+    let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
+    try {
+      audio = await this.kokoro.gerar(texto, projeto.vozNarracao, projeto.velocidadeNarracao, (projeto.pronunciasNarracao ?? {}) as Record<string, string>);
+    } catch (e: any) {
+      if (e instanceof KokoroTtsError && e.indisponivel) throw new ServiceUnavailableException(e.message);
+      throw new BadRequestException(e?.message ?? String(e));
+    }
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Length', String(audio.bytes.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(audio.bytes);
   }
 
   @Delete(':pid')

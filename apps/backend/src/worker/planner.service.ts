@@ -47,7 +47,7 @@ function textoDosVideos(videos: ReturnType<typeof listarVideos>): string[] {
   if (!enviados.length) return [];
   const mb = (b: number) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
   return [
-    `Vídeos e áudios (trilha/narração) que o usuário já enviou para EDITAR/MONTAR (use estes caminhos; .wav/.mp3 é trilha ou locução própria, use como áudio na montagem; são ffmpeg, sem Veo e sem custo): ${enviados
+    `Vídeos e áudios (trilha/narração) que o usuário já enviou para EDITAR/MONTAR (use estes caminhos; .wav/.mp3 é trilha ou locução própria, use como áudio na montagem; são ffmpeg, sem Omni e sem custo): ${enviados
       .slice(0, 40)
       .map((v) => `${v.caminho} (${v.nome}, ${mb(v.bytes)})`)
       .join('; ')}. O vídeo editado sai em midia/saida/<nome>.mp4 (fora do git).`,
@@ -394,7 +394,7 @@ export class PlannerService {
     ].join('\n');
   }
 
-  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null; projetoOrigemId?: string | null; vozNarracao: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
+  private async buildPrompt(conversationId: string, messageId: string, project: { id: string; dirKey: string; gitUrl: string | null; gitBranch: string | null; projetoOrigemId?: string | null; vozNarracao: string; motorNarracao: string; velocidadeNarracao: number; pronunciasNarracao: unknown; modoTrilha: string }, profileText: string, anexos: Array<Anexo & { mensagem: string; caminho: string }> = [], entrega: string | null = null, providerId = '', resultados: string[] = []) {
     const videoDisponivel = this.registry.has('gemini-video') && (await this.registry.status('gemini-video', 15_000)).available;
     const [memoria, historico] = await Promise.all([
       this.prisma.memoryEntry.findMany({ where: { projectId: project.id, supersededById: null, camada: 'PROJETO' } }),
@@ -433,7 +433,8 @@ export class PlannerService {
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
       ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
-      `Voz padrão da narração/locução deste projeto: ${descreverVoz(project.vozNarracao)}. Quando houver narração, use ESTA voz (narracao.voz), a não ser que o usuário peça outra na conversa.`,
+      `Locução deste projeto: motor ${project.motorNarracao === 'gemini' ? 'Gemini TTS paga (usa token)' : 'Kokoro local (grátis, sem token)'}, voz ${descreverVoz(project.vozNarracao)}, velocidade ${project.velocidadeNarracao}. Pronúncias: ${JSON.stringify(project.pronunciasNarracao ?? {})}. Quando houver narração por texto, copie estas escolhas para narracao.motor, narracao.voz, narracao.velocidade e narracao.pronuncias.`,
+      `Trilha padrão do projeto: ${project.modoTrilha === 'ia' ? 'gerar com IA/Lyria (paga)' : project.modoTrilha === 'arquivo' ? 'usar um arquivo de música enviado pelo usuário' : 'sem trilha no MP4 (o usuário pode adicionar música depois no Instagram)'}. Locução e trilha são independentes.`,
       ...(await contextoDaOrigem(this.prisma, this.workspace, project.projetoOrigemId)),
       '',
       '## Memória do projeto (decisões, restrições, lições, pendências)',
@@ -521,21 +522,27 @@ export class PlannerService {
             '  vídeo completo no tempo certo e salva também o .srt. Transição para a cena seguinte (opcional, padrão "fade"): fade,',
             '  fadeblack (passa pelo preto), fadewhite, dissolve, wipeleft, wiperight, slideleft, slideright, slideup, circleopen,',
             '  circleclose, smoothleft, zoomin ou corte. Se ele não disse, use transição "fade" e sem legenda, e conte no texto (ele muda depois).',
-            '  TRILHA DE FUNDO (vídeo com várias cenas): uma música só, de ponta a ponta, que abaixa sozinha quando há fala. Coloque na',
+            '  TRILHA DE FUNDO (independente da locução): respeite a preferência do projeto. "sem-trilha" = NÃO inclua trilha (o usuário',
+            '  pode escolher uma música depois no Instagram); "arquivo" = use "trilha":{"arquivo":"audio/musica.mp3"}; "ia" = use',
+            '  Lyria com "trilha":{"descricao":"estilo, instrumentos, clima, andamento"} (paga). Quando houver trilha: uma música só,',
+            '  de ponta a ponta, que abaixa sozinha quando há fala. Coloque na',
             '  PRIMEIRA cena "trilha":{"arquivo":"audio/musica.mp3"} (música do usuário, anexada no chat e posta no projeto com',
             '  "anexosNoProjeto": GRÁTIS) ou "trilha":{"descricao":"estilo, instrumentos, clima, andamento"} (o Google compõe: custa',
-            '  cerca de US$ 0,08). Com trilha, o sistema pede cada cena SEM música própria. Se ele não disse, use a trilha composta pelo Google e conte no texto.',
+            '  cerca de US$ 0,08). Com trilha, o sistema pede cada cena SEM música própria. Nunca gere trilha se a preferência for sem-trilha.',
             '  NARRAÇÃO / LOCUÇÃO (voz por cima do vídeo inteiro): coloque na PRIMEIRA cena, ou na etapa que junta/edita,',
-            '  "narracao":{"texto":"o que a voz vai dizer, em português"} (o Google fala com a Gemini TTS: custa cerca de US$ 0,03) —',
+            '  "narracao":{"texto":"o que a voz vai dizer, em português","motor":"kokoro","voz":"pf_dora","velocidade":1,',
+            '  "pronuncias":{"Nivoo Dev":"Nívoo Dév"}}. Kokoro é LOCAL, GRÁTIS e não usa token. Use as preferências do projeto. Só use',
+            '  "motor":"gemini" e uma voz Gemini quando o usuário selecionar explicitamente a opção paga —',
             '  ou "narracao":{"arquivo":"audio/locucao.mp3"} para uma voz que o usuário já gravou e pôs no projeto (GRÁTIS). A voz entra',
             '  em PRIMEIRO plano e o fundo (cenas + trilha) abaixa sozinho enquanto ela fala e volta nos silêncios. Escolha a voz com',
-            '  "voz":"Kore" (vozes da Gemini; Kore é o padrão) e, se quiser, "volumeFundoSobVoz":0.35 (0–1: quanto do fundo fica sob a voz).',
+            '  e, se quiser, "volumeFundoSobVoz":0.35 (0–1: quanto do fundo fica sob a voz). Com locução separada, gere as cenas do Omni',
+            '  com semAudio:true; a montagem descarta qualquer som residual das cenas e coloca a voz local depois.',
             '  Juntar de novo com o MESMO texto reaproveita a locução já gerada, sem pagar outra. Narração é a VOZ falada; legenda é o texto escrito na tela — dá para usar as duas.',
             '  Tudo da montagem (juntar, transição, legenda, trilha, narração, volume) é feito pelo servidor, sem IA e sem custo; só gerar',
-            '  cena e gerar música usa o Google. Prefira sempre o caminho sem custo quando ele atender.',
+            '  cena e gerar música usa o Google. Kokoro não gera música: ele faz apenas locução. Prefira sempre o caminho sem custo quando ele atender.',
             '  ECONOMIA DO GEMINI: o roteiro, a estrutura, a divisão em cenas, o texto das legendas/narração e o código do motion são SEU',
-            '  trabalho (a IA deste projeto) — não gastam a chave do Gemini. O Gemini (caro) entra SÓ para GERAR a mídia: vídeo (Veo/Omni),',
-            '  música (Lyria) e voz (TTS). Monte tudo primeiro e deixe as chamadas ao Gemini só para o que precisa mesmo ser gerado.',
+            '  trabalho (a IA deste projeto) — não gastam a chave do Gemini. O Gemini (caro) entra SÓ para GERAR a mídia: vídeo (Omni),',
+            '  música (Lyria). A locução Kokoro é local. Monte tudo primeiro e deixe as chamadas ao Gemini só para vídeo e, se escolhido, música.',
             '  Proporção: "16:9" (horizontal) ou "9:16" (vertical, para celular/stories). Cada vídeo é cobrado por segundo pelo Google:',
             '  diga no "texto" quantos vídeos e quantos segundos serão. Imagem anexada no chat como primeiro quadro: coloque-a no projeto',
             '  com "anexosNoProjeto" e use o mesmo caminho em "imagem". Não precisa de verifyCommand: o sistema confere o arquivo.',
@@ -548,7 +555,7 @@ export class PlannerService {
             '  "refaça a montagem", ou depois de refazer só uma cena), use uma etapa do sistema:',
             '  {"key":"juntar","title":"Juntar as cenas no vídeo completo","provider":"juntar-videos","instructions":"junta as cenas na ordem",',
             '   "providerOptions":{"cenas":["videos/<nome>/cena-01.mp4","videos/<nome>/cena-02.mp4"],"arquivo":"videos/<nome>/<nome>-completo.mp4",',
-            '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"trilha":{"descricao":"..."},"narracao":{"texto":"...","voz":"Kore"},"volumeCenas":1}}',
+            '   "legendas":["legenda da cena 1","legenda da cena 2"],"transicoes":["fade"],"narracao":{"texto":"...","motor":"kokoro","voz":"pf_dora","velocidade":1},"volumeCenas":0}}',
             '  (opcionais; volumeCenas 0–1 abaixa o som que veio nas cenas — 0 deixa só a trilha, útil quando as cenas já têm música',
             '  própria e não têm fala; com fala, abaixar demais some com a fala).',
             '  VÍDEO PRONTO (o usuário já editou/cortou em outro lugar e só quer SOM): use o vídeo inteiro como ÚNICA cena',
@@ -561,13 +568,13 @@ export class PlannerService {
             '  O vídeo pode nem ter áudio próprio (prévia muda) — tudo bem, a música/voz viram a trilha. O sistema deixa o vídeo do',
             '  TAMANHO DO ÁUDIO: se a narração passar do vídeo, segura o último quadro até a fala acabar (nunca corta pela metade).',
             '  Quando houver NARRAÇÃO (voz), a legenda é OPCIONAL; se usar, deixe CURTA (poucas palavras), nunca a fala inteira na tela.',
-            '  EDIÇÃO (vídeos que o usuário JÁ ENVIOU, sem gerar com o Veo): a MESMA etapa "juntar-videos" edita. Os vídeos enviados',
+            '  EDIÇÃO (vídeos que o usuário JÁ ENVIOU, sem gerar com o Omni): a MESMA etapa "juntar-videos" edita. Os vídeos enviados',
             '  estão listados acima com o caminho midia/entrada/<arquivo> — use ESSES caminhos em "cenas", na ordem desejada, e o',
             '  "arquivo" final em midia/saida/<nome>.mp4 (a mídia fica fora do git). Para RECORTAR/ACELERAR cada clipe:',
             '  "cortes":[{"inicio":1.5,"fim":8},{"velocidade":2}] (alinhado com "cenas"; inicio/fim em segundos, velocidade 0.25–8;',
             '  null ou {} = clipe inteiro). Reordenar = mudar a ordem de "cenas". Também valem legendas, transicoes e trilha.',
-            '  Tudo isso (cortar, juntar, transição, legenda, trilha, acelerar) é ffmpeg no servidor: SEM Veo e SEM custo. Só use o',
-            '  Veo para gerar um trecho NOVO quando o usuário pedir de verdade; para "editar o que já tenho", nunca gere com o Veo.',
+            '  Tudo isso (cortar, juntar, transição, legenda, trilha, acelerar) é ffmpeg no servidor: SEM Omni e SEM custo. Só use o',
+            '  Omni para gerar um trecho NOVO quando o usuário pedir de verdade; para "editar o que já tenho", nunca gere com o Omni.',
             '  A IA "VER" o vídeo e SUGERIR cortes: primeiro uma etapa de sistema (provider "local-shell") que roda',
             '  nivoo-analisar-video midia/entrada/<arquivo> --pasta out/analise/<nome> (extrai 1 quadro/s e aponta trechos escuros,',
             '  silêncios e cortes de cena — ffmpeg, grátis); depois uma etapa de IA que ABRE os quadros out/analise/<nome>/quadro-*.jpg',
@@ -575,13 +582,13 @@ export class PlannerService {
             '  verdade (juntar-videos com cortes) depois que o usuário aprovar. Ex. das duas etapas:',
             '  {"key":"analisar","provider":"local-shell","instructions":"nivoo-analisar-video midia/entrada/<arq> --pasta out/analise/<nome>","verifyCommand":"test -s out/analise/<nome>/resumo.md"},',
             '  {"key":"sugerir","instructions":"Abra out/analise/<nome>/resumo.md e os quadros e escreva out/analise/<nome>/sugestoes.md com cortes.","verifyCommand":"test -s out/analise/<nome>/sugestoes.md"}',
-            '  MOTION DESIGN (animação de código, SEM Veo e SEM custo de vídeo): para abertura, título animado, lower-third, logo,',
+            '  MOTION DESIGN (animação de código, SEM Omni e SEM custo de vídeo): para abertura, título animado, lower-third, logo,',
             '  explicação com texto e formas em movimento. A IA escreve a animação em motion/<nome>/index.html (HTML/CSS/JS, um',
             '  arquivo, sem internet; declare a duração em window.__motionSegundos e, no fim, window.__motionFim=true). Uma etapa de',
             '  sistema (provider "local-shell") renderiza para vídeo:',
             '  {"key":"render","provider":"local-shell","instructions":"nivoo-renderizar-motion motion/<nome> --saida midia/saida/<nome>.mp4 --segundos 15 --tamanho 1920x1080","verifyCommand":"true"}.',
             '  Depois dá para somar MÚSICA de fundo, NARRAÇÃO (voz), LEGENDA e juntar com outras cenas na etapa juntar-videos (cenas:["midia/saida/<nome>.mp4"]).',
-            '  Prefira Motion Design (barato) a Veo quando o pedido é animação/apresentação; o Veo é para filmagem realista.',
+            '  Prefira Motion Design (barato) ao Omni quando o pedido é animação/apresentação; o Omni é para filmagem realista.',
           ]
         : []),
       ...(resultados.length

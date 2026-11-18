@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useProjetos } from '../Layout';
-import { api, nomeUsuario } from '../api';
+import { api, apiBlob, nomeUsuario } from '../api';
 import { EditorDeRegras, Materiais, SeletorModelo } from '../Pecas';
 
 const ESTADO: Record<string, string> = { PENDENTE: 'na fila', EXECUTANDO: 'trabalhando', AGUARDANDO_RECURSO: 'esperando a IA', AGUARDANDO_APROVACAO: 'esperando sua confirmação' };
@@ -275,29 +275,82 @@ function VideoDoProjeto({ projeto, onMudou }: { projeto: any; onMudou: () => voi
   );
 }
 
-/** Seletor da voz da narração (locução): voz da Gemini TTS, mostrando se é feminina ou masculina. */
+/** Locução é separada da trilha: Kokoro local/grátis por padrão ou Gemini paga quando selecionada. */
 function SeletorDeVoz({ projeto, onMudou }: { projeto: any; onMudou: () => void }) {
-  const [vozes, setVozes] = useState<Array<{ id: string; genero: string; estilo: string }>>([]);
+  type Voz = { id: string; motor: 'kokoro' | 'gemini'; idioma: string; genero: string; estilo: string };
+  const [vozes, setVozes] = useState<Voz[]>([]);
+  const [status, setStatus] = useState<{ disponivel: boolean; vozes: string[]; erro?: string } | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [testando, setTestando] = useState(false);
+  const [textoTeste, setTextoTeste] = useState('Nivoo Dev. Sua locução local em português brasileiro.');
+  const pronunciasIniciais = () => Object.entries((projeto.pronunciasNarracao ?? {}) as Record<string, string>).map(([a, b]) => `${a} = ${b}`).join('\n');
+  const [pronuncias, setPronuncias] = useState(pronunciasIniciais);
   useEffect(() => {
-    api<any[]>('/projects/vozes-narracao').then(setVozes).catch(() => undefined);
+    api<Voz[]>('/projects/vozes-narracao').then(setVozes).catch(() => undefined);
+    api<any>('/projects/narracao/status').then(setStatus).catch(() => undefined);
   }, []);
-  const femininas = vozes.filter((v) => v.genero === 'feminina');
-  const masculinas = vozes.filter((v) => v.genero === 'masculina');
-  const atual = projeto.vozNarracao ?? 'Kore';
-  const salvar = async (voz: string) => {
+  useEffect(() => setPronuncias(pronunciasIniciais()), [projeto.id, JSON.stringify(projeto.pronunciasNarracao ?? {})]);
+  const motor = (projeto.motorNarracao ?? 'kokoro') as 'kokoro' | 'gemini';
+  const desteMotor = vozes.filter((v) => v.motor === motor);
+  const femininas = desteMotor.filter((v) => v.genero === 'feminina');
+  const masculinas = desteMotor.filter((v) => v.genero === 'masculina');
+  const atual = projeto.vozNarracao ?? (motor === 'kokoro' ? 'pf_dora' : 'Kore');
+  const salvar = async (dados: Record<string, unknown>, mensagem?: string) => {
     setErro(null);
+    setMsg(null);
     try {
-      await api(`/projects/${projeto.id}`, 'PATCH', { vozNarracao: voz });
+      await api(`/projects/${projeto.id}`, 'PATCH', dados);
+      if (mensagem) setMsg(mensagem);
       onMudou();
     } catch (e: any) {
       setErro(e.message);
     }
   };
+  const salvarPronuncias = () => {
+    const mapa: Record<string, string> = {};
+    for (const linha of pronuncias.split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) {
+      const i = linha.indexOf('=');
+      if (i < 1 || !linha.slice(i + 1).trim()) {
+        setErro(`Pronúncia inválida: "${linha}". Use Original = Como deve falar.`);
+        return;
+      }
+      mapa[linha.slice(0, i).trim()] = linha.slice(i + 1).trim();
+    }
+    salvar({ pronunciasNarracao: mapa }, 'Pronúncias salvas. O texto original continua preservado.');
+  };
+  const testar = async () => {
+    setErro(null);
+    setMsg(null);
+    setTestando(true);
+    try {
+      const blob = await apiBlob(`/projects/${projeto.id}/narracao/teste`, 'POST', { texto: textoTeste });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onerror = () => URL.revokeObjectURL(url);
+      await audio.play();
+      setMsg('Amostra gerada localmente, sem token.');
+    } catch (e: any) {
+      setErro(e.message);
+    } finally {
+      setTestando(false);
+    }
+  };
   return (
     <div className="row small" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 6 }}>
-      <label htmlFor="voz-narracao"><b>Voz da narração</b></label>
-      <select id="voz-narracao" aria-label="Voz da narração" value={atual} onChange={(e) => salvar(e.target.value)} style={{ maxWidth: 320 }}>
+      <label htmlFor="motor-narracao"><b>Locução / narração</b></label>
+      <select id="motor-narracao" value={motor} onChange={(e) => salvar({ motorNarracao: e.target.value })} style={{ maxWidth: 420 }}>
+        <option value="kokoro">Kokoro local — grátis, sem token (recomendado)</option>
+        <option value="gemini">Gemini TTS — usa token e tem custo</option>
+      </select>
+      {motor === 'kokoro' && status && (
+        <span className={status.disponivel ? 'ok small' : 'muted small'}>
+          {status.disponivel ? `Kokoro pronto (${status.vozes.length || 3} vozes brasileiras).` : `Kokoro ainda não respondeu: ${status.erro ?? 'serviço parado'}. No servidor, rode: nivoo kokoro instalar`}
+        </span>
+      )}
+      <label htmlFor="voz-narracao"><b>Voz</b></label>
+      <select id="voz-narracao" aria-label="Voz da narração" value={atual} onChange={(e) => salvar({ vozNarracao: e.target.value })} style={{ maxWidth: 360 }}>
         <optgroup label="Feminina">
           {femininas.map((v) => (
             <option key={v.id} value={v.id}>{v.id} — feminina ({v.estilo})</option>
@@ -309,7 +362,33 @@ function SeletorDeVoz({ projeto, onMudou }: { projeto: any; onMudou: () => void 
           ))}
         </optgroup>
       </select>
-      <span className="muted small">A voz que o Google usa quando o vídeo tem locução (texto falado por cima). A IA usa esta por padrão; você pode pedir outra na conversa.</span>
+      {motor === 'kokoro' && (
+        <>
+          <label htmlFor="velocidade-narracao"><b>Velocidade</b></label>
+          <select id="velocidade-narracao" value={String(projeto.velocidadeNarracao ?? 1)} onChange={(e) => salvar({ velocidadeNarracao: Number(e.target.value) })}>
+            <option value="0.85">0,85× — mais calma</option>
+            <option value="0.95">0,95× — levemente calma</option>
+            <option value="1">1× — natural</option>
+            <option value="1.05">1,05× — levemente rápida</option>
+            <option value="1.15">1,15× — mais rápida</option>
+          </select>
+          <label htmlFor="pronuncias-narracao"><b>Pronúncias personalizadas</b></label>
+          <textarea id="pronuncias-narracao" rows={3} value={pronuncias} onChange={(e) => setPronuncias(e.target.value)} placeholder={'Nivoo Dev = Nívoo Dév\nOutra marca = Como deve falar'} style={{ width: 'min(520px, 100%)' }} />
+          <button type="button" className="secondary" onClick={salvarPronuncias}>Salvar pronúncias</button>
+          <div className="row" style={{ alignItems: 'center' }}>
+            <input value={textoTeste} onChange={(e) => setTextoTeste(e.target.value)} aria-label="Texto da amostra de voz" style={{ width: 'min(430px, 100%)' }} />
+            <button type="button" className="secondary" disabled={testando || !status?.disponivel} onClick={testar}>{testando ? 'Gerando…' : 'Ouvir amostra'}</button>
+          </div>
+        </>
+      )}
+      <label htmlFor="modo-trilha"><b>Música de fundo</b></label>
+      <select id="modo-trilha" value={projeto.modoTrilha ?? 'sem-trilha'} onChange={(e) => salvar({ modoTrilha: e.target.value })} style={{ maxWidth: 420 }}>
+        <option value="sem-trilha">Sem trilha — adiciono depois no Instagram</option>
+        <option value="arquivo">Usar uma música que eu enviar</option>
+        <option value="ia">Gerar com IA/Lyria — tem custo</option>
+      </select>
+      <span className="muted small">A música é independente da locução. Kokoro faz somente voz; não gera trilha.</span>
+      {msg && <span className="ok small">{msg}</span>}
       {erro && <span className="erro small">{erro}</span>}
     </div>
   );

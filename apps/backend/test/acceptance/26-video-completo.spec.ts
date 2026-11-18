@@ -35,6 +35,13 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect((comVideoCompleto([cena('a'), cena('b')], 'x') as any[])[2].providerOptions.arquivo).toBe('videos/video-completo.mp4');
     expect(comVideoCompleto([cena('a')], 'x')).toHaveLength(1);
     expect(comVideoCompleto(plano, 'x')).toHaveLength(3);
+    const comLocucao = comVideoCompleto([
+      { ...cena('n1'), providerOptions: { arquivo: 'videos/n/cena-01.mp4', narracao: { texto: 'Olá', motor: 'kokoro', voz: 'pf_dora' } } },
+      cena('n2', 'videos/n/cena-02.mp4'),
+    ], 'x') as any[];
+    expect(comLocucao[0].providerOptions.semAudio).toBe(true);
+    expect(comLocucao[1].providerOptions.semAudio).toBe(true);
+    expect(comLocucao[2].providerOptions).toMatchObject({ narracao: { texto: 'Olá', motor: 'kokoro', voz: 'pf_dora' }, volumeCenas: 0 });
   });
 
   it('junta as cenas na ordem (tamanhos diferentes, uma sem som) num mp4 só, que entra na pasta do projeto', async () => {
@@ -476,13 +483,14 @@ describe('Vídeo completo (cenas juntadas)', () => {
   });
 
   it('seletor de voz: catálogo com gênero (feminina/masculina) e voz padrão do projeto guardada', async () => {
-    const vozes = (await h.http().get('/api/projects/vozes-narracao').expect(200)).body as Array<{ id: string; genero: string; estilo: string }>;
-    expect(vozes.find((v) => v.id === 'Kore')?.genero).toBe('feminina');
+    const vozes = (await h.http().get('/api/projects/vozes-narracao').expect(200)).body as Array<{ id: string; motor: string; genero: string; estilo: string }>;
+    expect(vozes.find((v) => v.id === 'pf_dora')).toMatchObject({ motor: 'kokoro', genero: 'feminina' });
+    expect(vozes.find((v) => v.id === 'Kore')).toMatchObject({ motor: 'gemini', genero: 'feminina' });
     expect(vozes.some((v) => v.genero === 'masculina')).toBe(true);
     expect(vozes.every((v) => v.id && v.estilo && (v.genero === 'feminina' || v.genero === 'masculina'))).toBe(true);
     const p = (await h.http().post('/api/projects').send({ name: 'Voz padrão' }).expect(201)).body;
-    expect(p.vozNarracao).toBe('Kore'); // padrão
-    const masc = vozes.find((v) => v.genero === 'masculina')!;
+    expect(p).toMatchObject({ motorNarracao: 'kokoro', vozNarracao: 'pf_dora', velocidadeNarracao: 1, modoTrilha: 'sem-trilha' });
+    const masc = vozes.find((v) => v.motor === 'kokoro' && v.genero === 'masculina')!;
     const atualizado = (await h.http().patch(`/api/projects/${p.id}`).send({ vozNarracao: masc.id }).expect(200)).body;
     expect(atualizado.vozNarracao).toBe(masc.id);
     await h.http().patch(`/api/projects/${p.id}`).send({ vozNarracao: 'NaoExiste' }).expect(400);

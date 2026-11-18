@@ -1,0 +1,80 @@
+import { Injectable } from '@nestjs/common';
+import { VOZES_KOKORO, vozConhecida } from './vozes';
+
+export type Pronuncias = Record<string, string>;
+
+export class KokoroTtsError extends Error {
+  constructor(message: string, readonly indisponivel = false) {
+    super(message);
+  }
+}
+
+const escaparRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Aplica somente na cópia enviada ao sintetizador; o texto original continua preservado no plano e no cache. */
+export function aplicarPronuncias(texto: string, pronuncias: Pronuncias = {}): string {
+  let saida = texto;
+  const entradas = Object.entries(pronuncias)
+    .map(([de, para]) => [de.trim(), String(para).trim()] as const)
+    .filter(([de, para]) => de && para)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [de, para] of entradas) saida = saida.replace(new RegExp(escaparRegex(de), 'giu'), para);
+  return saida;
+}
+
+/** Cliente do Kokoro-FastAPI local. O serviço fica preso a 127.0.0.1 e não usa token de IA. */
+@Injectable()
+export class KokoroTtsService {
+  private base(): string {
+    return (process.env.NIVOO_KOKORO_URL ?? 'http://127.0.0.1:8880').replace(/\/+$/, '');
+  }
+
+  private headers(): Record<string, string> {
+    const chave = process.env.NIVOO_KOKORO_API_KEY?.trim();
+    return { 'content-type': 'application/json', ...(chave ? { authorization: `Bearer ${chave}` } : {}) };
+  }
+
+  async status(): Promise<{ disponivel: boolean; url: string; vozes: string[]; erro?: string }> {
+    const url = this.base();
+    try {
+      const res = await fetch(`${url}/v1/audio/voices`, { headers: this.headers(), signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return { disponivel: false, url, vozes: [], erro: `Kokoro respondeu ${res.status}` };
+      const json: any = await res.json();
+      const vozes = (Array.isArray(json) ? json : json?.voices ?? []).map((v: any) => String(v?.id ?? v)).filter(Boolean);
+      return { disponivel: true, url, vozes: vozes.filter((id: string) => /^p[fm]_/.test(id)) };
+    } catch (e: any) {
+      return { disponivel: false, url, vozes: [], erro: e?.cause?.code ?? e?.message ?? 'sem resposta' };
+    }
+  }
+
+  async gerar(textoOriginal: string, voz: string, velocidade = 1, pronuncias: Pronuncias = {}, signal?: AbortSignal): Promise<{ bytes: Buffer; mime: string; modelo: string; textoSintetizado: string }> {
+    if (!vozConhecida(voz, 'kokoro')) throw new KokoroTtsError(`voz do Kokoro desconhecida: ${voz}`);
+    const speed = Number(velocidade);
+    if (!Number.isFinite(speed) || speed < 0.75 || speed > 1.25) throw new KokoroTtsError('a velocidade natural deve ficar entre 0,75 e 1,25');
+    const textoSintetizado = aplicarPronuncias(textoOriginal.trim(), pronuncias);
+    if (!textoSintetizado) throw new KokoroTtsError('texto da narração vazio');
+    let res: Response;
+    try {
+      const sinais = [AbortSignal.timeout(600_000), ...(signal ? [signal] : [])];
+      res = await fetch(`${this.base()}/v1/audio/speech`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({ model: 'kokoro', input: textoSintetizado, voice: voz, response_format: 'mp3', speed }),
+        signal: AbortSignal.any(sinais),
+      });
+    } catch (e: any) {
+      throw new KokoroTtsError(`Kokoro local não respondeu: ${e?.cause?.code ?? e?.message}`, true);
+    }
+    if (!res.ok) {
+      const detalhe = (await res.text().catch(() => '')).slice(0, 400);
+      throw new KokoroTtsError(`Kokoro respondeu ${res.status}${detalhe ? `: ${detalhe}` : ''}`, res.status >= 500);
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (!bytes.length) throw new KokoroTtsError('Kokoro devolveu um áudio vazio');
+    return { bytes, mime: res.headers.get('content-type') ?? 'audio/mpeg', modelo: 'Kokoro-82M local', textoSintetizado };
+  }
+
+  catalogo() {
+    return VOZES_KOKORO;
+  }
+}

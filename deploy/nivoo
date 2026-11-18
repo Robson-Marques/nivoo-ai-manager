@@ -113,8 +113,77 @@ NGINX
     as_nivoo codex login status || true
     systemctl restart nivoo-api nivoo-worker
     ;;
+  kokoro)
+    # Serviço de locução local, isolado e acessível somente pelo próprio servidor.
+    sub="${1:-status}"
+    image="ghcr.io/remsky/kokoro-fastapi-cpu:v0.10.0"
+    case "$sub" in
+      instalar)
+        echo "== hardware"
+        echo "CPU: $(nproc) núcleo(s); RAM: $(free -h | awk '/^Mem:/{print $2}'); livre em /: $(df -h / | awk 'NR==2{print $4}')"
+        command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || echo "GPU NVIDIA: não detectada (usando CPU)"
+        livre_kb="$(df -Pk /var/lib | awk 'NR==2{print $4}')"
+        [ "${livre_kb:-0}" -ge 8388608 ] || { echo "faltam pelo menos 8 GB livres em /var/lib para instalar o Kokoro" >&2; exit 1; }
+        if ! command -v docker >/dev/null 2>&1; then
+          echo "== instalando Docker do Debian"
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q docker.io
+        fi
+        systemctl enable --now docker >/dev/null
+        echo "== baixando Kokoro-FastAPI v0.10.0 (CPU, cerca de 1,6 GB compactado)"
+        docker pull "$image"
+        cat > /etc/systemd/system/nivoo-kokoro.service <<EOF
+[Unit]
+Description=Nivoo — Kokoro TTS local
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStartPre=-/usr/bin/docker rm -f nivoo-kokoro
+ExecStart=/usr/bin/docker run --rm --name nivoo-kokoro -p 127.0.0.1:8880:8880 -e DEFAULT_VOICE=pf_dora -e API_LOG_LEVEL=WARNING $image
+ExecStop=/usr/bin/docker stop -t 20 nivoo-kokoro
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now nivoo-kokoro
+        sed -i '/^NIVOO_KOKORO_URL=/d' "$ENV_FILE"
+        echo 'NIVOO_KOKORO_URL=http://127.0.0.1:8880' >> "$ENV_FILE"
+        echo "== aguardando o modelo carregar"
+        pronto=0
+        for _ in $(seq 1 120); do
+          if curl -fsS --max-time 5 http://127.0.0.1:8880/v1/audio/voices >/dev/null 2>&1; then pronto=1; break; fi
+          sleep 2
+        done
+        [ "$pronto" = 1 ] || { echo "Kokoro não respondeu. Veja: journalctl -u nivoo-kokoro -n 100" >&2; exit 1; }
+        systemctl restart nivoo-api nivoo-worker
+        echo "ok: Kokoro local instalado; vozes pt-BR: pf_dora, pm_alex, pm_santa"
+        ;;
+      status)
+        systemctl --no-pager --lines=3 status nivoo-kokoro 2>/dev/null || true
+        if curl -fsS --max-time 10 http://127.0.0.1:8880/v1/audio/voices >/dev/null 2>&1; then
+          echo "ok: API Kokoro em http://127.0.0.1:8880 (somente local)"
+        else
+          echo "Kokoro não está pronto. Para instalar: nivoo kokoro instalar"
+        fi
+        ;;
+      remover)
+        systemctl disable --now nivoo-kokoro 2>/dev/null || true
+        rm -f /etc/systemd/system/nivoo-kokoro.service
+        docker rm -f nivoo-kokoro 2>/dev/null || true
+        systemctl daemon-reload
+        echo "Kokoro removido do serviço (a imagem Docker foi preservada para permitir recuperação rápida)."
+        ;;
+      *) echo "uso: nivoo kokoro instalar|status|remover" >&2; exit 1 ;;
+    esac
+    ;;
   check)
     echo "== serviços"; systemctl is-active nivoo-api nivoo-worker postgresql | paste -sd' ' -
+    echo "== locução local"; if curl -fsS --max-time 5 http://127.0.0.1:8880/v1/audio/voices >/dev/null 2>&1; then echo "  Kokoro DISPONÍVEL"; else echo "  Kokoro não instalado/parado (opcional: nivoo kokoro instalar)"; fi
     echo "== API"; api /health && echo
     echo "== workers"; api /system/workers | json 'j=>j.forEach(w=>console.log(`  ${w.id}  ${w.online?"online":"offline"}  último sinal ${w.lastSeenAt}`))'
     echo "== conectores (vistos pelo usuário $NIVOO_USER)"
@@ -429,6 +498,8 @@ nivoo — administração do Nivoo AI Manager
   nivoo login-claude        login oficial do Claude Code para o worker
   nivoo set-claude-token    alternativa: gravar token de 'claude setup-token'
   nivoo login-codex         login oficial do Codex (código de dispositivo)
+  nivoo kokoro instalar     instala a locução local gratuita (CPU, somente 127.0.0.1)
+  nivoo kokoro status       confere o serviço e as vozes do Kokoro
   nivoo tunnel              mostra o comando de túnel SSH para abrir a interface
   nivoo dominio <endereço>  publica o Nivoo num domínio seu pela Cloudflare (HTTPS, sem abrir portas)
   nivoo dominio status      mostra o túnel e testa o endereço  (nivoo dominio remover: desliga)

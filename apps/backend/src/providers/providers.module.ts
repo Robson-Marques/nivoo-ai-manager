@@ -8,10 +8,11 @@ import { JuntarVideosProvider } from './juntar-videos.provider';
 import { LocalShellProvider } from './local-shell.provider';
 import { ModelCatalogService } from './model-catalog.service';
 import { ProviderRegistry } from './provider-registry.service';
+import { KokoroTtsService } from './kokoro-tts.service';
 
 @Global()
 @Module({
-  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, GeminiVideoProvider, JuntarVideosProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
-  exports: [ProviderRegistry, ModelCatalogService, GeminiVideoProvider],
+  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, GeminiVideoProvider, KokoroTtsService, JuntarVideosProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
+  exports: [ProviderRegistry, ModelCatalogService, GeminiVideoProvider, KokoroTtsService],
 })
 export class ProvidersModule {}

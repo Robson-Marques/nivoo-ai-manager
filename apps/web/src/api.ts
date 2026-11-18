@@ -144,6 +144,34 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
   return data as T;
 }
 
+/** Variante para áudio/imagem binários protegidos pelo mesmo login da API. */
+export async function apiBlob(path: string, method = 'GET', body?: unknown): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  const token = getToken();
+  if (token) headers.authorization = `Bearer ${token}`;
+  const ir = () => fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await ir();
+    if (res.status === 401 && (await renovar(token))) {
+      headers.authorization = `Bearer ${getToken()}`;
+      res = await ir();
+    }
+  } catch {
+    throw new ApiError(0, 'Sem resposta do servidor.');
+  }
+  if (!res.ok) {
+    let msg = res.statusText || `Erro ${res.status}`;
+    try {
+      const data = await res.json();
+      msg = Array.isArray(data?.message) ? data.message.join('; ') : data?.message ?? msg;
+    } catch { /* resposta sem JSON */ }
+    throw new ApiError(res.status, msg);
+  }
+  return res.blob();
+}
+
 /**
  * Envio por streaming (corpo bruto) com progresso E com "vigia de travamento": se o envio ficar PARADO (sem avançar
  * nem responder) por STALL_MS, aborta e avisa — em vez de ficar eternamente em "enviando 54%". Assim um upload que
