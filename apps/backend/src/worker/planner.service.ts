@@ -47,7 +47,7 @@ function textoDosVideos(videos: ReturnType<typeof listarVideos>): string[] {
   if (!enviados.length) return [];
   const mb = (b: number) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
   return [
-    `Vídeos que o usuário já enviou para EDITAR (use estes caminhos em "cenas"; são ffmpeg, sem Veo e sem custo): ${enviados
+    `Vídeos e áudios (trilha/narração) que o usuário já enviou para EDITAR/MONTAR (use estes caminhos; .wav/.mp3 é trilha ou locução própria, use como áudio na montagem; são ffmpeg, sem Veo e sem custo): ${enviados
       .slice(0, 40)
       .map((v) => `${v.caminho} (${v.nome}, ${mb(v.bytes)})`)
       .join('; ')}. O vídeo editado sai em midia/saida/<nome>.mp4 (fora do git).`,

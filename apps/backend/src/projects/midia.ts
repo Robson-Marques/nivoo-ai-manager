@@ -17,6 +17,9 @@ const LOG_MIDIA = new Logger('Midia');
  * sessão da IA. O plano referencia pelos caminhos midia/entrada/<id> e midia/saida/<nome>.mp4.
  */
 export const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i;
+export const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|flac)$/i;
+/** Mídia que entra no projeto para a montagem: vídeo OU áudio (trilha/narração própria do usuário). */
+export const MIDIA_EXT = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac)$/i;
 const MAX_VIDEO_BYTES = Number(process.env.NIVOO_MAX_VIDEO_MB ?? 2048) * 1024 * 1024;
 const MAX_ZIP_BYTES = Number(process.env.NIVOO_MAX_ZIP_MB ?? 4096) * 1024 * 1024;
 const MAX_VIDEOS_POR_ZIP = Number(process.env.NIVOO_MAX_VIDEOS_POR_ZIP ?? 300);
@@ -30,13 +33,14 @@ export interface VideoDaMidia {
 }
 
 function ext(nome: string): string {
-  return (VIDEO_EXT.exec(nome)?.[0] ?? '').toLowerCase();
+  return (MIDIA_EXT.exec(nome)?.[0] ?? '').toLowerCase();
 }
 
-/** Nome visível seguro (sem pastas), só para mostrar; o arquivo em disco usa um id gerado. */
+/** Nome visível seguro (sem pastas), só para mostrar; o arquivo em disco usa um id gerado. Aceita vídeo E áudio
+ * (a trilha/narração própria do usuário também entra na mídia do projeto, para a montagem usar). */
 export function nomeSeguroVideo(raw: unknown): string {
   const base = path.basename(String(raw ?? '').replace(/\\/g, '/')).replace(/[\u0000-\u001f<>:"|?*]/g, '_').trim();
-  if (!base || !VIDEO_EXT.test(base) || base.length > 150) throw new BadRequestException('Envie um vídeo (MP4, MOV, WEBM, MKV, M4V)');
+  if (!base || !MIDIA_EXT.test(base) || base.length > 150) throw new BadRequestException('Envie um vídeo (MP4, MOV, WEBM, MKV, M4V) ou áudio (WAV, MP3, M4A, AAC, OGG, FLAC)');
   return base;
 }
 
@@ -260,7 +264,7 @@ export function listarVideos(midia: string): VideoDaMidia[] {
     if (!fs.existsSync(dir)) return [];
     return fs
       .readdirSync(dir)
-      .filter((f) => VIDEO_EXT.test(f))
+      .filter((f) => MIDIA_EXT.test(f))
       .map((f) => {
         const nomeArq = path.join(dir, `${f}.nome`);
         const nome = pasta === 'entrada' && fs.existsSync(nomeArq) ? fs.readFileSync(nomeArq, 'utf8').trim() : f;
@@ -275,7 +279,7 @@ export function listarVideos(midia: string): VideoDaMidia[] {
 /** Resolve um caminho midia/<pasta>/<arquivo> para o arquivo em disco (sem sair da pasta de mídia). */
 export function arquivoDaMidia(midia: string, caminho: string): string | null {
   const m = /^midia\/(entrada|saida)\/([^/]+)$/.exec(String(caminho ?? ''));
-  if (!m || !VIDEO_EXT.test(m[2])) return null;
+  if (!m || !MIDIA_EXT.test(m[2])) return null;
   const abs = path.resolve(midia, m[1], m[2]);
   if (abs !== path.resolve(midia, m[1], path.basename(m[2]))) return null;
   return fs.existsSync(abs) ? abs : null;
@@ -283,7 +287,7 @@ export function arquivoDaMidia(midia: string, caminho: string): string | null {
 
 /** Apaga um vídeo enviado (só da pasta entrada; os editados saíram de um trabalho). */
 export function apagarVideoEnviado(midia: string, id: string): boolean {
-  if (!VIDEO_EXT.test(id) || path.basename(id) !== id) return false;
+  if (!MIDIA_EXT.test(id) || path.basename(id) !== id) return false;
   const abs = path.join(entradaDir(midia), id);
   if (!fs.existsSync(abs)) return false;
   fs.rmSync(abs, { force: true });

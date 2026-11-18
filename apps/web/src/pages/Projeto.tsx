@@ -370,7 +370,10 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   const [enviandoVideos, setEnviandoVideos] = useState<Array<{ nome: string; pct: number; erro?: string }>>([]);
   const [msgVideos, setMsgVideos] = useState<string | null>(null);
   const [importando, setImportando] = useState(false);
-  const EH_VIDEO = /\.(mp4|mov|webm|mkv|m4v)$/i;
+  // Mídia do projeto = vídeo OU áudio (trilha/narração própria): ambos sobem por streaming para midia/entrada, não
+  // como anexo de 10 MB da mensagem — é lá que a montagem acha.
+  const EH_MIDIA = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac)$/i;
+  const ehMidia = (f: File) => EH_MIDIA.test(f.name) || f.type.startsWith('video/') || f.type.startsWith('audio/');
   const carregarVideos = useCallback(async () => {
     try {
       setVideos(((await api(`/projects/${projeto.id}/videos`)).videos ?? []).filter((v: any) => v.pasta === 'entrada'));
@@ -444,10 +447,11 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     // .zip com vários vídeos: sobe por streaming e o servidor extrai todos de uma vez.
     const zips = lista.filter((f) => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
     if (zips.length) enviarZips(zips);
-    // Vídeo (para editar) vai por streaming para a mídia do projeto; o resto segue como anexo da mensagem (até 10 MB).
-    const videosAgora = lista.filter((f) => !zips.includes(f) && (EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
+    // Vídeo E áudio (para editar/montar) vão por streaming para a mídia do projeto; o resto segue como anexo da
+    // mensagem (até 10 MB). Assim a trilha/narração em .wav/.mp3 não trava no anexo e a montagem a encontra.
+    const videosAgora = lista.filter((f) => !zips.includes(f) && ehMidia(f));
     if (videosAgora.length) enviarVideos(videosAgora);
-    const outros = lista.filter((f) => !zips.includes(f) && !(EH_VIDEO.test(f.name) || f.type.startsWith('video/')));
+    const outros = lista.filter((f) => !zips.includes(f) && !ehMidia(f));
     const grandes = outros.filter((f) => f.size > 10 * 1024 * 1024);
     if (grandes.length) setErro(`Passa de 10 MB: ${grandes.map((f) => f.name).join(', ')}`);
     setAnexos((atuais) => [...atuais, ...outros.filter((f) => f.size <= 10 * 1024 * 1024)].slice(0, 10));
