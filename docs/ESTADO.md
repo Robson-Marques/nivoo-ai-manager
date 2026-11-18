@@ -3,6 +3,17 @@
 > Atualizado em 2026-11-16. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Login por usuário e senha; domínio próprio sem limite de upload (2026-11-18)
+
+Além do token de API e do login da Cloudflare, o Nivoo agora tem **login por usuário e senha**, para servir num
+**domínio próprio** sem depender da Cloudflare (e do limite de 100 MB dela no upload). Liga-se no servidor com
+`nivoo senha [usuario]` (grava `NIVOO_LOGIN_USUARIO`/`NIVOO_LOGIN_SENHA` em `nivoo.env`, 640, e reinicia); desliga com
+`nivoo sem-senha`. A tela de entrada passa a pedir **usuário e senha**; `POST /api/login` confere e devolve um **crachá
+de sessão assinado** (HMAC, validade `NIVOO_LOGIN_HORAS`, padrão 30 dias) que o guard aceita como o token. A senha nunca
+sai do servidor; há trava de força bruta por IP. Para o upload sem limite, põe-se um **nginx** na frente do domínio com
+`client_max_body_size 2048m;` (DNS do domínio → IP do servidor). Teste `34` (status, 401 sem crachá, login certo entra,
+errado/forjado não; sem login configurado fica aberto local).
+
 ## Auto-correção: a conversa conserta sozinha o trabalho que parou (2026-11-18)
 
 Quando um trabalho **para** (bloqueado ou falhou), a conversa de onde ele veio recebe o **erro** como uma "entrega"

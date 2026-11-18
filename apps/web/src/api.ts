@@ -56,6 +56,45 @@ export async function entrarComToken(t: string): Promise<boolean> {
   return true;
 }
 
+/** O que o servidor oferece para entrar (login por senha, Cloudflare). A tela de entrada decide o que mostrar. */
+export async function statusDeEntrada(): Promise<{ loginDisponivel: boolean; cloudflare: boolean }> {
+  try {
+    const res = await fetch('/api/login/status');
+    return res.ok ? await res.json() : { loginDisponivel: false, cloudflare: false };
+  } catch {
+    return { loginDisponivel: false, cloudflare: false };
+  }
+}
+
+/** Entra com usuário e senha (domínio próprio, sem Cloudflare): troca por um crachá de sessão. */
+export async function entrarComLogin(usuario: string, senha: string): Promise<boolean> {
+  let res: Response;
+  try {
+    res = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usuario, senha }) });
+  } catch {
+    ouvintes.forEach((f) => f(true, 'Sem resposta do servidor.'));
+    return false;
+  }
+  if (!res.ok) {
+    let m = 'Usuário ou senha incorretos.';
+    try {
+      const d = await res.json();
+      m = (Array.isArray(d?.message) ? d.message.join('; ') : d?.message) ?? m;
+    } catch {
+      /* corpo não-JSON */
+    }
+    ouvintes.forEach((f) => f(true, m));
+    return false;
+  }
+  const { token } = await res.json();
+  setToken(String(token ?? ''));
+  const e = entrada;
+  entrada = null;
+  ouvintes.forEach((f) => f(false));
+  e?.resolver(true);
+  return true;
+}
+
 /**
  * 401: se o token mudou enquanto o pedido ia (o usuário acabou de entrar), tenta de novo com o novo, sem
  * pedir outra vez; só pede quando o token recusado é o atual.

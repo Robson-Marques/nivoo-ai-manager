@@ -50,6 +50,25 @@ case "$cmd" in
     systemctl restart nivoo-api nivoo-worker
     echo "ok: token gravado em $ENV_FILE (permissão 640); API e worker reiniciados"
     ;;
+  senha)
+    # nivoo senha [usuario]   — liga o login por usuário e senha (para servir num domínio próprio, sem Cloudflare).
+    usr="${1:-}"; [ -n "$usr" ] || { read -rp "Usuário do login: " usr; }
+    [ -n "$usr" ] || { echo "usuário vazio; nada feito" >&2; exit 1; }
+    read -rsp "Senha: " sen; echo
+    read -rsp "Repita a senha: " sen2; echo
+    [ -n "$sen" ] && [ "$sen" = "$sen2" ] || { echo "senhas não conferem; nada feito" >&2; exit 1; }
+    sed -i '/^#\? *NIVOO_LOGIN_USUARIO=/d;/^#\? *NIVOO_LOGIN_SENHA=/d' "$ENV_FILE"
+    printf 'NIVOO_LOGIN_USUARIO=%s\nNIVOO_LOGIN_SENHA=%s\n' "$usr" "$sen" >> "$ENV_FILE"
+    chmod 640 "$ENV_FILE"
+    systemctl restart nivoo-api nivoo-worker
+    echo "ok: login por senha ligado (usuário \"$usr\") e serviços reiniciados. A tela de entrada agora pede usuário e senha."
+    echo "   Para servir no seu domínio sem limite de upload, ponha um nginx na frente com 'client_max_body_size 2048m;'."
+    ;;
+  sem-senha)
+    sed -i '/^#\? *NIVOO_LOGIN_USUARIO=/d;/^#\? *NIVOO_LOGIN_SENHA=/d' "$ENV_FILE"
+    systemctl restart nivoo-api nivoo-worker
+    echo "ok: login por senha desligado."
+    ;;
   login-codex)
     echo "Login OFICIAL do Codex por código de dispositivo para o usuário do worker ($NIVOO_USER)."
     cd "$NIVOO_HOME"
