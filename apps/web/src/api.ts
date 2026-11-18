@@ -144,18 +144,37 @@ export async function api<T = any>(path: string, method = 'GET', body?: unknown)
   return data as T;
 }
 
-/** Envia um vídeo por streaming (corpo bruto), com progresso — para arquivo grande que não cabe no JSON. */
-export function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
-  return new Promise((ok, erro) => {
+/**
+ * Envio por streaming (corpo bruto) com progresso E com "vigia de travamento": se o envio ficar PARADO (sem avançar
+ * nem responder) por STALL_MS, aborta e avisa — em vez de ficar eternamente em "enviando 54%". Assim um upload que
+ * emperra vira um erro claro com "tente de novo", não um congelamento.
+ */
+const STALL_MS = 45_000;
+function enviarPorStreaming<T>(url: string, file: File, onProgresso: (pct: number) => void): Promise<T> {
+  return new Promise<T>((ok, erro) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/projects/${projetoId}/videos?nome=${encodeURIComponent(file.name)}`);
+    xhr.open('POST', url);
     const token = getToken();
     if (token) xhr.setRequestHeader('authorization', `Bearer ${token}`);
     xhr.setRequestHeader('content-type', 'application/octet-stream');
+    let ultimoAvanco = Date.now();
+    let travou = false;
+    const vigia = window.setInterval(() => {
+      if (Date.now() - ultimoAvanco > STALL_MS) {
+        travou = true;
+        window.clearInterval(vigia);
+        try { xhr.abort(); } catch { /* já encerrado */ }
+        erro(new ApiError(0, 'O envio travou (ficou parado). Verifique a conexão/servidor e tente de novo.'));
+      }
+    }, 5_000);
+    const fim = () => window.clearInterval(vigia);
     xhr.upload.onprogress = (e) => {
+      ultimoAvanco = Date.now();
       if (e.lengthComputable) onProgresso(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () => {
+      fim();
+      if (travou) return;
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           ok(JSON.parse(xhr.responseText));
@@ -173,43 +192,19 @@ export function enviarVideo(projetoId: string, file: File, onProgresso: (pct: nu
         erro(new ApiError(xhr.status, m));
       }
     };
-    xhr.onerror = () => erro(new ApiError(0, 'Sem resposta do servidor (o envio pode ter sido grande demais ou a conexão caiu).'));
+    xhr.onerror = () => { fim(); if (!travou) erro(new ApiError(0, 'Sem resposta do servidor (o envio pode ter sido grande demais ou a conexão caiu).')); };
     xhr.send(file);
   });
 }
 
+/** Envia um vídeo por streaming (corpo bruto), com progresso — para arquivo grande que não cabe no JSON. */
+export function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
+  return enviarPorStreaming(`/api/projects/${projetoId}/videos?nome=${encodeURIComponent(file.name)}`, file, onProgresso);
+}
+
 /** Envia um .zip por streaming (corpo bruto), com progresso; o servidor extrai todos os vídeos de dentro. */
 export function enviarZipDeVideos(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ adicionados: any[]; ignorados: number; videos: any[] }> {
-  return new Promise((ok, erro) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/projects/${projetoId}/videos/zip?nome=${encodeURIComponent(file.name)}`);
-    const token = getToken();
-    if (token) xhr.setRequestHeader('authorization', `Bearer ${token}`);
-    xhr.setRequestHeader('content-type', 'application/octet-stream');
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgresso(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          ok(JSON.parse(xhr.responseText));
-        } catch {
-          erro(new ApiError(xhr.status, 'Resposta inesperada do servidor.'));
-        }
-      } else {
-        let m = xhr.statusText;
-        try {
-          const d = JSON.parse(xhr.responseText);
-          m = Array.isArray(d?.message) ? d.message.join('; ') : d?.message ?? m;
-        } catch {
-          /* corpo não-JSON */
-        }
-        erro(new ApiError(xhr.status, m));
-      }
-    };
-    xhr.onerror = () => erro(new ApiError(0, 'Sem resposta do servidor (o envio pode ter sido grande demais ou a conexão caiu).'));
-    xhr.send(file);
-  });
+  return enviarPorStreaming(`/api/projects/${projetoId}/videos/zip?nome=${encodeURIComponent(file.name)}`, file, onProgresso);
 }
 
 export function fileToBase64(f: File): Promise<string> {

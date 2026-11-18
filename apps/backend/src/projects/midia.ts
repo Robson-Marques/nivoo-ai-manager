@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -6,6 +6,10 @@ import * as path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import * as yauzl from 'yauzl';
+
+/** Log do upload de vídeo (aparece no journalctl -u nivoo-api): "recebendo" no começo, "OK/FALHOU" no fim — para
+ * dar para ver, no servidor, se um envio travou (ficou só o "recebendo") ou terminou. */
+const LOG_MIDIA = new Logger('Midia');
 
 /**
  * Mídia durável do projeto (vídeos que o usuário envia para editar e os vídeos editados). Fica em
@@ -51,6 +55,8 @@ export async function gravarVideoEnviado(midia: string, nome: string, corpo: Rea
   // fluxo em modo corrente e poderia perder pedaços de arquivos grandes. Passou do limite → erra o pipeline e apaga.
   let bytes = 0;
   const limite = MAX_VIDEO_BYTES;
+  const t0 = Date.now();
+  LOG_MIDIA.log(`upload recebendo "${nomeOk}" → ${id}`);
   const contador = new Transform({
     transform(chunk: Buffer, _enc, cb) {
       bytes += chunk.length;
@@ -65,10 +71,12 @@ export async function gravarVideoEnviado(midia: string, nome: string, corpo: Rea
     await pipeline(corpo, contador, fs.createWriteStream(destino));
   } catch (err: any) {
     fs.rmSync(destino, { force: true });
+    LOG_MIDIA.warn(`upload FALHOU "${nomeOk}" após ${bytes} bytes em ${Date.now() - t0}ms: ${err?.estourou ? 'passou do limite' : String(err?.message ?? err).slice(0, 200)}`);
     if (err?.estourou) throw new BadRequestException(`O vídeo passa do limite de ${Math.round(limite / 1024 / 1024)} MB`);
     throw err;
   }
   const salvo = fs.existsSync(destino) ? fs.statSync(destino).size : 0;
+  LOG_MIDIA.log(`upload OK "${nomeOk}" → ${salvo} bytes em ${Date.now() - t0}ms`);
   if (!salvo) {
     fs.rmSync(destino, { force: true });
     // Chegou ao servidor sem corpo: quase sempre um proxy/Cloudflare/nginx na frente que não repassa o envio grande.
