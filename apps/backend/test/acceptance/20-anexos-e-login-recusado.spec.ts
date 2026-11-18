@@ -157,7 +157,7 @@ describe('Chat com anexos e login recusado', () => {
     expect((await resposta(p.id, c.id, 1)).content).toBe('Li o anexo completo.');
     const prompt = lido('prompt.txt');
     expect(prompt).toContain(`contexto/anexos/${minha.id}/mensagem-completa.txt`);
-    expect(prompt).toContain('comando sozinho em um bloco Markdown');
+    expect(prompt).toContain('TODA a sequência relacionada em UM ÚNICO bloco Markdown');
     expect(lido('anexos.txt')).toContain(`./${minha.id}/mensagem-completa.txt ${Buffer.byteLength(longo)}`);
     ctl('mode', null);
     ctl('resposta.txt', null);
