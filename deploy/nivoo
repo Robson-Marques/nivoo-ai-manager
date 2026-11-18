@@ -9,6 +9,9 @@ NIVOO_HOME=/var/lib/nivoo
 ENV_FILE=/etc/nivoo/nivoo.env
 BACKUP_DIR=/var/backups/nivoo
 
+# Funções de rotação: só reconhecem os nomes exatos criados pelo Nivoo e nunca apagam outros arquivos da pasta.
+. "$APP_DIR/deploy/backup-retention.sh"
+
 [ "$(id -u)" = 0 ] || { echo "execute como root" >&2; exit 1; }
 umask 077  # backups e arquivos gerados nunca legíveis por outros usuários
 export PATH="$NODE_DIR/bin:$PATH"
@@ -132,11 +135,46 @@ NGINX
     ;;
   backup)
     install -d -m 700 "$BACKUP_DIR"
+    # Impede dois backups simultâneos de disputarem espaço ou apagarem o conjunto em criação um do outro.
+    exec 9>"$BACKUP_DIR/.backup.lock"
+    flock -n 9 || die "já existe outro backup do Nivoo em andamento"
+
+    # Antes de criar o novo, mantém só o último completo. Assim há espaço para o próximo mesmo quando vários
+    # backups antigos lotaram o disco. Concluído o novo, os dois mais recentes ficam preservados.
+    limpar_backups_antigos 1
     ts="$(date +%Y%m%d-%H%M%S)"
-    runuser -u postgres -- pg_dump -Fc nivoo > "$BACKUP_DIR/nivoo-db-$ts.dump"
-    tar -C "$NIVOO_HOME" -czf "$BACKUP_DIR/nivoo-data-$ts.tar.gz" data
-    cp "$ENV_FILE" "$BACKUP_DIR/nivoo-env-$ts" && chmod 600 "$BACKUP_DIR/nivoo-env-$ts"
+    db_tmp="$BACKUP_DIR/.nivoo-db-$ts.dump.tmp"
+    data_tmp="$BACKUP_DIR/.nivoo-data-$ts.tar.gz.tmp"
+    env_tmp="$BACKUP_DIR/.nivoo-env-$ts.tmp"
+    backup_completo_atual=0
+    limpar_backup_em_andamento() {
+      if [ "$backup_completo_atual" != 1 ]; then
+        rm -f -- "$db_tmp" "$data_tmp" "$env_tmp"
+        remover_conjunto_backup "$ts"
+      fi
+    }
+    trap limpar_backup_em_andamento EXIT
+    trap 'limpar_backup_em_andamento; exit 130' INT TERM
+
+    runuser -u postgres -- pg_dump -Fc nivoo > "$db_tmp"
+    tar -C "$NIVOO_HOME" -czf "$data_tmp" data
+    cp "$ENV_FILE" "$env_tmp" && chmod 600 "$env_tmp"
+    mv -- "$db_tmp" "$BACKUP_DIR/nivoo-db-$ts.dump"
+    mv -- "$data_tmp" "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
+    mv -- "$env_tmp" "$BACKUP_DIR/nivoo-env-$ts"
+    backup_completo_atual=1
+    trap - EXIT INT TERM
+    limpar_backups_antigos 2
     ls -lh "$BACKUP_DIR"/*"$ts"*
+    ;;
+  limpar-backups)
+    # Útil para recuperar um servidor que já ficou cheio: não precisa do PostgreSQL ativo.
+    install -d -m 700 "$BACKUP_DIR"
+    exec 9>"$BACKUP_DIR/.backup.lock"
+    flock -n 9 || die "já existe outro backup do Nivoo em andamento"
+    limpar_backups_antigos 2
+    echo "ok: preservados somente os dois backups completos mais recentes"
+    ls -lh "$BACKUP_DIR"/nivoo-* 2>/dev/null || true
     ;;
   restore)
     # nivoo restore <carimbo>   ex.: nivoo restore 20261028-101500
@@ -398,7 +436,8 @@ nivoo — administração do Nivoo AI Manager
   nivoo dominio previa      cria o endereço da prévia dos projetos (previa-<endereço>) no mesmo túnel
   nivoo nginx <endereço>    cria o site no nginx para o SEU domínio (upload sem limite); depois: certbot --nginx -d <endereço>
   nivoo senha [usuario]     liga o login por usuário e senha (nivoo sem-senha desliga)
-  nivoo backup              backup do banco, dados e configuração em $BACKUP_DIR
+  nivoo backup              backup do banco, dados e configuração (mantém os 2 mais recentes)
+  nivoo limpar-backups      remove backups antigos/incompletos e preserva os 2 mais recentes
   nivoo restore <carimbo>   restaura um backup
   nivoo update              backup + atualiza o código (git pull) + reinstala/migra
 
