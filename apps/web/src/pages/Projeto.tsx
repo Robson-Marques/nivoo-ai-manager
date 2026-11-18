@@ -24,6 +24,19 @@ export const NOME_IA: Record<string, string> = {
   'gemini-api': 'Gemini (API)',
 };
 
+const MAX_TEXTO_MENSAGEM = 20_000;
+
+function arquivoDeTextoLongo(conteudo: string, existentes: File[]): File {
+  const instante = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '');
+  const usados = new Set(existentes.map((f) => f.name.toLowerCase()));
+  let nome = `mensagem-longa-${instante}.txt`;
+  let n = 2;
+  while (usados.has(nome.toLowerCase())) nome = `mensagem-longa-${instante}-${n++}.txt`;
+  return new File([conteudo], nome, { type: 'text/plain;charset=utf-8' });
+}
+
+const avisoDeTextoLongo = (nome: string) => `O texto completo desta mensagem está no anexo "${nome}". Leia o arquivo integralmente antes de responder.`;
+
 /**
  * Memória do projeto (o que o usuário combinou), em grupos. A memória interna do processo (notas das sessões da IA,
  * lições de falhas, registro de trabalhos) não se mistura: fica num bloco recolhido no fim.
@@ -472,6 +485,24 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     if (imagens.length) {
       e.preventDefault();
       anexar(imagens);
+      return;
+    }
+    const colado = e.clipboardData.getData('text/plain');
+    if (colado) {
+      const inicio = e.currentTarget.selectionStart ?? texto.length;
+      const fim = e.currentTarget.selectionEnd ?? inicio;
+      const completo = `${texto.slice(0, inicio)}${colado}${texto.slice(fim)}`;
+      if (completo.length > MAX_TEXTO_MENSAGEM) {
+        e.preventDefault();
+        if (anexos.length >= 10) {
+          setErro('O texto passa de 20.000 caracteres e precisa virar anexo, mas esta mensagem já tem 10 anexos. Tire um deles e cole novamente.');
+          return;
+        }
+        const arquivo = arquivoDeTextoLongo(completo, anexos);
+        setAnexos((atuais) => [...atuais, arquivo]);
+        setTexto(avisoDeTextoLongo(arquivo.name));
+        setErro(null);
+      }
     }
   };
   const enviando = useRef(false);
@@ -490,9 +521,20 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     setOcupado(true);
     setErro(null);
     try {
-      const lista = await Promise.all(anexos.map(async (f) => ({ nome: f.name, contentBase64: await fileToBase64(f) })));
+      let textoEnviar = texto;
+      let anexosEnviar = anexos;
+      // Protege também texto digitado/ditado, ou colado por um navegador que não disparou o tratamento acima.
+      if (textoEnviar.length > MAX_TEXTO_MENSAGEM) {
+        if (anexosEnviar.length >= 10) throw new Error('O texto passa de 20.000 caracteres e precisa virar anexo, mas esta mensagem já tem 10 anexos. Tire um deles e envie novamente.');
+        const arquivo = arquivoDeTextoLongo(textoEnviar, anexosEnviar);
+        anexosEnviar = [...anexosEnviar, arquivo];
+        textoEnviar = avisoDeTextoLongo(arquivo.name);
+        setAnexos(anexosEnviar);
+        setTexto(textoEnviar);
+      }
+      const lista = await Promise.all(anexosEnviar.map(async (f) => ({ nome: f.name, contentBase64: await fileToBase64(f) })));
       const midia = midiaAnexada.filter((m) => m.caminho && !m.erro).map((m) => ({ nome: m.nome, caminho: m.caminho }));
-      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto, ...(lista.length ? { anexos: lista } : {}), ...(midia.length ? { midia } : {}) }));
+      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: textoEnviar, ...(lista.length ? { anexos: lista } : {}), ...(midia.length ? { midia } : {}) }));
       setTexto('');
       setAnexos([]);
       setMidiaAnexada([]);
@@ -717,7 +759,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
   if (m.status === 'ERRO') {
     return (
       <div className="msg ia erro">
-        {m.content}
+        <TextoDaIa texto={m.content} />
         {/conectada|indisponível|limite|Conexões/.test(m.content) && <TrocarIa depois={onReenviar} />}
       </div>
     );
@@ -725,7 +767,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
   return (
     <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
       {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
-      <div className="texto">{m.content}</div>
+      <TextoDaIa texto={m.content} />
       {Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
         <PerguntasComOpcoes perguntas={m.perguntas} respondida={respondida} onResponder={onResponder} />
       )}
@@ -746,6 +788,92 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
             <span className="muted small">Proposta anterior (não executada).</span>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+type TrechoDaIa = { tipo: 'texto' | 'comando'; conteudo: string };
+
+const INICIO_DE_COMANDO = /^(?:[-*]\s+)?(?:\$\s*|root@[^#\n]+#\s*)?(?:sudo\s+|nivoo\s+|git\s+|npm\s+|npx\s+|pnpm\s+|yarn\s+|docker\s+|systemctl\s+|journalctl\s+|pm2\s+|kill(?:all)?\s+|sleep\s+|ss\s+|netstat\s+|lsof\s+|service\s+|reboot(?:\s|$)|shutdown\s+|top(?:\s|$)|free\s+|ls(?:\s|$)|cd\s+|pwd(?:\s|$)|df\s+|du\s+|cat\s+|tail\s+|head\s+|grep\s+|rg\s+|find\s+|curl\s+|wget\s+|apt(?:-get)?\s+|psql\s+|node\s+|python\d*\s+|bash\s+|sh\s+|ssh\s+|scp\s+|chmod\s+|chown\s+|cp\s+|mv\s+|mkdir\s+|tar\s+|zip\s+|unzip\s+|sed\s+|awk\s+|export\s+|env\s+)/;
+
+function pareceComando(texto: string): boolean {
+  return INICIO_DE_COMANDO.test(texto.trim());
+}
+
+/** Além dos blocos Markdown, reconhece o padrão antigo em que a IA punha um comando entre crases ou aspas. */
+function separarComandos(texto: string): TrechoDaIa[] {
+  const trechos: TrechoDaIa[] = [];
+  const adicionarTextoSimples = (parte: string) => {
+    let acumulado = '';
+    const descarregar = () => {
+      if (acumulado) trechos.push({ tipo: 'texto', conteudo: acumulado });
+      acumulado = '';
+    };
+    for (const linha of parte.split(/(\n)/)) {
+      if (linha !== '\n' && pareceComando(linha)) {
+        descarregar();
+        trechos.push({ tipo: 'comando', conteudo: linha.trim().replace(/^[-*]\s+/, '') });
+      } else acumulado += linha;
+    }
+    descarregar();
+  };
+  const adicionarTexto = (parte: string) => {
+    if (!parte) return;
+    const re = /`([^`\n]+)`|'([^'\n]+)'/g;
+    let pos = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(parte))) {
+      const candidato = m[1] ?? m[2] ?? '';
+      if (!pareceComando(candidato)) continue;
+      if (m.index > pos) adicionarTextoSimples(parte.slice(pos, m.index));
+      trechos.push({ tipo: 'comando', conteudo: candidato.trim() });
+      pos = m.index + m[0].length;
+    }
+    if (pos < parte.length) adicionarTextoSimples(parte.slice(pos));
+  };
+  const cercado = /```[^\n]*\n([\s\S]*?)```/g;
+  let pos = 0;
+  let m: RegExpExecArray | null;
+  while ((m = cercado.exec(texto))) {
+    adicionarTexto(texto.slice(pos, m.index));
+    if (m[1].trim()) trechos.push({ tipo: 'comando', conteudo: m[1].trim() });
+    pos = m.index + m[0].length;
+  }
+  adicionarTexto(texto.slice(pos));
+  return trechos.length ? trechos : [{ tipo: 'texto', conteudo: texto }];
+}
+
+function BlocoDeComando({ comando }: { comando: string }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <div className="bloco-comando">
+      <div className="bloco-comando-topo">
+        <span>Comando</span>
+        <button
+          type="button"
+          className="link"
+          onClick={async () => {
+            await copiarTexto(comando);
+            setCopiado(true);
+            window.setTimeout(() => setCopiado(false), 1800);
+          }}
+        >
+          {copiado ? 'Copiado' : 'Copiar'}
+        </button>
+      </div>
+      <pre><code>{comando}</code></pre>
+    </div>
+  );
+}
+
+function TextoDaIa({ texto }: { texto: string }) {
+  return (
+    <div className="texto texto-ia">
+      {separarComandos(String(texto ?? '')).map((t, i) =>
+        t.tipo === 'comando'
+          ? <BlocoDeComando key={i} comando={t.conteudo} />
+          : <span key={i} className="texto-comum">{t.conteudo}</span>,
       )}
     </div>
   );

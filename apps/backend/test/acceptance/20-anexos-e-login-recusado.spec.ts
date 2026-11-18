@@ -139,6 +139,30 @@ describe('Chat com anexos e login recusado', () => {
     ctl('resposta.txt', null);
   });
 
+  it('texto acima de 20 mil caracteres vira anexo automaticamente e chega inteiro à IA', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Prompt comprido', provider: 'claude-code-cli' }).expect(201)).body;
+    const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    const longo = `INÍCIO DO PEDIDO\n${'conteúdo importante '.repeat(1300)}\nFIM DO PEDIDO`;
+    expect(longo.length).toBeGreaterThan(20_000);
+    ctl('mode', 'texto');
+    ctl('resposta.txt', '```json\n{"tipo":"resposta","texto":"Li o anexo completo.","memoria":[]}\n```');
+    const conversa = (await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: longo }).expect(201)).body;
+    const minha = conversa.messages.find((m: any) => m.role === 'USUARIO');
+    expect(minha.content).toMatch(/texto completo.*anexo.*mensagem-completa\.txt/i);
+    expect(minha.content.length).toBeLessThan(20_000);
+    expect(minha.attachments).toEqual([{ nome: 'mensagem-completa.txt', tipo: 'texto', bytes: Buffer.byteLength(longo) }]);
+    expect(conversa.title).toBe(longo.replace(/\s+/g, ' ').trim().slice(0, 60));
+    const aberto = await h.http().get(`/api/projects/${p.id}/conversations/${c.id}/messages/${minha.id}/anexos/mensagem-completa.txt`).expect(200);
+    expect(aberto.text).toBe(longo);
+    expect((await resposta(p.id, c.id, 1)).content).toBe('Li o anexo completo.');
+    const prompt = lido('prompt.txt');
+    expect(prompt).toContain(`contexto/anexos/${minha.id}/mensagem-completa.txt`);
+    expect(prompt).toContain('comando sozinho em um bloco Markdown');
+    expect(lido('anexos.txt')).toContain(`./${minha.id}/mensagem-completa.txt ${Buffer.byteLength(longo)}`);
+    ctl('mode', null);
+    ctl('resposta.txt', null);
+  });
+
   it('login recusado pela IA: a conexão vira "reconecte" e a mensagem explica; reconectar limpa', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Token vencido', provider: 'claude-code-cli' }).expect(201)).body;
     const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;

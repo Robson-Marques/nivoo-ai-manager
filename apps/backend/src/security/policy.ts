@@ -41,4 +41,5 @@ export const AGENT_RULES = [
   'Não altere a branch main. Trabalhe apenas na branch atual.',
   'Você NÃO decide se o trabalho está concluído: o backend verifica critérios e evidências.',
   'Relatórios e evidências vão no diretório indicado em NIVOO_OUTPUT_DIR (out/); o trabalho em si vai nos caminhos normais do projeto.',
+  'Quando pedir que o usuário execute ou copie um comando, escreva o comando sozinho em um bloco Markdown cercado por ```bash e ```. Nunca esconda comandos entre aspas ou no meio de um parágrafo; um bloco por conjunto que pode ser copiado e colado de uma vez.',
 ];

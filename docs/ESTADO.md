@@ -3,6 +3,19 @@
 > Atualizado em 2026-11-18. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 
+## Comandos em caixa copiável (2026-11-18)
+
+As regras de todos os agentes exigem que comandos destinados ao usuário saiam em blocos Markdown próprios. O chat
+transforma esses blocos em caixas monoespaçadas com botão **Copiar** e reconhece também o formato antigo em que o
+comando vinha entre crases ou aspas no meio do parágrafo.
+
+## Prompt longo vira anexo automaticamente (2026-11-18)
+
+Ao colar ou enviar mais de 20.000 caracteres no chat, a interface cria um `.txt`, mostra-o na bandeja de anexos e
+deixa no campo apenas a instrução para a IA ler o arquivo. O backend aplica a mesma conversão a clientes diretos,
+preserva o conteúdo integral e o entrega à sessão em `contexto/anexos/`; continuam valendo os limites de 10 MB e
+10 anexos por mensagem.
+
 ## Locução Kokoro local e trilha independente (2026-11-18)
 
 O projeto escolhe entre **Kokoro local** (padrão, sem token) e **Gemini TTS** (paga). O Kokoro usa as vozes brasileiras

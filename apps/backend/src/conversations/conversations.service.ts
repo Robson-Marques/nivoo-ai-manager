@@ -9,9 +9,10 @@ import * as path from 'node:path';
 import { caminhoDoProjeto, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, AUDIO_EXT } from '../projects/midia';
-import { Anexo, gravarAnexos, lerAnexo, MAX_ANEXOS, prepararAnexos } from './attachments';
+import { Anexo, gravarAnexos, lerAnexo, MAX_ANEXO_BYTES, MAX_ANEXOS, prepararAnexos } from './attachments';
 
 const TITULO_PADRAO = 'Nova conversa';
+const MAX_TEXTO_MENSAGEM = 20_000;
 
 /**
  * Conversa do projeto (o projeto pode ter várias; cada uma começa limpa, mas todas compartilham a
@@ -149,11 +150,27 @@ export class ConversationsService {
     if (conversa.archivedAt) throw new ConflictException('Conversa arquivada: desarquive para continuar');
     // Anexos (imagens, documentos, texto) podem ir sozinhos, sem texto.
     const anexos = await prepararAnexos(body?.anexos);
+    // Mensagem comprida vira um anexo de texto automaticamente. Assim o banco mantém um resumo curto, mas a IA
+    // recebe o pedido integral em contexto/anexos/, inclusive quando o envio não veio pela interface web.
+    const textoOriginal = typeof body?.content === 'string' ? body.content : null;
+    let conteudoRecebido: unknown = body?.content;
+    if (textoOriginal && textoOriginal.length > MAX_TEXTO_MENSAGEM) {
+      if (anexos.length >= MAX_ANEXOS) throw new BadRequestException(`O texto passa de ${MAX_TEXTO_MENSAGEM} caracteres e precisa virar anexo, mas a mensagem já tem ${MAX_ANEXOS} anexos`);
+      const bytes = Buffer.from(textoOriginal, 'utf8');
+      if (bytes.length > MAX_ANEXO_BYTES) throw new BadRequestException('O texto passa de 10 MB e é grande demais para ser anexado à mensagem');
+      const usados = new Set(anexos.map((a) => a.nome.toLowerCase()));
+      let nome = 'mensagem-completa.txt';
+      let n = 2;
+      while (usados.has(nome.toLowerCase())) nome = `mensagem-completa-${n++}.txt`;
+      anexos.push({ nome, tipo: 'texto', bytes: bytes.length, conteudo: bytes });
+      conteudoRecebido = `O texto completo desta mensagem está no anexo "${nome}". Leia o arquivo integralmente antes de responder.`;
+    }
     // Mídia anexada à mensagem (vídeo/áudio já enviados para midia/entrada): vão com a mensagem, aparecem no balão
     // e a IA os referencia pelo caminho — sem recópia (o arquivo já está na mídia do projeto).
     const midia = await this.prepararMidiaAnexada(projectId, body?.midia);
     const temAnexo = anexos.length > 0 || midia.length > 0;
-    const content = temAnexo ? (optString(body, 'content', 20000) ?? '').trim() : reqString(body, 'content', 20000);
+    const corpo = { content: conteudoRecebido };
+    const content = temAnexo ? (optString(corpo, 'content', MAX_TEXTO_MENSAGEM) ?? '').trim() : reqString(corpo, 'content', MAX_TEXTO_MENSAGEM);
     const raiz = anexos.length ? await this.raizDoProjeto(projectId) : '';
     await this.prisma.$transaction(async (tx) => {
       // Trava a conversa: duas mensagens enviadas juntas (Enter duas vezes) não passam as duas.
@@ -170,7 +187,7 @@ export class ConversationsService {
       await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
       // Conversa nova ganha como título o começo da primeira mensagem (como no ChatGPT).
       const primeira = (await tx.conversationMessage.count({ where: { conversationId, role: 'USUARIO' } })) === 1;
-      const inicio = content || [...anexos, ...midia].map((a) => a.de ?? a.nome).join(', ');
+      const inicio = textoOriginal?.trim() || content || [...anexos, ...midia].map((a) => a.de ?? a.nome).join(', ');
       const titulo = primeira && conversa.title === TITULO_PADRAO ? inicio.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
       await tx.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date(), ...(titulo ? { title: titulo } : {}) } });
     });
