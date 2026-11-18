@@ -404,36 +404,42 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   const EH_MIDIA = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac)$/i;
   const EH_AUDIO = /\.(wav|mp3|m4a|aac|ogg|flac)$/i;
   const ehMidia = (f: File) => EH_MIDIA.test(f.name) || f.type.startsWith('video/') || f.type.startsWith('audio/');
-  type MidiaComposer = { nome: string; pct: number; caminho?: string; audio?: boolean; erro?: string };
+  type MidiaComposer = { id: string; nome: string; pct: number; caminho?: string; audio?: boolean; erro?: string };
   const [midiaAnexada, setMidiaAnexada] = useState<MidiaComposer[]>([]);
-  const tirarMidia = (m: MidiaComposer) => setMidiaAnexada((a) => a.filter((x) => x !== m));
+  const midiaSubindo = midiaAnexada.some((m) => !m.caminho && !m.erro);
+  const temMidiaEnviada = midiaAnexada.some((m) => !!m.caminho && !m.erro);
+  const novoIdDeMidia = () => ((crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+  const tirarMidia = (m: MidiaComposer) => setMidiaAnexada((a) => a.filter((x) => x.id !== m.id));
   const anexarMidia = async (lista: File[]) => {
     for (const f of lista) {
       if (midiaAnexada.some((x) => x.nome === f.name && !x.erro)) {
         setErro(`"${f.name}" já está anexado nesta mensagem.`);
         continue;
       }
-      const item: MidiaComposer = { nome: f.name, pct: 0, audio: EH_AUDIO.test(f.name) || f.type.startsWith('audio/') };
+      // O id permanece estável enquanto o objeto no estado é substituído a cada atualização. Comparar pela
+      // identidade do objeto fazia somente o PRIMEIRO evento de progresso funcionar; os seguintes procuravam a
+      // referência antiga e a tela ficava eternamente em 1%, 3%, 19% etc., mesmo com o upload avançando.
+      const item: MidiaComposer = { id: novoIdDeMidia(), nome: f.name, pct: 0, audio: EH_AUDIO.test(f.name) || f.type.startsWith('audio/') };
       setMidiaAnexada((a) => [...a, item]);
       try {
-        const r = await enviarVideo(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
-        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct: 100, caminho: r.caminho, nome: r.nome } : x)));
+        const r = await enviarVideo(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x.id === item.id ? { ...x, pct: Math.max(x.pct, pct) } : x))));
+        setMidiaAnexada((a) => a.map((x) => (x.id === item.id ? { ...x, pct: 100, caminho: r.caminho, nome: r.nome } : x)));
       } catch (err: any) {
-        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+        setMidiaAnexada((a) => a.map((x) => (x.id === item.id ? { ...x, erro: err.message } : x)));
       }
     }
   };
   const anexarZip = async (lista: File[]) => {
     for (const f of lista) {
-      const item: MidiaComposer = { nome: f.name, pct: 0 };
+      const item: MidiaComposer = { id: novoIdDeMidia(), nome: f.name, pct: 0 };
       setMidiaAnexada((a) => [...a, item]);
       try {
-        const r = await enviarZipDeVideos(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
-        const novos: MidiaComposer[] = (r.adicionados ?? []).map((v: any) => ({ nome: v.nome, pct: 100, caminho: v.caminho, audio: EH_AUDIO.test(v.nome) }));
-        setMidiaAnexada((a) => [...a.filter((x) => x !== item), ...novos]);
+        const r = await enviarZipDeVideos(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x.id === item.id ? { ...x, pct: Math.max(x.pct, pct) } : x))));
+        const novos: MidiaComposer[] = (r.adicionados ?? []).map((v: any) => ({ id: novoIdDeMidia(), nome: v.nome, pct: 100, caminho: v.caminho, audio: EH_AUDIO.test(v.nome) }));
+        setMidiaAnexada((a) => [...a.filter((x) => x.id !== item.id), ...novos]);
         if (!novos.length) setErro(`Nenhum vídeo no .zip "${f.name}".`);
       } catch (err: any) {
-        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+        setMidiaAnexada((a) => a.map((x) => (x.id === item.id ? { ...x, erro: err.message } : x)));
       }
     }
   };
@@ -636,11 +642,11 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
                   <button type="button" className="link" aria-label={`Tirar ${f.name}`} onClick={() => setAnexos(anexos.filter((_, j) => j !== i))}>×</button>
                 </span>
               ))}
-              {midiaAnexada.map((m, i) => (
-                <span key={`m-${m.nome}-${i}`} className={m.erro ? 'anexo-chip erro' : 'anexo-chip'} title={m.erro ?? m.nome}>
+              {midiaAnexada.map((m) => (
+                <span key={m.id} className={m.erro ? 'anexo-chip erro' : 'anexo-chip'} title={m.erro ?? m.nome}>
                   <span className="anexo-tipo">{(m.nome.split('.').pop() ?? (m.audio ? 'AUD' : 'VID')).toUpperCase().slice(0, 4)}</span>
                   <span className="anexo-nome">{m.nome}</span>
-                  <span className="muted small">{m.erro ? 'falhou' : m.caminho ? (m.audio ? 'áudio' : 'vídeo') : `enviando ${m.pct}%`}</span>
+                  <span className="muted small">{m.erro ? 'falhou' : m.caminho ? 'enviado' : m.pct >= 100 ? 'finalizando…' : `enviando ${m.pct}%`}</span>
                   <button type="button" className="link" aria-label={`Tirar ${m.nome}`} onClick={() => tirarMidia(m)}>×</button>
                 </span>
               ))}
@@ -670,7 +676,9 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             disabled={pensando}
           />
           <BotaoDitado texto={texto} onTexto={setTexto} desativado={pensando || ocupado} pararRef={pararDitado} />
-          <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length && !midiaAnexada.length)}>{ocupado ? 'Enviando…' : 'Enviar'}</button>
+          <button disabled={ocupado || pensando || midiaSubindo || (!texto.trim() && !anexos.length && !temMidiaEnviada)}>
+            {midiaSubindo ? 'Anexando…' : ocupado ? 'Enviando…' : 'Enviar'}
+          </button>
         </form>
         </>
         )}
