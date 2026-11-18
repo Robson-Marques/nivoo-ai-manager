@@ -59,7 +59,7 @@
     - **Login por usuário e senha (domínio próprio, sem Cloudflare):** `nivoo senha [usuario]` (como root) liga a
       entrada por usuário e senha; a tela de login passa a pedir os dois. Desliga com `nivoo sem-senha`. Útil para
       servir no SEU domínio apontando o DNS direto para o servidor, com um **nginx** na frente:
-      `server { server_name imanager.seu-dominio; client_max_body_size 2048m; location / { proxy_pass http://127.0.0.1:3000; proxy_request_buffering off; } }`
+      `server { server_name aimanager.nivoo.dev.br; client_max_body_size 2048m; location / { proxy_pass http://127.0.0.1:3000; proxy_request_buffering off; } }`
       Assim o **upload não tem o limite de 100 MB** da Cloudflare. (Ponha HTTPS no nginx com certbot.)
     - **Enviar vídeos grandes pela internet:** o envio vai por streaming direto ao Nivoo (limite
       `NIVOO_MAX_VIDEO_MB`, padrão 2048 MB). Se houver um **proxy na frente** (nginx, Apache, Cloudflare), ele
