@@ -198,6 +198,30 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect(lista.find((v: any) => v.caminho === env.body.caminho)?.bytes).toBe(grande.length);
   });
 
+  it('upload em PEDAÇOS: os pedaços na ordem viram um vídeo só; pedaço fora de ordem é recusado', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Grande em partes', provider: 'claude-code-cli' }).expect(201)).body;
+    const chunk = (q: Record<string, string>, buf: Buffer) =>
+      h.http().post(`/api/projects/${p.id}/videos/chunk`).query(q).set('Content-Type', 'application/octet-stream').send(buf);
+    const partes = [Buffer.alloc(2048, 1), Buffer.alloc(2048, 2), Buffer.alloc(1000, 3)];
+    const total = partes.reduce((n, b) => n + b.length, 0);
+    let off = 0;
+    let fim: any = null;
+    for (let i = 0; i < partes.length; i++) {
+      const ehFinal = i === partes.length - 1;
+      const r = await chunk({ nome: 'comercial.mp4', id: 'upload-ABC-123', offset: String(off), final: ehFinal ? '1' : '0' }, partes[i]).expect(201);
+      off += partes[i].length;
+      if (ehFinal) fim = r.body;
+      else expect(r.body).toEqual({ ok: true, bytes: off });
+    }
+    expect(fim.caminho).toMatch(/^midia\/entrada\/[0-9a-f-]+\.mp4$/);
+    expect(fim.bytes).toBe(total);
+    expect((await h.http().get(`/api/projects/${p.id}/videos`).expect(200)).body.videos.find((v: any) => v.caminho === fim.caminho)?.bytes).toBe(total);
+    // Pedaço fora de ordem (offset errado) é recusado.
+    await chunk({ nome: 'x.mp4', id: 'upload-XYZ-999', offset: '50', final: '0' }, Buffer.alloc(10)).expect(400);
+    // Extensão não-mídia é recusada já no primeiro pedaço.
+    await chunk({ nome: 'x.txt', id: 'upload-TXT-000', offset: '0', final: '1' }, Buffer.alloc(10)).expect(400);
+  });
+
   it('vídeo/áudio anexado À MENSAGEM: vai junto no envio e aparece como anexo da mensagem (não em bandeja separada)', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Reel', provider: 'claude-code-cli' }).expect(201)).body;
     const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;

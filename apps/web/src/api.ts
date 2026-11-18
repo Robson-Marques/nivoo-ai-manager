@@ -197,9 +197,53 @@ function enviarPorStreaming<T>(url: string, file: File, onProgresso: (pct: numbe
   });
 }
 
-/** Envia um vídeo por streaming (corpo bruto), com progresso — para arquivo grande que não cabe no JSON. */
-export function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
-  return enviarPorStreaming(`/api/projects/${projetoId}/videos?nome=${encodeURIComponent(file.name)}`, file, onProgresso);
+/** Envia UM pedaço (octet-stream) com um nº de tentativas — pedaço pequeno quase nunca trava, e se travar reenvia só ele. */
+async function enviarPedaco(url: string, corpo: Blob, tentativas = 3): Promise<any> {
+  for (let i = 1; ; i++) {
+    try {
+      const token = getToken();
+      const ctrl = new AbortController();
+      const t = window.setTimeout(() => ctrl.abort(), STALL_MS); // pedaço que não responde em 45s: corta e tenta de novo
+      let res: Response;
+      try {
+        res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/octet-stream', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: corpo, signal: ctrl.signal });
+      } finally {
+        window.clearTimeout(t);
+      }
+      if (!res.ok) {
+        let m = res.statusText;
+        try { const d = await res.json(); m = Array.isArray(d?.message) ? d.message.join('; ') : d?.message ?? m; } catch { /* não-JSON */ }
+        // Erro do próprio pedido (ex.: 400 fora de ordem, limite): não adianta repetir.
+        throw new ApiError(res.status, m);
+      }
+      return await res.json();
+    } catch (e: any) {
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) throw e; // erro do servidor sobre o conteúdo: não repete
+      if (i >= tentativas) throw new ApiError(0, `O envio do vídeo falhou (${e?.message ?? e}). Tente de novo.`);
+      await new Promise((r) => setTimeout(r, 800 * i)); // espera e reenvia o MESMO pedaço
+    }
+  }
+}
+
+/**
+ * Envia um vídeo/áudio EM PEDAÇOS de ~4 MB: cada pedaço é uma requisição curta que termina rápido. Assim arquivo
+ * grande não trava num único fluxo (flow-control do HTTP/2, timeouts, engasgo da rede) — um pedaço que falha é
+ * reenviado sozinho, e o progresso anda de verdade. O último pedaço fecha o vídeo no servidor e devolve o caminho.
+ */
+export async function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
+  const PEDACO = 4 * 1024 * 1024;
+  const id = ((crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40).padEnd(8, '0');
+  const base = `/api/projects/${projetoId}/videos/chunk?nome=${encodeURIComponent(file.name)}&id=${id}`;
+  let offset = 0;
+  let ultimo: any = null;
+  do {
+    const fim = Math.min(offset + PEDACO, file.size);
+    const ehFinal = fim >= file.size;
+    ultimo = await enviarPedaco(`${base}&offset=${offset}&final=${ehFinal ? 1 : 0}`, file.slice(offset, fim));
+    offset = fim;
+    onProgresso(Math.min(100, Math.round((offset / Math.max(1, file.size)) * 100)));
+  } while (offset < file.size);
+  return ultimo; // resposta do último pedaço: { id, nome, bytes, caminho, pasta }
 }
 
 /** Envia um .zip por streaming (corpo bruto), com progresso; o servidor extrai todos os vídeos de dentro. */

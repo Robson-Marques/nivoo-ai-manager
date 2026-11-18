@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { aiConnectionIds, listarConexoes, tipoDe } from '../accounts/connections';
 import { apagarVariaveisDaConferencia, gravarReferenciaDaConferencia, gravarVariavelDaConferencia, nomesDasVariaveisDaConferencia, referenciasDaConferencia } from '../accounts/secrets';
 import { listGitAccounts } from '../git/git-accounts';
-import { apagarVideoEnviado, arquivoDaMidia, gravarVideoEnviado, gravarZipDeVideos, importarVideosDaPasta, listarVideos } from './midia';
+import { apagarVideoEnviado, arquivoDaMidia, gravarPedacoDeVideo, gravarVideoEnviado, gravarZipDeVideos, importarVideosDaPasta, listarVideos } from './midia';
 import { Readable } from 'node:stream';
 import { moverTrabalhoParaIa } from './mover-trabalho';
 import { appConfig } from '../config';
@@ -325,6 +325,11 @@ export class ProjectsService {
   /** Guarda um vídeo enviado pelo app (streaming, arquivo grande). Fora do git e fora da sessão da IA. */
   async salvarVideo(id: string, nome: string, corpo: Readable) {
     return gravarVideoEnviado(await this.midiaDir(id), nome, corpo);
+  }
+
+  /** Um pedaço do upload em partes (arquivo grande): grava no temporário e, no último, fecha o vídeo. */
+  async salvarPedacoDeVideo(id: string, nome: string, uploadId: string, offset: number, isFinal: boolean, corpo: Readable) {
+    return gravarPedacoDeVideo(await this.midiaDir(id), nome, uploadId, offset, isFinal, corpo);
   }
 
   /** Recebe um .zip (streaming) e extrai TODOS os vídeos de dentro para a mídia do projeto. */

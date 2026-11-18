@@ -91,6 +91,83 @@ export async function gravarVideoEnviado(midia: string, nome: string, corpo: Rea
   return { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
 }
 
+/**
+ * Upload EM PEDAÇOS (robusto para arquivo grande): cada pedaço é uma requisição pequena que termina rápido, então um
+ * engasgo da rede trava só um pedaço (que o app reenvia), nunca o arquivo inteiro. Os pedaços vão para um arquivo
+ * temporário midia/entrada/.partes/<uploadId>.part (append, na ordem); no último (final=true) ele vira o vídeo real.
+ * O uploadId é do cliente (um token) e o offset tem que bater com o tamanho atual (envio sequencial).
+ */
+export async function gravarPedacoDeVideo(
+  midia: string,
+  nome: string,
+  uploadId: string,
+  offset: number,
+  isFinal: boolean,
+  corpo: Readable,
+): Promise<VideoDaMidia | { ok: true; bytes: number }> {
+  const nomeOk = nomeSeguroVideo(nome); // valida a extensão (vídeo/áudio) antes de aceitar pedaços
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(String(uploadId))) throw new BadRequestException('uploadId inválido');
+  if (!Number.isInteger(offset) || offset < 0) throw new BadRequestException('offset inválido');
+  const dir = entradaDir(midia);
+  const tmpDir = path.join(dir, '.partes');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  limparPartesVelhas(tmpDir);
+  const part = path.join(tmpDir, `${uploadId}.part`);
+  const atual = fs.existsSync(part) ? fs.statSync(part).size : 0;
+  if (offset !== atual) throw new BadRequestException(`Pedaço fora de ordem: esperava offset ${atual}, veio ${offset}`);
+  let bytes = atual;
+  const limite = MAX_VIDEO_BYTES;
+  const contador = new Transform({
+    transform(chunk: Buffer, _enc, cb) {
+      bytes += chunk.length;
+      if (bytes > limite) {
+        cb(Object.assign(new Error('LIMITE'), { estourou: true }));
+        return;
+      }
+      cb(null, chunk);
+    },
+  });
+  try {
+    await pipeline(corpo, contador, fs.createWriteStream(part, { flags: 'a' }));
+  } catch (err: any) {
+    fs.rmSync(part, { force: true });
+    if (err?.estourou) throw new BadRequestException(`O vídeo passa do limite de ${Math.round(limite / 1024 / 1024)} MB`);
+    if (err?.code === 'ENOSPC') throw new BadRequestException('Sem espaço em disco no servidor para gravar o vídeo. Libere espaço (ex.: backups antigos) e tente de novo.');
+    throw err;
+  }
+  if (!isFinal) return { ok: true, bytes };
+  // Último pedaço: o .part vira o vídeo de verdade em midia/entrada/<id>.
+  const e = ext(nomeOk);
+  const id = `${crypto.randomUUID()}${e}`;
+  const destino = path.join(dir, id);
+  fs.renameSync(part, destino);
+  const salvo = fs.existsSync(destino) ? fs.statSync(destino).size : 0;
+  LOG_MIDIA.log(`upload (pedaços) OK "${nomeOk}" → ${salvo} bytes`);
+  if (!salvo) {
+    fs.rmSync(destino, { force: true });
+    throw new BadRequestException('O vídeo chegou vazio (0 byte).');
+  }
+  fs.writeFileSync(path.join(dir, `${id}.nome`), nomeOk);
+  return { id, nome: nomeOk, bytes: salvo, caminho: `midia/entrada/${id}`, pasta: 'entrada' };
+}
+
+/** Remove restos de upload em pedaços parados há mais de 6h (envio abandonado). */
+function limparPartesVelhas(tmpDir: string): void {
+  try {
+    const agora = Date.now();
+    for (const f of fs.readdirSync(tmpDir)) {
+      const p = path.join(tmpDir, f);
+      try {
+        if (agora - fs.statSync(p).mtimeMs > 6 * 3600 * 1000) fs.rmSync(p, { force: true });
+      } catch {
+        /* ignora */
+      }
+    }
+  } catch {
+    /* sem pasta de partes ainda */
+  }
+}
+
 /** Nome visível seguro para o .nome (não lança: só limpa e corta). */
 function nomeDisplaySeguro(base: string): string {
   return (base.replace(/[\u0000-\u001f<>:"|?*]/g, '_').trim() || 'video').slice(0, 150);

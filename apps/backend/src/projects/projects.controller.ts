@@ -61,6 +61,19 @@ export class ProjectsController {
     return this.projects.salvarVideo(pid, nome, req);
   }
 
+  /** Upload em PEDAÇOS (arquivo grande, robusto): cada pedaço termina rápido; o último (final=1) fecha o vídeo. */
+  @Post(':pid/videos/chunk')
+  async enviarPedacoDeVideo(
+    @Param('pid', ParseUUIDPipe) pid: string,
+    @Query('nome') nome: string,
+    @Query('id') id: string,
+    @Query('offset') offset: string,
+    @Query('final') final: string,
+    @Req() req: Request,
+  ) {
+    return this.projects.salvarPedacoDeVideo(pid, nome, id, Number(offset), final === '1' || final === 'true', req);
+  }
+
   /** Envia um .zip (streaming) e o servidor extrai todos os vídeos de dentro para a mídia do projeto. */
   @Post(':pid/videos/zip')
   async enviarZipDeVideos(@Param('pid', ParseUUIDPipe) pid: string, @Query('nome') nome: string, @Req() req: Request) {
