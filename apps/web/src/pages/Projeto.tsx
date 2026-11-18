@@ -630,10 +630,12 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
                       <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
                     </span>
                   ))}
-                  {enviandoVideos.map((v, i) => (
-                    <span key={`env-${i}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
+                  {/* Nunca mostra um "enviando" para um vídeo que JÁ está na lista (seria o mesmo arquivo duas vezes na
+                      tela): se já subiu, o chip de progresso some. Erros continuam aparecendo (com o × para fechar). */}
+                  {enviandoVideos.filter((v) => v.erro || !videos.some((x: any) => x.nome === v.nome)).map((v) => (
+                    <span key={`env-${v.nome}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
                       🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.erro ? `falhou: ${v.erro.slice(0, 60)}` : `enviando ${v.pct}%`}</span>
-                      {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((_, j) => j !== i))}>×</button>}
+                      {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((x) => x !== v))}>×</button>}
                     </span>
                   ))}
                 </div>
