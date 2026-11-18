@@ -13,10 +13,13 @@ import { extractText, isDocument, isLegacyDocument } from '../common/text-extrac
  */
 export interface Anexo {
   nome: string;
-  tipo: 'imagem' | 'texto' | 'audio';
+  tipo: 'imagem' | 'texto' | 'audio' | 'video';
   bytes: number;
   /** Nome original quando o arquivo foi convertido em texto (ex.: contrato.pdf). */
   de?: string;
+  /** Mídia do projeto (vídeo/áudio grande): o arquivo mora em midia/entrada, não na pasta de anexos; aqui vai o
+   * caminho (midia/entrada/<id>) para a tela mostrar o anexo na mensagem e a IA referenciá-lo. */
+  caminho?: string;
 }
 
 export const MAX_ANEXOS = 10;

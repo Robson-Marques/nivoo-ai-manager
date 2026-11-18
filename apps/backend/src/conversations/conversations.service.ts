@@ -8,7 +8,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { caminhoDoProjeto, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { WorkspaceService } from '../storage/workspace.service';
-import { Anexo, gravarAnexos, lerAnexo, prepararAnexos } from './attachments';
+import { arquivoDaMidia, AUDIO_EXT } from '../projects/midia';
+import { Anexo, gravarAnexos, lerAnexo, MAX_ANEXOS, prepararAnexos } from './attachments';
 
 const TITULO_PADRAO = 'Nova conversa';
 
@@ -29,6 +30,24 @@ export class ConversationsService {
   private async raizDoProjeto(projectId: string): Promise<string> {
     const p = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { dirKey: true } });
     return this.workspace.projectDirs(p.dirKey).root;
+  }
+
+  /** Mídia (vídeo/áudio) que a mensagem anexa: `[{ nome, caminho: "midia/entrada/<id>" }]`. Confere que cada arquivo
+   * existe na mídia do projeto (sem copiar nada) e devolve os anexos prontos para guardar na mensagem. */
+  private async prepararMidiaAnexada(projectId: string, raw: unknown): Promise<Anexo[]> {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) throw new BadRequestException('midia deve ser uma lista');
+    if (raw.length > MAX_ANEXOS) throw new BadRequestException(`No máximo ${MAX_ANEXOS} anexos por mensagem`);
+    if (!raw.length) return [];
+    const p = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { dirKey: true } });
+    const midiaDir = this.workspace.projectDirs(p.dirKey).midia;
+    return raw.map((r: any) => {
+      const caminho = String(r?.caminho ?? '');
+      const abs = arquivoDaMidia(midiaDir, caminho);
+      if (!abs) throw new BadRequestException(`Mídia anexada não encontrada: ${caminho}`);
+      const nome = path.basename(String(r?.nome ?? caminho)).replace(/[\u0000-\u001f<>:"|?*]/g, '_').slice(0, 150) || path.basename(caminho);
+      return { nome, tipo: AUDIO_EXT.test(caminho) ? 'audio' : 'video', bytes: fs.statSync(abs).size, caminho } as Anexo;
+    });
   }
 
   private async conversation(projectId: string, conversationId: string) {
@@ -130,7 +149,11 @@ export class ConversationsService {
     if (conversa.archivedAt) throw new ConflictException('Conversa arquivada: desarquive para continuar');
     // Anexos (imagens, documentos, texto) podem ir sozinhos, sem texto.
     const anexos = await prepararAnexos(body?.anexos);
-    const content = anexos.length ? (optString(body, 'content', 20000) ?? '').trim() : reqString(body, 'content', 20000);
+    // Mídia anexada à mensagem (vídeo/áudio já enviados para midia/entrada): vão com a mensagem, aparecem no balão
+    // e a IA os referencia pelo caminho — sem recópia (o arquivo já está na mídia do projeto).
+    const midia = await this.prepararMidiaAnexada(projectId, body?.midia);
+    const temAnexo = anexos.length > 0 || midia.length > 0;
+    const content = temAnexo ? (optString(body, 'content', 20000) ?? '').trim() : reqString(body, 'content', 20000);
     const raiz = anexos.length ? await this.raizDoProjeto(projectId) : '';
     await this.prisma.$transaction(async (tx) => {
       // Trava a conversa: duas mensagens enviadas juntas (Enter duas vezes) não passam as duas.
@@ -138,15 +161,16 @@ export class ConversationsService {
       const pendente = await tx.conversationMessage.findFirst({ where: { conversationId, status: 'PENDENTE' } });
       if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
       const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content } });
-      if (anexos.length) {
-        const gravados = gravarAnexos(raiz, conversationId, minha.id, anexos);
-        await tx.conversationMessage.update({ where: { id: minha.id }, data: { attachments: gravados as unknown as Prisma.InputJsonValue } });
+      if (temAnexo) {
+        const gravados = anexos.length ? gravarAnexos(raiz, conversationId, minha.id, anexos) : [];
+        const todos = [...gravados, ...midia];
+        await tx.conversationMessage.update({ where: { id: minha.id }, data: { attachments: todos as unknown as Prisma.InputJsonValue } });
       }
       const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE' } });
       await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
       // Conversa nova ganha como título o começo da primeira mensagem (como no ChatGPT).
       const primeira = (await tx.conversationMessage.count({ where: { conversationId, role: 'USUARIO' } })) === 1;
-      const inicio = content || anexos.map((a) => a.de ?? a.nome).join(', ');
+      const inicio = content || [...anexos, ...midia].map((a) => a.de ?? a.nome).join(', ');
       const titulo = primeira && conversa.title === TITULO_PADRAO ? inicio.replace(/\s+/g, ' ').trim().slice(0, 60) : undefined;
       await tx.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date(), ...(titulo ? { title: titulo } : {}) } });
     });

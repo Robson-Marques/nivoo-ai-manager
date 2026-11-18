@@ -198,6 +198,27 @@ describe('Vídeo completo (cenas juntadas)', () => {
     expect(lista.find((v: any) => v.caminho === env.body.caminho)?.bytes).toBe(grande.length);
   });
 
+  it('vídeo/áudio anexado À MENSAGEM: vai junto no envio e aparece como anexo da mensagem (não em bandeja separada)', async () => {
+    const p = (await h.http().post('/api/projects').send({ name: 'Reel', provider: 'claude-code-cli' }).expect(201)).body;
+    const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
+    const subir = async (nome: string, buf: Buffer) =>
+      (await h.http().post(`/api/projects/${p.id}/videos`).query({ nome }).set('Content-Type', 'application/octet-stream').send(buf).expect(201)).body;
+    const vid = await subir('clip.mp4', Buffer.alloc(2048, 7));
+    const aud = await subir('trilha.wav', Buffer.alloc(1024, 3));
+    // A mensagem leva a mídia por referência (sem base64): o arquivo já está em midia/entrada.
+    const minha = (await h.http()
+      .post(`/api/projects/${p.id}/conversations/${c.id}/messages`)
+      .send({ content: 'vê esse vídeo com a trilha', midia: [{ nome: 'clip.mp4', caminho: vid.caminho }, { nome: 'trilha.wav', caminho: aud.caminho }] })
+      .expect(201)).body.messages.find((m: any) => m.role === 'USUARIO');
+    expect(minha.attachments).toEqual([
+      { nome: 'clip.mp4', tipo: 'video', bytes: 2048, caminho: vid.caminho },
+      { nome: 'trilha.wav', tipo: 'audio', bytes: 1024, caminho: aud.caminho },
+    ]);
+    // Caminho de mídia que não existe é recusado (não deixa anexar lixo) — validado antes mesmo da checagem de
+    // "IA respondendo", então vale mesmo com a resposta anterior ainda pendente.
+    await h.http().post(`/api/projects/${p.id}/conversations/${c.id}/messages`).send({ content: 'x', midia: [{ nome: 'z.mp4', caminho: 'midia/entrada/naoexiste.mp4' }] }).expect(400);
+  });
+
   it('.zip com vários vídeos: o servidor extrai todos (até em subpasta); importar da pasta pega os jogados na mão, menos o do repo', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Zip e pasta' }).expect(201)).body;
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zip-'));

@@ -423,12 +423,6 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .confenv-nova { gap: 6px; flex-wrap: wrap; }
 .confenv-nova input, .confenv-nova select { flex: 1; min-width: 140px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
 
-/* Vídeos para editar (modo edição): chips acima da caixa de mensagem, com progresso de envio. */
-.videos-prontos { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
-.videos-lista { display: flex; flex-wrap: wrap; gap: 6px; }
-.video-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 320px; padding: 4px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; }
-.video-chip .video-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
-.video-chip .link { padding: 0 2px; font-size: 16px; line-height: 1; }
-.video-chip.enviando { border-color: var(--accent); }
-.video-chip.erro { border-color: var(--bad); color: var(--bad); }
+/* Anexo de mídia (vídeo/áudio) que falhou ao subir: fica em vermelho na bandeja de anexos da mensagem. */
+.anexo-chip.erro { border-color: var(--bad); color: var(--bad); }
 .origem-video select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }

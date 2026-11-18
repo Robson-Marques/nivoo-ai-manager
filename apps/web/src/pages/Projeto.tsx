@@ -365,92 +365,55 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
 
   // Anexos da próxima mensagem: botão do clipe, colar (Ctrl+V) e arrastar para a conversa.
   const [anexos, setAnexos] = useState<File[]>([]);
-  // Vídeos para EDITAR: vão por streaming (arquivo grande) para a mídia do projeto, não como anexo da mensagem.
-  const [videos, setVideos] = useState<any[]>([]);
-  const [enviandoVideos, setEnviandoVideos] = useState<Array<{ nome: string; pct: number; erro?: string }>>([]);
-  const [msgVideos, setMsgVideos] = useState<string | null>(null);
-  const [importando, setImportando] = useState(false);
-  // Mídia do projeto = vídeo OU áudio (trilha/narração própria): ambos sobem por streaming para midia/entrada, não
-  // como anexo de 10 MB da mensagem — é lá que a montagem acha.
+  // Mídia (vídeo/áudio) anexada À MENSAGEM: sobe por streaming para a mídia do projeto (arquivo grande, sem o limite
+  // de 10 MB do anexo) e vai JUNTO com a mensagem — aparece no balão, como a imagem. Sem bandeja separada na tela.
   const EH_MIDIA = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac)$/i;
+  const EH_AUDIO = /\.(wav|mp3|m4a|aac|ogg|flac)$/i;
   const ehMidia = (f: File) => EH_MIDIA.test(f.name) || f.type.startsWith('video/') || f.type.startsWith('audio/');
-  const carregarVideos = useCallback(async () => {
-    try {
-      setVideos(((await api(`/projects/${projeto.id}/videos`)).videos ?? []).filter((v: any) => v.pasta === 'entrada'));
-    } catch {
-      /* sem vídeos */
-    }
-  }, [projeto.id]);
-  useEffect(() => {
-    carregarVideos();
-  }, [carregarVideos]);
-  const enviarZips = async (lista: File[]) => {
+  type MidiaComposer = { nome: string; pct: number; caminho?: string; audio?: boolean; erro?: string };
+  const [midiaAnexada, setMidiaAnexada] = useState<MidiaComposer[]>([]);
+  const tirarMidia = (m: MidiaComposer) => setMidiaAnexada((a) => a.filter((x) => x !== m));
+  const anexarMidia = async (lista: File[]) => {
     for (const f of lista) {
-      const item = { nome: f.name, pct: 0 };
-      setEnviandoVideos((a) => [...a, item]);
-      setMsgVideos(null);
-      try {
-        const r = await enviarZipDeVideos(projeto.id, f, (pct) => setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
-        setEnviandoVideos((a) => a.filter((x) => x !== item));
-        await carregarVideos();
-        setMsgVideos(`${r.adicionados.length} vídeo(s) extraído(s) do .zip${r.ignorados ? ` (${r.ignorados} item(ns) ignorado(s), não eram vídeo)` : ''}.`);
-      } catch (err: any) {
-        setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
-      }
-    }
-  };
-  const importarDaPasta = async () => {
-    setImportando(true);
-    setErro(null);
-    setMsgVideos(null);
-    try {
-      const r = await api(`/projects/${projeto.id}/videos/importar-da-pasta`, 'POST');
-      await carregarVideos();
-      setMsgVideos(r.adicionados?.length ? `${r.adicionados.length} vídeo(s) encontrado(s) na pasta e importado(s).` : 'Nenhum vídeo novo na pasta do projeto. Coloque os arquivos na pasta de mídia do projeto e tente de novo.');
-    } catch (err: any) {
-      setErro(err.message);
-    } finally {
-      setImportando(false);
-    }
-  };
-  const enviarVideos = async (lista: File[]) => {
-    for (const f of lista) {
-      // Não sobe o mesmo arquivo duas vezes: se já está subindo ou já está na lista, avisa e pula (era isso que
-      // deixava um segundo chip "enviando" preso). Para reenviar, o usuário tira o atual primeiro.
-      if (enviandoVideos.some((x) => x.nome === f.name && !x.erro) || videos.some((v: any) => v.nome === f.name)) {
-        setErro(`"${f.name}" já está no projeto (ou subindo). Para reenviar, tire o atual primeiro com o "×".`);
+      if (midiaAnexada.some((x) => x.nome === f.name && !x.erro)) {
+        setErro(`"${f.name}" já está anexado nesta mensagem.`);
         continue;
       }
-      const item = { nome: f.name, pct: 0 };
-      setEnviandoVideos((a) => [...a, item]);
+      const item: MidiaComposer = { nome: f.name, pct: 0, audio: EH_AUDIO.test(f.name) || f.type.startsWith('audio/') };
+      setMidiaAnexada((a) => [...a, item]);
       try {
-        await enviarVideo(projeto.id, f, (pct) => setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
-        setEnviandoVideos((a) => a.filter((x) => x !== item));
-        await carregarVideos();
+        const r = await enviarVideo(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
+        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct: 100, caminho: r.caminho, nome: r.nome } : x)));
       } catch (err: any) {
-        setEnviandoVideos((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
       }
     }
   };
-  const apagarVideo = async (v: any) => {
-    if (!window.confirm(`Tirar o vídeo "${v.nome}" do projeto?`)) return;
-    try {
-      setVideos(((await api(`/projects/${projeto.id}/videos/${v.caminho.split('/').pop()}`, 'DELETE')).videos ?? []).filter((x: any) => x.pasta === 'entrada'));
-    } catch (err: any) {
-      setErro(err.message);
+  const anexarZip = async (lista: File[]) => {
+    for (const f of lista) {
+      const item: MidiaComposer = { nome: f.name, pct: 0 };
+      setMidiaAnexada((a) => [...a, item]);
+      try {
+        const r = await enviarZipDeVideos(projeto.id, f, (pct) => setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, pct } : x))));
+        const novos: MidiaComposer[] = (r.adicionados ?? []).map((v: any) => ({ nome: v.nome, pct: 100, caminho: v.caminho, audio: EH_AUDIO.test(v.nome) }));
+        setMidiaAnexada((a) => [...a.filter((x) => x !== item), ...novos]);
+        if (!novos.length) setErro(`Nenhum vídeo no .zip "${f.name}".`);
+      } catch (err: any) {
+        setMidiaAnexada((a) => a.map((x) => (x === item ? { ...x, erro: err.message } : x)));
+      }
     }
   };
   const [arrastando, setArrastando] = useState(false);
   const seletor = useRef<HTMLInputElement>(null);
   const anexar = (lista: File[]) => {
     setErro(null);
-    // .zip com vários vídeos: sobe por streaming e o servidor extrai todos de uma vez.
+    // .zip com vários vídeos: sobe por streaming e o servidor extrai todos de uma vez (viram anexos da mensagem).
     const zips = lista.filter((f) => /\.zip$/i.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed');
-    if (zips.length) enviarZips(zips);
-    // Vídeo E áudio (para editar/montar) vão por streaming para a mídia do projeto; o resto segue como anexo da
-    // mensagem (até 10 MB). Assim a trilha/narração em .wav/.mp3 não trava no anexo e a montagem a encontra.
-    const videosAgora = lista.filter((f) => !zips.includes(f) && ehMidia(f));
-    if (videosAgora.length) enviarVideos(videosAgora);
+    if (zips.length) anexarZip(zips);
+    // Vídeo E áudio (trilha/narração) sobem para a mídia do projeto e ficam anexados À MENSAGEM (vão junto no envio);
+    // o resto segue como anexo normal (até 10 MB).
+    const midias = lista.filter((f) => !zips.includes(f) && ehMidia(f));
+    if (midias.length) anexarMidia(midias);
     const outros = lista.filter((f) => !zips.includes(f) && !ehMidia(f));
     const grandes = outros.filter((f) => f.size > 10 * 1024 * 1024);
     if (grandes.length) setErro(`Passa de 10 MB: ${grandes.map((f) => f.name).join(', ')}`);
@@ -477,15 +440,22 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     e?.preventDefault();
     pararDitado.current?.(); // se estava ditando, para antes de enviar (senão o texto volta preso na caixa)
     // Enter duas vezes (ou Enter + clique) enquanto envia: só um envio.
-    if ((!texto.trim() && !anexos.length) || !conv || enviando.current || pensando) return;
+    if ((!texto.trim() && !anexos.length && !midiaAnexada.length) || !conv || enviando.current || pensando) return;
+    // Espera a mídia terminar de subir antes de mandar (senão a mensagem vai sem o vídeo/áudio).
+    if (midiaAnexada.some((m) => !m.caminho && !m.erro)) {
+      setErro('Espere o vídeo/áudio terminar de anexar para enviar.');
+      return;
+    }
     enviando.current = true;
     setOcupado(true);
     setErro(null);
     try {
       const lista = await Promise.all(anexos.map(async (f) => ({ nome: f.name, contentBase64: await fileToBase64(f) })));
-      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto, ...(lista.length ? { anexos: lista } : {}) }));
+      const midia = midiaAnexada.filter((m) => m.caminho && !m.erro).map((m) => ({ nome: m.nome, caminho: m.caminho }));
+      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`, 'POST', { content: texto, ...(lista.length ? { anexos: lista } : {}), ...(midia.length ? { midia } : {}) }));
       setTexto('');
       setAnexos([]);
+      setMidiaAnexada([]);
       recarregarConversas().catch(() => undefined); // título e ordem da lista
     } catch (err: any) {
       setErro(err.message);
@@ -622,44 +592,22 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           }}
         >
           {erro && <div className="error">{erro}</div>}
-          {(videos.length > 0 || enviandoVideos.length > 0 || msgVideos || importando || /v[ií]deo/i.test(`${projeto.area?.slug ?? ''} ${projeto.area?.name ?? ''}`)) && (
-            <div className="videos-prontos">
-              <span className="muted small">Vídeos para editar (arraste aqui, use o clipe, ou mande um .zip com vários — é só pedir na conversa, ex.: "corta os 3 primeiros segundos da abertura e junta com o depoimento"):</span>
-              {msgVideos && <span className="ok small">{msgVideos}</span>}
-              {(videos.length > 0 || enviandoVideos.length > 0) && (
-                <div className="videos-lista">
-                  {videos.map((v) => (
-                    <span key={v.caminho} className="video-chip" title={v.nome}>
-                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.bytes < 1024 * 1024 ? `${Math.max(1, Math.round(v.bytes / 1024))} KB` : `${(v.bytes / 1024 / 1024).toFixed(1)} MB`}</span>
-                      <button type="button" className="link" aria-label={`Tirar ${v.nome}`} onClick={() => apagarVideo(v)}>×</button>
-                    </span>
-                  ))}
-                  {/* Nunca mostra um "enviando" para um vídeo que JÁ está na lista (seria o mesmo arquivo duas vezes na
-                      tela): se já subiu, o chip de progresso some. Erros continuam aparecendo (com o × para fechar). */}
-                  {enviandoVideos.filter((v) => v.erro || !videos.some((x: any) => x.nome === v.nome)).map((v) => (
-                    <span key={`env-${v.nome}`} className={v.erro ? 'video-chip erro' : 'video-chip enviando'} title={v.erro ?? ''}>
-                      🎬 <span className="video-nome">{v.nome}</span> <span className="muted small">{v.erro ? `falhou: ${v.erro.slice(0, 60)}` : `enviando ${v.pct}%`}</span>
-                      {v.erro && <button type="button" className="link" aria-label="Fechar" onClick={() => setEnviandoVideos((a) => a.filter((x) => x !== v))}>×</button>}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {enviandoVideos.some((v) => v.erro) && (
-                <div className="error small" style={{ marginTop: 4 }}>
-                  Não consegui enviar o vídeo. Se for arquivo grande, pode ser o <b>limite de tamanho</b> do servidor/proxy (ex.: Cloudflare 100 MB por envio). Tente mandar um <b>.zip</b> com os vídeos aqui mesmo — eu extraio todos de uma vez.
-                </div>
-              )}
-              <span className="muted small">Vários de uma vez? Junte num <b>.zip</b> e arraste aqui — o sistema extrai sozinho.</span>
-            </div>
-          )}
-          {anexos.length > 0 && (
+          {(anexos.length > 0 || midiaAnexada.length > 0) && (
             <div className="anexos-pendentes">
-              <span className="anexos-rotulo muted small">{anexos.length === 1 ? 'Anexado nesta mensagem:' : `${anexos.length} anexos nesta mensagem:`}</span>
+              <span className="anexos-rotulo muted small">{anexos.length + midiaAnexada.length === 1 ? 'Anexado nesta mensagem:' : `${anexos.length + midiaAnexada.length} anexos nesta mensagem:`}</span>
               {anexos.map((f, i) => (
-                <span key={`${f.name}-${i}`} className="anexo-chip">
+                <span key={`a-${f.name}-${i}`} className="anexo-chip">
                   {f.type.startsWith('image/') ? <MiniaturaLocal arquivo={f} /> : <span className="anexo-tipo">{(f.name.split('.').pop() ?? '').toUpperCase().slice(0, 4)}</span>}
                   <span className="anexo-nome">{f.name}</span>
                   <button type="button" className="link" aria-label={`Tirar ${f.name}`} onClick={() => setAnexos(anexos.filter((_, j) => j !== i))}>×</button>
+                </span>
+              ))}
+              {midiaAnexada.map((m, i) => (
+                <span key={`m-${m.nome}-${i}`} className={m.erro ? 'anexo-chip erro' : 'anexo-chip'} title={m.erro ?? m.nome}>
+                  <span className="anexo-tipo">{(m.nome.split('.').pop() ?? (m.audio ? 'AUD' : 'VID')).toUpperCase().slice(0, 4)}</span>
+                  <span className="anexo-nome">{m.nome}</span>
+                  <span className="muted small">{m.erro ? 'falhou' : m.caminho ? (m.audio ? 'áudio' : 'vídeo') : `enviando ${m.pct}%`}</span>
+                  <button type="button" className="link" aria-label={`Tirar ${m.nome}`} onClick={() => tirarMidia(m)}>×</button>
                 </span>
               ))}
             </div>
@@ -684,11 +632,11 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             onChange={(e) => setTexto(e.target.value)}
             onKeyDown={tecla}
             onPaste={colar}
-            placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha). Imagens: cole ou arraste aqui.'}
+            placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha). Arraste ou cole imagem, vídeo, áudio ou .zip aqui.'}
             disabled={pensando}
           />
           <BotaoDitado texto={texto} onTexto={setTexto} desativado={pensando || ocupado} pararRef={pararDitado} />
-          <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length)}>{ocupado && anexos.length ? 'Enviando…' : 'Enviar'}</button>
+          <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length && !midiaAnexada.length)}>{ocupado ? 'Enviando…' : 'Enviar'}</button>
         </form>
         </>
         )}
@@ -709,7 +657,13 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
         {m.attachments?.length > 0 && (
           <div className="anexos-msg">
             {m.attachments.map((a: any) => (
-              <AnexoDaMensagem key={a.nome} a={a} url={`/projects/${projetoId}/conversations/${m.conversationId}/messages/${m.id}/anexos/${encodeURIComponent(a.nome)}`} />
+              <AnexoDaMensagem
+                key={a.nome}
+                a={a}
+                url={a.caminho
+                  ? `/projects/${projetoId}/midia/content?path=${encodeURIComponent(a.caminho)}`
+                  : `/projects/${projetoId}/conversations/${m.conversationId}/messages/${m.id}/anexos/${encodeURIComponent(a.nome)}`}
+              />
             ))}
           </div>
         )}
