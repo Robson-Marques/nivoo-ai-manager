@@ -326,20 +326,52 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   // imagens, cartões) crescem, a lista fica no fim — a não ser que a pessoa tenha rolado para cima para ler.
   const lista = useRef<HTMLDivElement>(null);
   const noFim = useRef(true);
+  // No recarregamento, o navegador tenta restaurar a posição antiga do <div> DEPOIS que o React já o levou ao
+  // fim. Enquanto a tela inicial está assentando, ignoramos essa restauração automática. Só um gesto real da pessoa
+  // (roda do mouse, toque ou arraste) solta a fixação antes; depois disso, rolar para cima continua funcionando.
+  const fixandoAbertura = useRef(true);
+  const timerFixacao = useRef<number | null>(null);
   const irProFim = () => {
     const el = lista.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
+  const agendarFimDaFixacao = () => {
+    if (timerFixacao.current !== null) window.clearTimeout(timerFixacao.current);
+    timerFixacao.current = window.setTimeout(() => {
+      fixandoAbertura.current = false;
+      timerFixacao.current = null;
+    }, 1200);
+  };
+  const manterNoFim = () => {
+    noFim.current = true;
+    // Duas pinturas: cobre tanto a renderização do React quanto a restauração de scroll feita pelo navegador.
+    window.requestAnimationFrame(() => {
+      irProFim();
+      window.requestAnimationFrame(irProFim);
+    });
+    if (fixandoAbertura.current) agendarFimDaFixacao();
+  };
+  const usuarioQuerRolar = () => {
+    fixandoAbertura.current = false;
+    if (timerFixacao.current !== null) window.clearTimeout(timerFixacao.current);
+    timerFixacao.current = null;
+  };
   const aoRolar = () => {
     const el = lista.current;
+    if (fixandoAbertura.current) {
+      manterNoFim();
+      return;
+    }
     if (el) noFim.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
   const temConversa = !!conv;
   useEffect(() => {
     const el = lista.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
+    fixandoAbertura.current = true;
+    noFim.current = true;
     const ro = new ResizeObserver(() => {
-      if (noFim.current) irProFim();
+      if (fixandoAbertura.current || noFim.current) manterNoFim();
     });
     const observarFilhos = () => {
       for (const c of Array.from(el.children)) ro.observe(c);
@@ -347,10 +379,12 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     observarFilhos();
     const mo = new MutationObserver(observarFilhos);
     mo.observe(el, { childList: true });
-    irProFim();
+    manterNoFim();
     return () => {
       ro.disconnect();
       mo.disconnect();
+      if (timerFixacao.current !== null) window.clearTimeout(timerFixacao.current);
+      timerFixacao.current = null;
     };
   }, [temConversa]);
   useEffect(() => {
@@ -358,7 +392,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     const ultima = conv?.messages?.[qtd - 1];
     if (noFim.current || ultima?.role === 'USUARIO') {
       noFim.current = true;
-      irProFim();
+      manterNoFim();
     }
     setVersaoPainel((v) => v + 1);
   }, [qtd, pensando]);
@@ -536,7 +570,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           </div>
         </header>
 
-        <div className="mensagens" ref={lista} onScroll={aoRolar}>
+        <div className="mensagens" ref={lista} onScroll={aoRolar} onWheel={usuarioQuerRolar} onTouchStart={usuarioQuerRolar} onPointerDown={usuarioQuerRolar}>
           {mensagens.length === 0 && (
             <div className="dica">
               <p>Nova conversa. A IA já conhece as regras, o conhecimento, os arquivos e a memória deste projeto.</p>
