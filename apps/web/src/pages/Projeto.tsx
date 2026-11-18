@@ -462,8 +462,10 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     }
   };
   const enviando = useRef(false);
+  const pararDitado = useRef<(() => void) | null>(null);
   const enviar = async (e?: FormEvent) => {
     e?.preventDefault();
+    pararDitado.current?.(); // se estava ditando, para antes de enviar (senão o texto volta preso na caixa)
     // Enter duas vezes (ou Enter + clique) enquanto envia: só um envio.
     if ((!texto.trim() && !anexos.length) || !conv || enviando.current || pensando) return;
     enviando.current = true;
@@ -640,6 +642,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
           )}
           {anexos.length > 0 && (
             <div className="anexos-pendentes">
+              <span className="anexos-rotulo muted small">{anexos.length === 1 ? 'Anexado nesta mensagem:' : `${anexos.length} anexos nesta mensagem:`}</span>
               {anexos.map((f, i) => (
                 <span key={`${f.name}-${i}`} className="anexo-chip">
                   {f.type.startsWith('image/') ? <MiniaturaLocal arquivo={f} /> : <span className="anexo-tipo">{(f.name.split('.').pop() ?? '').toUpperCase().slice(0, 4)}</span>}
@@ -672,7 +675,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
             placeholder={pensando ? 'A IA está respondendo…' : 'Escreva sua mensagem (Enter envia, Shift+Enter quebra linha). Imagens: cole ou arraste aqui.'}
             disabled={pensando}
           />
-          <BotaoDitado texto={texto} onTexto={setTexto} desativado={pensando || ocupado} />
+          <BotaoDitado texto={texto} onTexto={setTexto} desativado={pensando || ocupado} pararRef={pararDitado} />
           <button disabled={ocupado || pensando || (!texto.trim() && !anexos.length)}>{ocupado && anexos.length ? 'Enviando…' : 'Enviar'}</button>
         </form>
         </>

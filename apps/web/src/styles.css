@@ -298,7 +298,8 @@ textarea { resize: vertical; line-height: 1.5; }
 .entrada .clipe { width: 42px; height: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 10px; }
 .entrada .clipe:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
 .entrada.arrastando textarea { border: 2px dashed var(--accent); background: var(--accent-soft); }
-.anexos-pendentes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.anexos-pendentes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.anexos-rotulo { width: 100%; margin-bottom: 2px; }
 .anexo-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 260px; padding: 4px 8px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--text); font-size: 12.5px; }
 .anexo-chip.claro { background: rgba(255, 255, 255, .16); border-color: rgba(255, 255, 255, .35); color: inherit; cursor: pointer; }
 .anexo-chip .link { padding: 0 2px; font-size: 16px; line-height: 1; }

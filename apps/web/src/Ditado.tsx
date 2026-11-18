@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { IconeMicrofone } from './Icones';
 
 /** O reconhecimento de fala do próprio navegador (Chrome, Edge, Safari; o Firefox não tem). */
@@ -9,7 +9,7 @@ const Reconhecedor = (): any => (window as any).SpeechRecognition ?? (window as 
  * Clique para falar e de novo para parar; o texto aparece enquanto você fala e dá para corrigir antes de enviar.
  * O navegador encerra o reconhecimento sozinho depois de uma pausa: enquanto o botão estiver ligado, ele recomeça.
  */
-export function BotaoDitado({ texto, onTexto, desativado }: { texto: string; onTexto: (t: string) => void; desativado?: boolean }) {
+export function BotaoDitado({ texto, onTexto, desativado, pararRef }: { texto: string; onTexto: (t: string) => void; desativado?: boolean; pararRef?: MutableRefObject<(() => void) | null> }) {
   const [ouvindo, setOuvindo] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const rec = useRef<any>(null);
@@ -17,10 +17,17 @@ export function BotaoDitado({ texto, onTexto, desativado }: { texto: string; onT
   const textoAtual = useRef(texto);
   textoAtual.current = texto;
 
-  const parar = () => {
+  // Para o ditado "na hora": corta o reconhecimento e ignora qualquer resultado atrasado (senão o texto já
+  // enviado volta a aparecer preso na caixa). Fica estável (só usa refs), então dá para a caixa de mensagem
+  // chamar antes de enviar/limpar.
+  const parar = useCallback(() => {
     querOuvir.current = false;
-    rec.current?.stop?.();
-  };
+    setOuvindo(false);
+    try { rec.current?.abort?.(); } catch { /* já parado */ }
+    rec.current = null;
+  }, []);
+  // A caixa de mensagem chama este parar ao enviar, para o texto não voltar depois do envio.
+  if (pararRef) pararRef.current = parar;
   useEffect(() => () => {
     querOuvir.current = false;
     rec.current?.abort?.();
@@ -38,6 +45,7 @@ export function BotaoDitado({ texto, onTexto, desativado }: { texto: string; onT
     r.interimResults = true;
     const base = textoAtual.current && !/\s$/.test(textoAtual.current) ? `${textoAtual.current} ` : textoAtual.current;
     r.onresult = (e: any) => {
+      if (!querOuvir.current) return; // resultado atrasado depois de parar/enviar: ignora (não repõe o texto)
       let falado = '';
       for (let i = 0; i < e.results.length; i++) falado += e.results[i][0].transcript;
       onTexto(`${base}${falado.trim()}`);
