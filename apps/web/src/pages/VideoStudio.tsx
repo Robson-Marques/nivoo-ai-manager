@@ -75,25 +75,25 @@ export function VideoStudio() {
     ]);
     setList(s);setMedia(m.videos);
   };
-  useEffect(()=>{refresh().catch(e=>setError(e.message));},[pid]);
+  useEffect(()=>{setProject(null);setDirty(false);setPlayhead(0);setSelected(null);refresh().catch(e=>setError(e.message));},[pid,standalone]);
   useEffect(()=>{
     if(!project || running.state!=='running')return;
-    const timer=setInterval(()=>api<Render>(edits+'/project.id+'/render').then(setRunning).catch(()=>undefined),1700);
+    const timer=setInterval(()=>api<Render>(edits+'/'+project.id+'/render').then(setRunning).catch(()=>undefined),1700);
     return()=>clearInterval(timer);
   },[project?.id,pid,running.state]);
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
-    const p=await api<Studio>(edits+'/id);
+    const p=await api<Studio>(edits+'/'+id);
     setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
     const timer=setInterval(async()=>{
       try {
-        const st=await api<{state:string;error?:string;captions?:number}>(edits+'/project.id+'/captions/auto');
+        const st=await api<{state:string;error?:string;captions?:number}>(edits+'/'+project.id+'/captions/auto');
         setAligning(st);
         if(st.state==='done'){
-          const fresh=await api<Studio>(edits+'/project.id);
+          const fresh=await api<Studio>(edits+'/'+project.id);
           setProject(fresh);setDirty(false);setNotice(st.captions+' legendas adicionadas.');
         }
       }catch(e:any){setError(e.message)}
@@ -112,14 +112,14 @@ export function VideoStudio() {
     const texto=window.prompt('Cole o roteiro exato, se existir. Se não houver, deixe vazio para transcrever a fala do vídeo.','');
     if(texto===null)return;
     try{
-      const r=await api<{state:string}>(edits+'/project.id+'/captions/auto','POST',{script:texto});
+      const r=await api<{state:string}>(edits+'/'+project.id+'/captions/auto','POST',{script:texto});
       setAligning(r);setNotice('Alinhamento local iniciado.');
     }catch(e:any){setError(e.message)}
   };
   useEffect(()=>{
     if(!project||aiDraft.state!=='running')return;
     const timer=setInterval(async()=>{
-      try{setAiDraft(await api<AiResult>(edits+'/project.id+'/ai/plan'));}
+      try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan'));}
       catch(e:any){setAiDraft({state:'failed',error:e.message})}
     },1800);
     return()=>clearInterval(timer);
@@ -127,7 +127,7 @@ export function VideoStudio() {
   useEffect(()=>{
     if(!project || zoneDraft.state!=='running')return;
     const timer=setInterval(()=>{
-      api<ZonesResult>(edits+'/project.id+'/zones/detect')
+      api<ZonesResult>(edits+'/'+project.id+'/zones/detect')
         .then(setZoneDraft).catch(e=>setZoneDraft({state:'failed',error:String(e.message||e)}));
     },1800);
     return()=>clearInterval(timer);
@@ -135,14 +135,14 @@ export function VideoStudio() {
   const detectZones=async()=>{
     if(!project||dirty)return setError('Salve primeiro o projeto antes de analisar rostos e textos.');
     try{
-      setZoneDraft(await api<ZonesResult>(edits+'/project.id+'/zones/detect','POST',{}));
+      setZoneDraft(await api<ZonesResult>(edits+'/'+project.id+'/zones/detect','POST',{}));
       setError('');
     }catch(e:any){setError(e.message)}
   };
   const applyZones=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aplicar as regiões.');
     try{
-      const p=await api<Studio>(edits+'/project.id+'/zones/apply','POST',{updatedAt:project.updatedAt});
+      const p=await api<Studio>(edits+'/'+project.id+'/zones/apply','POST',{updatedAt:project.updatedAt});
       setProject(p);setZoneDraft({state:'idle'});setNotice('Regiões protegidas adicionadas. Revise suas posições na timeline.');
     }catch(e:any){setError(e.message)}
   };
@@ -154,20 +154,20 @@ export function VideoStudio() {
     if(!project.captions.length)return setError('Para criar o design com IA, primeiro gere as legendas pela narração. Se precisar, exporte a montagem antes.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
     if(brief===null)return;
-    try{setAiDraft(await api<AiResult>(edits+'/project.id+'/ai/plan','POST',{brief}));setError('');}
+    try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan','POST',{brief}));setError('');}
     catch(e:any){setError(e.message)}
   };
   const applyAi=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aceitar a proposta.');
     try{
-      const p=await api<Studio>(edits+'/project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
+      const p=await api<Studio>(edits+'/'+project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
       setProject(p);setAiDraft({state:'idle'});setNotice('Composição sugerida aplicada à timeline. Você pode ajustar cada elemento.');setSelected(null);
     }catch(e:any){setError(e.message)}
   };
   const removeAiDraft=async(index:number)=>{
     if(!project)return;
     try{
-      setAiDraft(await api<AiResult>(edits+'/project.id+'/ai/revise','POST',{removeIndex:index}));
+      setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/revise','POST',{removeIndex:index}));
     }catch(e:any){setError(e.message)}
   };
   const newProject=async()=>{
@@ -205,7 +205,7 @@ export function VideoStudio() {
     if(!project)return;
     setBusy(true);setError('');
     try {
-      const p=await api<Studio>(edits+'/project.id,'PATCH',project);
+      const p=await api<Studio>(edits+'/'+project.id,'PATCH',project);
       setProject(p);setDirty(false);setNotice('Projeto salvo');
       await refresh();
     }catch(e:any){setError(e.message)}finally{setBusy(false)}
@@ -229,7 +229,7 @@ export function VideoStudio() {
     if(!window.confirm('Excluir definitivamente "'+m.nome+'" do armazenamento do projeto? Essa ação não pode ser desfeita.'))return;
     setBusy(true);setError('');
     try {
-      const response=await api<{videos:Media[]}>(base+'/videos/+encodeURIComponent(fileId),'DELETE');
+      const response=await api<{videos:Media[]}>(base+'/videos/'+encodeURIComponent(fileId),'DELETE');
       setMedia(response.videos);
       setNotice('Arquivo de mídia excluído da biblioteca.');
     } catch(e:any){setError(e.message)}
@@ -247,7 +247,7 @@ export function VideoStudio() {
       mutate(p=>({...p,clips:[...p.clips,c]}));setSelected(c.id);setTab('clips');
     };
     obj.onerror=()=>setError('Não consegui carregar metadados do vídeo. Verifique o formato.');
-    obj.src=midiaUrl(pid,m.caminho);
+    obj.src=midiaUrl(pid,m.caminho,standalone);
   };
   const addCaption=()=>{
     const c:Caption={id:ident(),text:'Seu texto aqui',start:Math.min(playhead,Math.max(0,total-.5)),end:Math.min(total,playhead+2),x:.5,y:.82,fontSize:54,color:'#FFFFFF',animation:'fade'};
@@ -267,7 +267,7 @@ export function VideoStudio() {
       mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),a]}));setSelected(a.id);setTab('audio');
     };
     obj.onerror=()=>setError('Falha ao ler a duração do áudio.');
-    obj.src=midiaUrl(pid,m.caminho);
+    obj.src=midiaUrl(pid,m.caminho,standalone);
   };
   const generateSpeech=async()=>{
     if(!standalone)return;
@@ -487,7 +487,7 @@ export function VideoStudio() {
     if(!project)return;
     if(dirty)return setError('Salve a edição antes de exportar.');
     setError('');
-    try {setRunning(await api<Render>(edits+'/project.id+'/render','POST',{}))}
+    try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{}))}
     catch(e:any){setError(e.message)}
   };
   const upload=async(files:FileList|null)=>{
@@ -566,7 +566,7 @@ export function VideoStudio() {
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
     {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
-    {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
+    {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
     {!project?<div className="studio-start"><h3>Suas edições</h3>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}<button onClick={newProject}>Criar primeira edição</button></div>:
     <>
       <div className="studio-workspace">
@@ -604,11 +604,11 @@ export function VideoStudio() {
         </aside>
         <main className="studio-preview-panel">
           <div className="studio-canvas" ref={canvasRef}>
-            {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source)} loop preload="metadata"/>}
-            {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source)} preload="metadata"/>)}
-            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
+            {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source,standalone)} loop preload="metadata"/>}
+            {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source,standalone)} preload="metadata"/>)}
+            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} onPointerDown={e=>beginDrag(e,'zone',z)} onPointerMove={moveDrag} onPointerUp={endDrag} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
-            {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
+            {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source,standalone)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {aiDraft.state==='draft'&&(aiDraft.elements??[]).filter(el=>el.start<=playhead&&el.end>playhead).map((el,i)=>
               <div className="studio-ai-overlay" key={'draft-'+i}
                 style={{left:(el.x*100)+'%',top:(el.y*100)+'%',
