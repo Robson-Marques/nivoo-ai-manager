@@ -500,8 +500,10 @@ export function VideoStudio() {
       if(key==='fadeIn'||key==='fadeOut')return {...a,[key]:Math.max(0,Math.min(Number(val),(a.end-a.start)/2))};
       if(key==='offset')return {...a,offset:Math.max(0,Math.min(total-(a.end-a.start),Number(val)))};
       if(key==='start'||key==='end'){
+        const sourceLength=audioPlayers.current.get(a.id)?.duration;
+        const maxEnd=Number.isFinite(sourceLength)&&sourceLength!>0?sourceLength!:Math.max(a.end,Number(val));
         const start=key==='start'?Math.max(0,Math.min(a.end-.05,Number(val))):a.start;
-        const end=key==='end'?Math.max(a.start+.05,Number(val)):a.end;
+        const end=key==='end'?Math.max(a.start+.05,Math.min(maxEnd,Number(val))):a.end;
         const d=end-start;
         return {...a,start,end,fadeIn:Math.min(a.fadeIn??0,d/2),fadeOut:Math.min(a.fadeOut??0,d/2)};
       }

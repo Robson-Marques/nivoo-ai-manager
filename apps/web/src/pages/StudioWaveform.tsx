@@ -8,7 +8,8 @@ const MAX_CACHE=24;
 async function decode(src:string):Promise<{duration:number;peaks:number[]}>{
   const pathname=new URL(src,window.location.origin);
   const blob=await apiBlob(pathname.pathname.replace(/^\/api/,'')+pathname.search);
-  if(blob.size>35*1024*1024)throw new Error('Áudio grande: onda indisponível');
+  // Descompactar MP3 muito grande pode consumir centenas de MB no navegador.
+  if(blob.size>10*1024*1024)throw new Error('Áudio grande: onda indisponível');
   const ctx=new AudioContext();
   try{
     const buffer=await ctx.decodeAudioData(await blob.arrayBuffer());
