@@ -74,8 +74,16 @@ export function VideoStudio() {
       api<{videos:Media[]}>(base+'/videos')
     ]);
     setList(s);setMedia(m.videos);
+    return s;
   };
-  useEffect(()=>{setProject(null);setDirty(false);setPlayhead(0);setSelected(null);refresh().catch(e=>setError(e.message));},[pid,standalone]);
+  useEffect(()=>{
+    setProject(null);setDirty(false);setPlayhead(0);setSelected(null);
+    refresh().then(async editions=>{
+      if(!standalone||!editions.length)return;
+      const latest=[...editions].sort((a:any,b:any)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
+      setProject(await api<Studio>(edits+'/'+latest.id));
+    }).catch(e=>setError(e.message));
+  },[pid,standalone]);
   useEffect(()=>{
     if(!project || running.state!=='running')return;
     const timer=setInterval(()=>api<Render>(edits+'/'+project.id+'/render').then(setRunning).catch(()=>undefined),1700);

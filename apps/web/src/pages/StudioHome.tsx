@@ -16,6 +16,7 @@ export function StudioHome(){
     setCreating(true);setError('');
     try{
       const p=await api<Production>('/studio/productions','POST',{title:title.trim()});
+      await api('/studio/projects/'+p.id+'/edits','POST',{title:'Edição principal'});
       nav('/studio/'+p.id);
     }catch(e:any){setError(e.message)}
     finally{setCreating(false)}
