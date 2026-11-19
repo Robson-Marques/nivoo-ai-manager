@@ -22,9 +22,20 @@ async function main(){
       '-shortest','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',source]);
     const graphic=path.join(media,'entrada','overlay.png');
     cmd('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=yellow:s=120x80:d=1','-frames:v','1',graphic]);
-    const prisma={project:{findUnique:async()=>({dirKey:'test'})}};
+    const prisma={project:{findUnique:async()=>({dirKey:'test',provider:'codex-cli'})}};
     const workspace={projectDirs:()=>({midia:media})};
-    const studio=new VideoStudioService(prisma,workspace);
+    const providers={get:()=>({
+      kind:'cli',
+      execute:async()=>({exitCode:0,output:JSON.stringify({
+        elements:[
+          {kind:'caption',text:'ORGANIZE SEU DIA',start:.15,end:.9,x:.5,y:.5,style:'impact'},
+          {kind:'graphic',text:'MAIS CONTROLE',subtitle:'Organização visual',variant:'spreadsheet',
+            start:.35,end:1.25,x:.08,y:.57,w:.39,h:.25}
+        ],
+        explanation:'Destaque com legenda e cartão gráfico local.'
+      })})
+    })};
+    const studio=new VideoStudioService(prisma,workspace,providers);
     let p=await studio.create('any-project','Teste de edição');
     assert.equal((await studio.list('any-project')).length,1);
     p.clips=[{id:'scene-01',source:'midia/entrada/demo.mp4',start:0,end:1.5,duration:1.5}];
@@ -52,6 +63,27 @@ async function main(){
     assert(probe.streams.some(s=>s.codec_type==='video'),'vídeo exportado sem imagem');
     assert(probe.streams.some(s=>s.codec_type==='audio'),'áudio original perdido');
     assert(Number(probe.format.duration)>1.3,'vídeo exportado muito curto');
+    await studio.aiPlan('any-project',p.id,'Reforce a narração com animação');
+    let ai;
+    for(let i=0;i<40;i++){
+      await new Promise(r=>setTimeout(r,250));
+      ai=studio.aiStatus('any-project',p.id);
+      if(ai.state!=='running')break;
+    }
+    assert.equal(ai.state,'draft',ai.error||'não houve proposta de IA');
+    assert.equal(ai.elements.length,2);
+    const current=await studio.get('any-project',p.id);
+    const updated=await studio.aiApply('any-project',p.id,current.updatedAt);
+    assert.equal(updated.assets.length,2,'cartão gráfico deve aparecer na timeline');
+    assert(fs.existsSync(path.join(media,updated.assets[1].source.replace(/^midia\//,''))),'cartão local não foi criado');
+    await studio.render('any-project',p.id);
+    let second;
+    for(let i=0;i<100;i++){
+      await new Promise(r=>setTimeout(r,400));
+      second=studio.state('any-project',p.id);
+      if(second.state!=='running')break;
+    }
+    assert.equal(second.state,'done',second.error||'exportação com elementos da IA falhou');
     console.log('STUDIO SMOKE OK: cortes, legendas, imagem, narração adicional, trilha e áudio exportados.');
   }finally{
     fs.rmSync(root,{recursive:true,force:true});
