@@ -338,3 +338,8 @@
 .studio-ruler{position:relative;height:20px;background:#0d1523;border-bottom:1px solid #485a75;cursor:crosshair}
 .studio-ruler-tick{position:absolute;top:0;font-size:9px;color:#9fb2ca;padding-left:3px;border-left:1px solid #58728f;white-space:nowrap;height:17px;pointer-events:none}
 .studio-ruler-cursor{position:absolute;top:0;height:100%;width:2px;background:#facc15;pointer-events:none;z-index:4}
+
+/* Onda da narração: carregada do arquivo real, respeita recortes e ampliações. */
+.studio-audio-timeline .studio-timeline-label{position:relative;height:100%;display:flex;align-items:center}
+.studio-waveform{position:absolute;inset:2px 0;height:calc(100% - 4px);width:100%;opacity:.65;pointer-events:none}
+.studio-waveform-name{position:relative;z-index:1;display:block;max-width:100%;padding:1px 3px;background:#0e3937bf;border-radius:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}

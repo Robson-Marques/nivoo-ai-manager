@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
+import { StudioWaveform } from './StudioWaveform';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
@@ -117,6 +118,7 @@ export function VideoStudio() {
   const suppressClipClick=useRef(false);
   const [editMode,setEditMode]=useState<'select'|'blade'>('select');
   const [zoom,setZoom]=useState(1);
+  const [snap,setSnap]=useState(true);
   const timelineDrag=useRef<{
     kind:'caption'|'asset'|'audio'|'zone'; id:string;
     edge:'move'|'start'|'end'; originX:number; width:number; baseline:Studio;
@@ -618,7 +620,12 @@ export function VideoStudio() {
         if(a.id!==d.id)return a;
         const length=a.end-a.start;
         const maxOffset=Math.max(0,total-length);
-        if(d.edge==='move')return {...a,offset:+clamp(a.offset+shift,0,maxOffset).toFixed(2)};
+        if(d.edge==='move'){
+          const raw=clamp(a.offset+shift,0,maxOffset);
+          const candidates=[0,total-length,...(baseline.audioTracks??[]).filter(v=>v.id!==a.id).flatMap(v=>[v.offset,v.offset+v.end-v.start])];
+          const nearest=snap?candidates.find(t=>Math.abs(t-raw)<=Math.max(.08,total/500)):undefined;
+          return {...a,offset:+(nearest===undefined?raw:nearest).toFixed(2)};
+        }
         if(d.edge==='start'){
           const change=clamp(shift,-Math.min(a.offset,a.start),length-min);
           return {...a,offset:+(a.offset+change).toFixed(2),
@@ -666,7 +673,12 @@ export function VideoStudio() {
         timelineDrag.current=null;
       }}>
       <span className="studio-timeline-grip" data-timeline-edge="start" title="Ajustar início"/>
-      <span className="studio-timeline-label">{text}</span>
+      <span className="studio-timeline-label">{kind==='audio'?<>
+        <StudioWaveform src={midiaUrl(pid,project?.audioTracks?.find(a=>a.id===id)?.source||'',standalone)}
+          start={project?.audioTracks?.find(a=>a.id===id)?.start||0}
+          end={project?.audioTracks?.find(a=>a.id===id)?.end||0}/>
+        <span className="studio-waveform-name">{text}</span>
+      </>:text}</span>
       <span className="studio-timeline-grip" data-timeline-edge="end" title="Ajustar fim"/>
     </div>;
   };
@@ -887,6 +899,7 @@ export function VideoStudio() {
             <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes (V)" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
             <button className={editMode==='blade'?'on':''} title="Clique no clipe para dividir no ponto escolhido (B)" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
             <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço (Delete)" onClick={remove}>⌫ Excluir trecho</button>
+            <button className={snap?'on':''} title="Imantar narração ao início e às bordas de outras falas" onClick={()=>setSnap(v=>!v)}>⊙ Imã {snap?'ligado':'desligado'}</button>
             <label title="Ampliar a linha do tempo">Zoom <input type="range" min="1" max="4" step=".25" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/></label>
           </div></div>
         <div className="studio-tracks-viewport"><div className="studio-tracks" style={{width:(100*zoom)+'%'}}>
