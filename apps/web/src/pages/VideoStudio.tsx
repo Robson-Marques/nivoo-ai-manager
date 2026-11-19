@@ -18,6 +18,52 @@ const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallba
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
 const ident=()=>crypto.randomUUID();
+/** Ripple delete em tempo de montagem. Remove o intervalo e fecha o espaço
+ * em TODAS as faixas, preservando a parte anterior/posterior da narração. */
+function rippleDelete(p:Studio,from:number,to:number):Studio{
+  const gap=to-from;
+  if(gap<=.001)return p;
+  const time=(t:number)=>t<=from?t:t>=to?t-gap:from;
+  const range=<T extends {start:number;end:number}>(item:T):T|null=>{
+    const start=time(item.start),end=time(item.end);
+    return end-start>.01?{...item,start:+start.toFixed(3),end:+end.toFixed(3)}:null;
+  };
+  const captions=p.captions.flatMap(c=>{
+    const result=range(c);if(!result)return [];
+    const words=c.words?.flatMap(w=>{
+      const a=range(w);return a&&a.end>a.start?[a]:[];
+    });
+    return [{...result,words:words?.length?words:undefined,
+      animation:words?.length?c.animation:c.animation==='karaoke'?'fade':c.animation}];
+  });
+  const audioTracks=(p.audioTracks??[]).flatMap(a=>{
+    const end=a.offset+(a.end-a.start);
+    // Separar áudio que cruza o corte: a segunda parte recomeça no ponto certo do arquivo.
+    const spans=[
+      {start:a.offset,end:Math.min(end,from)},
+      {start:Math.max(a.offset,to),end}
+    ];
+    return spans.flatMap((span,i)=>{
+      if(span.end-span.start<=.01)return [];
+      const sourceStart=a.start+(span.start-a.offset);
+      return [{...a,id:i===0?a.id:ident(),offset:+time(span.start).toFixed(3),
+        start:+sourceStart.toFixed(3),end:+(sourceStart+span.end-span.start).toFixed(3)}];
+    });
+  });
+  return {...p,captions,assets:p.assets.flatMap(a=>{const v=range(a);return v?[v]:[]}),
+    protectedZones:(p.protectedZones??[]).flatMap(a=>{const v=range(a);return v?[v]:[]}),audioTracks};
+}
+/** Inserção de tempo ao ampliar um corte: mantém sincronismo nas outras faixas. */
+function rippleInsert(p:Studio,at:number,amount:number):Studio{
+  if(amount<=.001)return p;
+  const shifted=(t:number)=>t>=at?+(t+amount).toFixed(3):t;
+  const range=<T extends {start:number;end:number}>(x:T):T=>({...x,
+    start:shifted(x.start),end:shifted(x.end)});
+  const audioTracks=(p.audioTracks??[]).map(a=>({...a,offset:shifted(a.offset)}));
+  return {...p,captions:p.captions.map(c=>({...range(c),words:c.words?.map(range)})),
+    assets:p.assets.map(range),protectedZones:(p.protectedZones??[]).map(range),audioTracks};
+}
+
 
 export function VideoStudio() {
   const {pid=''}=useParams();
@@ -371,16 +417,27 @@ export function VideoStudio() {
     const baseline=d.original;
     const domain=baseline.clips.reduce((n,c)=>n+c.duration,0);
     const delta=Math.round((e.clientX-d.x)/d.width*domain*100)/100;
-    setProject({...baseline,clips:baseline.clips.map(c=>{
-      if(c.id!==d.id)return c;
-      const clamp=(v:number,min:number,max:number)=>Math.min(max,Math.max(min,v));
-      const start=d.edge==='start'?clamp(c.start+delta,0,c.end-.05):c.start;
-      // Metadata de origem limita alongamentos até a duração real,
-      // enquanto um ajuste que encurta o clipe funciona sempre.
-      const sourceLimit=mediaDuration.current.get(c.source)??c.end;
-      const end=d.edge==='end'?clamp(c.end+delta,c.start+.05,sourceLimit):c.end;
-      return {...c,start:+start.toFixed(3),end:+end.toFixed(3),duration:+(end-start).toFixed(3)};
-    })});
+    const index=baseline.clips.findIndex(c=>c.id===d.id);
+    if(index<0)return;
+    const before=baseline.clips.slice(0,index).reduce((n,c)=>n+c.duration,0);
+    const original=baseline.clips[index];
+    const sourceLimit=mediaDuration.current.get(original.source)??original.end;
+    const clamp=(v:number,min:number,max:number)=>Math.min(max,Math.max(min,v));
+    const newStart=d.edge==='start'?clamp(original.start+delta,0,original.end-.05):original.start;
+    const newEnd=d.edge==='end'?clamp(original.end+delta,original.start+.05,sourceLimit):original.end;
+    const newDuration=+(newEnd-newStart).toFixed(3);
+    const updated={...baseline,clips:baseline.clips.map(c=>c.id===d.id?
+      {...c,start:+newStart.toFixed(3),end:+newEnd.toFixed(3),duration:newDuration}:c)};
+    const difference=newDuration-original.duration;
+    let synced:Studio=updated;
+    if(difference<-.001){
+      const cutStart=d.edge==='start'?before:before+newDuration;
+      synced=rippleDelete(updated,cutStart,cutStart-difference);
+    }else if(difference>.001){
+      const insertAt=d.edge==='start'?before:before+original.duration;
+      synced=rippleInsert(updated,insertAt,difference);
+    }
+    setProject(synced);
     setDirty(true);
   };
   const endVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>)=>{
@@ -541,7 +598,19 @@ export function VideoStudio() {
     </div>;
   };
   const remove=()=>{
-    mutate(p=>({...p,clips:p.clips.filter(c=>c.id!==selected),captions:p.captions.filter(c=>c.id!==selected),assets:p.assets.filter(c=>c.id!==selected),audioTracks:(p.audioTracks??[]).filter(c=>c.id!==selected),protectedZones:(p.protectedZones??[]).filter(c=>c.id!==selected)}));
+    mutate(p=>{
+      const index=p.clips.findIndex(c=>c.id===selected);
+      if(index>=0){
+        const from=p.clips.slice(0,index).reduce((n,c)=>n+c.duration,0);
+        const duration=p.clips[index].duration;
+        return rippleDelete({...p,clips:p.clips.filter(c=>c.id!==selected)},from,from+duration);
+      }
+      return {...p,clips:p.clips.filter(c=>c.id!==selected),
+        captions:p.captions.filter(c=>c.id!==selected),
+        assets:p.assets.filter(c=>c.id!==selected),
+        audioTracks:(p.audioTracks??[]).filter(c=>c.id!==selected),
+        protectedZones:(p.protectedZones??[]).filter(c=>c.id!==selected)};
+    });
     setSelected(null);
   };
   const exportar=async()=>{
