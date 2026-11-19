@@ -1,11 +1,11 @@
-.studio{padding:16px;overflow:auto;height:100%;color:var(--texto,#e8e8ee);font-family:inherit}
+.studio{padding:16px;overflow:auto;height:100%;color:#1f2937;font-family:inherit}
 .studio-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .studio-head h2{margin:4px 0}.studio-head span{opacity:.68;font-size:13px}.studio-actions{display:flex;gap:8px;flex-wrap:wrap}
 .studio button,.studio select,.studio input,.studio textarea{font:inherit}
 .studio button,.studio-upload{background:#27334a;color:#f4f6fa;border:1px solid #425270;border-radius:6px;padding:8px;cursor:pointer}
 .studio button:hover,.studio-upload:hover{background:#34445d}.studio button:disabled{opacity:.48;cursor:not-allowed}
 .studio a{color:#7db8ff}.studio-workspace{display:grid;grid-template-columns:minmax(165px,220px) minmax(250px,1fr) minmax(220px,280px);gap:10px;min-height:380px}
-.studio-library,.studio-properties,.studio-preview-panel,.studio-timeline,.studio-start{background:#172033;border:1px solid #324058;border-radius:9px;padding:12px;min-width:0}
+.studio-library,.studio-properties,.studio-preview-panel,.studio-timeline,.studio-start{background:#172033;color:#f1f5f9;border:1px solid #324058;border-radius:9px;padding:12px;min-width:0}
 .studio-library{max-height:65vh;overflow-y:auto}.studio-library h3,.studio-properties h3{margin-top:0}
 .studio-library h4{margin:16px 0 5px;font-size:12px;color:#93a7c1;text-transform:uppercase}
 .studio-library button,.studio-start button{display:block;width:100%;text-align:left;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -68,3 +68,8 @@
 .studio-canvas .studio-protected,.studio-canvas .studio-asset,.studio-canvas .studio-caption{pointer-events:auto;cursor:move;touch-action:none;user-select:none}
 .studio-ai-overlay{position:absolute;z-index:6;background:#0284c755;border:1px dashed #38bdf8;color:#fff;text-align:center;padding:4px;box-sizing:border-box;pointer-events:none;font-weight:700;text-shadow:0 1px 3px #000}
 .studio-ai-draft button{margin-left:5px;padding:3px 6px}
+
+/* A página principal usa fundo claro; não herdar cor de texto clara no cabeçalho. */
+.studio-head,.studio-head h2,.studio-head span{color:#18233b}
+.studio-head>a,.studio-head a{color:#2563eb}
+.studio .studio-error,.studio .studio-notice{color:#fff}

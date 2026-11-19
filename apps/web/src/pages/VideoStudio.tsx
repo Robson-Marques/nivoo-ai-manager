@@ -16,7 +16,7 @@ type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
-const midiaUrl=(pid:string,p:string)=>urlAutenticada('/api/projects/'+pid+'/midia/content?path='+encodeURIComponent(p));
+const midiaUrl=(pid:string,p:string)=>urlAutenticada('/projects/'+pid+'/midia/content?path='+encodeURIComponent(p));
 const ident=()=>crypto.randomUUID();
 
 export function VideoStudio() {
