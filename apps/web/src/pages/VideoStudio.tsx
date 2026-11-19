@@ -1167,6 +1167,16 @@ export function VideoStudio() {
             {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source,standalone)} loop preload="metadata"/>}
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source,standalone)} preload="metadata"/>)}
             {active?<video key={active.clip.id} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} preload="auto" playsInline onLoadedMetadata={prepareScene} onSeeked={onSceneSeeked} onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{if(!playing.current)syncAudio(playhead,false)}} onError={()=>{playing.current=false;setError('Falha ao carregar esta cena. Verifique o arquivo ou o formato do vídeo.')}} />:<span>Adicione um vídeo para começar</span>}
+            {outgoingClip&&activeTransition&&active&&active.offset<activeTransition.duration&&
+              <video key={'previous-'+outgoingClip.id+'-'+active.clip.id} className="studio-transition-previous"
+                src={midiaUrl(pid,outgoingClip.source,standalone)} preload="auto" muted playsInline
+                style={previousFrameStyle}
+                onLoadedMetadata={e=>{
+                  const el=e.currentTarget;
+                  const end=Math.min(Math.max(0,el.duration-.04),Math.max(0,outgoingClip.end-.04));
+                  el.currentTime=outgoingClip.freeze?outgoingClip.start:end;
+                }}/>}
+
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} onPointerDown={e=>beginDrag(e,'zone',z)} onPointerMove={moveDrag} onPointerUp={endDrag} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
             {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source,standalone)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {aiDraft.state==='draft'&&(aiDraft.elements??[]).filter(el=>el.start<=playhead&&el.end>playhead).map((el,i)=>

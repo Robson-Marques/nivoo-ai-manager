@@ -482,3 +482,8 @@
   position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;
   z-index:2;
 }
+
+.studio-canvas>video:not(.studio-transition-previous){z-index:0}
+.studio-canvas .studio-transition-previous{z-index:1}
+.studio-canvas .studio-asset,.studio-canvas .studio-caption{z-index:3}
+.studio-canvas .studio-ai-overlay{z-index:6}
