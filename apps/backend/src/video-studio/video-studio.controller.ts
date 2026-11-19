@@ -29,6 +29,16 @@ export class VideoStudioController {
     return this.studio.remove(pid,id);
   }
 
+  @Post(':id/captions/auto')
+  captions(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string, @Body() body: {script?:string}) {
+    return this.studio.autoCaptions(pid,id,body?.script);
+  }
+
+  @Get(':id/captions/auto')
+  captionStatus(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
+    return this.studio.captionsStatus(pid,id);
+  }
+
   @Post(':id/render')
   render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
     return this.studio.render(pid,id);
