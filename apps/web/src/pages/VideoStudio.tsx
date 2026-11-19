@@ -330,7 +330,7 @@ export function VideoStudio() {
     setBusy(true);setError('');
     try {
       const p=await api<Studio>(edits+'/'+project.id,'PATCH',project);
-      setProject(p);setDirty(false);setNotice('Projeto salvo');
+      setProject(p);setDirty(false);setRunning({state:'idle'});setNotice('Projeto salvo');
       await refresh();
     }catch(e:any){setError(e.message)}finally{setBusy(false)}
   };

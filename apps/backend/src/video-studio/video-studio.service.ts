@@ -32,7 +32,7 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; revision?:string };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
 const studioPython = () => process.env.NIVOO_STUDIO_PYTHON?.trim() || 'python3';
@@ -201,8 +201,8 @@ export class VideoStudioService {
     const done=status.get(key)?.result;
     const currentProject=await this.get(pid,id);
     const direct=currentProject.clips.length===1&&!currentProject.soundtrack&&!(currentProject.audioTracks?.length);
-    if(!direct&&(done?.state!=='done'||!done.output))
-      throw new BadRequestException('Para vídeos com múltiplas cenas ou faixas, exporte a montagem antes de alinhar a narração');
+    if(!direct&&(done?.state!=='done'||!done.output||done.revision!==currentProject.updatedAt))
+      throw new BadRequestException('Esta edição mudou desde a última exportação. Salve e exporte o MP4 atualizado antes de alinhar a narração.');
     if(script!==undefined&&(typeof script!=='string'||script.length>10000))
       throw new BadRequestException('Roteiro inválido');
     transcriptions.set(key,{state:'running'});
@@ -532,7 +532,7 @@ export class VideoStudioService {
     if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    const result:Status={state:'running',started:new Date().toISOString()};
+    const result:Status={state:'running',started:new Date().toISOString(),revision:p.updatedAt};
     status.set(key,{result});
     // Executar após devolver resposta HTTP. O processo é externo e não bloqueia o event loop.
     setImmediate(()=>this.execute(media,p,key).catch(e=>{
@@ -541,7 +541,12 @@ export class VideoStudioService {
     }));
     return result;
   }
-  state(pid:string,id:string) { return status.get(pid+':'+id)?.result ?? {state:'idle'}; }
+  async state(pid:string,id:string) {
+    const current=await this.get(pid,id);
+    const result=status.get(pid+':'+id)?.result;
+    if(result?.state==='done'&&result.revision!==current.updatedAt)return {state:'idle'};
+    return result??{state:'idle'};
+  }
   cancel(pid:string,id:string) {
     const entry=status.get(pid+':'+id);
     if(entry?.result.state==='running') {
