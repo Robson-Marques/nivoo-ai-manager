@@ -321,7 +321,23 @@ export class VideoStudioService {
     if(p.updatedAt!==updatedAt)throw new ConflictException('A timeline mudou; execute a análise novamente');
     const existing=p.protectedZones??[];
     const merged=[...existing,...state.regions].slice(0,50);
-    const saved=await this.save(pid,id,{...p,protectedZones:merged});
+    // A proteção não pode invalidar uma edição pré-existente: mover elementos
+    // quando houver posição segura, ou bloquear a aplicação SEM perder o projeto.
+    const placedCaptions:StudioCaption[]=[];
+    const placedAssets:StudioAsset[]=[];
+    for(const caption of p.captions){
+      const adjusted=safeInsert({...caption,kind:'caption' as const},merged,
+        [...placedCaptions.map(z=>({...z,kind:'caption' as const})),...placedAssets.map(z=>({...z,kind:'image' as const}))]);
+      if(!adjusted)throw new ConflictException('Não há espaço seguro para a legenda '+caption.id+'. Ajuste-a manualmente antes de aplicar as proteções.');
+      placedCaptions.push({...caption,x:adjusted.x,y:adjusted.y});
+    }
+    for(const asset of p.assets){
+      const adjusted=safeInsert({...asset,kind:'image' as const},merged,
+        [...placedCaptions.map(z=>({...z,kind:'caption' as const})),...placedAssets.map(z=>({...z,kind:'image' as const}))]);
+      if(!adjusted)throw new ConflictException('Não há espaço seguro para a imagem '+asset.id+'. Ajuste-a manualmente.');
+      placedAssets.push({...asset,x:adjusted.x,y:adjusted.y});
+    }
+    const saved=await this.save(pid,id,{...p,protectedZones:merged,captions:placedCaptions,assets:placedAssets});
     zoneStates.delete(pid+':'+id);
     return saved;
   }
@@ -445,6 +461,18 @@ export class VideoStudioService {
       }finally{snapshots.forEach(f=>fs.rmSync(f,{force:true}));}
     });
     return {state:'running'};
+  }
+
+  async aiRevise(pid:string,id:string,removeIndex:number) {
+    await this.dir(pid);
+    const key=pid+':'+id, draft=aiStates.get(key);
+    if(draft?.state!=='draft'||!draft.elements)throw new BadRequestException('Não há plano em revisão');
+    if(!Number.isInteger(removeIndex)||removeIndex<0||removeIndex>=draft.elements.length)
+      throw new BadRequestException('Índice de proposta inválido');
+    const revised=draft.elements.filter((_,i)=>i!==removeIndex);
+    const state:AiState={...draft,elements:revised};
+    aiStates.set(key,state);
+    return state;
   }
 
   async aiApply(pid:string,id:string,updatedAt:string) {

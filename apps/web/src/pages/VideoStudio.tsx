@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
@@ -38,6 +38,8 @@ export function VideoStudio() {
   const [progress,setProgress]=useState(0);
   const inputRef=useRef<HTMLInputElement>(null);
   const player=useRef<HTMLVideoElement>(null);
+  const canvasRef=useRef<HTMLDivElement>(null);
+  const dragState=useRef<{kind:'caption'|'image'|'zone';id:string;initialX:number;initialY:number;px:number;py:number}|null>(null);
   const soundtrackPlayer=useRef<HTMLAudioElement>(null);
   const audioPlayers=useRef(new Map<string,HTMLAudioElement>());
   const undoStack=useRef<Studio[]>([]);
@@ -139,6 +141,12 @@ export function VideoStudio() {
     try{
       const p=await api<Studio>('/projects/'+pid+'/studio/'+project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
       setProject(p);setAiDraft({state:'idle'});setNotice('Composição sugerida aplicada à timeline. Você pode ajustar cada elemento.');setSelected(null);
+    }catch(e:any){setError(e.message)}
+  };
+  const removeAiDraft=async(index:number)=>{
+    if(!project)return;
+    try{
+      setAiDraft(await api<AiResult>('/projects/'+pid+'/studio/'+project.id+'/ai/revise','POST',{removeIndex:index}));
     }catch(e:any){setError(e.message)}
   };
   const newProject=async()=>{
@@ -272,6 +280,36 @@ export function VideoStudio() {
       return {...p,clips:arr};
     });
   };
+  const beginDrag=(e:ReactPointerEvent<HTMLElement>,kind:'caption'|'image'|'zone',item:{id:string;x:number;y:number})=>{
+    if(!project)return;
+    e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);
+    dragState.current={kind,id:item.id,initialX:item.x,initialY:item.y,px:e.clientX,py:e.clientY};
+    undoStack.current.push(project);
+    if(undoStack.current.length>60)undoStack.current.shift();
+    redoStack.current=[];
+    setSelected(item.id);
+    setTab(kind==='caption'?'captions':kind==='image'?'assets':'protected');
+  };
+  const moveDrag=(e:ReactPointerEvent<HTMLElement>)=>{
+    const d=dragState.current,rect=canvasRef.current?.getBoundingClientRect();
+    if(!d||!rect||rect.width<1||rect.height<1)return;
+    const dx=(e.clientX-d.px)/rect.width,dy=(e.clientY-d.py)/rect.height;
+    setProject(p=>{
+      if(!p)return p;
+      const position=(a:{id:string;x:number;y:number;w?:number;h?:number})=>
+        a.id===d.id?{...a,x:Math.min(1-(a.w??0),Math.max(0,d.initialX+dx)),
+        y:Math.min(1-(a.h??0),Math.max(0,d.initialY+dy))}:a;
+      if(d.kind==='caption')return {...p,captions:p.captions.map(position)};
+      if(d.kind==='image')return {...p,assets:p.assets.map(position)};
+      return {...p,protectedZones:(p.protectedZones??[]).map(position)};
+    });
+    setDirty(true);
+  };
+  const endDrag=(e:ReactPointerEvent<HTMLElement>)=>{
+    if(!dragState.current)return;
+    try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{/* pointer já liberado */}
+    dragState.current=null;
+  };
   const remove=()=>{
     mutate(p=>({...p,clips:p.clips.filter(c=>c.id!==selected),captions:p.captions.filter(c=>c.id!==selected),assets:p.assets.filter(c=>c.id!==selected),audioTracks:(p.audioTracks??[]).filter(c=>c.id!==selected),protectedZones:(p.protectedZones??[]).filter(c=>c.id!==selected)}));
     setSelected(null);
@@ -373,13 +411,20 @@ export function VideoStudio() {
           <h4>Edições</h4>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}
         </aside>
         <main className="studio-preview-panel">
-          <div className="studio-canvas">
+          <div className="studio-canvas" ref={canvasRef}>
             {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source)} loop preload="metadata"/>}
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source)} preload="metadata"/>)}
             {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
-            {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
-            {activeAssets.map(a=><img key={a.id} src={midiaUrl(pid,a.source)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
-            {activeCaptions.map(c=><div key={c.id} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.animation==='karaoke'&&c.words?.length?c.words.map((w,i)=><span key={i} className={playhead>=w.start&&playhead<w.end?'studio-word-active':'studio-word'}>{w.text}{i<c.words!.length-1?' ':''}</span>):c.text}</div>)}
+            {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} onPointerDown={e=>beginDrag(e,'zone',z)} onPointerMove={moveDrag} onPointerUp={endDrag} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
+            {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
+            {aiDraft.state==='draft'&&(aiDraft.elements??[]).filter(el=>el.start<=playhead&&el.end>playhead).map((el,i)=>
+              <div className="studio-ai-overlay" key={'draft-'+i}
+                style={{left:(el.x*100)+'%',top:(el.y*100)+'%',
+                width:el.kind==='caption'?'auto':((el.w??.3)*100)+'%',
+                height:el.kind==='caption'?'auto':((el.h??.2)*100)+'%'}}>
+                {el.kind==='caption'?el.text:el.kind==='graphic'?(el.text||'Gráfico de apoio'):'Imagem de apoio'}
+              </div>)}
+            {activeCaptions.map(c=><div key={c.id} onPointerDown={e=>beginDrag(e,'caption',c)} onPointerMove={moveDrag} onPointerUp={endDrag} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.animation==='karaoke'&&c.words?.length?c.words.map((w,i)=><span key={i} className={playhead>=w.start&&playhead<w.end?'studio-word-active':'studio-word'}>{w.text}{i<c.words!.length-1?' ':''}</span>):c.text}</div>)}
           </div>
           <div className="studio-play-controls">
             <button onClick={()=>seek(playhead-5)}>−5s</button>
@@ -421,8 +466,8 @@ export function VideoStudio() {
               <strong>Proposta pronta para revisão</strong>
               <p>{aiDraft.explanation}</p>
               <p>{aiDraft.elements?.length||0} elementos propostos</p>
-              <ul>{aiDraft.elements?.slice(0,12).map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.kind==='image'?el.asset:el.text||'Gráfico contextual'} ({fmt(el.start)}–{fmt(el.end)})</li>)}</ul>
-              <button onClick={applyAi}>Aplicar à timeline</button>
+              <ul>{aiDraft.elements?.map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.kind==='image'?el.asset:el.text||'Gráfico contextual'} ({fmt(el.start)}–{fmt(el.end)}) <button onClick={()=>removeAiDraft(i)} title="Retirar somente esta proposta">Retirar</button></li>)}</ul>
+              <button disabled={!aiDraft.elements?.length} onClick={applyAi}>Aplicar à timeline</button>
               <button onClick={()=>setAiDraft({state:'idle'})}>Descartar prévia</button>
             </div>}
             <p>Vídeo único: alinhar diretamente sem exportar. Montagens com várias cenas e faixas: exportar antes. Requer faster-whisper/WhisperX locais.</p>

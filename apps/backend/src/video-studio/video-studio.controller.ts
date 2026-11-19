@@ -54,6 +54,11 @@ export class VideoStudioController {
     return this.studio.aiStatus(pid,id);
   }
 
+  @Post(':id/ai/revise')
+  revisePlan(@Param('pid',ParseUUIDPipe) pid:string,@Param('id') id:string,@Body() body:{removeIndex:number}) {
+    return this.studio.aiRevise(pid,id,body?.removeIndex);
+  }
+
   @Post(':id/ai/apply')
   aiApply(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string, @Body() body: {updatedAt:string}) {
     return this.studio.aiApply(pid,id,body.updatedAt);

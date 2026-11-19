@@ -63,3 +63,8 @@
 
 .studio-ai-draft li{line-height:1.5;overflow-wrap:anywhere}
 .studio-protected{z-index:4;opacity:.82}
+
+/* Elementos da edição podem ser arrastados; o vídeo original não é modificado. */
+.studio-canvas .studio-protected,.studio-canvas .studio-asset,.studio-canvas .studio-caption{pointer-events:auto;cursor:move;touch-action:none;user-select:none}
+.studio-ai-overlay{position:absolute;z-index:6;background:#0284c755;border:1px dashed #38bdf8;color:#fff;text-align:center;padding:4px;box-sizing:border-box;pointer-events:none;font-weight:700;text-shadow:0 1px 3px #000}
+.studio-ai-draft button{margin-left:5px;padding:3px 6px}
