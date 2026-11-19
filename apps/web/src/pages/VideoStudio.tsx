@@ -32,6 +32,8 @@ export function VideoStudio() {
   const [progress,setProgress]=useState(0);
   const inputRef=useRef<HTMLInputElement>(null);
   const player=useRef<HTMLVideoElement>(null);
+  const soundtrackPlayer=useRef<HTMLAudioElement>(null);
+  const audioPlayers=useRef(new Map<string,HTMLAudioElement>());
   const undoStack=useRef<Studio[]>([]);
   const redoStack=useRef<Studio[]>([]);
   const dragged=useRef<string|null>(null);
@@ -229,16 +231,38 @@ export function VideoStudio() {
       await refresh();setNotice('Arquivos adicionados à biblioteca de mídia.');
     }catch(e:any){setError(e.message)}finally{setBusy(false);setProgress(0)}
   };
+  const syncAudio=(t:number,shouldPlay:boolean)=>{
+    if(soundtrackPlayer.current){
+      const a=soundtrackPlayer.current;
+      if(Math.abs(a.currentTime-t)>.35){try{a.currentTime=t}catch{/* metadata pendente */}}
+      if(shouldPlay&&a.paused)a.play().catch(()=>undefined);
+      if(!shouldPlay&&!a.paused)a.pause();
+    }
+    for(const track of project?.audioTracks??[]){
+      const a=audioPlayers.current.get(track.id);
+      if(!a)continue;
+      a.volume=Math.min(1,Math.max(0,track.volume));
+      const position=t-track.offset,inside=position>=0&&position<track.end-track.start;
+      if(inside){
+        const at=track.start+position;
+        if(Math.abs(a.currentTime-at)>.35){try{a.currentTime=at}catch{/* metadata pendente */}}
+        if(shouldPlay&&a.paused)a.play().catch(()=>undefined);
+        if(!shouldPlay&&!a.paused)a.pause();
+      }else if(!a.paused)a.pause();
+    }
+  };
   const seek=(t:number)=>{
     const target=Math.max(0,Math.min(total,t));
     const same=active && target>=active.begin && target<active.begin+active.clip.duration;
     if(same && player.current) player.current.currentTime=active.clip.start+(target-active.begin);
     setPlayhead(target);
+    syncAudio(target,Boolean(player.current&&!player.current.paused));
   };
   const playing=useRef(false);
   const onVideoTime=()=>{
     if(!active||!player.current)return;
     const pos=Math.max(0,player.current.currentTime-active.clip.start);
+    syncAudio(active.begin+pos,!player.current.paused);
     if(pos>=active.clip.duration-.06 && active.begin+active.clip.duration<total-.05) {
       const continuePlay=!player.current.paused;
       playing.current=continuePlay;
@@ -253,6 +277,7 @@ export function VideoStudio() {
     if(!active||!player.current)return;
     const target=active.clip.start+active.offset;
     if(Math.abs(player.current.currentTime-target)>.20)player.current.currentTime=target;
+    player.current.volume=Math.max(0,Math.min(1,active.clip.volume??1));
     if(playing.current&&player.current.paused) player.current.play().catch(()=>undefined);
   },[active?.clip.id,active?.offset===0]);
   const chatInstruction='Analise a narração do vídeo e crie legendas cinéticas e imagens de apoio no Nivoo Studio. Não cubra rostos, logos ou textos importantes. Utilize o vídeo e a timeline salvos no projeto.';
@@ -288,13 +313,15 @@ export function VideoStudio() {
         </aside>
         <main className="studio-preview-panel">
           <div className="studio-canvas">
-            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false}} />:<span>Adicione um vídeo para começar</span>}
+            {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source)} loop preload="metadata" volume={Math.min(1,project.soundtrack.volume)}/>}
+            {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source)} preload="metadata"/>)}
+            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {activeAssets.map(a=><img key={a.id} src={midiaUrl(pid,a.source)} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {activeCaptions.map(c=><div key={c.id} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.text}</div>)}
           </div>
           <div className="studio-play-controls">
             <button onClick={()=>seek(playhead-5)}>−5s</button>
-            <button onClick={()=>{if(!player.current)return;if(player.current.paused){playing.current=true;player.current.play().catch(()=>undefined);}else player.current.pause();}}>▶ / ❚❚</button>
+            <button onClick={()=>{if(!player.current)return;if(player.current.paused){playing.current=true;player.current.play().catch(()=>undefined);syncAudio(playhead,true);}else{player.current.pause();syncAudio(playhead,false);}}}>▶ / ❚❚</button>
             <button onClick={()=>seek(playhead+5)}>+5s</button>
             <span>{fmt(playhead)} / {fmt(total)}</span>
           </div>
