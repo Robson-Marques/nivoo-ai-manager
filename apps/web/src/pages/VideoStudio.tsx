@@ -338,9 +338,15 @@ export function VideoStudio() {
       if(i<0||j<0||j>=a.length)return p;
       [a[i],a[j]]=[a[j],a[i]];return {...p,clips:a};});
   };
-  const split=(clipId=selected)=>{
-    if(!active || active.clip.id!==clipId || active.offset<=.05 || active.offset>=active.clip.duration-.05) return setError('Posicione o cursor dentro do clipe selecionado para dividir.');
-    const c=active.clip,cut=c.start+active.offset;
+  const split=(clipId=selected,at=playhead)=>{
+    if(!project)return;
+    const index=project.clips.findIndex(c=>c.id===clipId);
+    const timelineStart=project.clips.slice(0,index).reduce((n,c)=>n+c.duration,0);
+    const c=project.clips[index];
+    const offset=at-timelineStart;
+    if(!c||index<0||offset<=.05||offset>=c.duration-.05)
+      return setError('Posicione o cursor dentro do clipe para dividir.');
+    const cut=c.start+offset;
     const left={...c,end:cut,duration:cut-c.start};
     const right={...c,id:ident(),start:cut,duration:c.end-cut};
     mutate(p=>{const i=p.clips.findIndex(v=>v.id===c.id);return {...p,clips:[...p.clips.slice(0,i),left,right,...p.clips.slice(i+1)]};});
@@ -734,12 +740,21 @@ export function VideoStudio() {
             <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço" onClick={remove}>⌫ Excluir trecho</button>
             <label title="Ampliar a linha do tempo">Zoom <input type="range" min="1" max="4" step=".25" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/></label>
           </div></div>
-        <div className="studio-tracks">
-          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items studio-video-clips" style={{minWidth:zoom===1?'100%':(100*zoom)+'%'}}>{clips.map(c=>
+        <div className="studio-tracks-viewport"><div className="studio-tracks" style={{width:(100*zoom)+'%'}}>
+          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items studio-video-clips">{clips.map(c=>
             <div key={c.id} className={'studio-video-clip'+(selected===c.id?' chosen':'')}
               draggable={editMode==='select'} onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()}
               onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}}
-              onClick={()=>{setSelected(c.id);setTab('clips');if(editMode==='blade'){split(c.id)}else{seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}}}
+              onClick={e=>{
+                setSelected(c.id);setTab('clips');
+                const begin=clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0);
+                if(editMode==='blade'){
+                  const rect=e.currentTarget.getBoundingClientRect();
+                  const fraction=Math.max(0,Math.min(1,(e.clientX-rect.left)/Math.max(rect.width,1)));
+                  const at=begin+c.duration*fraction;
+                  split(c.id,at);setPlayhead(at);
+                }else seek(begin);
+              }}
               style={{flex:c.duration,minWidth:30}} title={mediaName(c.source)+' · '+c.start.toFixed(2)+'–'+c.end.toFixed(2)+'s'}>
               <span className="studio-video-grip" data-edge="start" title="Arraste para aparar o começo"
                 onPointerDown={e=>startVideoTrim(e,c.id,'start')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
@@ -752,7 +767,7 @@ export function VideoStudio() {
           <div className="studio-track"><span>Voz/Áudio</span><div className="studio-track-overlay studio-audio-timeline">{(project.audioTracks??[]).map(a=>timelineBlock('audio',a.id,mediaName(a.source),a.offset,a.offset+a.end-a.start))}</div></div>
           <div className="studio-track"><span>Proteção</span><div className="studio-track-overlay studio-protection-timeline">{(project.protectedZones??[]).map(z=>timelineBlock('zone',z.id,z.label,z.start,z.end))}</div></div>
           <div className="studio-track"><span>Trilha</span><div className="studio-track-audio">{project.soundtrack?mediaName(project.soundtrack.source):'Sem trilha'}</div></div>
-        </div>
+        </div></div>
       </div>
     </>}
   </section>;

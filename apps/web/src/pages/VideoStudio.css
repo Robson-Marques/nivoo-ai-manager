@@ -325,3 +325,9 @@
 .studio-video-title small{opacity:.8;font-size:10px}
 .studio-video-grip{height:100%;width:8px;flex:0 0 8px;background:#ffffff2d;border-inline:1px solid #ffffff44;cursor:ew-resize;touch-action:none}
 .studio-video-grip:hover{background:#facc15}
+
+/* Zoom compartilhado por todas as faixas: nenhum áudio fica desalinhado do vídeo. */
+.studio-tracks-viewport{overflow-x:auto;overflow-y:auto;min-width:0;flex:1;scrollbar-width:thin;overscroll-behavior:contain}
+.studio-tracks-viewport .studio-tracks{min-width:100%;box-sizing:border-box}
+.studio-tracks-viewport .studio-track-overlay{overflow:hidden}
+.studio-tracks-viewport .studio-video-clips{overflow:visible}
