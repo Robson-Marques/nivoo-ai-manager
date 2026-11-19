@@ -368,7 +368,7 @@ export class VideoStudioService {
       // O agente recebe só um inventário de recursos e textos alinhados, não código executável.
       const payload={
         video:{duration,aspectRatio:'determine-from-scene',clips:p.clips.length},
-        speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end})),
+        speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end,words:v.words??[]})),
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
         sampledFrames:snapshots.length,
@@ -576,7 +576,8 @@ export class VideoStudioService {
         const pop=c.animation==='pop'?'\\t(0,200,\\fscx110\\fscy110)':'';
         const kinetic=c.animation==='karaoke'?karaokeAss(c,esc):null;
         const subtitle=kinetic??esc(c.text);
-        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}}${subtitle}`;
+        const kineticColors=kinetic?'\\1c&H0000D7FF&\\2c&H00D1D5DB&':'';
+        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}${kineticColors}}${subtitle}`;
       });
       fs.writeFileSync(ass,h+lines.join('\n')+'\n');
       const imgs=p.assets;
