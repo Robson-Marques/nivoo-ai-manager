@@ -1,0 +1,67 @@
+#!/usr/bin/env node
+/**
+ * Cria um rascunho de composição temporal a partir do áudio alinhado.
+ * Sem API, sem escrever código de animação. O plano é editável e pode receber
+ * decisões do agente (imagens contextuais, tipografia, posições).
+ *
+ * uso: nivoo-planejar-design --alinhamento alinhamento.json --saida design-plan.json
+ *      [--protecao protected-regions.json] [--max-palavras 4]
+ *
+ * protected-regions.json: [{"id":"logo", "start":0, "end":60,
+ *   "box":{"x":0.7,"y":0.03,"w":0.25,"h":0.12}}]
+ *
+ * Não detecta rosto/logo automaticamente: proteção precisa vir de outro estágio.
+ */
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+function arg(k, fallback) { const i=process.argv.indexOf(k); return i < 0 ? fallback : process.argv[i+1]; }
+function overlap(a,b) { return a.start < b.end && b.start < a.end; }
+function intersect(a,b) {
+ return a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h;
+}
+function limpar(s) { return String(s).replace(/\s+/g,' ').trim(); }
+function main() {
+ const input=arg('--alinhamento'), dest=arg('--saida');
+ if (!input || !dest) throw Error('uso: --alinhamento <json> --saida <json> [--protecao <json>]');
+ const dados=JSON.parse(fs.readFileSync(input,'utf8'));
+ if (dados.schemaVersion !== 1 || !Array.isArray(dados.words) || !Number.isFinite(dados.duration))
+   throw Error('alinhamento incompatível');
+ const max=Math.max(1,Math.min(7,Number(arg('--max-palavras','3'))||3));
+ const file=arg('--protecao');
+ const protectedZones=file ? JSON.parse(fs.readFileSync(file,'utf8')) : [];
+ if (!Array.isArray(protectedZones)) throw Error('proteção deve ser array JSON');
+ // Áreas candidatas conservadoras; falhar em caso de colisão total, nunca sobrepor forçadamente.
+ const candidatos=[
+  {x:0.07,y:0.79,w:0.86,h:0.10},
+  {x:0.07,y:0.15,w:0.86,h:0.10},
+  {x:0.07,y:0.45,w:0.86,h:0.10}
+ ];
+ const elements=[], warnings=[];
+ for (let i=0;i<dados.words.length;) {
+   const grupo=dados.words.slice(i,i+max).filter(w=>limpar(w.text));
+   i+=max;
+   if (!grupo.length) continue;
+   const start=grupo[0].start, end=grupo[grupo.length-1].end;
+   if (!Number.isFinite(start)||!Number.isFinite(end)||end<=start) continue;
+   const span={start,end};
+   const area=candidatos.find(box=>!protectedZones.some(z=>overlap(span,z)&&intersect(box,z.box)));
+   if (!area) { warnings.push('Sem área segura para legenda em '+start+'s'); continue; }
+   const text=grupo.map(w=>limpar(w.text)).join(' ').replace(/\s+([.,!?;:])/g,'$1');
+   elements.push({
+     id:'caption-'+String(elements.length+1).padStart(4,'0'),
+     type:'caption', text, start, end,
+     box:{...area}, animation: 'slide-up', color:'#FFFFFF',
+     sourceWords:grupo.map(w=>({text:w.text,start:w.start,end:w.end}))
+   });
+ }
+ const plano={
+  version:1, source: dados.source, speechMethod: dados.method,
+  protectedZones, elements, warnings,
+  note: 'Rascunho automático: o agente pode adicionar imagens e personalizar animações. Verifique zonas protegidas antes de renderizar.'
+ };
+ fs.mkdirSync(path.dirname(path.resolve(dest)),{recursive:true});
+ fs.writeFileSync(dest,JSON.stringify(plano,null,2)+'\n');
+ console.log('Plano criado: '+elements.length+' legendas; '+warnings.length+' avisos. '+dest);
+}
+try { main(); } catch(e) { console.error('nivoo-planejar-design: '+e.message);process.exitCode=1; }

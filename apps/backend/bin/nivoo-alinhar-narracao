@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""Alinhamento local de narração por palavra para projetos de vídeo Nivoo.
+
+Dois fluxos:
+ - --roteiro arquivo.txt: força alinhamento com WhisperX; não transforma palavras
+   redigidas em timestamps estimados.
+ - sem roteiro: transcreve com faster-whisper e extrai timestamps por palavra.
+
+Não há chamada a API paga. Os modelos podem precisar de download na primeira
+execução. Sem modelos instalados / sem dependências, falha explicitamente.
+
+Uso:
+ nivoo-alinhar-narracao --video video.mp4 --saida alinhamento.json
+ nivoo-alinhar-narracao --video video.mp4 --roteiro narracao.txt --saida alinhamento.json
+"""
+import argparse
+import json
+import math
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def cmd(*args):
+    p = subprocess.run(args, capture_output=True, text=True, check=False)
+    if p.returncode:
+        raise RuntimeError(f"{args[0]} falhou: {p.stderr[-600:]}")
+    return p.stdout
+
+
+def duracao(arq):
+    data = json.loads(cmd("ffprobe", "-v", "error", "-show_entries",
+                          "format=duration", "-of", "json", str(arq)))
+    duration = float(data["format"]["duration"])
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("duração inválida do vídeo")
+    return duration
+
+
+def validar_palavras(palavras, total):
+    resultado = []
+    for p in palavras:
+        texto = str(p.get("word") or p.get("text") or "").strip()
+        ini, fim = p.get("start"), p.get("end")
+        if not texto or not isinstance(ini, (int, float)) or not isinstance(fim, (int, float)):
+            continue  # WhisperX nem sempre encontra o alinhamento de números ou símbolos
+        if not (math.isfinite(ini) and math.isfinite(fim) and 0 <= ini < fim <= total + .20):
+            continue
+        resultado.append({
+            "text": texto, "start": round(max(0, float(ini)), 3),
+            "end": round(min(total, float(fim)), 3)
+        })
+    return resultado
+
+
+def transcrever(wav, modelo, dispositivo, tipo, total):
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError(
+            "faster-whisper ausente. Instale-o em ambiente virtual isolado "
+            "e configure modelos locais antes de usar esta função."
+        ) from exc
+    model = WhisperModel(modelo, device=dispositivo, compute_type=tipo)
+    segments, info = model.transcribe(str(wav), language="pt", word_timestamps=True,
+                                      vad_filter=True, beam_size=5)
+    frases, words = [], []
+    for s in segments:
+        frases.append({"start": round(s.start, 3), "end": round(s.end, 3), "text": s.text.strip()})
+        words.extend(s.words or [])
+    return frases, validar_palavras([{"word": w.word, "start": w.start, "end": w.end}
+                                      for w in words], total), info.language
+
+
+def alinhar_roteiro(wav, roteiro, total, dispositivo):
+    try:
+        import whisperx
+    except ImportError as exc:
+        raise RuntimeError(
+            "WhisperX ausente: texto escrito exige alinhamento forçado real. "
+            "Instale whisperx em ambiente Python isolado; não serão inventados timestamps."
+        ) from exc
+    audio = whisperx.load_audio(str(wav))
+    modelo, metadata = whisperx.load_align_model(language_code="pt", device=dispositivo)
+    segmentos = [{"text": roteiro, "start": 0.0, "end": total}]
+    result = whisperx.align(segmentos, modelo, metadata, audio,
+                            dispositivo, return_char_alignments=False)
+    palavras = validar_palavras(result.get("word_segments", []), total)
+    if not palavras:
+        raise RuntimeError("não foi possível alinhar o roteiro ao áudio; verifique se corresponde à fala")
+    return [{"start": 0, "end": total, "text": roteiro}], palavras
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--video", required=True, type=Path)
+    p.add_argument("--saida", required=True, type=Path)
+    p.add_argument("--roteiro", type=Path)
+    p.add_argument("--modelo", default="small", help="modelo faster-whisper")
+    p.add_argument("--dispositivo", default="cpu", choices=["cpu", "cuda"])
+    p.add_argument("--tipo-computacao", default="int8")
+    args = p.parse_args()
+    if not args.video.is_file():
+        raise ValueError(f"arquivo de vídeo não encontrado: {args.video}")
+    if args.saida.resolve() == args.video.resolve():
+        raise ValueError("saída não pode sobrescrever vídeo")
+    total = duracao(args.video)
+    with tempfile.TemporaryDirectory(prefix="nivoo-alinha-") as tmp:
+        wav = Path(tmp) / "narracao.wav"
+        cmd("ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(args.video), "-vn", "-ar", "16000", "-ac", "1", str(wav))
+        if args.roteiro:
+            texto = args.roteiro.read_text(encoding="utf-8").strip()
+            if not texto:
+                raise ValueError("arquivo de roteiro está vazio")
+            frases, palavras = alinhar_roteiro(wav, texto, total, args.dispositivo)
+            origem = "forced-alignment"
+        else:
+            frases, palavras, idioma = transcrever(
+                wav, args.modelo, args.dispositivo, args.tipo_computacao, total)
+            origem = "transcription"
+            if idioma != "pt":
+                print(f"AVISO: idioma detectado {idioma}", file=sys.stderr)
+    dados = {
+        "schemaVersion": 1, "source": str(args.video), "duration": round(total, 3),
+        "language": "pt", "method": origem, "segments": frases,
+        "words": palavras,
+        "warning": "Timestamps automáticos exigem validação; música e efeitos podem reduzir a precisão."
+    }
+    args.saida.parent.mkdir(parents=True, exist_ok=True)
+    temp = args.saida.with_suffix(args.saida.suffix + ".part")
+    temp.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temp, args.saida)
+    print(f"Alinhamento salvo em {args.saida} ({len(palavras)} palavras, método {origem})")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (RuntimeError, ValueError, OSError, KeyError) as e:
+        print(f"nivoo-alinhar-narracao: {e}", file=sys.stderr)
+        sys.exit(1)
