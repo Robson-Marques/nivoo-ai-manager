@@ -223,7 +223,7 @@ export function VideoStudio() {
     mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
   };
   const updateAsset=(key:keyof Asset,value:string)=>{
-    mutate(p=>({...p,assets:p.assets.map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
+    mutate(p=>({...p,assets:p.assets.map(a=>a.id===selected?{...a,[key]:key==='source'||key==='animation'?value:num(value)}:a)}));
   };
   const move=(id:string,dir:number)=>{
     mutate(p=>{const a=[...p.clips],i=a.findIndex(c=>c.id===id),j=i+dir;
