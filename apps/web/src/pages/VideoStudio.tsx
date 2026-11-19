@@ -3,6 +3,7 @@ import { Link, useParams, useLocation } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
 import { StudioWaveform } from './StudioWaveform';
+import { StudioFilmstrip } from './StudioFilmstrip';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
@@ -1005,7 +1006,7 @@ export function VideoStudio() {
               style={{flex:c.duration,minWidth:30}} title={mediaName(c.source)+' · '+c.start.toFixed(2)+'–'+c.end.toFixed(2)+'s'}>
               <span className="studio-video-grip" data-edge="start" title="Arraste para aparar o começo"
                 onPointerDown={e=>startVideoTrim(e,c.id,'start')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
-              <span className="studio-video-title">{mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span>
+              <span className="studio-video-title"><StudioFilmstrip src={midiaUrl(pid,c.source,standalone)} start={c.start} end={c.end}/><span className="studio-video-caption">{mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span></span>
               <span className="studio-video-grip" data-edge="end" title="Arraste para aparar o fim"
                 onPointerDown={e=>startVideoTrim(e,c.id,'end')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
             </div>)}</div></div>

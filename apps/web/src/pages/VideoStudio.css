@@ -343,3 +343,15 @@
 .studio-audio-timeline .studio-timeline-label{position:relative;height:100%;display:flex;align-items:center}
 .studio-waveform{position:absolute;inset:2px 0;height:calc(100% - 4px);width:100%;opacity:.65;pointer-events:none}
 .studio-waveform-name{position:relative;z-index:1;display:block;max-width:100%;padding:1px 3px;background:#0e3937bf;border-radius:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* Filmstrip e áreas maiores de manipulação para edição visual do vídeo. */
+.studio-tracks-viewport .studio-track:has(.studio-video-clips){height:48px;min-height:48px}
+.studio-tracks-viewport .studio-video-clips{height:48px}
+.studio-video-clip{position:relative;min-width:0}
+.studio-video-grip{width:10px;flex-basis:10px;z-index:3;background:#dbeafe38;border-inline:1px solid #ffffff70}
+.studio-video-clip .studio-video-title{position:relative;height:100%;display:flex;align-items:end;padding:0;overflow:hidden}
+.studio-filmstrip{position:absolute;inset:0;display:flex;align-items:stretch;pointer-events:none}
+.studio-filmstrip img{min-width:0;flex:1;object-fit:cover;filter:saturate(.85) brightness(.72);height:100%}
+.studio-video-caption{position:relative;z-index:2;padding:2px 4px;width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:linear-gradient(transparent,#08111ed9);font-size:11px;text-shadow:0 1px 2px black}
+.studio-video-caption small{margin-left:4px;font-size:10px}
+.studio-timeline:focus-within{outline-offset:-2px}
