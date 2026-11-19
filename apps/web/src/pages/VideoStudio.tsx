@@ -397,7 +397,7 @@ export function VideoStudio() {
         const maxOffset=Math.max(0,total-length);
         if(d.edge==='move')return {...a,offset:+clamp(a.offset+shift,0,maxOffset).toFixed(2)};
         if(d.edge==='start'){
-          const change=clamp(shift,-a.offset,length-min);
+          const change=clamp(shift,-Math.min(a.offset,a.start),length-min);
           return {...a,offset:+(a.offset+change).toFixed(2),
             start:+(a.start+change).toFixed(2)};
         }
