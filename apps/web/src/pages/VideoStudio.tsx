@@ -23,6 +23,7 @@ export function VideoStudio() {
   const [tab,setTab]=useState<'clips'|'captions'|'assets'|'audio'>('clips');
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
+  const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
   const [busy,setBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
   const [error,setError]=useState('');
@@ -58,6 +59,29 @@ export function VideoStudio() {
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>('/projects/'+pid+'/studio/'+id);
     setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');
+  };
+  useEffect(()=>{
+    if(!project || aligning.state!=='running')return;
+    const timer=setInterval(async()=>{
+      try {
+        const st=await api<{state:string;error?:string;captions?:number}>('/projects/'+pid+'/studio/'+project.id+'/captions/auto');
+        setAligning(st);
+        if(st.state==='done'){
+          const fresh=await api<Studio>('/projects/'+pid+'/studio/'+project.id);
+          setProject(fresh);setDirty(false);setNotice(st.captions+' legendas adicionadas.');
+        }
+      }catch(e:any){setError(e.message)}
+    },2000);
+    return()=>clearInterval(timer);
+  },[project?.id,pid,aligning.state]);
+  const gerarLegendas=async()=>{
+    if(!project || dirty)return setError('Salve primeiro as alterações da timeline.');
+    const texto=window.prompt('Cole o roteiro exato, se existir. Se não houver, deixe vazio para transcrever a fala do vídeo.','');
+    if(texto===null)return;
+    try{
+      const r=await api<{state:string}>('/projects/'+pid+'/studio/'+project.id+'/captions/auto','POST',{script:texto});
+      setAligning(r);setNotice('Alinhamento local iniciado.');
+    }catch(e:any){setError(e.message)}
   };
   const newProject=async()=>{
     const name=window.prompt('Nome da edição','Novo vídeo');
@@ -192,6 +216,8 @@ export function VideoStudio() {
     </header>
     {error&&<p className="studio-error" role="alert">{error}</p>}
     {notice&&<p className="studio-notice">{notice}</p>}
+    {aligning.state==='failed'&&<p className="studio-error">Legendas automáticas: {aligning.error}</p>}
+    {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
     {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
@@ -241,6 +267,8 @@ export function VideoStudio() {
           {tab==='audio'&&<div className="studio-fields">{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
+            <button disabled={aligning.state==='running'||running.state!=='done'} onClick={gerarLegendas}>Gerar legendas pela narração</button>
+            <p>Para transcrever e sincronizar palavras, exporte primeiro o vídeo montado. WhisperX/faster-whisper devem estar instalados localmente.</p>
             <p>O agente poderá analisar a narração e sugerir efeitos dinâmicos. O editor manual já funciona sem IA.</p>
             <button onClick={()=>{navigator.clipboard?.writeText(chatInstruction).then(()=>setNotice('Pedido copiado. Abra a conversa do projeto e cole o pedido.')).catch(()=>setNotice(chatInstruction))}}>Copiar pedido para o agente</button>
             <Link to={'/p/'+pid}>Abrir conversa do projeto</Link>
