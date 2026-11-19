@@ -219,13 +219,13 @@ export function VideoStudio() {
       project?.assets.some(a=>a.source===m.caminho)||
       project?.audioTracks?.some(a=>a.source===m.caminho)||
       project?.soundtrack?.source===m.caminho);
-    if(used)return setError('Este arquivo está na edição atual. Remova-o da timeline e salve antes de excluir.');
+    if(used)return setError('Este arquivo está na edição atual. Remova a faixa de voz ou trilha (ou clipe) e salve antes de excluir.');
     if(!window.confirm('Excluir definitivamente "'+m.nome+'" do armazenamento do projeto? Essa ação não pode ser desfeita.'))return;
     setBusy(true);setError('');
     try {
       const response=await api<{videos:Media[]}>('/projects/'+pid+'/videos/'+encodeURIComponent(fileId),'DELETE');
       setMedia(response.videos);
-      setNotice('Vídeo excluído da biblioteca.');
+      setNotice('Arquivo de mídia excluído da biblioteca.');
     } catch(e:any){setError(e.message)}
     finally{setBusy(false)}
   };
@@ -562,7 +562,10 @@ export function VideoStudio() {
           </div>)}
           <h4>Imagens</h4>{mediaImage.map(m=><button title={m.nome} key={m.caminho} onClick={()=>addImage(m)}>＋ {m.nome}</button>)}
           <h4>Áudios</h4><small className="studio-audio-help">Escolha Voz ou Trilha para cada áudio.</small>{mediaAudio.map(m=><div key={m.caminho} className="studio-audio-source">
-            <span className="studio-audio-name" title={m.nome}>{m.nome}</span>
+            <div className="studio-audio-heading">
+              <span className="studio-audio-name" title={m.nome}>{m.nome}</span>
+              {m.pasta==='entrada'&&<button className="studio-audio-delete" disabled={busy} title={'Excluir '+m.nome+' da biblioteca'} aria-label={'Excluir áudio '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
+            </div>
             <div className="studio-audio-actions">
               <button disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar na faixa de voz'}>＋ Voz</button>
               <button onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Usar como trilha musical">♫ Trilha</button>
