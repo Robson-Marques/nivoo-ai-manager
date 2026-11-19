@@ -498,6 +498,13 @@ export function VideoStudio() {
       if(a.id!==selected)return a;
       const val=key==='source'?value:num(value);
       if(key==='fadeIn'||key==='fadeOut')return {...a,[key]:Math.max(0,Math.min(Number(val),(a.end-a.start)/2))};
+      if(key==='offset')return {...a,offset:Math.max(0,Math.min(total-(a.end-a.start),Number(val)))};
+      if(key==='start'||key==='end'){
+        const start=key==='start'?Math.max(0,Math.min(a.end-.05,Number(val))):a.start;
+        const end=key==='end'?Math.max(a.start+.05,Number(val)):a.end;
+        const d=end-start;
+        return {...a,start,end,fadeIn:Math.min(a.fadeIn??0,d/2),fadeOut:Math.min(a.fadeOut??0,d/2)};
+      }
       return {...a,[key]:val};
     })}));
   };
@@ -699,13 +706,17 @@ export function VideoStudio() {
         if(d.edge==='move'){
           const raw=clamp(a.offset+shift,0,maxOffset);
           const candidates=[0,total-length,...(baseline.audioTracks??[]).filter(v=>v.id!==a.id).flatMap(v=>[v.offset,v.offset+v.end-v.start])];
-          const nearest=snap?candidates.find(t=>Math.abs(t-raw)<=Math.max(.08,total/500)):undefined;
+          const nearest=snap?candidates.reduce<number|undefined>((best,t)=>
+            Math.abs(t-raw)<=Math.max(.08,total/500)&&
+              (best===undefined||Math.abs(t-raw)<Math.abs(best-raw))?t:best,undefined):undefined;
           return {...a,offset:+(nearest===undefined?raw:nearest).toFixed(2)};
         }
         if(d.edge==='start'){
           const change=clamp(shift,-Math.min(a.offset,a.start),length-min);
+          const duration=length-change;
           return {...a,offset:+(a.offset+change).toFixed(2),
-            start:+(a.start+change).toFixed(2)};
+            start:+(a.start+change).toFixed(2),
+            fadeIn:Math.min(a.fadeIn??0,duration/2),fadeOut:Math.min(a.fadeOut??0,duration/2)};
         }
         // O áudio jamais é prolongado artificialmente. Para ampliar um corte,
         // a duração original é obtida dos metadados carregados no player.
@@ -713,7 +724,10 @@ export function VideoStudio() {
         const maxSource=audioDuration&&Number.isFinite(audioDuration)&&audioDuration>0?
           audioDuration:a.end;
         const maxEnd=Math.min(maxSource,a.start+total-a.offset);
-        return {...a,end:+clamp(a.end+shift,a.start+min,Math.max(a.start+min,maxEnd)).toFixed(2)};
+        const nextEnd=+clamp(a.end+shift,a.start+min,Math.max(a.start+min,maxEnd)).toFixed(2);
+        const duration=nextEnd-a.start;
+        return {...a,end:nextEnd,
+          fadeIn:Math.min(a.fadeIn??0,duration/2),fadeOut:Math.min(a.fadeOut??0,duration/2)};
       })});
     }
     setDirty(true);
