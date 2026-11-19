@@ -21,7 +21,7 @@ export type ProtectedZone = {id:string;label:string;start:number;end:number;x:nu
 export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 export type StudioAsset = {
   id: string; source: string; start: number; end: number;
-  x: number; y: number; w: number; h: number;
+  x: number; y: number; w: number; h: number; animation?: 'fade'|'slide'|'none';
 };
 export type StudioProject = {
   version: 1; id: string; title: string; clips: StudioClip[];
@@ -139,7 +139,8 @@ export class VideoStudioService {
       ident(a); this.src(media,a.source);
       if (!finite(a.start,0,total) || !finite(a.end,0,total) || a.end<=a.start ||
           !finite(a.x,0,1) || !finite(a.y,0,1) || !finite(a.w,.01,1) ||
-          !finite(a.h,.01,1) || a.x+a.w>1 || a.y+a.h>1)
+          !finite(a.h,.01,1) || a.x+a.w>1 || a.y+a.h>1 ||
+          (a.animation!==undefined && !['fade','slide','none'].includes(a.animation)))
         throw new BadRequestException('Imagem de apoio inválida');
     }
     return p as StudioProject;
@@ -386,7 +387,7 @@ export class VideoStudioService {
         }finally{fs.rmSync(input,{force:true})}
         generated.push(target);
         assets.push({id:'ai-'+randomUUID(),source:'midia/saida/'+path.basename(target),start:el.start,end:el.end,
-          x:el.x,y:el.y,w:el.w!,h:el.h!});
+          x:el.x,y:el.y,w:el.w!,h:el.h!,animation:el.style==='slide'?'slide':'fade'});
       }else assets.push({id:'ai-'+randomUUID(),source:el.asset!,start:el.start,end:el.end,
         x:el.x,y:el.y,w:el.w!,h:el.h!});
     }
@@ -504,8 +505,15 @@ export class VideoStudioService {
       const filters:string[]=[];let v='[0:v]';
       for(let i=0;i<imgs.length;i++){
         const a=imgs[i],wid=Math.max(2,Math.floor(a.w*W/2)*2),hei=Math.max(2,Math.floor(a.h*H/2)*2);
-        filters.push(`[${i+1}:v]scale=${wid}:${hei},format=rgba[asset${i}]`);
-        filters.push(`${v}[asset${i}]overlay=x=${Math.round(a.x*W)}:y=${Math.round(a.y*H)}:enable='between(t,${a.start},${a.end})':shortest=0:eof_action=repeat[v${i}]`);
+        // A animação acontece na timeline global; o áudio original fica intacto.
+        const intro=Math.min(.24,Math.max(.06,(a.end-a.start)/5));
+        const ox=Math.round(a.x*W),oy=Math.round(a.y*H);
+        const movement=Math.round(Math.min(W*.1,75));
+        const x=a.animation==='slide'?
+          `if(lt(t,${a.start+intro}),${ox}-${movement}*(1-(t-${a.start})/${intro}),${ox})`:String(ox);
+        const fade=a.animation==='none'?'':`,fade=t=in:st=0:d=${intro}:alpha=1`;
+        filters.push(`[${i+1}:v]scale=${wid}:${hei},format=rgba${fade},setpts=PTS-STARTPTS+${a.start}/TB[asset${i}]`);
+        filters.push(`${v}[asset${i}]overlay=x='${x}':y=${oy}:enable='between(t,${a.start},${a.end})':shortest=0:eof_action=repeat[v${i}]`);
         v=`[v${i}]`;
       }
       filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
