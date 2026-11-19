@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, listarVideos } from '../projects/midia';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { karaokeAss, validWords, TimedWord } from './caption-timing';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -15,7 +16,7 @@ export type StudioClip = {
 };
 export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
-  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide';
+  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide'|'karaoke'; words?:TimedWord[];
 };
 export type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
@@ -123,6 +124,7 @@ export class VideoStudioService {
           !finite(c.start,0,total) || !finite(c.end,0,total) || c.end<=c.start ||
           !finite(c.x,0,1) || !finite(c.y,0,1) || !finite(c.fontSize ?? 54,12,140) ||
           (c.color && !color(c.color))) throw new BadRequestException('Legenda inválida');
+      if(c.words!==undefined && !validWords(c)) throw new BadRequestException('Palavras da legenda com tempos inválidos');
       const approx={x:Math.max(0,c.x-.40),y:Math.max(0,c.y-.065),w:Math.min(.8,1-Math.max(0,c.x-.40)),h:.13};
       for(const z of boxes) if(temporally(c,z)&&overlaps(approx,z))
         throw new BadRequestException('Legenda '+c.id+' pode cobrir área protegida '+z.label);
@@ -247,7 +249,8 @@ export class VideoStudioService {
           groups.push({
             id:'auto-'+randomUUID(),text:w.map((v:any)=>v.text).join(' ').trim(),
             start:w[0].start,end:w[w.length-1].end,x:allowed.x,y:allowed.y,
-            animation:'pop',fontSize:54,color:'#FFFFFF'
+            animation:'karaoke',fontSize:54,color:'#FFFFFF',
+            words:w.map((word:any)=>({text:String(word.text).trim(),start:Number(word.start),end:Number(word.end)}))
           });
         }
         // Nunca substituir legendas manuais nem sobrescrever alterações do usuário.
