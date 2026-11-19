@@ -220,7 +220,7 @@ export function VideoStudio() {
     mutate(p=>({...p,protectedZones:(p.protectedZones??[]).map(z=>z.id===selected?{...z,[key]:key==='label'?value:num(value)}:z)}));
   };
   const updateAudio=(key:keyof AudioTrack,value:string)=>{
-    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'||key==='animation'?value:num(value)}:a)}));
+    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
   };
   const updateAsset=(key:keyof Asset,value:string)=>{
     mutate(p=>({...p,assets:p.assets.map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
