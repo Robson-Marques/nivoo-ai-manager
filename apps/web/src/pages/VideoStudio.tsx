@@ -389,7 +389,7 @@ export function VideoStudio() {
           {tab==='protected'&&<div className="studio-fields"><button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
-            <button disabled={aligning.state==='running'||running.state!=='done'} onClick={gerarLegendas}>Gerar legendas pela narração</button>
+            <button disabled={aligning.state==='running'||(running.state!=='done'&&!(project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length)))} onClick={gerarLegendas}>Gerar legendas pela narração</button>
             <button disabled={aiDraft.state==='running'||dirty||!project.captions.length} onClick={planAi}>✦ Criar design com IA</button>
             {aiDraft.state==='running'&&<p>Analisando narração e componentes disponíveis…</p>}
             {aiDraft.state==='failed'&&<p className="studio-error">IA: {aiDraft.error}</p>}
@@ -401,7 +401,7 @@ export function VideoStudio() {
               <button onClick={applyAi}>Aplicar à timeline</button>
               <button onClick={()=>setAiDraft({state:'idle'})}>Descartar prévia</button>
             </div>}
-            <p>Para transcrever e sincronizar palavras, exporte primeiro o vídeo montado. WhisperX/faster-whisper devem estar instalados localmente.</p>
+            <p>Vídeo único: alinhar diretamente sem exportar. Montagens com várias cenas e faixas: exportar antes. Requer faster-whisper/WhisperX locais.</p>
             <p>O agente poderá analisar a narração e sugerir efeitos dinâmicos. O editor manual já funciona sem IA.</p>
             <button onClick={()=>{navigator.clipboard?.writeText(chatInstruction).then(()=>setNotice('Pedido copiado. Abra a conversa do projeto e cole o pedido.')).catch(()=>setNotice(chatInstruction))}}>Copiar pedido para o agente</button>
             <Link to={'/p/'+pid}>Abrir conversa do projeto</Link>
