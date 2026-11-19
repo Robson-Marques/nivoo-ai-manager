@@ -125,6 +125,14 @@ export function VideoStudio() {
       if(i<0||j<0||j>=a.length)return p;
       [a[i],a[j]]=[a[j],a[i]];return {...p,clips:a};});
   };
+  const split=()=>{
+    if(!active || active.clip.id!==selected || active.offset<=.05 || active.offset>=active.clip.duration-.05) return setError('Posicione o cursor dentro do clipe selecionado para dividir.');
+    const c=active.clip,cut=c.start+active.offset;
+    const left={...c,end:cut,duration:cut-c.start};
+    const right={...c,id:ident(),start:cut,duration:c.end-cut};
+    mutate(p=>{const i=p.clips.findIndex(v=>v.id===c.id);return {...p,clips:[...p.clips.slice(0,i),left,right,...p.clips.slice(i+1)]};});
+    setSelected(right.id);
+  };
   const remove=()=>{
     mutate(p=>({...p,clips:p.clips.filter(c=>c.id!==selected),captions:p.captions.filter(c=>c.id!==selected),assets:p.assets.filter(c=>c.id!==selected)}));
     setSelected(null);
@@ -146,13 +154,19 @@ export function VideoStudio() {
   };
   const seek=(t:number)=>{
     const target=Math.max(0,Math.min(total,t));
+    const same=active && target>=active.begin && target<active.begin+active.clip.duration;
+    if(same && player.current) player.current.currentTime=active.clip.start+(target-active.begin);
     setPlayhead(target);
   };
   const playing=useRef(false);
   const onVideoTime=()=>{
     if(!active||!player.current)return;
     const pos=Math.max(0,player.current.currentTime-active.clip.start);
-    setPlayhead(Math.min(total,active.begin+pos));
+    if(pos>=active.clip.duration-.06 && active.begin+active.clip.duration<total-.05) {
+      const continuePlay=!player.current.paused;
+      playing.current=continuePlay;
+      setPlayhead(Math.min(total,active.begin+active.clip.duration+.002));
+    } else setPlayhead(Math.min(total,active.begin+pos));
   };
   const onVideoEnded=()=>{
     if(active && playhead<total-.05) seek(active.begin+active.clip.duration+.005);
@@ -161,7 +175,8 @@ export function VideoStudio() {
   useEffect(()=>{
     if(!active||!player.current)return;
     const target=active.clip.start+active.offset;
-    if(Math.abs(player.current.currentTime-target)>.25)player.current.currentTime=target;
+    if(Math.abs(player.current.currentTime-target)>.20)player.current.currentTime=target;
+    if(playing.current&&player.current.paused) player.current.play().catch(()=>undefined);
   },[active?.clip.id,active?.offset===0]);
   const chatInstruction='Analise a narração do vídeo e crie legendas cinéticas e imagens de apoio no Nivoo Studio. Não cubra rostos, logos ou textos importantes. Utilize o vídeo e a timeline salvos no projeto.';
   const activeCaptions=project?.captions.filter(c=>c.start<=playhead&&c.end>playhead)||[];
@@ -213,7 +228,7 @@ export function VideoStudio() {
             <label>Início (seg) <input type="number" step=".1" value={selectedClip.start} onChange={e=>updateClip('start',e.target.value)}/></label>
             <label>Fim (seg) <input type="number" step=".1" value={selectedClip.end} onChange={e=>updateClip('end',e.target.value)}/></label>
             <label>Volume <input type="number" min="0" max="2" step=".1" value={selectedClip.volume??1} onChange={e=>updateClip('volume',e.target.value)}/></label>
-            <button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
+            <button onClick={split}>✂ Dividir no cursor</button><button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
           </div>}
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
           {tab==='captions'&&<div className="studio-fields"><button onClick={addCaption}>+ Adicionar legenda</button>{selectedCaption&&<>
