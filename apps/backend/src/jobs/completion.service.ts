@@ -70,11 +70,9 @@ export class CompletionService {
   ) {}
 
   /**
-   * Critério final não passou num trabalho feito por IA: em vez de parar e esperar o usuário, cria uma etapa de
-   * correção para a IA do projeto (com o critério e a evidência), confere as regras de novo e reavalia. SEM teto de
-   * rodadas enquanto houver avanço (a cobrança muda). A mesma cobrança de novo: a rodada seguinte muda a abordagem e
-   * passa para outra IA conectada, se houver. Só para (esperando o usuário) quando a MESMA cobrança volta idêntica
-   * depois de 3 correções seguidas — aí a IA não está conseguindo e girar só gastaria. Devolve true se criou a correção.
+   * Auto-correção final tem teto RÍGIDO por trabalho. Uma correção é uma nova
+   * etapa, portanto o limite de tentativas POR ETAPA não a contém. Limite
+   * global impede ciclos de revisão/correção com dezenas de etapas pagas.
    */
   private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
@@ -85,13 +83,18 @@ export class CompletionService {
     if (falhas.some((f) => criterios.find((c) => c.key === f.key)?.kind === 'MANUAL_APPROVAL')) return false;
     const quem = daIa.includes(job.project.provider) ? job.project.provider : daIa[daIa.length - 1];
     const rodadas = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).length;
-    // Rodadas contam desde a última intervenção do usuário ("Tentar de novo" ou uma resposta): o clique dele sempre
-    // recomeça. NIVOO_CORRECOES_MAX é um teto opcional (0 = sem teto, o padrão).
-    const maxRodadas = Number(process.env.NIVOO_CORRECOES_MAX ?? 0);
-    const retomada = await this.prisma.logEntry.findFirst({ where: { jobId: job.id, message: { startsWith: 'Job retomado por' } }, orderBy: { id: 'desc' }, select: { createdAt: true } });
-    const desde = Math.max(0, retomada?.createdAt.getTime() ?? 0, ...job.steps.filter((s) => s.key.startsWith('resposta-usuario-')).map((s) => s.createdAt.getTime()));
-    const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-') && s.createdAt.getTime() > desde).sort((a, b) => b.order - a.order);
-    if (maxRodadas > 0 && correcoesAgora.length >= maxRodadas) return false;
+    // O teto conta TODA correção no mesmo trabalho. Retomar, trocar a IA e
+    // alterar o texto da violação não zeram esse limite. Recuperar um trabalho
+    // bloqueado exige análise/decisão, e não novas correções automáticas.
+    const configurado = Number(process.env.NIVOO_CORRECOES_MAX ?? 2);
+    const maxRodadas = Number.isFinite(configurado) ? Math.min(3,Math.max(0,Math.floor(configurado))) : 2;
+    const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).sort((a, b) => b.order - a.order);
+    if (maxRodadas === 0 || rodadas >= maxRodadas) {
+      await this.logs.log(job.id,
+        `Conferência final reprovada, mas o limite global de ${maxRodadas} correção(ões) automática(s) já foi atingido (${rodadas} executadas). Não criarei outra etapa. É necessário corrigir a causa, a ferramenta ou o critério.`,
+        { source:'evaluator',level:'WARN' });
+      return false;
+    }
     // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
     const cobranca = [
