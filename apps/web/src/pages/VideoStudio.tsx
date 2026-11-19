@@ -501,7 +501,7 @@ export function VideoStudio() {
       if(key==='offset')return {...a,offset:Math.max(0,Math.min(total-(a.end-a.start),Number(val)))};
       if(key==='start'||key==='end'){
         const sourceLength=audioPlayers.current.get(a.id)?.duration;
-        const maxEnd=Number.isFinite(sourceLength)&&sourceLength!>0?sourceLength!:Math.max(a.end,Number(val));
+        const maxEnd=typeof sourceLength==='number'&&Number.isFinite(sourceLength)&&sourceLength>0?sourceLength:Math.max(a.end,Number(val));
         const start=key==='start'?Math.max(0,Math.min(a.end-.05,Number(val))):a.start;
         const end=key==='end'?Math.max(a.start+.05,Math.min(maxEnd,Number(val))):a.end;
         const d=end-start;
