@@ -109,6 +109,9 @@ export class VideoStudioService {
           !finite(c.start,0,total) || !finite(c.end,0,total) || c.end<=c.start ||
           !finite(c.x,0,1) || !finite(c.y,0,1) || !finite(c.fontSize ?? 54,12,140) ||
           (c.color && !color(c.color))) throw new BadRequestException('Legenda inválida');
+      const approx={x:Math.max(0,c.x-.40),y:Math.max(0,c.y-.065),w:Math.min(.8,1-Math.max(0,c.x-.40)),h:.13};
+      for(const z of boxes) if(temporally(c,z)&&overlaps(approx,z))
+        throw new BadRequestException('Legenda '+c.id+' pode cobrir área protegida '+z.label);
     }
     for(const a of p.assets) {
       for(const z of boxes) if(temporally(a,z)&&overlaps(a,z))
@@ -205,9 +208,16 @@ export class VideoStudioService {
         for(let i=0;i<data.words.length;i+=3){
           const w=data.words.slice(i,i+3).filter((v:any)=>typeof v.text==='string'&&finite(v.start,0,14400)&&finite(v.end,0,14400));
           if(!w.length)continue;
+          const candidates=[{x:.5,y:.82},{x:.5,y:.15},{x:.5,y:.5}];
+          const box=(a:{x:number;y:number})=>({x:.10,y:Math.max(0,a.y-.065),w:.80,h:.13});
+          const allowed=candidates.find(a=>!(current.protectedZones??[]).some(z=>
+            w[0].start<z.end && z.start<w[w.length-1].end &&
+            box(a).x<z.x+z.w && z.x<box(a).x+box(a).w &&
+            box(a).y<z.y+z.h && z.y<box(a).y+box(a).h));
+          if(!allowed)continue;
           groups.push({
             id:'auto-'+randomUUID(),text:w.map((v:any)=>v.text).join(' ').trim(),
-            start:w[0].start,end:w[w.length-1].end,x:.50,y:.82,
+            start:w[0].start,end:w[w.length-1].end,x:allowed.x,y:allowed.y,
             animation:'pop',fontSize:54,color:'#FFFFFF'
           });
         }
