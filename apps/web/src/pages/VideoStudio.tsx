@@ -114,6 +114,7 @@ export function VideoStudio() {
   const dragged=useRef<string|null>(null);
   const mediaDuration=useRef(new Map<string,number>());
   const videoTrim=useRef<{id:string;edge:'start'|'end';x:number;width:number;original:Studio}|null>(null);
+  const suppressClipClick=useRef(false);
   const [editMode,setEditMode]=useState<'select'|'blade'>('select');
   const [zoom,setZoom]=useState(1);
   const timelineDrag=useRef<{
@@ -134,6 +135,20 @@ export function VideoStudio() {
   const selectedAsset=project?.assets.find(c=>c.id===selected);
   const selectedAudio=project?.audioTracks?.find(c=>c.id===selected);
   const selectedZone=project?.protectedZones?.find(c=>c.id===selected);
+  // A duração real é carregada também para clipes já salvos: permite alongar
+  // novamente uma extremidade sem reimportar o arquivo original.
+  useEffect(()=>{
+    const source=selectedClip?.source;
+    if(!source||mediaDuration.current.has(source))return;
+    const el=document.createElement('video');
+    el.preload='metadata';
+    el.onloadedmetadata=()=>{
+      if(Number.isFinite(el.duration)&&el.duration>0)
+        mediaDuration.current.set(source,Math.min(el.duration,14400));
+    };
+    el.src=midiaUrl(pid,source,standalone);
+    return()=>{el.onloadedmetadata=null;el.removeAttribute('src');el.load();};
+  },[selectedClip?.source,pid,standalone]);
 
   const refresh=async()=> {
     const [s,m]=await Promise.all([
@@ -476,6 +491,8 @@ export function VideoStudio() {
     if(!videoTrim.current)return;
     try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{}
     videoTrim.current=null;
+    suppressClipClick.current=true;
+    window.setTimeout(()=>{suppressClipClick.current=false},0);
   };
   const reorder=(id:string,target:string)=>{
     if(id===target)return;
@@ -856,6 +873,7 @@ export function VideoStudio() {
               draggable={editMode==='select'} onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()}
               onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}}
               onClick={e=>{
+                if(suppressClipClick.current)return;
                 setSelected(c.id);setTab('clips');
                 const begin=clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0);
                 if(editMode==='blade'){
