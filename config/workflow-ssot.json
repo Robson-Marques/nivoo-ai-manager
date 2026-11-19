@@ -1,0 +1,33 @@
+{
+  "schema": "nivoo.workflow-ssot/v1",
+  "enabled": false,
+  "source": {
+    "provider": "github",
+    "repository": "Robson-Marques/STUDIO-UX",
+    "branch": "main",
+    "pinnedCommit": null,
+    "documentationOnly": true
+  },
+  "refresh": {
+    "mode": "manual",
+    "requireCleanVerifiedSnapshot": true,
+    "writeToProject": false
+  },
+  "execution": {
+    "requireSnapshotBeforePlanning": true,
+    "requireSnapshotBeforeCodeChanges": true,
+    "failClosedWhenUnavailable": true,
+    "requireComplianceEvidence": true,
+    "requireHumanApproval": true,
+    "doNotAutoMigrate": true
+  },
+  "policy": {
+    "forbidPackageDependency": [
+      "@studio-ux-ds/*"
+    ],
+    "migrationIntent": "replace-studio-x",
+    "adoptCurrentComponents": false,
+    "allowProjectLocalImplementation": true
+  },
+  "notes": "Contrato preparatório INATIVO. Não conectar a prompts ou execução antes de concluir a atualização do SSOT, pin de commit, leitura autenticada, revisão e testes."
+}
