@@ -185,3 +185,45 @@
   .studio-library {max-height:220px;}
   .studio-timeline {flex:none;height:240px;max-height:none;}
 }
+
+/* Timeline compacta: seis faixas visíveis sem rolagem vertical no desktop. */
+.studio-timeline {
+  flex:0 0 auto;
+  height:auto;
+  min-height:0;
+  max-height:none;
+  padding:8px 10px;
+}
+.studio-timeline-head h3 {margin:0 0 6px;font-size:12px;}
+.studio-timeline-head span {font-size:11px;}
+.studio-tracks {
+  flex:0 0 auto;
+  display:grid;
+  gap:3px;
+  overflow-y:visible;
+  overflow-x:hidden;
+}
+.studio-track {
+  grid-template-columns:70px minmax(0,1fr);
+  gap:5px;
+  min-height:24px;
+  height:24px;
+}
+.studio-track>span {font-size:11px;}
+.studio-track-items,.studio-track-overlay,.studio-track-audio {
+  height:24px;
+  min-height:24px;
+}
+.studio-track-items button,.studio-track-overlay button {
+  font-size:11px;
+  padding:1px 5px;
+  line-height:17px;
+  justify-content:center;
+}
+.studio-track-items button small {display:none;}
+.studio-track-audio {font-size:11px;}
+.studio-audio-help {display:block;color:#aabbd2;font-size:11px;line-height:1.35;margin-bottom:6px;}
+@media (max-width:740px) {
+  .studio-timeline {height:auto;max-height:none;min-height:0;}
+  .studio-track {grid-template-columns:55px minmax(0,1fr);}
+}
