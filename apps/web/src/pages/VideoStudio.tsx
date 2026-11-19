@@ -235,9 +235,11 @@ export function VideoStudio() {
     const obj=document.createElement('audio');
     obj.preload='metadata';
     obj.onloadedmetadata=()=>{
-      const end=Math.min(obj.duration,Math.max(.05,total-playhead));
+      // Voz e narração começam no início da montagem, independentemente do cursor.
+      // Não repetir nem esticar falas; se o áudio for menor, sua faixa termina antes.
+      const end=Math.min(Number(obj.duration),total);
       if(!Number.isFinite(end)||end<=0)return setError('Áudio sem duração válida');
-      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:playhead,volume:1};
+      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:0,volume:1};
       mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),a]}));setSelected(a.id);setTab('audio');
     };
     obj.onerror=()=>setError('Falha ao ler a duração do áudio.');
@@ -482,7 +484,7 @@ export function VideoStudio() {
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
-          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
+          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
