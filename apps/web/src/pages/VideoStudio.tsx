@@ -124,6 +124,8 @@ export function VideoStudio() {
   const [editMode,setEditMode]=useState<'select'|'blade'>('select');
   const [zoom,setZoom]=useState(1);
   const [snap,setSnap]=useState(true);
+  const [libraryOpen,setLibraryOpen]=useState<Record<string,boolean>>({videos:true,images:false,narration:false,audios:true,edits:false});
+  const toggleLibrary=(key:string)=>setLibraryOpen(prev=>({...prev,[key]:!prev[key]}));
   const timelineDrag=useRef<{
     kind:'caption'|'asset'|'audio'|'zone'; id:string;
     edge:'move'|'start'|'end'; originX:number; width:number; baseline:Studio;
@@ -969,12 +971,18 @@ export function VideoStudio() {
           <h3>Biblioteca</h3>
           <label className="studio-upload">+ Importar mídias<input ref={inputRef} type="file" multiple hidden accept="video/*,audio/*,image/png,image/jpeg,image/webp" onChange={e=>upload(e.target.files)} /></label>
           {busy&&progress>0&&<small>Enviando {progress}%</small>}
-          <h4>Vídeos</h4>{mediaVideo.map(m=><div className="studio-media-row" key={m.caminho}>
+          <button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.videos} onClick={()=>toggleLibrary('videos')} title="Mostrar ou ocultar vídeos"><span>🎞 Vídeos <small>{mediaVideo.length}</small></span><span>{libraryOpen.videos?'▾':'▸'}</span></button>
+          {libraryOpen.videos&&<div className="studio-section-contents">{mediaVideo.map(m=><div className="studio-media-row" key={m.caminho}>
             <button className="studio-media-add" title={'Adicionar '+m.nome} onClick={()=>append(m)}>＋ <span>{m.nome}</span></button>
             {m.pasta==='entrada'&&<button className="studio-media-delete" disabled={busy} title={'Excluir '+m.nome+' do projeto'} aria-label={'Excluir vídeo '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
-          </div>)}
-          <h4>Imagens</h4>{mediaImage.map(m=><button title={m.nome} key={m.caminho} onClick={()=>addImage(m)}>＋ {m.nome}</button>)}
-          {standalone&&<div className="studio-narration">
+          </div>)}</div>}
+          <button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.images} onClick={()=>toggleLibrary('images')} title="Mostrar ou ocultar imagens"><span>▧ Imagens <small>{mediaImage.length}</small></span><span>{libraryOpen.images?'▾':'▸'}</span></button>
+          {libraryOpen.images&&<div className="studio-section-contents">{mediaImage.map(m=><div className="studio-media-row" key={m.caminho}>
+            <span className="studio-media-filename" title={m.nome}>{m.nome}</span>
+            <button className="studio-media-mini" title={'Adicionar imagem '+m.nome} aria-label={'Adicionar imagem '+m.nome} onClick={()=>addImage(m)}>＋</button>
+          </div>)}</div>}
+          {standalone&&<><button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.narration} onClick={()=>toggleLibrary('narration')} title="Abrir ferramenta de narração"><span>🎙 Criar voz</span><span>{libraryOpen.narration?'▾':'▸'}</span></button>
+          {libraryOpen.narration&&<div className="studio-narration">
             <h4>🎙 Criar narração com Kokoro</h4>
             <textarea aria-label="Roteiro da narração" placeholder="Cole ou escreva o texto que será narrado…" value={script} onChange={e=>setScript(e.target.value)} rows={4} maxLength={5000}/>
             <select aria-label="Voz da narração" value={voice} onChange={e=>setVoice(e.target.value)}>
@@ -991,8 +999,9 @@ export function VideoStudio() {
             </label>
             <button disabled={speechBusy||busy||!script.trim()} onClick={generateSpeech}>{speechBusy?'Gerando áudio…':'Gerar narração'}</button>
             <small>Áudio salvo na biblioteca e inserido na timeline quando houver vídeo.</small>
-          </div>}
-          <h4>Áudios</h4><small className="studio-audio-help">Escolha Voz ou Trilha para cada áudio.</small>{mediaAudio.map(m=><div key={m.caminho} className="studio-audio-source">
+          </div>}</>}
+          <button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.audios} onClick={()=>toggleLibrary('audios')} title="Mostrar ou ocultar áudios"><span>♫ Áudios <small>{mediaAudio.length}</small></span><span>{libraryOpen.audios?'▾':'▸'}</span></button>
+          {libraryOpen.audios&&<div className="studio-section-contents">{mediaAudio.map(m=><div key={m.caminho} className="studio-audio-source">
             <div className="studio-audio-heading">
               <span className="studio-audio-name" title={m.nome}>{m.nome}</span>
               {m.pasta==='entrada'&&<button className="studio-audio-delete" disabled={busy} title={'Excluir '+m.nome+' da biblioteca'} aria-label={'Excluir áudio '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
@@ -1003,8 +1012,9 @@ export function VideoStudio() {
               <button className="studio-audio-icon-button" type="button" aria-label={'Adicionar '+m.nome+' à faixa de voz'} disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar à voz'}>🎙</button>
               <button className="studio-audio-icon-button" type="button" aria-label={'Usar '+m.nome+' como trilha musical'} onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Adicionar à trilha musical">♫</button>
             </div>
-          </div>)}
-          <h4>Edições</h4>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}
+          </div>)}</div>}
+          <button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.edits} onClick={()=>toggleLibrary('edits')} title="Mostrar ou ocultar edições"><span>▤ Edições <small>{list.length}</small></span><span>{libraryOpen.edits?'▾':'▸'}</span></button>
+          {libraryOpen.edits&&<div className="studio-section-contents">{list.map(x=><button className="studio-edition-row" key={x.id} title={'Abrir edição '+x.title} onClick={()=>open(x.id)}>▸ {x.title}</button>)}</div>}
         </aside>
         <main className="studio-preview-panel">
           <div className="studio-canvas" ref={canvasRef}>

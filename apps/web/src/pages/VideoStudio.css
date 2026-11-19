@@ -416,3 +416,28 @@
   overflow:hidden;
 }
 .studio-track-name>span{font-size:13px;flex:0 0 auto}
+
+/* Biblioteca de mídia: seções recolhíveis e linhas de alta densidade. */
+.studio-library{padding:9px}
+.studio-library h3{font-size:14px;margin:0 0 8px}
+.studio-library .studio-upload{padding:6px 8px;margin:5px 0 8px;font-size:12px}
+.studio-library .studio-section-toggle{
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;min-height:29px;margin:4px 0 1px;padding:4px 7px;
+  background:#17263c;border:1px solid #354660;border-radius:5px;
+  color:#e2eaf7;font-weight:600;font-size:12px;text-align:left;
+}
+.studio-library .studio-section-toggle:hover{background:#253753}
+.studio-section-toggle small{font-weight:400;color:#92a8c5;margin-left:4px}
+.studio-section-contents{padding:3px 0 5px;min-width:0}
+.studio-library .studio-media-row{display:flex;align-items:center;gap:3px;margin:2px 0;min-height:26px}
+.studio-library .studio-media-row .studio-media-add{margin:0;min-height:25px;padding:3px 5px;font-size:11px;flex:1;min-width:0}
+.studio-library .studio-media-row .studio-media-delete,
+.studio-library .studio-media-mini{display:inline-flex;align-items:center;justify-content:center;flex:0 0 23px;width:23px;height:23px;padding:0;margin:0;font-size:12px}
+.studio-library .studio-media-filename{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#d5e2f5}
+.studio-library .studio-edition-row{width:100%;min-height:25px;margin:2px 0;padding:3px 6px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.studio-library .studio-audio-source{padding:4px 5px;margin:3px 0;gap:3px}
+.studio-library .studio-audio-heading{min-height:18px}
+.studio-library .studio-audio-actions .studio-audio-icon-button{height:24px}
+.studio-library .studio-narration{margin:4px 0;padding:7px}
+.studio-library .studio-narration h4{font-size:11px;margin:0 0 5px}
