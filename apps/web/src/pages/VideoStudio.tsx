@@ -20,6 +20,21 @@ const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallba
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
 const ident=()=>crypto.randomUUID();
+/** Extende o vídeo com o último quadro estático, sem modificar a voz. */
+function fitVideoToNarration(p:Studio,ending:number):Studio{
+  const length=p.clips.reduce((v,c)=>v+c.duration,0);
+  if(ending<=length+.001)return p;
+  if(!p.clips.length)throw new Error('Adicione uma cena de vídeo antes de estender o final.');
+  if(ending>14400)throw new Error('O projeto ultrapassaria quatro horas.');
+  const extra=+(ending-length).toFixed(3);
+  const last=p.clips[p.clips.length-1];
+  if(last.freeze)return {...p,clips:[...p.clips.slice(0,-1),{...last,duration:+(last.duration+extra).toFixed(3)}]};
+  if(p.clips.length>=200)throw new Error('Limite de 200 clipes atingido.');
+  const position=Math.max(last.start,+(last.end-.08).toFixed(3));
+  const freeze:Clip={id:ident(),source:last.source,start:position,end:last.end,
+    duration:extra,volume:0,freeze:true};
+  return {...p,clips:[...p.clips,freeze]};
+}
 /** Ripple delete em tempo de montagem. Remove o intervalo e fecha o espaço
  * em TODAS as faixas, preservando a parte anterior/posterior da narração. */
 function rippleDelete(p:Studio,from:number,to:number):Studio{
@@ -396,15 +411,15 @@ export function VideoStudio() {
     const obj=document.createElement('audio');
     obj.preload='metadata';
     obj.onloadedmetadata=()=>{
-      // Narrações entram uma após outra. Sobreposição continua possível com arraste manual.
+      const length=Number(obj.duration);
+      if(!Number.isFinite(length)||length<=0)return setError('Áudio sem duração válida');
       const offset=Math.max(0,...(project?.audioTracks??[]).map(a=>a.offset+(a.end-a.start)));
-      const available=total-offset;
-      if(available<.05)return setError('Não há espaço para outra narração no vídeo. Amplie a montagem ou mova as faixas existentes.');
-      const end=Math.min(Number(obj.duration),available);
-      if(!Number.isFinite(end)||end<=0)return setError('Áudio sem duração válida');
-      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:+offset.toFixed(3),volume:1,fadeIn:.12,fadeOut:.12};
-      mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),a]}));setSelected(a.id);setTab('audio');
-      if(end<Number(obj.duration)-.05)setNotice('Narração adicionada em sequência, mas limitada ao fim do vídeo. Amplie a montagem para usar todo o áudio.');
+      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end:+length.toFixed(3),offset:+offset.toFixed(3),volume:1,fadeIn:.12,fadeOut:.12};
+      try{
+        mutate(p=>fitVideoToNarration({...p,audioTracks:[...(p.audioTracks??[]),a]},offset+length));
+        setSelected(a.id);setTab('audio');
+        if(offset+length>total+.001)setNotice('Último quadro congelado até o fim da narração, sem acelerar ou cortar a voz. Você pode inserir mais cenas antes dele.');
+      }catch(e:any){setError(e.message||'Não foi possível ajustar o vídeo à narração.');}
     };
     obj.onerror=()=>setError('Falha ao ler a duração do áudio.');
     obj.src=midiaUrl(pid,m.caminho,standalone);
@@ -483,6 +498,15 @@ export function VideoStudio() {
       fadeIn:Math.min(a.fadeIn??0,(len-cut)/2),fadeOut:Math.min(a.fadeOut??0,(len-cut)/2)};
     mutate(p=>({...p,audioTracks:(p.audioTracks??[]).flatMap(v=>v.id===a.id?[left,right]:[v])}));
     setSelected(right.id);setTab('audio');
+  };
+  const extendEnding=()=>{
+    if(!project?.clips.length)return setError('Adicione vídeo à montagem primeiro.');
+    const ending=Math.max(0,...(project.audioTracks??[]).map(a=>a.offset+a.end-a.start));
+    if(ending<=total+.001)return setNotice('O vídeo já cobre toda a narração.');
+    try{
+      mutate(p=>fitVideoToNarration(p,ending));
+      setNotice('Último quadro congelado até o final da voz, sem modificar a narração.');
+    }catch(e:any){setError(e.message)}
   };
   const duplicateNarration=()=>{
     if(!project||!selectedAudio)return;
@@ -840,7 +864,19 @@ export function VideoStudio() {
     let handle=0;
     const tick=()=>{
       const v=player.current;
-      if(playing.current&&v&&!v.paused&&active){
+      if(playing.current&&active?.clip.freeze){
+        const now=performance.now();
+        const clock=freezeClock.current;
+        const elapsed=clock?.clipId===active.clip.id?Math.min(.1,(now-clock.stamp)/1000):0;
+        freezeClock.current={clipId:active.clip.id,stamp:now};
+        const next=Math.min(active.begin+active.clip.duration,playheadRef.current+elapsed);
+        playheadRef.current=next;
+        syncAudio(next,true);
+        if(next>=active.begin+active.clip.duration-.015){
+          if(active.begin+active.clip.duration<total-.015)setPlayhead(Math.min(total,active.begin+active.clip.duration+.002));
+          else{playing.current=false;syncAudio(total,false);setPlayhead(total)}
+        }else setPlayhead(next);
+      }else if(playing.current&&v&&!v.paused&&active){
         const time=active.begin+Math.max(0,v.currentTime-active.clip.start);
         syncAudio(Math.min(time,total),true);
       }
@@ -851,20 +887,31 @@ export function VideoStudio() {
   },[project?.id,project?.clips,project?.audioTracks,project?.soundtrack,active?.clip.id]);
   const seek=(t:number)=>{
     const target=Math.max(0,Math.min(total,t));
+    playheadRef.current=target;freezeClock.current=null;
     const same=active && target>=active.begin && target<active.begin+active.clip.duration;
-    if(same && player.current) player.current.currentTime=active.clip.start+(target-active.begin);
+    if(same && player.current && !active?.clip.freeze) player.current.currentTime=active.clip.start+(target-active.begin);
     setPlayhead(target);
     syncAudio(target,playing.current);
   };
   const playing=useRef(false);
+  const freezeClock=useRef<{clipId:string;stamp:number}|null>(null);
+  const playheadRef=useRef(playhead);
+  playheadRef.current=playhead;
   // Uma nova cena pode vir do mesmo arquivo; o player precisa remontar
   // e posicionar a origem ANTES de iniciar, nunca inferir o tempo da cena anterior.
   const sceneReady=useRef<string|null>(null);
   const prepareScene=()=>{
     const video=player.current;
     if(!active||!video)return;
-    const target=active.clip.start+active.offset;
+    const target=active.clip.start+(active.clip.freeze?0:active.offset);
     sceneReady.current=null;
+    if(active.clip.freeze){
+      freezeClock.current=null;
+      try{video.pause();video.currentTime=active.clip.start}catch{}
+      sceneReady.current=active.clip.id;
+      syncAudio(active.begin+active.offset,playing.current);
+      return;
+    }
     try{
       if(Math.abs(video.currentTime-target)>.025){
         video.currentTime=target;
@@ -881,6 +928,7 @@ export function VideoStudio() {
   };
   const onSceneSeeked=()=>{
     if(!active||!player.current)return;
+    if(active.clip.freeze){sceneReady.current=active.clip.id;return;}
     const target=active.clip.start+active.offset;
     if(Math.abs(player.current.currentTime-target)>.15&&sceneReady.current!==active.clip.id)return;
     sceneReady.current=active.clip.id;
@@ -899,6 +947,7 @@ export function VideoStudio() {
       // Caso tenha chegado ao fim, iniciar novamente a partir da primeira cena.
       if(playhead>=total-.01&&total>0){playing.current=true;seek(0);return;}
       playing.current=true;
+      if(active.clip.freeze){freezeClock.current=null;syncAudio(playhead,true);return;}
       if(sceneReady.current!==active.clip.id){
         prepareScene();return;
       }
@@ -908,7 +957,7 @@ export function VideoStudio() {
     }
   };
   const onVideoTime=()=>{
-    if(!active||!player.current)return;
+    if(!active||!player.current||active.clip.freeze)return;
     // Não interpretar o tempo do player anterior como se fosse o novo clipe.
     if(sceneReady.current!==active.clip.id||player.current.seeking||player.current.readyState<1)return;
     const raw=player.current.currentTime-active.clip.start;
@@ -931,6 +980,7 @@ export function VideoStudio() {
     }
   };
   const onVideoEnded=()=>{
+    if(active?.clip.freeze)return;
     if(active&&active.begin+active.clip.duration<total-.01){
       const next=active.begin+active.clip.duration+.002;
       setPlayhead(next);
@@ -1050,7 +1100,7 @@ export function VideoStudio() {
             <button onClick={()=>split()}>✂ Dividir no cursor</button>
             <button onClick={()=>keepSide('before')} title="Manter o começo do clipe até o cursor">Manter antes do cursor</button>
             <button onClick={()=>keepSide('after')} title="Manter apenas o trecho após o cursor">Manter depois do cursor</button>
-            <button onClick={duplicateClip}>Duplicar clipe</button>
+            <button onClick={duplicateClip}>Duplicar clipe</button><button onClick={extendEnding} title="Congelar último quadro para a narração caber">❄ Estender final até narração</button>
             <button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
           </div>}
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
@@ -1064,7 +1114,7 @@ export function VideoStudio() {
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
-          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={splitNarration}>✂ Dividir voz no cursor</button><button onClick={duplicateNarration}>Duplicar voz em sequência</button><button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Excluir segmento da voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
+          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={extendEnding} title="Congelar o último quadro até a narração terminar">❄ Ajustar vídeo à voz</button><button onClick={splitNarration}>✂ Dividir voz no cursor</button><button onClick={duplicateNarration}>Duplicar voz em sequência</button><button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Excluir segmento da voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
@@ -1123,7 +1173,7 @@ export function VideoStudio() {
               style={{flex:c.duration,minWidth:30}} title={mediaName(c.source)+' · '+c.start.toFixed(2)+'–'+c.end.toFixed(2)+'s'}>
               <span className="studio-video-grip" data-edge="start" title="Arraste para aparar o começo"
                 onPointerDown={e=>startVideoTrim(e,c.id,'start')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
-              <span className="studio-video-title"><StudioFilmstrip src={midiaUrl(pid,c.source,standalone)} start={c.start} end={c.end}/><span className="studio-video-caption">{mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span></span>
+              <span className="studio-video-title"><StudioFilmstrip src={midiaUrl(pid,c.source,standalone)} start={c.start} end={c.end}/><span className="studio-video-caption">{c.freeze?'❄ Quadro congelado':mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span></span>
               <span className="studio-video-grip" data-edge="end" title="Arraste para aparar o fim"
                 onPointerDown={e=>startVideoTrim(e,c.id,'end')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
             </div>)}</div></div>
