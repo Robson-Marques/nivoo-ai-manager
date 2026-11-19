@@ -123,7 +123,7 @@ export class ProjectsController {
   @Get(':pid/midia/content')
   async midiaContent(@Param('pid', ParseUUIDPipe) pid: string, @Query('path') caminho: string, @Req() req: Request, @Res() res: Response) {
     const abs = await this.projects.arquivoDeMidia(pid, caminho);
-    const tipo = /\.webm$/i.test(abs) ? 'video/webm' : /\.mov$/i.test(abs) ? 'video/quicktime' : /\.mp3$/i.test(abs) ? 'audio/mpeg' : /\.(wav|flac)$/i.test(abs) ? 'audio/wav' : /\.(m4a|aac)$/i.test(abs) ? 'audio/mp4' : /\.ogg$/i.test(abs) ? 'audio/ogg' : 'video/mp4';
+    const tipo = /\.png$/i.test(abs) ? 'image/png' : /\.jpe?g$/i.test(abs) ? 'image/jpeg' : /\.webp$/i.test(abs) ? 'image/webp' : /\.webm$/i.test(abs) ? 'video/webm' : /\.mov$/i.test(abs) ? 'video/quicktime' : /\.mp3$/i.test(abs) ? 'audio/mpeg' : /\.(wav|flac)$/i.test(abs) ? 'audio/wav' : /\.(m4a|aac)$/i.test(abs) ? 'audio/mp4' : /\.ogg$/i.test(abs) ? 'audio/ogg' : 'video/mp4';
     streamMedia(req, res, abs, tipo);
   }
 
