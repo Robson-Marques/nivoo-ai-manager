@@ -7,7 +7,7 @@ type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
-type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
+type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number;fadeIn?:number;fadeOut?:number};
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
@@ -59,7 +59,17 @@ function rippleInsert(p:Studio,at:number,amount:number):Studio{
   const shifted=(t:number)=>t>=at?+(t+amount).toFixed(3):t;
   const range=<T extends {start:number;end:number}>(x:T):T=>({...x,
     start:shifted(x.start),end:shifted(x.end)});
-  const audioTracks=(p.audioTracks??[]).map(a=>({...a,offset:shifted(a.offset)}));
+  const audioTracks=(p.audioTracks??[]).flatMap(a=>{
+    const stop=a.offset+a.end-a.start;
+    if(a.offset<at&&stop>at){
+      const cut=at-a.offset;
+      return [
+        {...a,end:+(a.start+cut).toFixed(3)},
+        {...a,id:ident(),start:+(a.start+cut).toFixed(3),offset:+(at+amount).toFixed(3)}
+      ];
+    }
+    return [{...a,offset:shifted(a.offset)}];
+  });
   return {...p,captions:p.captions.map(c=>({...range(c),words:c.words?.map(range)})),
     assets:p.assets.map(range),protectedZones:(p.protectedZones??[]).map(range),audioTracks};
 }
@@ -324,7 +334,7 @@ export function VideoStudio() {
       if(available<.05)return setError('Não há espaço para outra narração no vídeo. Amplie a montagem ou mova as faixas existentes.');
       const end=Math.min(Number(obj.duration),available);
       if(!Number.isFinite(end)||end<=0)return setError('Áudio sem duração válida');
-      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:+offset.toFixed(3),volume:1};
+      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:+offset.toFixed(3),volume:1,fadeIn:.12,fadeOut:.12};
       mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),a]}));setSelected(a.id);setTab('audio');
       if(end<Number(obj.duration)-.05)setNotice('Narração adicionada em sequência, mas limitada ao fim do vídeo. Amplie a montagem para usar todo o áudio.');
     };
@@ -374,7 +384,12 @@ export function VideoStudio() {
     mutate(p=>({...p,protectedZones:(p.protectedZones??[]).map(z=>z.id===selected?{...z,[key]:key==='label'?value:num(value)}:z)}));
   };
   const updateAudio=(key:keyof AudioTrack,value:string)=>{
-    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
+    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>{
+      if(a.id!==selected)return a;
+      const val=key==='source'?value:num(value);
+      if(key==='fadeIn'||key==='fadeOut')return {...a,[key]:Math.max(0,Math.min(Number(val),(a.end-a.start)/2))};
+      return {...a,[key]:val};
+    })}));
   };
   const updateAsset=(key:keyof Asset,value:string)=>{
     mutate(p=>({...p,assets:p.assets.map(a=>a.id===selected?{...a,[key]:key==='source'||key==='animation'?value:num(value)}:a)}));
@@ -639,8 +654,11 @@ export function VideoStudio() {
     for(const track of project?.audioTracks??[]){
       const a=audioPlayers.current.get(track.id);
       if(!a)continue;
-      a.volume=Math.min(1,Math.max(0,track.volume));
-      const position=t-track.offset,inside=position>=0&&position<track.end-track.start;
+      const position=t-track.offset,duration=track.end-track.start;
+      const fi=track.fadeIn??0,fo=track.fadeOut??0;
+      const fade=Math.max(0,Math.min(1,fi>0?position/fi:1,fo>0?(duration-position)/fo:1));
+      a.volume=Math.min(1,Math.max(0,track.volume*fade));
+      const inside=position>=0&&position<duration;
       if(inside){
         const at=track.start+position;
         if(Math.abs(a.currentTime-at)>.35){try{a.currentTime=at}catch{/* metadata pendente */}}
@@ -776,7 +794,7 @@ export function VideoStudio() {
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
-          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
+          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>

@@ -21,7 +21,7 @@ export type StudioCaption = {
   fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:TimedWord[];
 };
 export type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
-export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
+export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number;fadeIn?:number;fadeOut?:number};
 export type StudioAsset = {
   id: string; source: string; start: number; end: number;
   x: number; y: number; w: number; h: number; animation?: 'fade'|'slide'|'none';
@@ -142,7 +142,8 @@ export class VideoStudioService {
       ident(a); this.src(media,a.source);
       if(!finite(a.start,0,14400)||!finite(a.end,0,14400)||a.end<=a.start||
           !finite(a.offset,0,total)||a.offset+a.end-a.start>total+.05||
-          !finite(a.volume,0,2))throw new BadRequestException('Faixa de áudio inválida');
+          !finite(a.volume,0,2)||!finite(a.fadeIn??0,0,(a.end-a.start)/2)||
+          !finite(a.fadeOut??0,0,(a.end-a.start)/2))throw new BadRequestException('Faixa de áudio inválida');
     }
     for (const a of p.assets) {
       ident(a); this.src(media,a.source);
@@ -609,7 +610,11 @@ export class VideoStudioService {
           if(!info.audio||a.end>info.duration+.05)throw new Error('Faixa de áudio inválida: '+a.source);
           inputs.push('-i',source);
           const ms=Math.round(a.offset*1000);
-          f.push(`[${stream}:a]atrim=start=${a.start}:end=${a.end},asetpts=PTS-STARTPTS,volume=${a.volume},adelay=${ms}:all=1[track${i}]`);
+          const len=a.end-a.start;
+          const fi=Math.min(a.fadeIn??0,len/2),fo=Math.min(a.fadeOut??0,len/2);
+          const fades=(fi>.001?`,afade=t=in:st=0:d=${fi}`:'')+
+            (fo>.001?`,afade=t=out:st=${Math.max(0,len-fo)}:d=${fo}`:'');
+          f.push(`[${stream}:a]atrim=start=${a.start}:end=${a.end},asetpts=PTS-STARTPTS,volume=${a.volume}${fades},adelay=${ms}:all=1[track${i}]`);
           outputs.push(`[track${i}]`);stream++;
         }
         f.push(outputs.join('')+`amix=inputs=${outputs.length}:duration=first:dropout_transition=0[a]`);
