@@ -5,7 +5,7 @@ import './VideoStudio.css';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
-type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide' };
+type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
@@ -208,7 +208,7 @@ export function VideoStudio() {
     })}));
   };
   const updateCaption=(key:keyof Caption,value:string)=>{
-    mutate(p=>({...p,captions:p.captions.map(c=>c.id===selected?{...c,[key]:key==='text'||key==='color'||key==='animation'?value:num(value)}:c)}));
+    mutate(p=>({...p,captions:p.captions.map(c=>c.id===selected?{...c,[key]:key==='text'||key==='color'||key==='animation'?value:num(value),...(key==='text'?{words:undefined,animation:c.animation==='karaoke'?'fade':c.animation}:{})}:c)}));
   };
   const addZone=()=>{
     if(total<=0)return setError('Adicione vídeo antes de definir uma zona protegida.');
@@ -355,7 +355,7 @@ export function VideoStudio() {
             {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
             {activeAssets.map(a=><img key={a.id} src={midiaUrl(pid,a.source)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
-            {activeCaptions.map(c=><div key={c.id} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.text}</div>)}
+            {activeCaptions.map(c=><div key={c.id} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.animation==='karaoke'&&c.words?.length?c.words.map((w,i)=><span key={i} className={playhead>=w.start&&playhead<w.end?'studio-word-active':'studio-word'}>{w.text}{i<c.words!.length-1?' ':''}</span>):c.text}</div>)}
           </div>
           <div className="studio-play-controls">
             <button onClick={()=>seek(playhead-5)}>−5s</button>
@@ -379,7 +379,7 @@ export function VideoStudio() {
             <label>Texto <textarea value={selectedCaption.text} onChange={e=>updateCaption('text',e.target.value)}/></label>
             {(['start','end','x','y','fontSize'] as const).map(k=><label key={k}>{k} <input type="number" step=".01" value={selectedCaption[k]??54} onChange={e=>updateCaption(k,e.target.value)}/></label>)}
             <label>Cor <input type="color" value={selectedCaption.color||'#ffffff'} onChange={e=>updateCaption('color',e.target.value)}/></label>
-            <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide</option></select></label>
+            <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide</option><option value="karaoke" disabled={!selectedCaption.words?.length}>Destaque palavra a palavra</option></select></label>
             <button onClick={remove}>Remover legenda</button></>}</div>}
           {tab==='assets'&&<div className="studio-fields"><p>Escolha uma imagem da biblioteca para inserir na timeline.</p>{selectedAsset&&<>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAsset[k]} onChange={e=>updateAsset(k,e.target.value)}/></label>)}
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>

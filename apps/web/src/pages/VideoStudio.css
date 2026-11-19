@@ -52,3 +52,7 @@
 .studio-asset-fade{animation:studio-in .24s ease-out both}
 .studio-asset-slide{animation:studio-asset-slide .24s ease-out both}
 @keyframes studio-asset-slide{from{transform:translateX(-60px);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Destaque cinético do termo pronunciado. A posição da legenda permanece fixa. */
+.studio-caption-karaoke .studio-word{color:#d1d5db;transition:color .08s linear}
+.studio-caption-karaoke .studio-word-active{color:#facc15;text-shadow:0 0 8px #eab308aa,0 2px 7px #000;transition:color .06s linear}

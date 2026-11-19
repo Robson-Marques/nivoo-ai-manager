@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, listarVideos } from '../projects/midia';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { karaokeAss, validWords, TimedWord } from './caption-timing';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -15,7 +16,7 @@ export type StudioClip = {
 };
 export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
-  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide';
+  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide'|'karaoke'; words?:TimedWord[];
 };
 export type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
@@ -123,6 +124,7 @@ export class VideoStudioService {
           !finite(c.start,0,total) || !finite(c.end,0,total) || c.end<=c.start ||
           !finite(c.x,0,1) || !finite(c.y,0,1) || !finite(c.fontSize ?? 54,12,140) ||
           (c.color && !color(c.color))) throw new BadRequestException('Legenda inválida');
+      if(c.words!==undefined && !validWords(c)) throw new BadRequestException('Palavras da legenda com tempos inválidos');
       const approx={x:Math.max(0,c.x-.40),y:Math.max(0,c.y-.065),w:Math.min(.8,1-Math.max(0,c.x-.40)),h:.13};
       for(const z of boxes) if(temporally(c,z)&&overlaps(approx,z))
         throw new BadRequestException('Legenda '+c.id+' pode cobrir área protegida '+z.label);
@@ -247,7 +249,8 @@ export class VideoStudioService {
           groups.push({
             id:'auto-'+randomUUID(),text:w.map((v:any)=>v.text).join(' ').trim(),
             start:w[0].start,end:w[w.length-1].end,x:allowed.x,y:allowed.y,
-            animation:'pop',fontSize:54,color:'#FFFFFF'
+            animation:'karaoke',fontSize:54,color:'#FFFFFF',
+            words:w.map((word:any)=>({text:String(word.text).trim(),start:Number(word.start),end:Number(word.end)}))
           });
         }
         // Nunca substituir legendas manuais nem sobrescrever alterações do usuário.
@@ -365,7 +368,7 @@ export class VideoStudioService {
       // O agente recebe só um inventário de recursos e textos alinhados, não código executável.
       const payload={
         video:{duration,aspectRatio:'determine-from-scene',clips:p.clips.length},
-        speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end})),
+        speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end,words:v.words??[]})),
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
         sampledFrames:snapshots.length,
@@ -571,7 +574,10 @@ export class VideoStudioService {
         const effect=c.animation==='slide'?`\\move(${x},${y+50},${x},${y},0,350)`: `\\pos(${x},${y})`;
         const fade=c.animation==='fade'?'\\fad(160,160)':'';
         const pop=c.animation==='pop'?'\\t(0,200,\\fscx110\\fscy110)':'';
-        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}}${esc(c.text)}`;
+        const kinetic=c.animation==='karaoke'?karaokeAss(c,esc):null;
+        const subtitle=kinetic??esc(c.text);
+        const kineticColors=kinetic?'\\1c&H0000D7FF&\\2c&H00D1D5DB&':'';
+        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}${kineticColors}}${subtitle}`;
       });
       fs.writeFileSync(ass,h+lines.join('\n')+'\n');
       const imgs=p.assets;
