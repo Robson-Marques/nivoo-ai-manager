@@ -268,12 +268,32 @@ export class VideoStudioService {
       const outputDir=path.join(studio,'ai',id);
       fs.mkdirSync(outputDir,{recursive:true});
       const imageDetails=images.map(v=>({name:v.nome,source:v.caminho}));
+      const snapshots:string[]=[];
+      const rendered=status.get(key)?.result;
+      const sampleSource=rendered?.state==='done'&&rendered.output?
+        this.src(media,rendered.output):this.src(media,p.clips[0].source);
+      const captureDuration=rendered?.state==='done'?
+        duration:Math.min(8,p.clips[0].duration);
+      // Frames amostrados ajudam o agente a entender a cena, mas não substituem
+      // o detector temporal de rostos e logos. Esse detector ainda é uma etapa futura.
+      if(/codex/.test(project.provider)){
+        const dest=path.join(studio,'ai',id);
+        fs.mkdirSync(dest,{recursive:true});
+        for(const [i,fraction] of [.15,.5,.85].entries()){
+          const pic=path.join(dest,'frame-'+i+'.jpg');
+          const r=spawnSync('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',
+            '-ss',String(captureDuration*fraction),'-i',sampleSource,
+            '-frames:v','1','-vf','scale=640:-2',pic],{timeout:30000,encoding:'utf8'});
+          if(r.status===0 && fs.existsSync(pic) && fs.statSync(pic).size>1000) snapshots.push(pic);
+        }
+      }
       // O agente recebe só um inventário de recursos e textos alinhados, não código executável.
       const payload={
         video:{duration,aspectRatio:'determine-from-scene',clips:p.clips.length},
         speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end})),
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
+        sampledFrames:snapshots.length,
         instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
       };
       try{
@@ -287,13 +307,14 @@ export class VideoStudioService {
             'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
             'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
+            'Considere os frames fornecidos como referência visual; não encubra rosto, logo, textos ou dados. Caso seja incerto, reduza quantidade de elementos.',
             'O resultado será apenas uma PROPOSTA, que precisa ser validada e aceita pelo usuário.',
             'Não execute comandos, não crie código, não crie arquivos, não modifique o projeto.',
             JSON.stringify(payload)
           ].join('\n'),
           context:'Criar apenas plano de edição em JSON válido. Nenhuma ação externa.',
           cwd:outputDir,outputDir,timeoutMs:150000,signal:new AbortController().signal,
-          onLog:()=>undefined,options:{maxTurns:1}
+          onLog:()=>undefined,options:{maxTurns:1,images:snapshots}
         });
         if(result.exitCode!==0)throw new Error(result.error||'Falha ao consultar o agente de IA');
         const raw=parseAiJson(result.output) as {elements?:unknown;explanation?:unknown};
@@ -329,7 +350,7 @@ export class VideoStudioService {
         aiStates.set(key,{state:'draft',elements:valid,explanation:String(raw.explanation??'').slice(0,1000)});
       }catch(e:any){
         aiStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
-      }
+      }finally{snapshots.forEach(f=>fs.rmSync(f,{force:true}));}
     });
     return {state:'running'};
   }
