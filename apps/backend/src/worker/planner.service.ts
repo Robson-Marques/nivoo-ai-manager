@@ -501,6 +501,7 @@ export class PlannerService {
       ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : ['- Este servidor não oferece banco de teste: testes que precisam de PostgreSQL ficam de fora (diga quais).']),
       ...TEXTO_SISTEMA_RODANDO,
       ...TEXTO_FOTOS,
+      '- IMAGENS INÉDITAS: NÃO prometa gerar fotos/PNG com Codex/Claude CLI se a ferramenta de imagens só devolve prévias ou caminhos fora do workspace. Para um job exigir PNG em um caminho, confirme primeiro uma rota que grave o binário LOCAL nesse caminho. Sem isso, proponha anexar os PNGs pelo chat e uma etapa determinística de cópia/validação; nunca monte plano de geração impossível.',
       ...TEXTO_ROTEIRO,
       ...TEXTO_PADRAO_DAS_TELAS,
       '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',

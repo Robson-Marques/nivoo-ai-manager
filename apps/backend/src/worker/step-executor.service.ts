@@ -1,4 +1,5 @@
 import { registrarErro } from '../diagnostico/erros';
+import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
 import { mcpDoProjeto } from '../mcp/mcp';
@@ -230,6 +231,12 @@ export class StepExecutorService {
     const outputDir = path.join(worktree, 'out');
 
     const isAi = provider.kind !== 'executor';
+    // Preflight antes de criar attempt ou gastar tokens: geração de imagem via
+    // skill do CLI não garante um PNG gravado na pasta que o teste exige.
+    if (isAi) {
+      const blocked = checkGeneratedImageOutputs(step, providerId, worktree);
+      if (blocked) return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL, blocked);
+    }
     // Defesa em profundidade: o conhecimento original do projeto (fora do workspace) não pode ser alterado
     // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
     const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
