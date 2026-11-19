@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Detecta regiões de rosto em um trecho de vídeo; sem nuvem ou IA paga.
+
+Requer opencv-python-headless instalado em ambiente Python isolado.
+Detecção amostrada; pode falhar em perfis, baixa luz e movimentos rápidos.
+Saída: array de regiões temporais normalizadas do Studio.
+"""
+import argparse
+import json
+import math
+import sys
+from pathlib import Path
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--video", required=True, type=Path)
+    p.add_argument("--inicio", type=float, default=0.0)
+    p.add_argument("--duracao", type=float, required=True)
+    p.add_argument("--offset", type=float, default=0.0)
+    p.add_argument("--intervalo", type=float, default=0.75)
+    p.add_argument("--saida", type=Path, required=True)
+    args = p.parse_args()
+    if not args.video.is_file() or any(
+        not math.isfinite(v) for v in [args.inicio, args.duracao, args.offset, args.intervalo]
+    ) or args.inicio < 0 or args.duracao <= 0 or args.offset < 0 or args.intervalo < 0.2:
+        raise ValueError("parâmetros de vídeo ou intervalo inválidos")
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError(
+            "opencv-python-headless não instalado. Instale no venv de análise "
+            "ou cadastre regiões protegidas manualmente."
+        ) from exc
+    face_model = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+    classifier = cv2.CascadeClassifier(face_model)
+    if classifier.empty():
+        raise RuntimeError("não foi possível carregar o detector frontal de rostos do OpenCV")
+    vid = cv2.VideoCapture(str(args.video))
+    if not vid.isOpened():
+        raise RuntimeError("não foi possível decodificar o vídeo com OpenCV")
+    fps = float(vid.get(cv2.CAP_PROP_FPS) or 0)
+    width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if width < 32 or height < 32 or fps <= 0:
+        raise RuntimeError("vídeo sem resolução ou FPS válidos")
+    regions = []
+    try:
+        sample_count = min(350, math.ceil(args.duracao / args.intervalo))
+        for sample in range(sample_count):
+            t = min(args.duracao - .01, sample * args.intervalo)
+            if t < 0:
+                break
+            vid.set(cv2.CAP_PROP_POS_MSEC, (args.inicio + t) * 1000)
+            ok, frame = vid.read()
+            if not ok:
+                continue
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            found = classifier.detectMultiScale(gray, scaleFactor=1.12, minNeighbors=5, minSize=(35, 35))
+            for x, y, w, h in found:
+                margin_x, margin_y = w * .18, h * .18
+                x0 = max(0, (x - margin_x) / width)
+                y0 = max(0, (y - margin_y) / height)
+                x1 = min(1, (x + w + margin_x) / width)
+                y1 = min(1, (y + h + margin_y) / height)
+                begin = round(args.offset + max(0, t - .25), 3)
+                end = round(args.offset + min(args.duracao, t + args.intervalo + .25), 3)
+                z = dict(label="Rosto detectado (revisar)", start=begin, end=end,
+                         x=round(x0, 4), y=round(y0, 4),
+                         w=round(x1 - x0, 4), h=round(y1 - y0, 4))
+                if z["w"] <= 0 or z["h"] <= 0 or end <= begin:
+                    continue
+                # Junta ocorrências consecutivas da mesma área. A união é conservadora.
+                matched = None
+                for prev in reversed(regions[-12:]):
+                    if begin > prev["end"] + .1:
+                        continue
+                    ax0, ay0, ax1, ay1 = z["x"], z["y"], z["x"] + z["w"], z["y"] + z["h"]
+                    bx0, by0, bx1, by1 = prev["x"], prev["y"], prev["x"] + prev["w"], prev["y"] + prev["h"]
+                    inter = max(0, min(ax1, bx1)-max(ax0, bx0)) * max(0, min(ay1, by1)-max(ay0, by0))
+                    union = max(1e-8, z["w"]*z["h"]+prev["w"]*prev["h"]-inter)
+                    if inter / union > .18:
+                        matched = prev
+                        break
+                if matched is not None:
+                    x0 = min(matched["x"], z["x"])
+                    y0 = min(matched["y"], z["y"])
+                    x1 = max(matched["x"]+matched["w"], z["x"]+z["w"])
+                    y1 = max(matched["y"]+matched["h"], z["y"]+z["h"])
+                    matched.update(x=round(x0,4), y=round(y0,4), w=round(x1-x0,4),
+                                   h=round(y1-y0,4), end=max(matched["end"],z["end"]))
+                elif len(regions) < 50:
+                    regions.append(z)
+    finally:
+        vid.release()
+    args.saida.parent.mkdir(parents=True, exist_ok=True)
+    args.saida.write_text(json.dumps({
+        "version": 1, "regions": regions,
+        "warning": "Detecção heurística por amostragem; revise e complemente logos, textos e rostos não identificados."
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"{len(regions)} regiões propostas")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, RuntimeError, OSError) as e:
+        print("nivoo-detectar-zonas:", e, file=sys.stderr)
+        sys.exit(1)
