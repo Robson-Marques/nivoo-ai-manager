@@ -6,7 +6,9 @@ import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
-type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number; freeze?:boolean };
+type TransitionType='fade'|'wipeleft'|'wiperight'|'slideleft'|'slideright'|'circleopen';
+type ClipTransition={type:TransitionType;duration:number};
+type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number; freeze?:boolean; transition?:ClipTransition };
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number;fadeIn?:number;fadeOut?:number};
@@ -20,6 +22,14 @@ const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallba
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
 const ident=()=>crypto.randomUUID();
+const transitionPresets:{type:TransitionType;label:string;symbol:string;description:string}[]=[
+  {type:'fade',label:'Dissolver',symbol:'◐',description:'Mistura suave entre duas cenas'},
+  {type:'wipeleft',label:'Revelar →',symbol:'▣',description:'Revela a próxima cena na horizontal'},
+  {type:'wiperight',label:'Revelar ←',symbol:'▤',description:'Revelação no sentido contrário'},
+  {type:'slideleft',label:'Deslizar ←',symbol:'⇠',description:'A próxima cena entra pela lateral'},
+  {type:'slideright',label:'Deslizar →',symbol:'⇢',description:'Deslizamento no sentido contrário'},
+  {type:'circleopen',label:'Círculo',symbol:'◉',description:'A nova imagem surge pelo centro'},
+];
 /** Extende o vídeo com o último quadro estático, sem modificar a voz. */
 function fitVideoToNarration(p:Studio,ending:number):Studio{
   const length=p.clips.reduce((v,c)=>v+c.duration,0);
@@ -139,6 +149,13 @@ export function VideoStudio() {
   const [editMode,setEditMode]=useState<'select'|'blade'>('select');
   const [zoom,setZoom]=useState(1);
   const [snap,setSnap]=useState(true);
+  const [transitionOpen,setTransitionOpen]=useState(false);
+  const [transitionClip,setTransitionClip]=useState<string|null>(null);
+  const [transitionType,setTransitionType]=useState<TransitionType>('fade');
+  const [transitionDuration,setTransitionDuration]=useState(.6);
+  const [transitionPosition,setTransitionPosition]=useState<{x:number;y:number}>({x:120,y:115});
+  const transitionPanelDrag=useRef<{x:number;y:number;originX:number;originY:number}|null>(null);
+  const transitionPanelRef=useRef<HTMLDivElement>(null);
   const [libraryOpen,setLibraryOpen]=useState<Record<string,boolean>>({videos:true,images:false,narration:false,audios:true,edits:false});
   const toggleLibrary=(key:string)=>setLibraryOpen(prev=>({...prev,[key]:!prev[key]}));
   const timelineDrag=useRef<{
@@ -155,6 +172,21 @@ export function VideoStudio() {
     return clips.length?{clip:clips[clips.length-1],offset:clips[clips.length-1].duration,begin:pos-clips[clips.length-1].duration}:null;
   },[clips,playhead]);
   const selectedClip=clips.find(c=>c.id===selected);
+  const transitionTargetIndex=clips.findIndex(c=>c.id===transitionClip);
+  const transitionTarget=transitionTargetIndex>0?clips[transitionTargetIndex]:null;
+  const activeTransition=active && clips.findIndex(c=>c.id===active.clip.id)>0?
+    active.clip.transition:undefined;
+  const transitionProgress=activeTransition&&active?Math.min(1,active.offset/activeTransition.duration):1;
+  const incomingIndex=active?clips.findIndex(c=>c.id===active.clip.id):-1;
+  const outgoingClip=activeTransition&&incomingIndex>0?clips[incomingIndex-1]:null;
+  const previousFrameStyle=activeTransition?(
+    activeTransition.type==='fade'?{opacity:1-transitionProgress}:
+    activeTransition.type==='wipeleft'?{clipPath:`inset(0 ${transitionProgress*100}% 0 0)`}:
+    activeTransition.type==='wiperight'?{clipPath:`inset(0 0 0 ${transitionProgress*100}%)`}:
+    activeTransition.type==='circleopen'?{clipPath:`circle(${(1-transitionProgress)*78}% at center)`}:
+    activeTransition.type==='slideleft'?{transform:`translateX(-${transitionProgress*100}%)`}:
+    {transform:`translateX(${transitionProgress*100}%)`}
+  ):undefined;
   const selectedCaption=project?.captions.find(c=>c.id===selected);
   const selectedAsset=project?.assets.find(c=>c.id===selected);
   const selectedAudio=project?.audioTracks?.find(c=>c.id===selected);
@@ -811,6 +843,56 @@ export function VideoStudio() {
       <span className="studio-timeline-grip" data-timeline-edge="end" title="Ajustar fim"/>
     </div>;
   };
+  const openTransitions=(clipId?:string)=>{
+    const idx=clipId?clips.findIndex(c=>c.id===clipId):Math.max(1,clips.findIndex(c=>c.id===selected));
+    const target=clips[idx>0?idx:1];
+    if(!target)return setError('Adicione pelo menos duas cenas para aplicar uma transição.');
+    setTransitionClip(target.id);
+    setTransitionType(target.transition?.type??'fade');
+    setTransitionDuration(target.transition?.duration??Math.min(.6,Math.max(.1,target.duration-.05)));
+    setTransitionOpen(true);setError('');
+  };
+  const saveTransition=()=>{
+    if(!transitionTarget)return;
+    const max=Math.min(2,transitionTarget.duration-.05);
+    if(max<.1)return setError('Esta cena é curta demais para receber uma transição.');
+    const duration=+Math.min(max,Math.max(.1,transitionDuration)).toFixed(2);
+    mutate(p=>({...p,clips:p.clips.map(c=>c.id===transitionTarget.id?
+      {...c,transition:{type:transitionType,duration}}:c)}));
+    setTransitionOpen(false);
+    setNotice('Transição aplicada. Salve a edição antes de exportar o MP4.');
+  };
+  const clearTransition=()=>{
+    if(!transitionTarget)return;
+    mutate(p=>({...p,clips:p.clips.map(c=>{
+      if(c.id!==transitionTarget.id)return c;
+      const {transition:_,...rest}=c;
+      return rest;
+    })}));
+    setTransitionOpen(false);
+  };
+  const startTransitionPanelDrag=(e:ReactPointerEvent<HTMLDivElement>)=>{
+    const target=e.target as HTMLElement;
+    if(target.closest('button,select,input'))return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    transitionPanelDrag.current={x:e.clientX,y:e.clientY,
+      originX:transitionPosition.x,originY:transitionPosition.y};
+  };
+  const moveTransitionPanelDrag=(e:ReactPointerEvent<HTMLDivElement>)=>{
+    const d=transitionPanelDrag.current;
+    if(!d)return;
+    const width=transitionPanelRef.current?.offsetWidth??330;
+    const height=transitionPanelRef.current?.offsetHeight??320;
+    setTransitionPosition({
+      x:Math.min(Math.max(8,d.originX+e.clientX-d.x),Math.max(8,window.innerWidth-width-8)),
+      y:Math.min(Math.max(8,d.originY+e.clientY-d.y),Math.max(8,window.innerHeight-height-8)),
+    });
+  };
+  const endTransitionPanelDrag=(e:ReactPointerEvent<HTMLDivElement>)=>{
+    if(!transitionPanelDrag.current)return;
+    transitionPanelDrag.current=null;
+    try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{}
+  };
   const remove=()=>{
     mutate(p=>{
       const index=p.clips.findIndex(c=>c.id===selected);
@@ -1159,6 +1241,7 @@ export function VideoStudio() {
             <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes (V)" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
             <button className={editMode==='blade'?'on':''} title="Clique no clipe para dividir no ponto escolhido (B)" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
             <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço (Delete)" onClick={remove}>⌫ Excluir trecho</button>
+            <button title="Abrir paleta de transições entre cenas" onClick={()=>openTransitions()}>◐ Transições</button>
             <button className={snap?'on':''} title="Imantar narração ao início e às bordas de outras falas" onClick={()=>setSnap(v=>!v)}>⊙ Imã {snap?'ligado':'desligado'}</button>
             <label title="Ampliar a linha do tempo">Zoom <input type="range" min="1" max="4" step=".25" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/></label>
           </div></div>
@@ -1185,6 +1268,12 @@ export function VideoStudio() {
                 }else seek(begin);
               }}
               style={{flex:c.duration,minWidth:30}} title={mediaName(c.source)+' · '+c.start.toFixed(2)+'–'+c.end.toFixed(2)+'s'}>
+              {clips.indexOf(c)>0&&<button type="button" className={'studio-transition-marker'+(c.transition?' configured':'')}
+                title={c.transition?'Editar transição '+transitionPresets.find(p=>p.type===c.transition?.type)?.label:'Adicionar transição entre cenas'}
+                aria-label={'Configurar transição antes de '+mediaName(c.source)}
+                onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();openTransitions(c.id)}}>
+                ◇
+              </button>}
               <span className="studio-video-grip" data-edge="start" title="Arraste para aparar o começo"
                 onPointerDown={e=>startVideoTrim(e,c.id,'start')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
               <span className="studio-video-title"><StudioFilmstrip src={midiaUrl(pid,c.source,standalone)} start={c.start} end={c.end}/><span className="studio-video-caption">{c.freeze?'❄ Quadro congelado':mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span></span>
@@ -1200,6 +1289,51 @@ export function VideoStudio() {
           <div className="studio-track"><span className="studio-track-name" title="Trilha musical"><span aria-hidden="true">♫</span> Trilha</span><div className="studio-track-audio">{project.soundtrack?mediaName(project.soundtrack.source):'Sem trilha'}</div></div>
         </div></div>
       </div>
+      {transitionOpen&&<div ref={transitionPanelRef} className="studio-transition-panel"
+        role="dialog" aria-modal="false" aria-label="Paleta de transições"
+        style={{left:transitionPosition.x,top:transitionPosition.y}}>
+        <div className="studio-transition-panel-head" title="Arraste para mover esta janela"
+          onPointerDown={startTransitionPanelDrag}
+          onPointerMove={moveTransitionPanelDrag}
+          onPointerUp={endTransitionPanelDrag}
+          onPointerCancel={endTransitionPanelDrag}>
+          <strong>◐ Transições de cena</strong>
+          <button type="button" title="Fechar paleta" aria-label="Fechar paleta" onClick={()=>setTransitionOpen(false)}>✕</button>
+        </div>
+        <div className="studio-transition-panel-body">
+          <label>Entre quais cenas?
+            <select value={transitionTarget?.id??''} onChange={e=>{
+              const clip=clips.find(c=>c.id===e.target.value);
+              setTransitionClip(clip?.id??null);
+              setTransitionType(clip?.transition?.type??'fade');
+              setTransitionDuration(clip?.transition?.duration??.6);
+            }}>
+              {clips.slice(1).map((c,i)=><option key={c.id} value={c.id}>
+                {i+1} → {i+2} · {mediaName(c.source)}
+              </option>)}
+            </select>
+          </label>
+          <span className="studio-transition-label">Escolha o efeito</span>
+          <div className="studio-transition-presets">
+            {transitionPresets.map(p=><button type="button" key={p.type} className={transitionType===p.type?'selected':''}
+              title={p.description} onClick={()=>setTransitionType(p.type)}>
+              <span className={'studio-transition-swatch effect-'+p.type} aria-hidden="true">{p.symbol}</span>
+              <span>{p.label}</span>
+            </button>)}
+          </div>
+          <label>Duração <strong>{transitionDuration.toFixed(2)}s</strong>
+            <input type="range" min=".1" max={Math.max(.1,Math.min(2,(transitionTarget?.duration??2)-.05))}
+              step=".05" value={Math.min(transitionDuration,Math.max(.1,Math.min(2,(transitionTarget?.duration??2)-.05)))}
+              onChange={e=>setTransitionDuration(Number(e.target.value))}/>
+          </label>
+          <p className="studio-transition-help">A transição não reduz o tempo do vídeo e não corta a narração.</p>
+          <div className="studio-transition-panel-actions">
+            <button onClick={saveTransition} disabled={!transitionTarget||transitionTarget.duration<.15}>Aplicar</button>
+            <button onClick={clearTransition} disabled={!transitionTarget?.transition}>Remover</button>
+            <button onClick={()=>setTransitionOpen(false)}>Fechar</button>
+          </div>
+        </div>
+      </div>}
     </>}
   </section>;
 }

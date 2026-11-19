@@ -441,3 +441,44 @@
 .studio-library .studio-audio-actions .studio-audio-icon-button{height:24px}
 .studio-library .studio-narration{margin:4px 0;padding:7px}
 .studio-library .studio-narration h4{font-size:11px;margin:0 0 5px}
+
+/* Paleta de transições flutuante e arrastável, sem bloquear o editor. */
+.studio-transition-panel{
+  position:fixed;z-index:1100;width:min(352px,calc(100vw - 16px));max-height:calc(100vh - 20px);
+  display:flex;flex-direction:column;overflow:hidden;
+  background:#121e31;color:#f3f7ff;border:1px solid #54749b;border-radius:11px;
+  box-shadow:0 14px 55px #0009;
+}
+.studio-transition-panel-head{
+  padding:10px 11px;background:#263b57;display:flex;align-items:center;justify-content:space-between;
+  cursor:move;touch-action:none;user-select:none;gap:8px;
+}
+.studio-transition-panel-head button{font-size:13px;padding:3px 8px;margin:0}
+.studio-transition-panel-body{padding:11px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+.studio-transition-panel-body label{display:flex;flex-direction:column;gap:5px;font-size:12px}
+.studio-transition-panel-body label strong{font-variant-numeric:tabular-nums}
+.studio-transition-panel-body select{padding:6px;background:#0e1728;color:white;border:1px solid #52617a;border-radius:6px}
+.studio-transition-panel-body input[type=range]{width:100%;accent-color:#40bfe5}
+.studio-transition-label{font-size:11px;text-transform:uppercase;color:#adc2dc}
+.studio-transition-presets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.studio-transition-presets button{margin:0;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px;padding:7px 3px;font-size:10px}
+.studio-transition-presets button.selected{border-color:#67daf2;background:#1e586a}
+.studio-transition-swatch{width:100%;height:39px;display:grid;place-items:center;
+  background:linear-gradient(110deg,#1764ac 0 49%,#df874b 50%);border-radius:5px;font-size:22px;
+  color:white;text-shadow:0 1px 4px #000c}
+.studio-transition-help{font-size:11px;color:#b9cde1;margin:0}
+.studio-transition-panel-actions{display:flex;gap:6px}
+.studio-transition-panel-actions button{min-width:0;flex:1;padding:7px 4px;font-size:11px}
+.studio-video-clip .studio-transition-marker{
+  position:absolute;left:0;top:50%;transform:translate(-1px,-50%);
+  z-index:5;width:20px;height:22px;min-width:20px;padding:0;
+  display:flex;align-items:center;justify-content:center;border-radius:4px;
+  background:#1b2846;color:#f8fafc;border:1px solid #bfd5ef;
+  font-size:16px;cursor:pointer;
+}
+.studio-video-clip .studio-transition-marker.configured{background:#0f766e;border-color:#7cf0d2}
+.studio-video-clip .studio-video-grip[data-edge=start]{margin-left:0}
+.studio-transition-previous{
+  position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;
+  z-index:2;
+}
