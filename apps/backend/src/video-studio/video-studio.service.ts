@@ -12,9 +12,13 @@ import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
 import { maybeProductionMedia, touchProduction } from './standalone-projects';
 
+export type StudioTransition = {
+  type: 'fade'|'wipeleft'|'wiperight'|'slideleft'|'slideright'|'circleopen';
+  duration: number;
+};
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
-  volume?: number; freeze?: boolean;
+  volume?: number; freeze?: boolean; transition?: StudioTransition;
 };
 export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
@@ -100,8 +104,14 @@ export class VideoStudioService {
         throw new BadRequestException('Identificador duplicado ou inválido');
       known.add(v.id);
     };
-    for (const c of p.clips) {
+    for (const [index,c] of p.clips.entries()) {
       ident(c); this.src(media,c.source);
+      if(c.transition!==undefined && (
+        index===0 || typeof c.transition!=='object' || !c.transition ||
+        !['fade','wipeleft','wiperight','slideleft','slideright','circleopen'].includes(c.transition.type) ||
+        !finite(c.transition.duration,.10,2) ||
+        c.transition.duration>c.duration-.05
+      ))throw new BadRequestException('Transição inválida: escolha uma cena após a primeira e duração menor que a cena');
       if (!finite(c.start) || !finite(c.end) || c.end <= c.start ||
           !finite(c.duration, .05, 14400) || !finite(c.volume ?? 1, 0, 2) ||
           (c.freeze!==undefined && typeof c.freeze!=='boolean') ||
@@ -616,11 +626,41 @@ export class VideoStudioService {
       fs.writeFileSync(concat,segments.map(x=>`file '${x}'`).join('\n'));
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
-      let audioBase=joined;
+      // Preserva a duração da montagem e da locução: o quadro final da cena
+      // anterior é estendido somente sob o efeito. Não encurta nem acelera áudios.
+      let visualBase=joined;
+      if(p.clips.some(c=>c.transition)){
+        entry.result.stage='Aplicando transições entre cenas';
+        const inputs=segments.flatMap(file=>['-i',file]);
+        inputs.push('-i',joined);
+        const filters=segments.map((_,i)=>`[${i}:v]settb=AVTB,setpts=PTS-STARTPTS,fps=30,format=yuv420p[v${i}]`);
+        let previous='[v0]',elapsed=p.clips[0].duration;
+        for(let i=1;i<p.clips.length;i++){
+          const next=p.clips[i],transition=next.transition;
+          const result='[combined'+i+']';
+          if(transition){
+            const duration=transition.duration;
+            const pad='[pad'+i+']';
+            filters.push(`${previous}tpad=stop_mode=clone:stop_duration=${duration}${pad}`);
+            filters.push(`${pad}[v${i}]xfade=transition=${transition.type}:duration=${duration}:offset=${elapsed.toFixed(3)}${result}`);
+          }else{
+            filters.push(`${previous}[v${i}]concat=n=2:v=1:a=0${result}`);
+          }
+          previous=result;elapsed+=next.duration;
+        }
+        const withTransitions=path.join(tmp,'transitions.mp4');
+        await ff([...inputs,'-filter_complex',filters.join(';'),
+          '-map',previous,'-map',`${segments.length}:a:0`,
+          '-c:v','libx264','-preset','veryfast','-crf','20',
+          '-pix_fmt','yuv420p','-c:a','copy','-t',String(current),
+          '-movflags','+faststart',withTransitions]);
+        visualBase=withTransitions;
+      }
+      let audioBase=visualBase;
       if(p.soundtrack||(p.audioTracks?.length??0)>0) {
         entry.result.stage='Mixando narrações e música';
         const mix=path.join(tmp,'mix.mp4');
-        const inputs:string[]=['-i',joined], f:string[]=[];
+        const inputs:string[]=['-i',visualBase], f:string[]=[];
         const outputs:string[]=['[0:a]'];
         let stream=1;
         if(p.soundtrack){
