@@ -16,6 +16,7 @@ export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
   fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide';
 };
+export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 export type StudioAsset = {
   id: string; source: string; start: number; end: number;
   x: number; y: number; w: number; h: number;
@@ -23,7 +24,7 @@ export type StudioAsset = {
 export type StudioProject = {
   version: 1; id: string; title: string; clips: StudioClip[];
   soundtrack?: { source: string; volume: number } | null;
-  captions: StudioCaption[]; assets: StudioAsset[];
+  captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[];
   updatedAt: string;
 };
 type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
@@ -67,7 +68,8 @@ export class VideoStudioService {
   private validate(p: any, media: string): StudioProject {
     if (!p || p.version !== 1 || !safeId(p.id) || !Array.isArray(p.clips) ||
         !Array.isArray(p.captions) || !Array.isArray(p.assets) ||
-        p.clips.length > 200 || p.captions.length > 1000 || p.assets.length > 150)
+        p.clips.length > 200 || p.captions.length > 1000 || p.assets.length > 150 ||
+        (p.audioTracks && (!Array.isArray(p.audioTracks) || p.audioTracks.length>40)))
       throw new BadRequestException('Projeto Studio inválido');
     if (typeof p.title !== 'string' || p.title.length > 150) throw new BadRequestException('Título inválido');
     const known = new Set<string>();
@@ -95,6 +97,12 @@ export class VideoStudioService {
           !finite(c.x,0,1) || !finite(c.y,0,1) || !finite(c.fontSize ?? 54,12,140) ||
           (c.color && !color(c.color))) throw new BadRequestException('Legenda inválida');
     }
+    for (const a of p.audioTracks??[]) {
+      ident(a); this.src(media,a.source);
+      if(!finite(a.start,0,14400)||!finite(a.end,0,14400)||a.end<=a.start||
+          !finite(a.offset,0,total)||a.offset+a.end-a.start>total+.05||
+          !finite(a.volume,0,2))throw new BadRequestException('Faixa de áudio inválida');
+    }
     for (const a of p.assets) {
       ident(a); this.src(media,a.source);
       if (!finite(a.start,0,total) || !finite(a.end,0,total) || a.end<=a.start ||
@@ -112,7 +120,7 @@ export class VideoStudioService {
   }
   async create(pid: string, title = 'Novo vídeo') {
     const {studio} = await this.dir(pid);
-    const p:StudioProject = {version:1,id:randomUUID(),title:String(title).slice(0,150),clips:[],captions:[],assets:[],soundtrack:null,updatedAt:new Date().toISOString()};
+    const p:StudioProject = {version:1,id:randomUUID(),title:String(title).slice(0,150),clips:[],captions:[],assets:[],audioTracks:[],soundtrack:null,updatedAt:new Date().toISOString()};
     fs.writeFileSync(this.file(studio,p.id),JSON.stringify(p,null,2));
     return p;
   }
@@ -266,12 +274,29 @@ export class VideoStudioService {
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
       let audioBase=joined;
-      if(p.soundtrack) {
-        const music=path.join(tmp,'music.mp4');
-        await ff(['-i',joined,'-stream_loop','-1','-i',this.src(media,p.soundtrack.source),
-          '-filter_complex',`[1:a]volume=${p.soundtrack.volume}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=0[a]`,
-          '-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),music]);
-        audioBase=music;
+      if(p.soundtrack||(p.audioTracks?.length??0)>0) {
+        const mix=path.join(tmp,'mix.mp4');
+        const inputs:string[]=['-i',joined], f:string[]=[];
+        const outputs:string[]=['[0:a]'];
+        let stream=1;
+        if(p.soundtrack){
+          inputs.push('-stream_loop','-1','-i',this.src(media,p.soundtrack.source));
+          f.push(`[${stream}:a]volume=${p.soundtrack.volume},atrim=duration=${current},asetpts=PTS-STARTPTS[music]`);
+          outputs.push('[music]');stream++;
+        }
+        for(const [i,a] of (p.audioTracks??[]).entries()){
+          const source=this.src(media,a.source);
+          const info=probe(source);
+          if(!info.audio||a.end>info.duration+.05)throw new Error('Faixa de áudio inválida: '+a.source);
+          inputs.push('-i',source);
+          const ms=Math.round(a.offset*1000);
+          f.push(`[${stream}:a]atrim=start=${a.start}:end=${a.end},asetpts=PTS-STARTPTS,volume=${a.volume},adelay=${ms}:all=1[track${i}]`);
+          outputs.push(`[track${i}]`);stream++;
+        }
+        f.push(outputs.join('')+`amix=inputs=${outputs.length}:duration=first:dropout_transition=0[a]`);
+        await ff([...inputs,'-filter_complex',f.join(';'),'-map','0:v:0','-map','[a]',
+          '-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),mix]);
+        audioBase=mix;
       }
       const ass=path.join(tmp,'captions.ass');
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
