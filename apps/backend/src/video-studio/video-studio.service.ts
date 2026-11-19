@@ -33,6 +33,8 @@ export type StudioProject = {
 };
 type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+// O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
+const studioPython = () => process.env.NIVOO_STUDIO_PYTHON?.trim() || 'python3';
 const safeId = (id: string) => /^[a-f\d-]{36}$/i.test(id);
 const color = (s: string) => /^#[0-9a-f]{6}$/i.test(s || '');
 const esc = (s: string) => s.replace(/\\/g, '').replace(/[{}]/g,'').replace(/\r?\n/g,'\\N');
@@ -226,7 +228,7 @@ export class VideoStudioService {
           args.push('--roteiro',textFile);
         }
         await new Promise<void>((resolve,reject)=>{
-          const child=spawn('python3',args,{stdio:['ignore','ignore','pipe']});
+          const child=spawn(studioPython(),args,{stdio:['ignore','ignore','pipe']});
           let err='';
           const kill=setTimeout(()=>child.kill('SIGTERM'),15*60*1000);
           child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1000);});
@@ -284,7 +286,7 @@ export class VideoStudioService {
         for(const clip of p.clips){
           const destination=path.join(dir,clip.id+'.json');
           await new Promise<void>((resolve,reject)=>{
-            const child=spawn('python3',[
+            const child=spawn(studioPython(),[
               path.resolve(__dirname,'../../bin/nivoo-detectar-zonas'),
               '--video',this.src(media,clip.source),
               '--inicio',String(clip.start),'--duracao',String(clip.duration),
@@ -320,7 +322,9 @@ export class VideoStudioService {
     const p=await this.get(pid,id);
     if(p.updatedAt!==updatedAt)throw new ConflictException('A timeline mudou; execute a análise novamente');
     const existing=p.protectedZones??[];
-    const merged=[...existing,...state.regions].slice(0,50);
+    if(existing.length+state.regions.length>50)
+      throw new ConflictException('Limite de 50 regiões protegidas atingido. Reduza as regiões antes de aplicar.');
+    const merged=[...existing,...state.regions];
     // A proteção não pode invalidar uma edição pré-existente: mover elementos
     // quando houver posição segura, ou bloquear a aplicação SEM perder o projeto.
     const placedCaptions:StudioCaption[]=[];
@@ -363,9 +367,10 @@ export class VideoStudioService {
     aiStates.set(key,{state:'running'});
     setImmediate(async()=>{
       const outputDir=path.join(studio,'ai',id);
-      fs.mkdirSync(outputDir,{recursive:true});
       const imageDetails=images.map(v=>({name:v.nome,source:v.caminho}));
       const snapshots:string[]=[];
+      try{
+        fs.mkdirSync(outputDir,{recursive:true});
       // Amostras espalhadas pela timeline REAL, não apenas pelo primeiro clipe.
       // Usamos até 12 imagens 640px para limitar tokens e tempo de processamento.
       if(/codex/.test(project.provider)){
@@ -401,7 +406,6 @@ export class VideoStudioService {
         shotTimes:p.clips.length>1?'frames extraídos de múltiplas cenas':'frames extraídos do vídeo',
         instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
       };
-      try{
         const result=await ai.execute({
           jobId:randomUUID(),stepId:randomUUID(),attemptId:randomUUID(),
           instructions:[

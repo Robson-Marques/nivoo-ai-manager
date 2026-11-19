@@ -46,6 +46,7 @@ def main():
         raise RuntimeError("vídeo sem resolução ou FPS válidos")
     regions = []
     warnings = []
+    ocr_calls = 0
     # OCR opcional: não falhar caso Tesseract/pytesseract não estejam instalados.
     try:
         import pytesseract
@@ -105,8 +106,9 @@ def main():
                                    h=round(y1-y0,4), end=max(matched["end"],z["end"]))
                 elif len(regions) < 50:
                     regions.append(z)
-            if ocr_enabled and sample % 2 == 0:
+            if ocr_enabled and sample % 4 == 0 and ocr_calls < 14:
                 try:
+                    ocr_calls += 1
                     info = pytesseract.image_to_data(gray, config="--psm 11", output_type=pytesseract.Output.DICT)
                     for k, word in enumerate(info["text"]):
                         if not str(word).strip() or len(str(word).strip()) < 3:
