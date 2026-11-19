@@ -574,7 +574,9 @@ export class VideoStudioService {
         const effect=c.animation==='slide'?`\\move(${x},${y+50},${x},${y},0,350)`: `\\pos(${x},${y})`;
         const fade=c.animation==='fade'?'\\fad(160,160)':'';
         const pop=c.animation==='pop'?'\\t(0,200,\\fscx110\\fscy110)':'';
-        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}}${esc(c.text)}`;
+        const kinetic=c.animation==='karaoke'?karaokeAss(c,esc):null;
+        const subtitle=kinetic??esc(c.text);
+        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}}${subtitle}`;
       });
       fs.writeFileSync(ass,h+lines.join('\n')+'\n');
       const imgs=p.assets;
