@@ -5,7 +5,7 @@ import './VideoStudio.css';
 import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
 
-type Media = { caminho:string; nome:string; bytes:number; pasta:string };
+type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
@@ -101,6 +101,9 @@ export function VideoStudio() {
   const [busy,setBusy]=useState(false);
   const [script,setScript]=useState('');
   const [voice,setVoice]=useState('pf_dora');
+  const [speed,setSpeed]=useState(1);
+  const [previewing,setPreviewing]=useState<string|null>(null);
+  const previewAudioRef=useRef<HTMLAudioElement|null>(null);
   const [speechBusy,setSpeechBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
   const [error,setError]=useState('');
@@ -404,12 +407,32 @@ export function VideoStudio() {
     obj.onerror=()=>setError('Falha ao ler a duração do áudio.');
     obj.src=midiaUrl(pid,m.caminho,standalone);
   };
+  const previewAudio=(m:Media)=>{
+    const existing=previewAudioRef.current;
+    if(existing){existing.pause();existing.removeAttribute('src');existing.load();previewAudioRef.current=null;}
+    if(previewing===m.caminho){setPreviewing(null);return;}
+    const player=new Audio(midiaUrl(pid,m.caminho,standalone));
+    previewAudioRef.current=player;
+    setPreviewing(m.caminho);
+    player.onended=()=>{if(previewAudioRef.current===player){previewAudioRef.current=null;setPreviewing(null)}};
+    player.play().catch(()=>{setPreviewing(null);setError('Não foi possível ouvir este áudio.')});
+  };
+  useEffect(()=>()=>{previewAudioRef.current?.pause();previewAudioRef.current=null},[pid]);
+  const loadScript=async(m:Media)=>{
+    const id=m.caminho.split('/').pop();
+    if(!id||!standalone)return;
+    try{
+      const result=await api<{script:string}>(base+'/narration/'+encodeURIComponent(id)+'/script');
+      setScript(result.script);
+      setNotice('Roteiro carregado. Gere outra voz para criar uma versão nova sem substituir a anterior.');
+    }catch(e:any){setError(e.message)}
+  };
   const generateSpeech=async()=>{
     if(!standalone)return;
     if(!script.trim())return setError('Digite o roteiro da narração primeiro.');
     setSpeechBusy(true);setError('');
     try{
-      const item=await api<Media>(base+'/narration','POST',{script,voice});
+      const item=await api<Media>(base+'/narration','POST',{script,voice,speed});
       await refresh();
       setNotice('Narração gerada e salva no projeto. Ela foi adicionada à timeline se houver vídeo.');
       if(total>0)addAudio(item);
@@ -908,6 +931,13 @@ export function VideoStudio() {
               <option value="pm_alex">Alex · Masculina</option>
               <option value="pm_santa">Santa · Masculina</option>
             </select>
+            <label className="studio-speed-label">Velocidade da voz
+              <select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>
+                <option value={0.85}>Lenta (0,85×)</option>
+                <option value={1}>Natural (1×)</option>
+                <option value={1.15}>Rápida (1,15×)</option>
+              </select>
+            </label>
             <button disabled={speechBusy||busy||!script.trim()} onClick={generateSpeech}>{speechBusy?'Gerando áudio…':'Gerar narração'}</button>
             <small>Áudio salvo na biblioteca e inserido na timeline quando houver vídeo.</small>
           </div>}
@@ -917,6 +947,8 @@ export function VideoStudio() {
               {m.pasta==='entrada'&&<button className="studio-audio-delete" disabled={busy} title={'Excluir '+m.nome+' da biblioteca'} aria-label={'Excluir áudio '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
             </div>
             <div className="studio-audio-actions">
+              <button title={previewing===m.caminho?'Parar prévia do áudio':'Ouvir áudio'} onClick={()=>previewAudio(m)}>{previewing===m.caminho?'■ Parar':'▶ Ouvir'}</button>
+              {standalone&&m.roteiro&&<button title="Carregar texto original da narração" onClick={()=>loadScript(m)}>✎ Roteiro</button>}
               <button disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar na faixa de voz'}>＋ Voz</button>
               <button onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Usar como trilha musical">♫ Trilha</button>
             </div>

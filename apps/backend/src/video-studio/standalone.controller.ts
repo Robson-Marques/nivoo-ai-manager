@@ -26,7 +26,18 @@ export class StudioProductionsController {
     return updateProduction(pid,body?.title??'');
   }
   @Get('projects/:pid/videos')
-  videos(@Param('pid',ParseUUIDPipe) pid:string){return {videos:listarVideos(this.media(pid))};}
+  videos(@Param('pid',ParseUUIDPipe) pid:string){
+    const midia=this.media(pid);
+    return {videos:listarVideos(midia).map(v=>({...v,roteiro:v.pasta==='entrada'&&
+      fs.existsSync(path.join(midia,'entrada',v.id+'.roteiro.txt'))}))};
+  }
+  @Get('projects/:pid/narration/:vid/script')
+  script(@Param('pid',ParseUUIDPipe) pid:string,@Param('vid') vid:string) {
+    if(!/^[0-9a-f-]{36}\.mp3$/i.test(vid))throw new BadRequestException('Narração inválida');
+    const file=path.join(this.media(pid),'entrada',vid+'.roteiro.txt');
+    if(!fs.existsSync(file))throw new BadRequestException('Este áudio não possui roteiro gerado');
+    return {script:fs.readFileSync(file,'utf8')};
+  }
   @Post('projects/:pid/videos/chunk')
   chunk(@Param('pid',ParseUUIDPipe) pid:string,@Query('nome') nome:string,@Query('id') id:string,
     @Query('offset') offset:string,@Query('tamanho') tamanho:string|undefined,@Query('final') final:string,@Req() req:Request){

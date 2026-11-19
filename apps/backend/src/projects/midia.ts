@@ -432,5 +432,6 @@ export function apagarVideoEnviado(midia: string, id: string): boolean {
   if (!fs.existsSync(abs)) return false;
   fs.rmSync(abs, { force: true });
   fs.rmSync(`${abs}.nome`, { force: true });
+  fs.rmSync(`${abs}.roteiro.txt`, { force: true });
   return true;
 }
