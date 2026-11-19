@@ -10,7 +10,7 @@ import { arquivoDaMidia, listarVideos } from '../projects/midia';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
-import { maybeProductionMedia } from './standalone-projects';
+import { maybeProductionMedia, touchProduction } from './standalone-projects';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -165,6 +165,7 @@ export class VideoStudioService {
     const {studio} = await this.dir(pid);
     const p:StudioProject = {version:1,id:randomUUID(),title:String(title).slice(0,150),clips:[],captions:[],assets:[],audioTracks:[],protectedZones:[],soundtrack:null,updatedAt:new Date().toISOString()};
     fs.writeFileSync(this.file(studio,p.id),JSON.stringify(p,null,2));
+    touchProduction(pid);
     return p;
   }
   async get(pid: string,id: string):Promise<StudioProject> {
@@ -184,6 +185,7 @@ export class VideoStudioService {
     const temp=f+'.tmp-'+process.pid;
     fs.writeFileSync(temp,JSON.stringify(p,null,2));
     fs.renameSync(temp,f);
+    touchProduction(pid);
     return p;
   }
   async remove(pid:string,id:string) {

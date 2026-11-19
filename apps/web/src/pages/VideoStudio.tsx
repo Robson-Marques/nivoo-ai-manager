@@ -88,6 +88,7 @@ export function VideoStudio() {
   const base=standalone?'/studio/projects/'+pid:'/projects/'+pid;
   const edits=standalone?base+'/edits':base+'/studio';
   const [list,setList]=useState<Array<{id:string;title:string}>>([]);
+  const [productionName,setProductionName]=useState('');
   const [media,setMedia]=useState<Media[]>([]);
   const [project,setProject]=useState<Studio|null>(null);
   const [selected,setSelected]=useState<string|null>(null);
@@ -178,6 +179,7 @@ export function VideoStudio() {
   };
   useEffect(()=>{
     setProject(null);setDirty(false);setPlayhead(0);setSelected(null);
+    if(standalone)api<{title:string}>('/studio/productions/'+pid).then(p=>setProductionName(p.title)).catch(e=>setError(e.message));
     refresh().then(async editions=>{
       if(!standalone||!editions.length)return;
       const latest=[...editions].sort((a:any,b:any)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
@@ -873,7 +875,7 @@ export function VideoStudio() {
 
   return <section className="studio">
     <header className="studio-head">
-      <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
+      <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio{standalone&&productionName?' · '+productionName:''}</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
         {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button></>}
         <button onClick={newProject}>+ Nova edição</button>

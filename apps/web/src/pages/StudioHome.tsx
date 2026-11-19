@@ -9,6 +9,7 @@ export function StudioHome(){
   const [items,setItems]=useState<Production[]>([]);
   const [error,setError]=useState('');
   const [creating,setCreating]=useState(false);
+  const [renaming,setRenaming]=useState<string|null>(null);
   useEffect(()=>{api<Production[]>('/studio/productions').then(setItems).catch(e=>setError(e.message))},[]);
   const create=async()=>{
     const title=window.prompt('Nome do novo projeto de vídeo','Meu vídeo');
@@ -21,14 +22,28 @@ export function StudioHome(){
     }catch(e:any){setError(e.message)}
     finally{setCreating(false)}
   };
+  const rename=async(item:Production)=>{
+    const title=window.prompt('Novo nome do projeto de vídeo',item.title);
+    if(!title?.trim()||title.trim()===item.title)return;
+    setRenaming(item.id);setError('');
+    try{
+      const updated=await api<Production>('/studio/productions/'+item.id,'PATCH',{title:title.trim()});
+      setItems(old=>old.map(v=>v.id===updated.id?updated:v));
+    }catch(e:any){setError(e.message)}
+    finally{setRenaming(null)}
+  };
   return <section className="studio studio-home">
     <header className="studio-head"><div><h2>🎬 Nivoo Studio</h2><span>Produção audiovisual independente dos projetos de conversa</span></div>
       <button disabled={creating} onClick={create}>+ Novo projeto de vídeo</button></header>
     {error&&<p className="studio-error">{error}</p>}
     <div className="studio-home-grid">
-      {items.map(p=><Link key={p.id} to={'/studio/'+p.id} className="studio-home-item">
+      {items.map(p=><div key={p.id} className="studio-home-item">
         <strong>🎞 {p.title}</strong><small>Atualizado em {new Date(p.updatedAt).toLocaleDateString('pt-BR')}</small>
-        <span>Abrir editor →</span></Link>)}
+        <div className="studio-home-actions">
+          <Link to={'/studio/'+p.id}>Abrir editor →</Link>
+          <button disabled={renaming===p.id} onClick={()=>rename(p)}>Renomear</button>
+        </div>
+      </div>)}
       {!items.length&&<div className="studio-home-empty">Crie seu primeiro projeto. Cada produção terá vídeos, áudio, roteiros e edições próprios.</div>}
     </div>
   </section>;

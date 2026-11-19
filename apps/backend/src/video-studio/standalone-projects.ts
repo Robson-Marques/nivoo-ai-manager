@@ -33,6 +33,26 @@ export function listProductions():VideoProduction[] {
     .flatMap(e=>{try{return [getProduction(e.name)]}catch{return []}})
     .sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
 }
+export function updateProduction(id:string,raw:string):VideoProduction {
+  const original=getProduction(id);
+  const title=String(raw??'').trim();
+  if(!title||title.length>120)throw new BadRequestException('Nome do projeto: 1 a 120 caracteres');
+  const next={...original,title,updatedAt:new Date().toISOString()};
+  const dest=path.join(productionDir(id),'project.json');
+  const tmp=dest+'.tmp-'+process.pid;
+  fs.writeFileSync(tmp,JSON.stringify(next,null,2));
+  fs.renameSync(tmp,dest);
+  return next;
+}
+export function touchProduction(id:string):void {
+  const media=maybeProductionMedia(id);
+  if(!media)return;
+  const original=getProduction(id);
+  const dest=path.join(productionDir(id),'project.json');
+  const tmp=dest+'.tmp-'+process.pid;
+  fs.writeFileSync(tmp,JSON.stringify({...original,updatedAt:new Date().toISOString()},null,2));
+  fs.renameSync(tmp,dest);
+}
 export function createProduction(raw:string):VideoProduction {
   const title=String(raw||'').trim();
   if(!title||title.length>120)throw new BadRequestException('Nome do projeto: 1 a 120 caracteres');

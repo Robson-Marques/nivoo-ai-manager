@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Req, Res } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import type {Request,Response} from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { KokoroTtsService } from '../providers/kokoro-tts.service';
 import { streamMedia } from '../common/media-stream';
 import { gravarPedacoDeVideo, listarVideos, arquivoDaMidia, apagarVideoEnviado } from '../projects/midia';
-import { createProduction, getProduction, listProductions, maybeProductionMedia, productionDir } from './standalone-projects';
+import { createProduction, getProduction, listProductions, productionDir, updateProduction } from './standalone-projects';
 
 @Controller('studio')
 export class StudioProductionsController {
@@ -21,6 +21,10 @@ export class StudioProductionsController {
   create(@Body() body:{title?:string}) {return createProduction(body?.title||'Novo vídeo');}
   @Get('productions/:pid')
   get(@Param('pid',ParseUUIDPipe) pid:string){return getProduction(pid);}
+  @Patch('productions/:pid')
+  rename(@Param('pid',ParseUUIDPipe) pid:string,@Body() body:{title?:string}) {
+    return updateProduction(pid,body?.title??'');
+  }
   @Get('projects/:pid/videos')
   videos(@Param('pid',ParseUUIDPipe) pid:string){return {videos:listarVideos(this.media(pid))};}
   @Post('projects/:pid/videos/chunk')
