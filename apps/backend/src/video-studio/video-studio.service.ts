@@ -199,20 +199,20 @@ export class VideoStudioService {
         const input=info.audio?['-i',source]:['-i',source,'-f','lavfi','-t',String(duration),'-i','anullsrc=r=48000:cl=stereo'];
         await ff(['-ss',String(c.start),...input,'-t',String(duration),
           '-map','0:v:0','-map',info.audio?'0:a:0':'1:a:0',
-          '-vf',\`scale=\${W}:\${H}:force_original_aspect_ratio=decrease,pad=\${W}:\${H}:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p\`,
-          '-af',\`volume=\${c.volume??1}\`,
+          '-vf',`scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p`,
+          '-af',`volume=${c.volume??1}`,
           '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
         segments.push(file); current+=duration;
       }
       const concat=path.join(tmp,'concat.txt');
-      fs.writeFileSync(concat,segments.map(x=>\`file '\${x}'\`).join('\n'));
+      fs.writeFileSync(concat,segments.map(x=>`file '${x}'`).join('\n'));
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
       let audioBase=joined;
       if(p.soundtrack) {
         const music=path.join(tmp,'music.mp4');
         await ff(['-i',joined,'-stream_loop','-1','-i',this.src(media,p.soundtrack.source),
-          '-filter_complex',\`[1:a]volume=\${p.soundtrack.volume}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=0[a]\`,
+          '-filter_complex',`[1:a]volume=${p.soundtrack.volume}[music];[0:a][music]amix=inputs=2:duration=first:dropout_transition=0[a]`,
           '-map','0:v:0','-map','[a]','-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),music]);
         audioBase=music;
       }
@@ -220,10 +220,10 @@ export class VideoStudioService {
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
       const lines=p.captions.map(c=>{
         const x=Math.round(c.x*W),y=Math.round(c.y*H);
-        const effect=c.animation==='slide'?\`\\move(\${x},\${y+50},\${x},\${y},0,350)\`: \`\\pos(\${x},\${y})\`;
+        const effect=c.animation==='slide'?`\\move(${x},${y+50},${x},${y},0,350)`: `\\pos(${x},${y})`;
         const fade=c.animation==='fade'?'\\fad(160,160)':'';
         const pop=c.animation==='pop'?'\\t(0,200,\\fscx110\\fscy110)':'';
-        return \`Dialogue: 0,\${assTime(c.start)},\${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs\${c.fontSize??54}\\c\${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}\${effect}\${fade}\${pop}}\${esc(c.text)}\`;
+        return `Dialogue: 0,${assTime(c.start)},${assTime(c.end)},Default,,0,0,0,,{\\an5\\fs${c.fontSize??54}\\c${assColor(c.color&&color(c.color)?c.color:'#FFFFFF')}${effect}${fade}${pop}}${esc(c.text)}`;
       });
       fs.writeFileSync(ass,h+lines.join('\n')+'\n');
       const imgs=p.assets;
@@ -231,11 +231,11 @@ export class VideoStudioService {
       const filters:string[]=[];let v='[0:v]';
       for(let i=0;i<imgs.length;i++){
         const a=imgs[i],wid=Math.max(2,Math.floor(a.w*W/2)*2),hei=Math.max(2,Math.floor(a.h*H/2)*2);
-        filters.push(\`[\${i+1}:v]scale=\${wid}:\${hei},format=rgba[asset\${i}]\`);
-        filters.push(\`\${v}[asset\${i}]overlay=x=\${Math.round(a.x*W)}:y=\${Math.round(a.y*H)}:enable='between(t,\${a.start},\${a.end})':shortest=0:eof_action=repeat[v\${i}]\`);
-        v=\`[v\${i}]\`;
+        filters.push(`[${i+1}:v]scale=${wid}:${hei},format=rgba[asset${i}]`);
+        filters.push(`${v}[asset${i}]overlay=x=${Math.round(a.x*W)}:y=${Math.round(a.y*H)}:enable='between(t,${a.start},${a.end})':shortest=0:eof_action=repeat[v${i}]`);
+        v=`[v${i}]`;
       }
-      filters.push(\`\${v}subtitles=\${ass},format=yuv420p[video]\`);
+      filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
       const output=path.join(media,'saida','studio-'+p.id+'-'+Date.now()+'.mp4');
       fs.mkdirSync(path.dirname(output),{recursive:true});
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
