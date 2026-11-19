@@ -6,7 +6,7 @@ import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
-type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
+type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number; freeze?:boolean };
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number;fadeIn?:number;fadeOut?:number};

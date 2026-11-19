@@ -14,7 +14,7 @@ import { maybeProductionMedia, touchProduction } from './standalone-projects';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
-  volume?: number;
+  volume?: number; freeze?: boolean;
 };
 export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
@@ -103,7 +103,9 @@ export class VideoStudioService {
     for (const c of p.clips) {
       ident(c); this.src(media,c.source);
       if (!finite(c.start) || !finite(c.end) || c.end <= c.start ||
-          !finite(c.duration, .05, 14400) || !finite(c.volume ?? 1, 0, 2))
+          !finite(c.duration, .05, 14400) || !finite(c.volume ?? 1, 0, 2) ||
+          (c.freeze!==undefined && typeof c.freeze!=='boolean') ||
+          (!c.freeze && Math.abs((c.end-c.start)-c.duration)>.1))
         throw new BadRequestException('Corte inválido');
     }
     if (p.soundtrack) {
@@ -586,15 +588,27 @@ export class VideoStudioService {
         const info=probe(source);
         if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
         if(c.end>info.duration+.05) throw new Error('Corte excede duração de '+c.source);
-        const duration=c.end-c.start;
-        if(Math.abs(duration-c.duration)>.1) throw new Error('Duração incoerente em '+c.id);
+        const duration=c.duration;
         const file=path.join(tmp,'part-'+i+'.mp4');
-        const input=info.audio?['-i',source]:['-i',source,'-f','lavfi','-t',String(duration),'-i','anullsrc=r=48000:cl=stereo'];
-        await ff(['-ss',String(c.start),...input,'-t',String(duration),
-          '-map','0:v:0','-map',info.audio?'0:a:0':'1:a:0',
-          '-vf',`scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p`,
-          '-af',`volume=${c.volume??1}`,
-          '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
+        const vf=`scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p`;
+        if(c.freeze){
+          // Congela exatamente um quadro da fonte, sem repetir movimento nem
+          // acelerar a voz; o áudio desse trecho é silêncio e a locução segue no mix.
+          const frame=path.join(tmp,'freeze-'+i+'.png');
+          await ff(['-ss',String(c.start),'-i',source,'-frames:v','1','-update','1',frame]);
+          await ff(['-loop','1','-framerate','30','-i',frame,
+            '-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-t',String(duration),
+            '-map','0:v:0','-map','1:a:0','-vf',vf,
+            '-c:v','libx264','-preset','veryfast','-crf','20',
+            '-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
+        }else{
+          const input=info.audio?['-i',source]:['-i',source,'-f','lavfi','-t',String(duration),'-i','anullsrc=r=48000:cl=stereo'];
+          await ff(['-ss',String(c.start),...input,'-t',String(duration),
+            '-map','0:v:0','-map',info.audio?'0:a:0':'1:a:0',
+            '-vf',vf,'-af',`volume=${c.volume??1}`,
+            '-c:v','libx264','-preset','veryfast','-crf','20',
+            '-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
+        }
         segments.push(file); current+=duration;
       }
       entry.result.stage='Juntando os trechos de vídeo';
