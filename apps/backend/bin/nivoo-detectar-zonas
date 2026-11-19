@@ -45,6 +45,18 @@ def main():
     if width < 32 or height < 32 or fps <= 0:
         raise RuntimeError("vídeo sem resolução ou FPS válidos")
     regions = []
+    warnings = []
+    # OCR opcional: não falhar caso Tesseract/pytesseract não estejam instalados.
+    try:
+        import pytesseract
+        ocr_enabled = True
+    except ImportError:
+        pytesseract = None
+        ocr_enabled = False
+        warnings.append("OCR indisponível: configure pytesseract/Tesseract ou proteja os textos manualmente.")
+    profile_model = cv2.data.haarcascades + "haarcascade_profileface.xml"
+    profile = cv2.CascadeClassifier(profile_model)
+    use_profile = not profile.empty()
     try:
         sample_count = min(350, math.ceil(args.duracao / args.intervalo))
         for sample in range(sample_count):
@@ -56,7 +68,9 @@ def main():
             if not ok:
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            found = classifier.detectMultiScale(gray, scaleFactor=1.12, minNeighbors=5, minSize=(35, 35))
+            found = list(classifier.detectMultiScale(gray, scaleFactor=1.12, minNeighbors=5, minSize=(35, 35)))
+            if use_profile:
+                found.extend(profile.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(40, 40)))
             for x, y, w, h in found:
                 margin_x, margin_y = w * .18, h * .18
                 x0 = max(0, (x - margin_x) / width)
@@ -91,12 +105,35 @@ def main():
                                    h=round(y1-y0,4), end=max(matched["end"],z["end"]))
                 elif len(regions) < 50:
                     regions.append(z)
+            if ocr_enabled and sample % 2 == 0:
+                try:
+                    info = pytesseract.image_to_data(gray, config="--psm 11", output_type=pytesseract.Output.DICT)
+                    for k, word in enumerate(info["text"]):
+                        if not str(word).strip() or len(str(word).strip()) < 3:
+                            continue
+                        confidence = float(info["conf"][k])
+                        if confidence < 55:
+                            continue
+                        x, y, w, h = (int(info[key][k]) for key in ("left", "top", "width", "height"))
+                        if w < 12 or h < 8:
+                            continue
+                        x0, y0 = max(0, (x-8)/width), max(0, (y-8)/height)
+                        x1, y1 = min(1, (x+w+8)/width), min(1, (y+h+8)/height)
+                        if len(regions) < 50:
+                            regions.append(dict(label="Texto detectado (revisar)",
+                                start=round(args.offset + max(0, t-.2), 3),
+                                end=round(args.offset + min(args.duracao, t+args.intervalo+.2), 3),
+                                x=round(x0, 4), y=round(y0, 4),
+                                w=round(x1-x0, 4), h=round(y1-y0, 4)))
+                except Exception as e:
+                    ocr_enabled=False
+                    warnings.append("OCR falhou durante a análise; revise textos manualmente.")
     finally:
         vid.release()
     args.saida.parent.mkdir(parents=True, exist_ok=True)
     args.saida.write_text(json.dumps({
         "version": 1, "regions": regions,
-        "warning": "Detecção heurística por amostragem; revise e complemente logos, textos e rostos não identificados."
+        "warning": "Detecção heurística por amostragem; não garante rostos, logos ou textos completos. " + " ".join(warnings)
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"{len(regions)} regiões propostas")
 

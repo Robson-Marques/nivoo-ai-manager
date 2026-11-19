@@ -60,3 +60,6 @@
 @keyframes studio-rise{from{transform:translate(-50%,40%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
 @keyframes studio-enter-left{from{transform:translate(calc(-50% - 7vw),-50%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
 @keyframes studio-enter-right{from{transform:translate(calc(-50% + 7vw),-50%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
+
+.studio-ai-draft li{line-height:1.5;overflow-wrap:anywhere}
+.studio-protected{z-index:4;opacity:.82}

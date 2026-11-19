@@ -10,8 +10,9 @@ type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
-type AiElement={kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
+type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -28,6 +29,7 @@ export function VideoStudio() {
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
+  const [zoneDraft,setZoneDraft]=useState<ZonesResult>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
   const [busy,setBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
@@ -70,7 +72,7 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>('/projects/'+pid+'/studio/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
+    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
@@ -103,6 +105,28 @@ export function VideoStudio() {
     },1800);
     return()=>clearInterval(timer);
   },[pid,project?.id,aiDraft.state]);
+  useEffect(()=>{
+    if(!project || zoneDraft.state!=='running')return;
+    const timer=setInterval(()=>{
+      api<ZonesResult>('/projects/'+pid+'/studio/'+project.id+'/zones/detect')
+        .then(setZoneDraft).catch(e=>setZoneDraft({state:'failed',error:String(e.message||e)}));
+    },1800);
+    return()=>clearInterval(timer);
+  },[pid,project?.id,zoneDraft.state]);
+  const detectZones=async()=>{
+    if(!project||dirty)return setError('Salve primeiro o projeto antes de analisar rostos e textos.');
+    try{
+      setZoneDraft(await api<ZonesResult>('/projects/'+pid+'/studio/'+project.id+'/zones/detect','POST',{}));
+      setError('');
+    }catch(e:any){setError(e.message)}
+  };
+  const applyZones=async()=>{
+    if(!project||dirty)return setError('Salve o projeto antes de aplicar as regiões.');
+    try{
+      const p=await api<Studio>('/projects/'+pid+'/studio/'+project.id+'/zones/apply','POST',{updatedAt:project.updatedAt});
+      setProject(p);setZoneDraft({state:'idle'});setNotice('Regiões protegidas adicionadas. Revise suas posições na timeline.');
+    }catch(e:any){setError(e.message)}
+  };
   const planAi=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de solicitar a análise de IA.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
@@ -386,7 +410,7 @@ export function VideoStudio() {
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
           {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={remove}>Remover faixa</button></>}{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
-          {tab==='protected'&&<div className="studio-fields"><button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
+          {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
             <button disabled={aligning.state==='running'||(running.state!=='done'&&!(project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length)))} onClick={gerarLegendas}>Gerar legendas pela narração</button>
@@ -397,7 +421,7 @@ export function VideoStudio() {
               <strong>Proposta pronta para revisão</strong>
               <p>{aiDraft.explanation}</p>
               <p>{aiDraft.elements?.length||0} elementos propostos</p>
-              <ul>{aiDraft.elements?.slice(0,12).map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.asset} ({fmt(el.start)}–{fmt(el.end)})</li>)}</ul>
+              <ul>{aiDraft.elements?.slice(0,12).map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.kind==='image'?el.asset:el.text||'Gráfico contextual'} ({fmt(el.start)}–{fmt(el.end)})</li>)}</ul>
               <button onClick={applyAi}>Aplicar à timeline</button>
               <button onClick={()=>setAiDraft({state:'idle'})}>Descartar prévia</button>
             </div>}

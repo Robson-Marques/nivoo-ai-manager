@@ -9,6 +9,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, listarVideos } from '../projects/midia';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { karaokeAss, validWords, TimedWord } from './caption-timing';
+import { safeInsert } from './smart-placement';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -318,7 +319,9 @@ export class VideoStudioService {
     if(state.state!=='draft'||!state.regions)throw new BadRequestException('Nenhuma proposta de regiões para aplicar');
     const p=await this.get(pid,id);
     if(p.updatedAt!==updatedAt)throw new ConflictException('A timeline mudou; execute a análise novamente');
-    const saved=await this.save(pid,id,{...p,protectedZones:[...(p.protectedZones??[]),...state.regions]});
+    const existing=p.protectedZones??[];
+    const merged=[...existing,...state.regions].slice(0,50);
+    const saved=await this.save(pid,id,{...p,protectedZones:merged});
     zoneStates.delete(pid+':'+id);
     return saved;
   }
@@ -347,22 +350,29 @@ export class VideoStudioService {
       fs.mkdirSync(outputDir,{recursive:true});
       const imageDetails=images.map(v=>({name:v.nome,source:v.caminho}));
       const snapshots:string[]=[];
-      const rendered=status.get(key)?.result;
-      const sampleSource=rendered?.state==='done'&&rendered.output?
-        this.src(media,rendered.output):this.src(media,p.clips[0].source);
-      const captureDuration=rendered?.state==='done'?
-        duration:Math.min(8,p.clips[0].duration);
-      // Frames amostrados ajudam o agente a entender a cena, mas não substituem
-      // o detector temporal de rostos e logos. Esse detector ainda é uma etapa futura.
+      // Amostras espalhadas pela timeline REAL, não apenas pelo primeiro clipe.
+      // Usamos até 12 imagens 640px para limitar tokens e tempo de processamento.
       if(/codex/.test(project.provider)){
-        const dest=path.join(studio,'ai',id);
-        fs.mkdirSync(dest,{recursive:true});
-        for(const [i,fraction] of [.15,.5,.85].entries()){
-          const pic=path.join(dest,'frame-'+i+'.jpg');
+        const captures:{source:string;at:number;position:number}[]=[];
+        let offset=0;
+        for(const clip of p.clips){
+          for(const ratio of [.25,.70]){
+            captures.push({
+              source:this.src(media,clip.source),
+              at:clip.start+clip.duration*ratio,
+              position:offset+clip.duration*ratio
+            });
+          }
+          offset+=clip.duration;
+        }
+        const samples=captures.length<=12?captures:
+          Array.from({length:12},(_,i)=>captures[Math.min(captures.length-1,Math.floor(i*(captures.length-1)/11))]);
+        for(const [i,sample] of samples.entries()){
+          const pic=path.join(outputDir,'frame-'+i+'.jpg');
           const r=spawnSync('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',
-            '-ss',String(captureDuration*fraction),'-i',sampleSource,
+            '-ss',String(sample.at),'-i',sample.source,
             '-frames:v','1','-vf','scale=640:-2',pic],{timeout:30000,encoding:'utf8'});
-          if(r.status===0 && fs.existsSync(pic) && fs.statSync(pic).size>1000) snapshots.push(pic);
+          if(r.status===0 && fs.existsSync(pic) && fs.statSync(pic).size>1000)snapshots.push(pic);
         }
       }
       // O agente recebe só um inventário de recursos e textos alinhados, não código executável.
@@ -372,6 +382,7 @@ export class VideoStudioService {
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
         sampledFrames:snapshots.length,
+        shotTimes:p.clips.length>1?'frames extraídos de múltiplas cenas':'frames extraídos do vídeo',
         instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
       };
       try{
@@ -386,6 +397,7 @@ export class VideoStudioService {
             'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
             'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
+            'Crie entradas de texto e figuras somente onde a fala pedir apoio; varie tamanho e posição de acordo com a composição. Não exagere na quantidade de overlays.',
             'Considere os frames fornecidos como referência visual; não encubra rosto, logo, textos ou dados. Caso seja incerto, reduza quantidade de elementos.',
             'O resultado será apenas uma PROPOSTA, que precisa ser validada e aceita pelo usuário.',
             'Não execute comandos, não crie código, não crie arquivos, não modifique o projeto.',
@@ -399,8 +411,8 @@ export class VideoStudioService {
         const raw=parseAiJson(result.output) as {elements?:unknown;explanation?:unknown};
         if(!raw || !Array.isArray(raw.elements))throw new Error('JSON da IA sem elements[]');
         const valid:AiElement[]=[];
-        const boxOverlaps=(a:{x:number;y:number;w:number;h:number},b:{x:number;y:number;w:number;h:number})=>
-          a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.h&&b.y<a.y+a.h;
+        const rejected:string[]=[];
+
         for(const v of raw.elements.slice(0,80)){
           if(!v||typeof v!=='object')continue;
           const e=v as AiElement;
@@ -422,11 +434,12 @@ export class VideoStudioService {
             if(!finite(e.w,.01,1)||!finite(e.h,.01,1)||e.x+e.w!>1||e.y+e.h!>1)continue;
             rect={x:e.x,y:e.y,w:e.w!,h:e.h!};
           }else continue;
-          if((p.protectedZones??[]).some(z=>e.start<z.end&&z.start<e.end&&boxOverlaps(rect,z)))continue;
-          valid.push(e);
+          const placed=safeInsert(e,p.protectedZones??[],valid);
+          if(!placed){rejected.push(`${e.kind} ${e.start.toFixed(2)}s: sem espaço seguro`);continue;}
+          valid.push(placed);
         }
         if(!valid.length)throw new Error('A IA não propôs elementos válidos e seguros');
-        aiStates.set(key,{state:'draft',elements:valid,explanation:String(raw.explanation??'').slice(0,1000)});
+        aiStates.set(key,{state:'draft',elements:valid,explanation:(String(raw.explanation??'').slice(0,800)+(rejected.length?' | '+rejected.length+' elemento(s) omitido(s) por segurança.':''))});
       }catch(e:any){
         aiStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
       }finally{snapshots.forEach(f=>fs.rmSync(f,{force:true}));}
