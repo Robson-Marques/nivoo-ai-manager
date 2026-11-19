@@ -22,6 +22,19 @@ const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallba
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
 const ident=()=>crypto.randomUUID();
+/** Transições pertencem à entrada da cena; após cortes ou reordenação a
+ * primeira cena nunca recebe transição e a duração nunca ultrapassa o clipe. */
+function normalizeTransitions(p:Studio):Studio{
+  return {...p,clips:p.clips.map((c,i)=>{
+    if(!c.transition)return c;
+    const limit=Math.min(2,c.duration-.05);
+    if(i===0||limit<.1){
+      const {transition:_,...without}=c;
+      return without;
+    }
+    return {...c,transition:{...c.transition,duration:+Math.min(limit,Math.max(.1,c.transition.duration)).toFixed(2)}};
+  })};
+}
 const transitionPresets:{type:TransitionType;label:string;symbol:string;description:string}[]=[
   {type:'fade',label:'Dissolver',symbol:'◐',description:'Mistura suave entre duas cenas'},
   {type:'wipeleft',label:'Revelar →',symbol:'▣',description:'Revela a próxima cena na horizontal'},
@@ -343,7 +356,7 @@ export function VideoStudio() {
     undoStack.current.push(project);
     if(undoStack.current.length>60)undoStack.current.shift();
     redoStack.current=[];
-    setProject(fn(project));setDirty(true);setNotice('');
+    setProject(normalizeTransitions(fn(project)));setDirty(true);setNotice('');
   };
   const undo=()=>{
     const prev=undoStack.current.pop();if(!prev||!project)return;
@@ -594,7 +607,8 @@ export function VideoStudio() {
       return setError('Posicione o cursor dentro do clipe para dividir.');
     const cut=c.start+offset;
     const left={...c,end:cut,duration:cut-c.start};
-    const right={...c,id:ident(),start:cut,duration:c.end-cut};
+    const {transition:_,...rightBase}=c;
+    const right={...rightBase,id:ident(),start:cut,duration:c.end-cut};
     mutate(p=>{const i=p.clips.findIndex(v=>v.id===c.id);return {...p,clips:[...p.clips.slice(0,i),left,right,...p.clips.slice(i+1)]};});
     setSelected(right.id);
   };
@@ -639,7 +653,7 @@ export function VideoStudio() {
     }
     // A narração preparada jamais perde trechos durante aparos de vídeo.
     synced={...synced,audioTracks:baseline.audioTracks};
-    setProject(fitVideoToNarration(synced,Math.max(0,...(baseline.audioTracks??[]).map(a=>a.offset+a.end-a.start))));
+    setProject(normalizeTransitions(fitVideoToNarration(synced,Math.max(0,...(baseline.audioTracks??[]).map(a=>a.offset+a.end-a.start)))));
     setDirty(true);
   };
   const endVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>)=>{
