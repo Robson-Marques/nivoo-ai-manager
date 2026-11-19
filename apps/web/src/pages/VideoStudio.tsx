@@ -296,7 +296,7 @@ export function VideoStudio() {
     const dx=(e.clientX-d.px)/rect.width,dy=(e.clientY-d.py)/rect.height;
     setProject(p=>{
       if(!p)return p;
-      const position=(a:{id:string;x:number;y:number;w?:number;h?:number})=>
+      const position=<T extends {id:string;x:number;y:number;w?:number;h?:number}>(a:T):T=>
         a.id===d.id?{...a,x:Math.min(1-(a.w??0),Math.max(0,d.initialX+dx)),
         y:Math.min(1-(a.h??0),Math.max(0,d.initialY+dy))}:a;
       if(d.kind==='caption')return {...p,captions:p.captions.map(position)};
