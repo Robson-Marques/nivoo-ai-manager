@@ -239,7 +239,9 @@ EOF
     trap 'limpar_backup_em_andamento; exit 130' INT TERM
 
     runuser -u postgres -- pg_dump -Fc nivoo > "$db_tmp"
-    tar -C "$NIVOO_HOME" -czf "$data_tmp" data
+    # Dependências regeneráveis do Studio ficam no volume de workspaces, mas não são dados de usuário.
+    # Não incluir os 7+ GiB do Python nos backups, nem seguir os links simbólicos.
+    tar -C "$NIVOO_HOME" --exclude='data/workspaces/.nivoo-system' -czf "$data_tmp" data
     cp "$ENV_FILE" "$env_tmp" && chmod 600 "$env_tmp"
     mv -- "$db_tmp" "$BACKUP_DIR/nivoo-db-$ts.dump"
     mv -- "$data_tmp" "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
@@ -268,7 +270,16 @@ EOF
     trap 'systemctl start nivoo-api nivoo-worker' EXIT   # os serviços voltam mesmo se a restauração falhar
     # O arquivo é do root (600): o root o lê e entrega pela entrada padrão ao pg_restore (usuário postgres).
     runuser -u postgres -- pg_restore --clean --if-exists -d nivoo < "$BACKUP_DIR/nivoo-db-$ts.dump"
-    rm -rf "$NIVOO_HOME/data" && tar -C "$NIVOO_HOME" -xzf "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
+    # Preservar dependências regeneráveis instaladas no volume de workspaces.
+    # Nunca apagar .nivoo-system durante restauração de dados do projeto.
+    if [ -d "$NIVOO_HOME/data/workspaces/.nivoo-system" ]; then
+      find "$NIVOO_HOME/data" -mindepth 1 -maxdepth 1 ! -name workspaces -exec rm -rf -- {} +
+      find "$NIVOO_HOME/data/workspaces" -mindepth 1 -maxdepth 1 ! -name .nivoo-system -exec rm -rf -- {} +
+    else
+      rm -rf "$NIVOO_HOME/data"
+    fi
+    install -d "$NIVOO_HOME/data"
+    tar -C "$NIVOO_HOME" -xzf "$BACKUP_DIR/nivoo-data-$ts.tar.gz"
     chown -R "$NIVOO_USER:$NIVOO_USER" "$NIVOO_HOME/data"
     echo "ok: restaurado"
     ;;
