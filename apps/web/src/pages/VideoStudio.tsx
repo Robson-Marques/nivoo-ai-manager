@@ -6,7 +6,7 @@ import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
-type TransitionType='fade'|'wipeleft'|'wiperight'|'slideleft'|'slideright'|'circleopen';
+type TransitionType=string;
 type ClipTransition={type:TransitionType;duration:number};
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number; freeze?:boolean; transition?:ClipTransition };
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
@@ -35,13 +35,413 @@ function normalizeTransitions(p:Studio):Studio{
     return {...c,transition:{...c.transition,duration:+Math.min(limit,Math.max(.1,c.transition.duration)).toFixed(2)}};
   })};
 }
-const transitionPresets:{type:TransitionType;label:string;symbol:string;description:string}[]=[
-  {type:'fade',label:'Dissolver',symbol:'◐',description:'Mistura suave entre duas cenas'},
-  {type:'wipeleft',label:'Revelar →',symbol:'▣',description:'Revela a próxima cena na horizontal'},
-  {type:'wiperight',label:'Revelar ←',symbol:'▤',description:'Revelação no sentido contrário'},
-  {type:'slideleft',label:'Deslizar ←',symbol:'⇠',description:'A próxima cena entra pela lateral'},
-  {type:'slideright',label:'Deslizar →',symbol:'⇢',description:'Deslizamento no sentido contrário'},
-  {type:'circleopen',label:'Círculo',symbol:'◉',description:'A nova imagem surge pelo centro'},
+const transitionPresets:{type:TransitionType;label:string;category:string;symbol:string;description:string}[]=[
+  {
+    "type": "fade",
+    "label": "Dissolver",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Dissolver · Suaves"
+  },
+  {
+    "type": "fadeblack",
+    "label": "Preto",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Preto · Suaves"
+  },
+  {
+    "type": "fadewhite",
+    "label": "Branco",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Branco · Suaves"
+  },
+  {
+    "type": "fadegrays",
+    "label": "Cinza",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Cinza · Suaves"
+  },
+  {
+    "type": "fadefast",
+    "label": "Fade rápido",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Fade rápido · Suaves"
+  },
+  {
+    "type": "fadeslow",
+    "label": "Fade lento",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Fade lento · Suaves"
+  },
+  {
+    "type": "dissolve",
+    "label": "Granulado",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Granulado · Suaves"
+  },
+  {
+    "type": "distance",
+    "label": "Distância",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Distância · Suaves"
+  },
+  {
+    "type": "hblur",
+    "label": "Desfoque",
+    "category": "Suaves",
+    "symbol": "◐",
+    "description": "Desfoque · Suaves"
+  },
+  {
+    "type": "wipeleft",
+    "label": "Varrer ←",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Varrer ← · Varreduras"
+  },
+  {
+    "type": "wiperight",
+    "label": "Varrer →",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Varrer → · Varreduras"
+  },
+  {
+    "type": "wipeup",
+    "label": "Varrer ↑",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Varrer ↑ · Varreduras"
+  },
+  {
+    "type": "wipedown",
+    "label": "Varrer ↓",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Varrer ↓ · Varreduras"
+  },
+  {
+    "type": "wipetl",
+    "label": "Diagonal ↖",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Diagonal ↖ · Varreduras"
+  },
+  {
+    "type": "wipetr",
+    "label": "Diagonal ↗",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Diagonal ↗ · Varreduras"
+  },
+  {
+    "type": "wipebl",
+    "label": "Diagonal ↙",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Diagonal ↙ · Varreduras"
+  },
+  {
+    "type": "wipebr",
+    "label": "Diagonal ↘",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Diagonal ↘ · Varreduras"
+  },
+  {
+    "type": "smoothleft",
+    "label": "Suave ←",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Suave ← · Varreduras"
+  },
+  {
+    "type": "smoothright",
+    "label": "Suave →",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Suave → · Varreduras"
+  },
+  {
+    "type": "smoothup",
+    "label": "Suave ↑",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Suave ↑ · Varreduras"
+  },
+  {
+    "type": "smoothdown",
+    "label": "Suave ↓",
+    "category": "Varreduras",
+    "symbol": "▥",
+    "description": "Suave ↓ · Varreduras"
+  },
+  {
+    "type": "slideleft",
+    "label": "Deslizar ←",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Deslizar ← · Movimentos"
+  },
+  {
+    "type": "slideright",
+    "label": "Deslizar →",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Deslizar → · Movimentos"
+  },
+  {
+    "type": "slideup",
+    "label": "Deslizar ↑",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Deslizar ↑ · Movimentos"
+  },
+  {
+    "type": "slidedown",
+    "label": "Deslizar ↓",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Deslizar ↓ · Movimentos"
+  },
+  {
+    "type": "coverleft",
+    "label": "Cobrir ←",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Cobrir ← · Movimentos"
+  },
+  {
+    "type": "coverright",
+    "label": "Cobrir →",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Cobrir → · Movimentos"
+  },
+  {
+    "type": "coverup",
+    "label": "Cobrir ↑",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Cobrir ↑ · Movimentos"
+  },
+  {
+    "type": "coverdown",
+    "label": "Cobrir ↓",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Cobrir ↓ · Movimentos"
+  },
+  {
+    "type": "revealleft",
+    "label": "Revelar ←",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Revelar ← · Movimentos"
+  },
+  {
+    "type": "revealright",
+    "label": "Revelar →",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Revelar → · Movimentos"
+  },
+  {
+    "type": "revealup",
+    "label": "Revelar ↑",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Revelar ↑ · Movimentos"
+  },
+  {
+    "type": "revealdown",
+    "label": "Revelar ↓",
+    "category": "Movimentos",
+    "symbol": "⇢",
+    "description": "Revelar ↓ · Movimentos"
+  },
+  {
+    "type": "circleopen",
+    "label": "Círculo abre",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Círculo abre · Formas"
+  },
+  {
+    "type": "circleclose",
+    "label": "Círculo fecha",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Círculo fecha · Formas"
+  },
+  {
+    "type": "circlecrop",
+    "label": "Corte circular",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Corte circular · Formas"
+  },
+  {
+    "type": "rectcrop",
+    "label": "Corte retangular",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Corte retangular · Formas"
+  },
+  {
+    "type": "vertopen",
+    "label": "Vertical abre",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Vertical abre · Formas"
+  },
+  {
+    "type": "vertclose",
+    "label": "Vertical fecha",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Vertical fecha · Formas"
+  },
+  {
+    "type": "horzopen",
+    "label": "Horizontal abre",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Horizontal abre · Formas"
+  },
+  {
+    "type": "horzclose",
+    "label": "Horizontal fecha",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Horizontal fecha · Formas"
+  },
+  {
+    "type": "radial",
+    "label": "Radial",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Radial · Formas"
+  },
+  {
+    "type": "squeezeh",
+    "label": "Comprimir horizontal",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Comprimir horizontal · Formas"
+  },
+  {
+    "type": "squeezev",
+    "label": "Comprimir vertical",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Comprimir vertical · Formas"
+  },
+  {
+    "type": "zoomin",
+    "label": "Aproximar",
+    "category": "Formas",
+    "symbol": "◉",
+    "description": "Aproximar · Formas"
+  },
+  {
+    "type": "pixelize",
+    "label": "Pixelização",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Pixelização · Criativas"
+  },
+  {
+    "type": "diagtl",
+    "label": "Diagonal superior E",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Diagonal superior E · Criativas"
+  },
+  {
+    "type": "diagtr",
+    "label": "Diagonal superior D",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Diagonal superior D · Criativas"
+  },
+  {
+    "type": "diagbl",
+    "label": "Diagonal inferior E",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Diagonal inferior E · Criativas"
+  },
+  {
+    "type": "diagbr",
+    "label": "Diagonal inferior D",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Diagonal inferior D · Criativas"
+  },
+  {
+    "type": "hlslice",
+    "label": "Fatias H ←",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Fatias H ← · Criativas"
+  },
+  {
+    "type": "hrslice",
+    "label": "Fatias H →",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Fatias H → · Criativas"
+  },
+  {
+    "type": "vuslice",
+    "label": "Fatias V ↑",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Fatias V ↑ · Criativas"
+  },
+  {
+    "type": "vdslice",
+    "label": "Fatias V ↓",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Fatias V ↓ · Criativas"
+  },
+  {
+    "type": "hlwind",
+    "label": "Vento H ←",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Vento H ← · Criativas"
+  },
+  {
+    "type": "hrwind",
+    "label": "Vento H →",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Vento H → · Criativas"
+  },
+  {
+    "type": "vuwind",
+    "label": "Vento V ↑",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Vento V ↑ · Criativas"
+  },
+  {
+    "type": "vdwind",
+    "label": "Vento V ↓",
+    "category": "Criativas",
+    "symbol": "✦",
+    "description": "Vento V ↓ · Criativas"
+  }
 ];
 /** Extende o vídeo com o último quadro estático, sem modificar a voz. */
 function fitVideoToNarration(p:Studio,ending:number):Studio{
@@ -163,6 +563,16 @@ export function VideoStudio() {
   const [zoom,setZoom]=useState(1);
   const [snap,setSnap]=useState(true);
   const [transitionOpen,setTransitionOpen]=useState(false);
+  const [transitionSearch,setTransitionSearch]=useState('');
+  const [transitionCategory,setTransitionCategory]=useState('Todas');
+  const [availableTransitions,setAvailableTransitions]=useState<string[]>([]);
+  const [transitionLoading,setTransitionLoading]=useState(false);
+  const [transitionFavorites,setTransitionFavorites]=useState<string[]>([]);
+  const transitionCategories=['Todas','Favoritas',...Array.from(new Set(transitionPresets.map(p=>p.category)))];
+  const visibleTransitions=transitionPresets.filter(p=>
+    (transitionCategory==='Todas'||(transitionCategory==='Favoritas'?transitionFavorites.includes(p.type):p.category===transitionCategory))&&
+    (p.label.toLowerCase().includes(transitionSearch.trim().toLowerCase())||
+     p.type.includes(transitionSearch.trim().toLowerCase())));
   const [transitionClip,setTransitionClip]=useState<string|null>(null);
   const [transitionType,setTransitionType]=useState<TransitionType>('fade');
   const [transitionDuration,setTransitionDuration]=useState(.6);
@@ -865,9 +1275,15 @@ export function VideoStudio() {
     setTransitionType(target.transition?.type??'fade');
     setTransitionDuration(target.transition?.duration??Math.min(.6,Math.max(.1,target.duration-.05)));
     setTransitionOpen(true);setError('');
+    setTransitionLoading(true);
+    api<{supported:string[]}>(edits+'/transitions')
+      .then(data=>setAvailableTransitions(data.supported))
+      .catch(e=>{setAvailableTransitions([]);setError('Não foi possível consultar as transições do servidor: '+e.message)})
+      .finally(()=>setTransitionLoading(false));
   };
   const saveTransition=()=>{
     if(!transitionTarget)return;
+    if(!availableTransitions.includes(transitionType))return setError('Esta transição não está disponível no FFmpeg do servidor.');
     const max=Math.min(2,transitionTarget.duration-.05);
     if(max<.1)return setError('Esta cena é curta demais para receber uma transição.');
     const duration=+Math.min(max,Math.max(.1,transitionDuration)).toFixed(2);
@@ -1337,13 +1753,34 @@ export function VideoStudio() {
               </option>)}
             </select>
           </label>
-          <span className="studio-transition-label">Escolha o efeito</span>
+          <label className="studio-transition-search">Buscar transições
+            <input type="search" value={transitionSearch} placeholder="Nome do efeito…" onChange={e=>setTransitionSearch(e.target.value)}/>
+          </label>
+          <div className="studio-transition-categories">
+            {transitionCategories.map(category=><button type="button" key={category}
+              className={transitionCategory===category?'selected':''}
+              onClick={()=>setTransitionCategory(category)}>{category}</button>)}
+          </div>
+          <span className="studio-transition-label">
+            {transitionLoading?'Verificando efeitos no servidor…':
+              availableTransitions.length+' disponíveis no servidor · '+visibleTransitions.length+' exibidas'}
+          </span>
           <div className="studio-transition-presets">
-            {transitionPresets.map(p=><button type="button" key={p.type} className={transitionType===p.type?'selected':''}
-              title={p.description} onClick={()=>setTransitionType(p.type)}>
-              <span className={'studio-transition-swatch effect-'+p.type} aria-hidden="true">{p.symbol}</span>
-              <span>{p.label}</span>
-            </button>)}
+            {visibleTransitions.map(p=><div className={'studio-transition-option'+(transitionType===p.type?' selected':'')+
+              (!availableTransitions.includes(p.type)?' unavailable':'')} key={p.type}>
+              <button type="button" className="studio-transition-select" disabled={!availableTransitions.includes(p.type)}
+                title={availableTransitions.includes(p.type)?p.description:'Não suportada pelo FFmpeg deste servidor'}
+                onClick={()=>setTransitionType(p.type)}>
+                <span className={'studio-transition-swatch effect-'+p.type} aria-hidden="true">{p.symbol}</span>
+                <span>{p.label}</span>
+              </button>
+              <button className="studio-transition-favorite" type="button" title={transitionFavorites.includes(p.type)?'Retirar dos favoritos':'Adicionar aos favoritos'}
+                aria-label={transitionFavorites.includes(p.type)?'Retirar '+p.label+' dos favoritos':'Favoritar '+p.label}
+                onClick={()=>setTransitionFavorites(list=>list.includes(p.type)?list.filter(x=>x!==p.type):[...list,p.type])}>
+                {transitionFavorites.includes(p.type)?'★':'☆'}
+              </button>
+            </div>)}
+            {!visibleTransitions.length&&<p>Nenhuma transição encontrada.</p>}
           </div>
           <label>Duração <strong>{transitionDuration.toFixed(2)}s</strong>
             <input type="range" min=".1" max={Math.max(.1,Math.min(2,(transitionTarget?.duration??2)-.05))}
@@ -1352,7 +1789,7 @@ export function VideoStudio() {
           </label>
           <p className="studio-transition-help">A transição não reduz o tempo do vídeo e não corta a narração.</p>
           <div className="studio-transition-panel-actions">
-            <button onClick={saveTransition} disabled={!transitionTarget||transitionTarget.duration<.15}>Aplicar</button>
+            <button onClick={saveTransition} disabled={!transitionTarget||transitionTarget.duration<.15||!availableTransitions.includes(transitionType)}>Aplicar</button>
             <button onClick={clearTransition} disabled={!transitionTarget?.transition}>Remover</button>
             <button onClick={()=>setTransitionOpen(false)}>Fechar</button>
           </div>

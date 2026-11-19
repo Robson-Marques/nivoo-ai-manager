@@ -50,6 +50,8 @@ const assTime = (s: number) => {
   return h + ':' + String(m).padStart(2,'0') + ':' + String(secs).padStart(2,'0') + '.' + String(cs%100).padStart(2,'0');
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
+const allXfadeTransitions=["fade","fadeblack","fadewhite","fadegrays","fadefast","fadeslow","dissolve","distance","hblur","wipeleft","wiperight","wipeup","wipedown","wipetl","wipetr","wipebl","wipebr","smoothleft","smoothright","smoothup","smoothdown","slideleft","slideright","slideup","slidedown","coverleft","coverright","coverup","coverdown","revealleft","revealright","revealup","revealdown","circleopen","circleclose","circlecrop","rectcrop","vertopen","vertclose","horzopen","horzclose","radial","squeezeh","squeezev","zoomin","pixelize","diagtl","diagtr","diagbl","diagbr","hlslice","hrslice","vuslice","vdslice","hlwind","hrwind","vuwind","vdwind"] as const;
+let cachedTransitions:string[]|undefined;
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
@@ -70,6 +72,20 @@ function parseAiJson(text:string):unknown {
 export class VideoStudioService {
   constructor(private readonly prisma: PrismaService, private readonly workspace: WorkspaceService, private readonly providers: ProviderRegistry) {}
 
+  supportedTransitions():string[]{
+    if(cachedTransitions)return cachedTransitions;
+    // O catálogo é limitado ao que o binário do servidor realmente oferece.
+    const check=spawnSync('ffmpeg',['-hide_banner','-h','filter=xfade'],{encoding:'utf8',timeout:7000,maxBuffer:1024*1024});
+    if(check.status!==0)return [];
+    const output=(check.stdout||'')+'\n'+(check.stderr||'');
+    const names=new Set<string>();
+    for(const line of output.split(/\r?\n/)){
+      const m=line.match(/^\s{2,}([a-z][a-z0-9]*)\s+-?\d+\s+/i);
+      if(m)names.add(m[1]);
+    }
+    cachedTransitions=allXfadeTransitions.filter(name=>names.has(name));
+    return cachedTransitions;
+  }
   private async dir(pid: string) {
     const project = await this.prisma.project.findUnique({ where: { id: pid }, select: { dirKey: true } });
     const standalone=maybeProductionMedia(pid);
@@ -108,7 +124,7 @@ export class VideoStudioService {
       ident(c); this.src(media,c.source);
       if(c.transition!==undefined && (
         index===0 || typeof c.transition!=='object' || !c.transition ||
-        !['fade','wipeleft','wiperight','slideleft','slideright','circleopen'].includes(c.transition.type) ||
+        !this.supportedTransitions().includes(c.transition.type) ||
         !finite(c.transition.duration,.10,2) ||
         c.transition.duration>c.duration-.05
       ))throw new BadRequestException('Transição inválida: escolha uma cena após a primeira e duração menor que a cena');

@@ -6,6 +6,9 @@ import { VideoStudioService } from './video-studio.service';
 export class VideoStudioController {
   constructor(private readonly studio: VideoStudioService) {}
 
+  @Get('transitions')
+  transitions(){return {supported:this.studio.supportedTransitions()};}
+
   @Get()
   list(@Param('pid', ParseUUIDPipe) pid: string) { return this.studio.list(pid); }
 
