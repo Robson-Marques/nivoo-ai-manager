@@ -61,9 +61,12 @@ export function StudioFilmstrip({src,start,end}:{src:string;start:number;end:num
   const [frames,setFrames]=useState<Frames>([]);
   useEffect(()=>{
     let alive=true;
-    setFrames([]);
-    if(end-start>.1)thumbs(src,start,end).then(images=>{if(alive)setFrames(images)}).catch(()=>{});
-    return()=>{alive=false};
+    // Evita dezenas de decodificações durante um arraste contínuo da borda.
+    // Só solicita novas miniaturas depois que o ponteiro estabiliza.
+    const timer=window.setTimeout(()=>{
+      if(end-start>.1)thumbs(src,start,end).then(images=>{if(alive)setFrames(images)}).catch(()=>{});
+    },380);
+    return()=>{alive=false;window.clearTimeout(timer)};
   },[src,start,end]);
   if(!frames.length)return null;
   return <span className="studio-filmstrip" aria-hidden="true">
