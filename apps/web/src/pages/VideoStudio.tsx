@@ -8,7 +8,7 @@ type Clip = { id:string; source:string; start:number; end:number; duration:numbe
 type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide' };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
-type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number };
+type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
 type AiElement={kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
@@ -194,7 +194,7 @@ export function VideoStudio() {
   };
   const addImage=(m:Media)=>{
     if(!total)return setError('Adicione vídeos à timeline antes de inserir imagens.');
-    const a:Asset={id:ident(),source:m.caminho,start:Math.min(playhead,Math.max(0,total-.5)),end:Math.min(total,playhead+3),x:.58,y:.25,w:.32,h:.2};
+    const a:Asset={id:ident(),source:m.caminho,start:Math.min(playhead,Math.max(0,total-.5)),end:Math.min(total,playhead+3),x:.58,y:.25,w:.32,h:.2,animation:'fade'};
     if(a.end<=a.start)return;
     mutate(p=>({...p,assets:[...p.assets,a]}));setSelected(a.id);setTab('assets');
   };
@@ -220,7 +220,7 @@ export function VideoStudio() {
     mutate(p=>({...p,protectedZones:(p.protectedZones??[]).map(z=>z.id===selected?{...z,[key]:key==='label'?value:num(value)}:z)}));
   };
   const updateAudio=(key:keyof AudioTrack,value:string)=>{
-    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
+    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,[key]:key==='source'||key==='animation'?value:num(value)}:a)}));
   };
   const updateAsset=(key:keyof Asset,value:string)=>{
     mutate(p=>({...p,assets:p.assets.map(a=>a.id===selected?{...a,[key]:key==='source'?value:num(value)}:a)}));
@@ -354,7 +354,7 @@ export function VideoStudio() {
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source)} preload="metadata"/>)}
             {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
-            {activeAssets.map(a=><img key={a.id} src={midiaUrl(pid,a.source)} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
+            {activeAssets.map(a=><img key={a.id} src={midiaUrl(pid,a.source)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {activeCaptions.map(c=><div key={c.id} className={'studio-caption studio-caption-'+(c.animation||'fade')} style={{left:(c.x*100)+'%',top:(c.y*100)+'%',fontSize:'clamp(12px,'+(c.fontSize??54)/25+'vw,64px)',color:c.color||'#fff'}}>{c.text}</div>)}
           </div>
           <div className="studio-play-controls">
@@ -381,7 +381,10 @@ export function VideoStudio() {
             <label>Cor <input type="color" value={selectedCaption.color||'#ffffff'} onChange={e=>updateCaption('color',e.target.value)}/></label>
             <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide</option></select></label>
             <button onClick={remove}>Remover legenda</button></>}</div>}
-          {tab==='assets'&&<div className="studio-fields"><p>Escolha uma imagem da biblioteca para inserir na timeline.</p>{selectedAsset&&<>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAsset[k]} onChange={e=>updateAsset(k,e.target.value)}/></label>)}<button onClick={remove}>Remover imagem</button></>}</div>}
+          {tab==='assets'&&<div className="studio-fields"><p>Escolha uma imagem da biblioteca para inserir na timeline.</p>{selectedAsset&&<>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAsset[k]} onChange={e=>updateAsset(k,e.target.value)}/></label>)}
+            <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
+              <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
+            </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
           {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={remove}>Remover faixa</button></>}{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
