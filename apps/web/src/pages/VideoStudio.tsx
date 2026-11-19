@@ -310,6 +310,10 @@ export function VideoStudio() {
       if(mod||e.altKey||!project)return;
       if(key==='b'){setEditMode('blade');return;}
       if(key==='v'){setEditMode('select');return;}
+      if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+        e.preventDefault();
+        seek(playhead+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:1/30));return;
+      }
       if(e.key==='Delete'||e.key==='Backspace'){if(selected){e.preventDefault();remove();}return;}
       if(e.code==='Space'){e.preventDefault();togglePlayback();}
     };
@@ -764,7 +768,10 @@ export function VideoStudio() {
     if(soundtrackPlayer.current){
       const a=soundtrackPlayer.current;
       a.volume=Math.min(1,Math.max(0,project?.soundtrack?.volume??0));
-      if(Math.abs(a.currentTime-t)>.35){try{a.currentTime=t}catch{/* metadata pendente */}}
+      const duration=Number.isFinite(a.duration)&&a.duration>0?a.duration:0;
+      // A trilha toca em loop na exportação: a prévia deve usar o MESMO módulo.
+      const at=duration?t%duration:t;
+      if(Math.abs(a.currentTime-at)>.25){try{a.currentTime=at}catch{/* metadata pendente */}}
       if(shouldPlay&&a.paused)a.play().catch(()=>undefined);
       if(!shouldPlay&&!a.paused)a.pause();
     }
@@ -784,6 +791,21 @@ export function VideoStudio() {
       }else if(!a.paused)a.pause();
     }
   };
+  // Volume e término dos segmentos de voz precisam reagir em tempo de áudio,
+  // não só ao evento timeupdate do <video> (que dispara poucas vezes/segundo).
+  useEffect(()=>{
+    let handle=0;
+    const tick=()=>{
+      const v=player.current;
+      if(playing.current&&v&&!v.paused&&active){
+        const time=active.begin+Math.max(0,v.currentTime-active.clip.start);
+        syncAudio(Math.min(time,total),true);
+      }
+      handle=requestAnimationFrame(tick);
+    };
+    handle=requestAnimationFrame(tick);
+    return()=>cancelAnimationFrame(handle);
+  },[project?.id,project?.clips,project?.audioTracks,project?.soundtrack,active?.clip.id]);
   const seek=(t:number)=>{
     const target=Math.max(0,Math.min(total,t));
     const same=active && target>=active.begin && target<active.begin+active.clip.duration;
