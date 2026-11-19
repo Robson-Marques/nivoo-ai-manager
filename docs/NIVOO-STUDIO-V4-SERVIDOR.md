@@ -16,35 +16,24 @@ edição dinâmica. **O merge não equivale a homologação.**
 6. Reposicionar legendas e imagens arrastando na prévia, salvar e exportar MP4.
 7. Conferir áudio, sincronismo, overlays, logos e rostos no arquivo final.
 
-## Dependências opcionais
+## Dependências automáticas
 
-O Nivoo **não instala automaticamente** faster-whisper, WhisperX ou
-opencv-python-headless. Sem esses pacotes, os respectivos recursos informam erro.
-OCR usa pytesseract como módulo opcional e o binário Tesseract já é instalado
-pelo instalador padrão.
+O `nivoo update` passa a criar automaticamente `/opt/nivoo/studio-venv`,
+instalando faster-whisper, OpenCV, pytesseract e WhisperX/PyTorch.
+O ambiente é isolado e a API recebe `NIVOO_STUDIO_PYTHON` em
+`/etc/nivoo/nivoo.env` ao final da instalação.
 
-Use um ambiente virtual isolado com as bibliotecas necessárias e aponte a API
-para seu executável Python. Por exemplo, em Debian:
+- A primeira instalação pode exigir vários gigabytes e demorar.
+- Falhas nas dependências do Studio são avisadas, sem parar API/worker.
+- Verifique os módulos com `nivoo check`.
+- Consulte `/var/log/nivoo-studio-python.log` caso haja erro.
+- Instalações já funcionais não são reinstaladas.
+- Modelos podem ser baixados no primeiro uso, com internet.
+- Para ignorar a instalação: `NIVOO_STUDIO_INSTALL=0 nivoo update`.
+- Para ignorar apenas WhisperX: `NIVOO_STUDIO_INSTALL_WHISPERX=0 nivoo update`.
 
-```bash
-sudo apt-get install -y python3-venv
-sudo python3 -m venv /opt/nivoo-studio-venv
-sudo /opt/nivoo-studio-venv/bin/python -m pip install faster-whisper opencv-python-headless pytesseract
-```
-
-Adicionar ao arquivo `/etc/nivoo/nivoo.env`:
-
-```bash
-NIVOO_STUDIO_PYTHON=/opt/nivoo-studio-venv/bin/python
-```
-
-Depois reiniciar a API para ler a variável (ou executar `nivoo update`
-quando estiver pronto para atualizar o código).
-
-**WhisperX** deve ser avaliado separadamente: pode exigir PyTorch e modelos
-de alinhamento, downloads volumosos e ajustes conforme CPU/GPU e versão Python.
-Para usar roteiro escrito com alinhamento forçado, instalar e validar o WhisperX
-no mesmo venv. A geração de áudio com Kokoro no Nivoo é uma etapa separada.
+WhisperX exige recursos de CPU/memória e modelos de alinhamento;
+o resultado real deve ser conferido com narração em português.
 
 ## Limitações conhecidas antes da homologação
 

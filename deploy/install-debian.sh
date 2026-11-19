@@ -62,7 +62,7 @@ step "1/9 Pacotes do sistema"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -q --no-install-recommends \
-  ca-certificates curl xz-utils git python3 openssl procps postgresql postgresql-client util-linux poppler-utils tesseract-ocr tesseract-ocr-por ripgrep ffmpeg fonts-dejavu-core openssh-client >/dev/null 2>&1
+  ca-certificates curl xz-utils git python3 python3-venv python3-pip openssl procps postgresql postgresql-client util-linux poppler-utils tesseract-ocr tesseract-ocr-por ripgrep ffmpeg fonts-dejavu-core openssh-client >/dev/null 2>&1
 ok "git $(git --version | awk '{print $3}'), python $(python3 -V | awk '{print $2}'), $(psql -V)"
 
 # -----------------------------------------------------------------------------
@@ -194,6 +194,14 @@ npm run build --silent >/dev/null
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
 ok "backend e interface compilados"
+
+# Bibliotecas Python do Nivoo Studio; instaladas uma vez e reutilizadas.
+step "Nivoo Studio — transcrição, alinhamento e proteção visual"
+if [ "${NIVOO_STUDIO_INSTALL:-1}" = 0 ]; then
+  warn "Studio Python desativado por NIVOO_STUDIO_INSTALL=0"
+else
+  bash "$APP_DIR/deploy/install-studio-python.sh" || warn "instalação Python incompleta; consulte /var/log/nivoo-studio-python.log"
+fi
 
 # Navegador sem tela para as FOTOS DAS TELAS nas conferências (nivoo-fotos). A IA não navega: o sistema tira as fotos.
 NAVEGADORES=/opt/nivoo/navegadores
