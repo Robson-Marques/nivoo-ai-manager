@@ -16,6 +16,7 @@ export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
   fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide';
 };
+export type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 export type StudioAsset = {
   id: string; source: string; start: number; end: number;
@@ -24,7 +25,7 @@ export type StudioAsset = {
 export type StudioProject = {
   version: 1; id: string; title: string; clips: StudioClip[];
   soundtrack?: { source: string; volume: number } | null;
-  captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[];
+  captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
 type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
@@ -69,7 +70,8 @@ export class VideoStudioService {
     if (!p || p.version !== 1 || !safeId(p.id) || !Array.isArray(p.clips) ||
         !Array.isArray(p.captions) || !Array.isArray(p.assets) ||
         p.clips.length > 200 || p.captions.length > 1000 || p.assets.length > 150 ||
-        (p.audioTracks && (!Array.isArray(p.audioTracks) || p.audioTracks.length>40)))
+        (p.audioTracks && (!Array.isArray(p.audioTracks) || p.audioTracks.length>40)) ||
+        (p.protectedZones && (!Array.isArray(p.protectedZones) || p.protectedZones.length>50)))
       throw new BadRequestException('Projeto Studio inválido');
     if (typeof p.title !== 'string' || p.title.length > 150) throw new BadRequestException('Título inválido');
     const known = new Set<string>();
@@ -90,12 +92,27 @@ export class VideoStudioService {
     }
     const total = p.clips.reduce((a:number,c:StudioClip)=>a+c.duration,0);
     if (total > 14400) throw new BadRequestException('Projeto acima de 4 horas');
+    const boxes=(p.protectedZones??[]);
+    const overlaps=(a:{x:number;y:number;w:number;h:number},b:{x:number;y:number;w:number;h:number})=>
+      a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h;
+    const temporally=(a:{start:number;end:number},b:{start:number;end:number})=>a.start<b.end && b.start<a.end;
+    for(const z of boxes){
+      ident(z);
+      if(typeof z.label!=='string'||z.label.length>80||!finite(z.start,0,total)||!finite(z.end,0,total)||
+         z.end<=z.start||!finite(z.x,0,1)||!finite(z.y,0,1)||
+         !finite(z.w,.01,1)||!finite(z.h,.01,1)||z.x+z.w>1||z.y+z.h>1)
+        throw new BadRequestException('Região protegida inválida');
+    }
     for (const c of p.captions) {
       ident(c);
       if (typeof c.text !== 'string' || !c.text.trim() || c.text.length > 250 ||
           !finite(c.start,0,total) || !finite(c.end,0,total) || c.end<=c.start ||
           !finite(c.x,0,1) || !finite(c.y,0,1) || !finite(c.fontSize ?? 54,12,140) ||
           (c.color && !color(c.color))) throw new BadRequestException('Legenda inválida');
+    }
+    for(const a of p.assets) {
+      for(const z of boxes) if(temporally(a,z)&&overlaps(a,z))
+        throw new BadRequestException('Imagem '+a.id+' sobrepõe área protegida '+z.label);
     }
     for (const a of p.audioTracks??[]) {
       ident(a); this.src(media,a.source);
@@ -120,7 +137,7 @@ export class VideoStudioService {
   }
   async create(pid: string, title = 'Novo vídeo') {
     const {studio} = await this.dir(pid);
-    const p:StudioProject = {version:1,id:randomUUID(),title:String(title).slice(0,150),clips:[],captions:[],assets:[],audioTracks:[],soundtrack:null,updatedAt:new Date().toISOString()};
+    const p:StudioProject = {version:1,id:randomUUID(),title:String(title).slice(0,150),clips:[],captions:[],assets:[],audioTracks:[],protectedZones:[],soundtrack:null,updatedAt:new Date().toISOString()};
     fs.writeFileSync(this.file(studio,p.id),JSON.stringify(p,null,2));
     return p;
   }
