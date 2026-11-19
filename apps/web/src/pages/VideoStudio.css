@@ -331,3 +331,10 @@
 .studio-tracks-viewport .studio-tracks{min-width:100%;box-sizing:border-box}
 .studio-tracks-viewport .studio-track-overlay{overflow:hidden}
 .studio-tracks-viewport .studio-video-clips{overflow:visible}
+
+/* Régua do tempo clicável com cursor e referências legíveis ao aplicar zoom. */
+.studio-time-ruler{min-height:20px;height:20px}
+.studio-time-ruler>span{font-size:10px}
+.studio-ruler{position:relative;height:20px;background:#0d1523;border-bottom:1px solid #485a75;cursor:crosshair}
+.studio-ruler-tick{position:absolute;top:0;font-size:9px;color:#9fb2ca;padding-left:3px;border-left:1px solid #58728f;white-space:nowrap;height:17px;pointer-events:none}
+.studio-ruler-cursor{position:absolute;top:0;height:100%;width:2px;background:#facc15;pointer-events:none;z-index:4}

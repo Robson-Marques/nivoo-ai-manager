@@ -46,8 +46,10 @@ function rippleDelete(p:Studio,from:number,to:number):Studio{
     return spans.flatMap((span,i)=>{
       if(span.end-span.start<=.01)return [];
       const sourceStart=a.start+(span.start-a.offset);
+      const duration=span.end-span.start;
       return [{...a,id:i===0?a.id:ident(),offset:+time(span.start).toFixed(3),
-        start:+sourceStart.toFixed(3),end:+(sourceStart+span.end-span.start).toFixed(3)}];
+        start:+sourceStart.toFixed(3),end:+(sourceStart+duration).toFixed(3),
+        fadeIn:Math.min(a.fadeIn??0,duration/2),fadeOut:Math.min(a.fadeOut??0,duration/2)}];
     });
   });
   return {...p,captions,assets:p.assets.flatMap(a=>{const v=range(a);return v?[v]:[]}),
@@ -63,9 +65,12 @@ function rippleInsert(p:Studio,at:number,amount:number):Studio{
     const stop=a.offset+a.end-a.start;
     if(a.offset<at&&stop>at){
       const cut=at-a.offset;
+      const rest=stop-at;
       return [
-        {...a,end:+(a.start+cut).toFixed(3)},
-        {...a,id:ident(),start:+(a.start+cut).toFixed(3),offset:+(at+amount).toFixed(3)}
+        {...a,end:+(a.start+cut).toFixed(3),
+          fadeIn:Math.min(a.fadeIn??0,cut/2),fadeOut:Math.min(a.fadeOut??0,cut/2)},
+        {...a,id:ident(),start:+(a.start+cut).toFixed(3),offset:+(at+amount).toFixed(3),
+          fadeIn:Math.min(a.fadeIn??0,rest/2),fadeOut:Math.min(a.fadeOut??0,rest/2)}
       ];
     }
     return [{...a,offset:shifted(a.offset)}];
@@ -117,6 +122,8 @@ export function VideoStudio() {
   }|null>(null);
   const clips=project?.clips||[];
   const total=clips.reduce((n,c)=>n+c.duration,0);
+  const tickStep=total<=60?5:total<=300?15:total<=900?30:total<=3600?120:300;
+  const ticks=Array.from({length:Math.min(80,Math.floor(total/tickStep)+1)},(_,i)=>i*tickStep);
   const active=useMemo(()=>{
     let pos=0;
     for(const c of clips) { if(playhead<pos+c.duration) return {clip:c,offset:playhead-pos,begin:pos};pos+=c.duration; }
@@ -261,10 +268,20 @@ export function VideoStudio() {
   };
   useEffect(()=>{
     const listener=(e:KeyboardEvent)=>{
-      if(!(e.ctrlKey||e.metaKey)||e.key.toLowerCase()!=='z')return;
       const target=e.target as HTMLElement;
-      if(['INPUT','TEXTAREA'].includes(target.tagName)||target.isContentEditable)return;
-      e.preventDefault();if(e.shiftKey)redo();else undo();
+      if(['INPUT','TEXTAREA','SELECT'].includes(target.tagName)||target.isContentEditable)return;
+      const mod=e.ctrlKey||e.metaKey,key=e.key.toLowerCase();
+      if(mod&&key==='z'){e.preventDefault();if(e.shiftKey)redo();else undo();return;}
+      if(mod&&key==='y'){e.preventDefault();redo();return;}
+      if(mod&&key==='s'){e.preventDefault();if(dirty&&!busy)save();return;}
+      if(mod||e.altKey||!project)return;
+      if(key==='b'){setEditMode('blade');return;}
+      if(key==='v'){setEditMode('select');return;}
+      if(e.key==='Delete'||e.key==='Backspace'){if(selected){e.preventDefault();remove();}return;}
+      if(e.code==='Space'){e.preventDefault();if(!player.current)return;
+        if(player.current.paused){playing.current=true;player.current.play().catch(()=>undefined);syncAudio(playhead,true);}
+        else {player.current.pause();syncAudio(playhead,false);}
+      }
     };
     document.addEventListener('keydown',listener);
     return()=>document.removeEventListener('keydown',listener);
@@ -822,12 +839,18 @@ export function VideoStudio() {
       <div className="studio-timeline">
         <div className="studio-timeline-head"><h3>Linha do tempo · {fmt(total)}</h3>
           <div className="studio-edit-tools">
-            <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
-            <button className={editMode==='blade'?'on':''} title="Dividir o clipe no cursor" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
-            <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço" onClick={remove}>⌫ Excluir trecho</button>
+            <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes (V)" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
+            <button className={editMode==='blade'?'on':''} title="Clique no clipe para dividir no ponto escolhido (B)" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
+            <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço (Delete)" onClick={remove}>⌫ Excluir trecho</button>
             <label title="Ampliar a linha do tempo">Zoom <input type="range" min="1" max="4" step=".25" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/></label>
           </div></div>
         <div className="studio-tracks-viewport"><div className="studio-tracks" style={{width:(100*zoom)+'%'}}>
+          <div className="studio-track studio-time-ruler"><span>Tempo</span><div className="studio-ruler" onClick={e=>{
+            const rect=e.currentTarget.getBoundingClientRect();
+            seek(Math.max(0,Math.min(total,((e.clientX-rect.left)/Math.max(1,rect.width))*total)));
+          }}>{ticks.map(t=><span className="studio-ruler-tick" key={t} style={{left:(t/Math.max(total,.01)*100)+'%'}}>{fmt(t)}</span>)}
+            <span className="studio-ruler-cursor" style={{left:(playhead/Math.max(total,.01)*100)+'%'}}/>
+          </div></div>
           <div className="studio-track"><span>Vídeo</span><div className="studio-track-items studio-video-clips">{clips.map(c=>
             <div key={c.id} className={'studio-video-clip'+(selected===c.id?' chosen':'')}
               draggable={editMode==='select'} onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()}
