@@ -45,3 +45,23 @@ real, credenciais, custos conhecidos e testes de integração.
 
 A mudança afeta somente o preflight, o texto do planejador e as instruções
 de ferramenta. Não remove anexos, snapshots ou o trabalho já bloqueado.
+
+## Executor local de importação
+
+O comando `nivoo-importar-imagem` recebe uma imagem existente em
+`contexto/anexos/<mensagem>/<arquivo>` e a entrega no caminho exigido pela
+montagem, sem abrir outra sessão de IA. A etapa `local-shell` com esse comando
+recebe automaticamente os anexos reais do chat no worktree. O importador
+restringe a origem a anexos do projeto e o destino ao projeto, rejeita
+travessia, sobrescrita e arquivos que não são imagem.
+
+Exemplo (o identificador da mensagem e nome do arquivo são os reais do anexo):
+
+```bash
+nivoo-importar-imagem "contexto/anexos/<id>/lombo.png" "motion/black-quinta-previa/pizza-lombo.png"
+nivoo-importar-imagem "contexto/anexos/<id>/peru.png" "motion/black-quinta-previa/pizza-peru-amora.png"
+```
+
+PNG é copiado como PNG; JPEG/WEBP são convertidos com FFmpeg quando o destino
+for PNG. O comando não remove fundo automaticamente nem fabrica transparência:
+essa exigência continua dependendo de processamento real e validação visual.

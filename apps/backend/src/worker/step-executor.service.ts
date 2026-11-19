@@ -237,6 +237,25 @@ export class StepExecutorService {
       const blocked = checkGeneratedImageOutputs(step, providerId, worktree);
       if (blocked) return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL, blocked);
     }
+    // Etapa determinística de importação: disponibiliza os anexos do chat no
+    // worktree para o binário nivoo-importar-imagem. Não abre sessão de IA.
+    if (!isAi && providerId === 'local-shell' && /\\bnivoo-importar-imagem\\b/.test(step.instructions)) {
+      const origemImportacao = await this.prisma.conversationMessage.findFirst({
+        where: { jobId: job.id }, select: { conversationId: true },
+      });
+      if (origemImportacao) {
+        const mensagens = await this.prisma.conversationMessage.findMany({
+          where: { conversationId: origemImportacao.conversationId, role: 'USUARIO',
+            NOT: { attachments: { equals: Prisma.DbNull } } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, conversationId: true, attachments: true },
+        });
+        const anexos = copiarAnexosParaSessao(
+          this.workspace.projectDirs(job.project.dirKey).root, worktree, mensagens,
+        );
+        await L(`Importação local: ${anexos.length} anexo(s) disponível(is) em contexto/anexos/; execução sem IA`);
+      }
+    }
     // Defesa em profundidade: o conhecimento original do projeto (fora do workspace) não pode ser alterado
     // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
     const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
