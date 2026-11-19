@@ -136,6 +136,21 @@ export function VideoStudio() {
   const selectedCaption=project?.captions.find(c=>c.id===selected);
   const selectedAsset=project?.assets.find(c=>c.id===selected);
   const selectedAudio=project?.audioTracks?.find(c=>c.id===selected);
+  // Empacota áudios que se sobrepõem em faixas distintas, sem alterar
+  // posição, ordem, volume ou conteúdo do projeto salvo.
+  const audioLanes=useMemo(()=>{
+    const lanes:AudioTrack[][]=[];
+    const endings:number[]=[];
+    const tracks=[...(project?.audioTracks??[])].sort((a,b)=>a.offset-b.offset);
+    for(const track of tracks){
+      const length=track.end-track.start;
+      let lane=endings.findIndex(end=>end<=track.offset+.001);
+      if(lane<0){lane=lanes.length;lanes.push([]);endings.push(0);}
+      lanes[lane].push(track);
+      endings[lane]=track.offset+length;
+    }
+    return lanes.length?lanes:[[]];
+  },[project?.audioTracks]);
   const selectedZone=project?.protectedZones?.find(c=>c.id===selected);
   // A duração real é carregada também para clipes já salvos: permite alongar
   // novamente uma extremidade sem reimportar o arquivo original.
@@ -957,7 +972,9 @@ export function VideoStudio() {
             </div>)}</div></div>
           <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=>timelineBlock('caption',c.id,c.text,c.start,c.end))}</div></div>
           <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=>timelineBlock('asset',a.id,mediaName(a.source),a.start,a.end))}</div></div>
-          <div className="studio-track"><span>Voz/Áudio</span><div className="studio-track-overlay studio-audio-timeline">{(project.audioTracks??[]).map(a=>timelineBlock('audio',a.id,mediaName(a.source),a.offset,a.offset+a.end-a.start))}</div></div>
+          {audioLanes.map((lane,i)=><div className="studio-track" key={'voice-'+i}><span>Voz {i+1}</span>
+            <div className="studio-track-overlay studio-audio-timeline">{lane.map(a=>timelineBlock('audio',a.id,mediaName(a.source),a.offset,a.offset+a.end-a.start))}</div>
+          </div>)}
           <div className="studio-track"><span>Proteção</span><div className="studio-track-overlay studio-protection-timeline">{(project.protectedZones??[]).map(z=>timelineBlock('zone',z.id,z.label,z.start,z.end))}</div></div>
           <div className="studio-track"><span>Trilha</span><div className="studio-track-audio">{project.soundtrack?mediaName(project.soundtrack.source):'Sem trilha'}</div></div>
         </div></div>
