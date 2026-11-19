@@ -20,6 +20,8 @@ async function main(){
       '-f','lavfi','-i','color=c=navy:s=640x360:r=30:d=1.5',
       '-f','lavfi','-i','sine=frequency=440:duration=1.5',
       '-shortest','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',source]);
+    const graphic=path.join(media,'entrada','overlay.png');
+    cmd('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=yellow:s=120x80:d=1','-frames:v','1',graphic]);
     const prisma={project:{findUnique:async()=>({dirKey:'test'})}};
     const workspace={projectDirs:()=>({midia:media})};
     const studio=new VideoStudioService(prisma,workspace);
@@ -28,6 +30,8 @@ async function main(){
     p.clips=[{id:'scene-01',source:'midia/entrada/demo.mp4',start:0,end:1.5,duration:1.5}];
     p.captions=[{id:'text-01',text:'Olá, mundo!',start:.2,end:1.2,x:.5,y:.8,color:'#FFFFFF',fontSize:50,animation:'pop'}];
     p.soundtrack={source:'midia/entrada/demo.mp4',volume:.15};
+    p.audioTracks=[{id:'voice-01',source:'midia/entrada/demo.mp4',start:0,end:1,offset:.25,volume:.5}];
+    p.assets=[{id:'image-01',source:'midia/entrada/overlay.png',start:.3,end:1.1,x:.58,y:.2,w:.2,h:.2}];
     p=await studio.save('any-project',p.id,p);
     assert.equal((await studio.get('any-project',p.id)).clips.length,1);
     let blocked=false;
@@ -48,7 +52,7 @@ async function main(){
     assert(probe.streams.some(s=>s.codec_type==='video'),'vídeo exportado sem imagem');
     assert(probe.streams.some(s=>s.codec_type==='audio'),'áudio original perdido');
     assert(Number(probe.format.duration)>1.3,'vídeo exportado muito curto');
-    console.log('STUDIO SMOKE OK: exportação MP4 com legenda e trilha, áudio e vídeo preservados.');
+    console.log('STUDIO SMOKE OK: cortes, legendas, imagem, narração adicional, trilha e áudio exportados.');
   }finally{
     fs.rmSync(root,{recursive:true,force:true});
   }
