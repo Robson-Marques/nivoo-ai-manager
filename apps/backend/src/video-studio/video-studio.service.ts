@@ -39,6 +39,7 @@ const assTime = (s: number) => {
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
+const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 
 @Injectable()
 export class VideoStudioService {
@@ -141,6 +142,62 @@ export class VideoStudioService {
     fs.rmSync(f);
     return {ok:true};
   }
+  captionsStatus(pid:string,id:string) { return transcriptions.get(pid+':'+id) ?? {state:'idle'}; }
+
+  async autoCaptions(pid:string,id:string,script?:string) {
+    const key=pid+':'+id;
+    if(transcriptions.get(key)?.state==='running') throw new ConflictException('Transcrição já em andamento');
+    const done=status.get(key)?.result;
+    if(done?.state!=='done'||!done.output) throw new BadRequestException('Exporte primeiro o vídeo com a narração para gerar legendas por palavra');
+    if(script!==undefined&&(typeof script!=='string'||script.length>10000))
+      throw new BadRequestException('Roteiro inválido');
+    transcriptions.set(key,{state:'running'});
+    setImmediate(async()=>{
+      const temp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-caption-'));
+      try {
+        const {media,studio}=await this.dir(pid);
+        const input=this.src(media,done.output!);
+        const alignment=path.join(temp,'aligned.json');
+        const cmd=path.resolve(__dirname,'../../bin/nivoo-alinhar-narracao');
+        const args=[cmd,'--video',input,'--saida',alignment];
+        if(script?.trim()){
+          const textFile=path.join(temp,'script.txt');
+          fs.writeFileSync(textFile,script.trim());
+          args.push('--roteiro',textFile);
+        }
+        await new Promise<void>((resolve,reject)=>{
+          const child=spawn('python3',args,{stdio:['ignore','ignore','pipe']});
+          let err='';
+          const kill=setTimeout(()=>child.kill('SIGTERM'),15*60*1000);
+          child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1000);});
+          child.on('error',e=>{clearTimeout(kill);reject(e);});
+          child.on('close',code=>{clearTimeout(kill);code===0?resolve():reject(new Error(err||'Alinhamento falhou'));});
+        });
+        const data=JSON.parse(fs.readFileSync(alignment,'utf8'));
+        if(!Array.isArray(data.words)||!data.words.length) throw new Error('Não foi encontrada fala alinhada');
+        const current=await this.get(pid,id);
+        const groups:StudioCaption[]=[];
+        for(let i=0;i<data.words.length;i+=3){
+          const w=data.words.slice(i,i+3).filter((v:any)=>typeof v.text==='string'&&finite(v.start,0,14400)&&finite(v.end,0,14400));
+          if(!w.length)continue;
+          groups.push({
+            id:'auto-'+randomUUID(),text:w.map((v:any)=>v.text).join(' ').trim(),
+            start:w[0].start,end:w[w.length-1].end,x:.50,y:.82,
+            animation:'pop',fontSize:54,color:'#FFFFFF'
+          });
+        }
+        // Nunca substituir legendas manuais nem sobrescrever alterações do usuário.
+        const created=groups.filter(x=>x.end>x.start).slice(0,1000);
+        const newProject={...current,captions:[...current.captions,...created]};
+        await this.save(pid,id,newProject);
+        transcriptions.set(key,{state:'done',captions:created.length});
+      }catch(e:any){
+        transcriptions.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
+      }finally{fs.rmSync(temp,{recursive:true,force:true});}
+    });
+    return {state:'running'};
+  }
+
   async render(pid:string,id:string) {
     const {media} = await this.dir(pid);
     const p=this.validate(await this.get(pid,id),media);
