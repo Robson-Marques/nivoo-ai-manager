@@ -19,7 +19,7 @@ const LOG_MIDIA = new Logger('Midia');
 export const VIDEO_EXT = /\.(mp4|mov|webm|mkv|m4v)$/i;
 export const AUDIO_EXT = /\.(wav|mp3|m4a|aac|ogg|flac)$/i;
 /** Mídia que entra no projeto para a montagem: vídeo OU áudio (trilha/narração própria do usuário). */
-export const MIDIA_EXT = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac)$/i;
+export const MIDIA_EXT = /\.(mp4|mov|webm|mkv|m4v|wav|mp3|m4a|aac|ogg|flac|png|jpg|jpeg|webp)$/i;
 const MAX_VIDEO_BYTES = Number(process.env.NIVOO_MAX_VIDEO_MB ?? 2048) * 1024 * 1024;
 const MAX_ZIP_BYTES = Number(process.env.NIVOO_MAX_ZIP_MB ?? 4096) * 1024 * 1024;
 const MAX_VIDEOS_POR_ZIP = Number(process.env.NIVOO_MAX_VIDEOS_POR_ZIP ?? 300);

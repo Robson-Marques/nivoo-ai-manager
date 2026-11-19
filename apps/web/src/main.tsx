@@ -8,6 +8,7 @@ import { Diagnostico } from './pages/Diagnostico';
 import { Inicio } from './pages/Inicio';
 import { Modelos } from './pages/Modelos';
 import { Projeto } from './pages/Projeto';
+import { VideoStudio } from './pages/VideoStudio';
 import { TelaDeEntrada } from './TelaDeEntrada';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
         <Route element={<Layout />}>
           <Route path="/" element={<Inicio />} />
           <Route path="/p/:pid" element={<Projeto />} />
+          <Route path="/p/:pid/studio" element={<VideoStudio />} />
           <Route path="/p/:pid/c/:cid" element={<Projeto />} />
           <Route path="/agentes" element={<Modelos />} />
           <Route path="/modelos" element={<Modelos />} />

@@ -129,6 +129,7 @@ export function Layout() {
     <div key={p.id}>
       <div className={`proj-linha${p.id === pid ? ' on' : ''}${p.archivedAt ? ' arquivado' : ''}`}>
         <Link to={`/p/${p.id}`} className="proj">{p.name}</Link>
+        <Link to={`/p/${p.id}/studio`} title="Abrir Nivoo Studio — editor de vídeo" aria-label={`Abrir editor de vídeo do projeto ${p.name}`} className="proj-acao">🎬</Link>
         <button className="proj-acao" title="Nova conversa" aria-label={`Nova conversa em ${p.name}`} onClick={() => novaConversa(p.id)}>
           <IconeMais />
         </button>

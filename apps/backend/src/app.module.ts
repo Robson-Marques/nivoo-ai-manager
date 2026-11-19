@@ -1,3 +1,5 @@
+import { VideoStudioController } from './video-studio/video-studio.controller';
+import { VideoStudioService } from './video-studio/video-studio.service';
 import { AuthController } from './auth/auth.controller';
 import { DiagnosticoController } from './diagnostico/diagnostico.controller';
 import { SshController } from './ssh/ssh.controller';
@@ -22,8 +24,8 @@ import { PreviaService } from './previa/previa.service';
 
 @Module({
   imports: [CoreModule],
-  controllers: [AuthController, AccountsController, AreasController, GitController, ConversationsController, ArquivadosController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
-  providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService, PreviaService],
+  controllers: [VideoStudioController, AuthController, AccountsController, AreasController, GitController, ConversationsController, ArquivadosController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
+  providers: [VideoStudioService, { provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService, PreviaService],
 })
 export class AppModule implements OnModuleInit {
   constructor(private readonly areas: AreasService) {}
