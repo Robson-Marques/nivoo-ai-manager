@@ -13,7 +13,10 @@ function under(root, candidate) {return candidate.startsWith(root+path.sep);}
 function run() {
   const [sourceRel,targetRel]=process.argv.slice(2);
   if(!sourceRel||!targetRel) throw Error('uso: nivoo-importar-imagem contexto/anexos/<id>/<imagem> <destino.png>');
-  if(!/^contexto\/anexos\/[\w-]+\/[\w .()\-]+\.(?:png|jpe?g|webp)$/i.test(sourceRel)) {
+  const parts=sourceRel.split('/');
+  if(parts.length!==4||parts[0]!=='contexto'||parts[1]!=='anexos'||
+     !/^[\w-]+$/.test(parts[2])||parts[3]==='.'||parts[3]==='..'||
+     !/\.(?:png|jpe?g|webp)$/i.test(parts[3])) {
     throw Error('origem deve ser uma imagem anexada em contexto/anexos/<mensagem>/<nome>');
   }
   if(path.isAbsolute(targetRel)||targetRel.split(/[\\/]/).includes('..')||

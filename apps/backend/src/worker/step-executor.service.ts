@@ -239,7 +239,7 @@ export class StepExecutorService {
     }
     // Etapa determinística de importação: disponibiliza os anexos do chat no
     // worktree para o binário nivoo-importar-imagem. Não abre sessão de IA.
-    if (!isAi && providerId === 'local-shell' && /\\bnivoo-importar-imagem\\b/.test(step.instructions)) {
+    if (!isAi && providerId === 'local-shell' && /\bnivoo-importar-imagem\b/.test(step.instructions)) {
       const origemImportacao = await this.prisma.conversationMessage.findFirst({
         where: { jobId: job.id }, select: { conversationId: true },
       });
