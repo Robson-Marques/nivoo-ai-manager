@@ -48,3 +48,7 @@
 .studio-audio-source{display:flex;gap:3px;align-items:center;margin-bottom:5px;flex-wrap:wrap}
 .studio-audio-source span{flex:1;min-width:85px;font-size:11px;overflow:hidden;text-overflow:ellipsis}
 .studio-audio-source button{width:auto;font-size:10px;margin:0}
+
+.studio-asset-fade{animation:studio-in .24s ease-out both}
+.studio-asset-slide{animation:studio-asset-slide .24s ease-out both}
+@keyframes studio-asset-slide{from{transform:translateX(-60px);opacity:0}to{transform:translateX(0);opacity:1}}
