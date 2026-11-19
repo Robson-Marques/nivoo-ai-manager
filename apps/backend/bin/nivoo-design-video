@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+/**
+ * Renderizador de inserts e legendas temporais do Nivoo.
+ * Somente usa FFmpeg/FFprobe e módulos nativos do Node.js.
+ * A análise semântica/espacial ocorre ANTES, produzindo o plano validável.
+ *
+ * uso: nivoo-design-video --plano design-plan.json --video entrada.mp4 --saida saida.mp4
+ *       [--validar] [--permitir-colisao]
+ */
+'use strict';
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+function argumento(nome) {
+  const pos = process.argv.indexOf(nome);
+  return pos < 0 ? null : process.argv[pos + 1];
+}
+function executar(bin, args) {
+  const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+  if (r.error || r.status !== 0) throw new Error(String(r.error?.message || r.stderr || bin + ' falhou').slice(-1200));
+  return r.stdout;
+}
+function videoInfo(video) {
+  const info = JSON.parse(executar('ffprobe', ['-v','error','-show_entries','format=duration:stream=codec_type,width,height','-of','json',video]));
+  const v = info.streams.find(s => s.codec_type === 'video');
+  if (!v) throw new Error('vídeo sem stream de imagem');
+  return { width:v.width, height:v.height, duration:Number(info.format.duration) };
+}
+function tempo(v, nome) {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) throw new Error(nome + ': tempo inválido');
+  return v;
+}
+function retangulo(r, nome) {
+  if (!r || !['x','y','w','h'].every(k => typeof r[k] === 'number' && Number.isFinite(r[k]))) throw new Error(nome + ': retângulo inválido');
+  if (r.x < 0 || r.y < 0 || r.w <= 0 || r.h <= 0 || r.x + r.w > 1.00001 || r.y + r.h > 1.00001)
+    throw new Error(nome + ': coordenadas devem ser normalizadas entre 0 e 1');
+  return r;
+}
+function intersecta(a,b) {
+  return a.x < b.x+b.w && b.x < a.x+a.w && a.y < b.y+b.h && b.y < a.y+a.h;
+}
+function overlap(a,b) { return a.start < b.end && b.start < a.end; }
+function validar(plano, duration) {
+  if (plano.version !== 1 || !Array.isArray(plano.elements)) throw new Error('plano deve ter version=1 e elements[]');
+  const areas = plano.protectedZones || [];
+  if (!Array.isArray(areas)) throw new Error('protectedZones deve ser um array');
+  const ids = new Set(), avisos = [];
+  for (const [i,z] of areas.entries()) {
+    retangulo(z.box, 'protectedZones['+i+']');
+    tempo(z.start,'inicio da proteção'); tempo(z.end,'fim da proteção');
+    if (z.end <= z.start) throw new Error('proteção com intervalo vazio');
+  }
+  for (const [i,e] of plano.elements.entries()) {
+    if (!e.id || ids.has(e.id)) throw new Error('id ausente ou duplicado na posição '+i);
+    ids.add(e.id);
+    if (!['caption','image'].includes(e.type)) throw new Error(e.id+': tipo não suportado');
+    tempo(e.start,e.id+'.start'); tempo(e.end,e.id+'.end');
+    if (e.end <= e.start || e.end > duration+0.05) throw new Error(e.id+': fora da duração do vídeo');
+    retangulo(e.box,e.id+'.box');
+    if (e.type === 'caption' && (typeof e.text !== 'string' || !e.text.trim())) throw new Error(e.id+': texto vazio');
+    if (e.type === 'image' && (typeof e.asset !== 'string' || !e.asset)) throw new Error(e.id+': asset ausente');
+    for (const z of areas) if (overlap(e,z) && intersecta(e.box,z.box))
+      throw new Error(e.id+': colide com região protegida '+(z.id || '(sem id)'));
+    for (const other of plano.elements.slice(0,i)) if (overlap(e,other) && intersecta(e.box,other.box))
+      avisos.push(e.id+' sobrepõe '+other.id);
+  }
+  return avisos;
+}
+function assTime(s) {
+  let cs=Math.round(s*100), h=Math.floor(cs/360000); cs%=360000;
+  let m=Math.floor(cs/6000); cs%=6000;
+  let sec=Math.floor(cs/100);
+  return h+':'+String(m).padStart(2,'0')+':'+String(sec).padStart(2,'0')+'.'+String(cs%100).padStart(2,'0');
+}
+function textoAss(text) {
+  return String(text).replace(/[{}]/g,'').replace(/\\/g,'').replace(/\r?\n/g,'\\N');
+}
+function corAss(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return '&H00FFFFFF';
+  return '&H00'+hex.slice(5,7)+hex.slice(3,5)+hex.slice(1,3);
+}
+function criarAss(elements, w, h) {
+  let s = '[Script Info]\nScriptType: v4.00+\nPlayResX: '+w+'\nPlayResY: '+h+'\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,48,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
+  for (const e of elements.filter(e=>e.type==='caption')) {
+    const px=Math.round(e.box.x*w), py=Math.round(e.box.y*h);
+    const target = e.animation === 'slide-up' ? py + Math.round(e.box.h*h*0.3) : py;
+    const move = e.animation === 'slide-up' ? '\\move('+px+','+target+','+px+','+py+',0,350)' : '\\pos('+px+','+py+')';
+    const fade = e.animation === 'fade' ? '\\fad(180,180)' : '';
+    const fontSize = Math.round(Math.min(e.box.h*h*0.8, e.size || Math.max(24,w*0.045)));
+    const colour = corAss(e.color);
+    const label = textoAss(e.text);
+    s += 'Dialogue: 0,'+assTime(e.start)+','+assTime(e.end)+',Default,,0,0,0,,{\\an7\\fs'+fontSize+'\\c'+colour+move+fade+'}'+label+'\n';
+  }
+  return s;
+}
+function render(plano, video, saida, info, diretorio) {
+  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-design-'));
+  try {
+    const ass=path.join(tmp,'legendas.ass');
+    fs.writeFileSync(ass,criarAss(plano.elements,info.width,info.height));
+    const imgs=plano.elements.filter(e=>e.type==='image');
+    const args=['-hide_banner','-loglevel','error','-y','-i',video];
+    const filtros=[], entradas=[];
+    let atual='[0:v]';
+    for (let i=0;i<imgs.length;i++) {
+      const e=imgs[i];
+      const asset=path.resolve(diretorio,e.asset);
+      if (!asset.startsWith(diretorio+path.sep)) throw new Error(e.id+': asset fora da pasta do plano');
+      if (!fs.existsSync(asset)) throw new Error(e.id+': asset não encontrado: '+e.asset);
+      args.push('-loop','1','-i',asset);
+      const wi=Math.max(2,Math.round(e.box.w*info.width/2)*2), hi=Math.max(2,Math.round(e.box.h*info.height/2)*2);
+      const x=Math.round(e.box.x*info.width), y=Math.round(e.box.y*info.height);
+      filtros.push('['+(i+1)+':v]scale='+wi+':'+hi+',format=rgba[img'+i+']');
+      filtros.push(atual+'[img'+i+']overlay='+x+':'+y+':shortest=0:eof_action=repeat:enable=\'between(t,'+e.start+','+e.end+')\'[v'+i+']');
+      atual='[v'+i+']';
+    }
+    // O arquivo ASS mora no diretório temporário gerado pelo sistema e não contém caminhos do usuário.
+    filtros.push(atual+'subtitles='+ass+':fontsdir=/usr/share/fonts,format=yuv420p[vfinal]');
+    args.push('-filter_complex',filtros.join(';'),'-map','[vfinal]','-map','0:a?','-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-c:a','copy','-t',String(info.duration),'-movflags','+faststart',saida);
+    executar('ffmpeg',args);
+  } finally { fs.rmSync(tmp,{recursive:true,force:true}); }
+}
+function main() {
+  const planoPath=argumento('--plano'), videoPath=argumento('--video');
+  const validarApenas=process.argv.includes('--validar');
+  const saidaPath=argumento('--saida');
+  if (!planoPath || !videoPath || (!validarApenas && !saidaPath)) {
+    console.error('uso: nivoo-design-video --plano design-plan.json --video entrada.mp4 --saida saida.mp4 [--validar]');
+    process.exit(2);
+  }
+  const video=path.resolve(videoPath), planoFile=path.resolve(planoPath);
+  const info=videoInfo(video);
+  const plano=JSON.parse(fs.readFileSync(planoFile,'utf8'));
+  const warnings=validar(plano,info.duration);
+  warnings.forEach(w=>console.error('AVISO: '+w));
+  if (validarApenas) {
+    console.log(JSON.stringify({ valido:true, duracao:info.duration, elementos:plano.elements.length, avisos:warnings },null,2));return;
+  }
+  const saida=path.resolve(saidaPath);
+  if (saida===video) throw new Error('a saída não pode sobrescrever o vídeo original');
+  fs.mkdirSync(path.dirname(saida),{recursive:true});
+  render(plano,video,saida,info,path.dirname(planoFile));
+  console.log(JSON.stringify({ saida, elementos:plano.elements.length, duracao:info.duration, avisos:warnings },null,2));
+}
+try { main(); } catch(e) { console.error('nivoo-design-video: '+e.message);process.exit(1); }
