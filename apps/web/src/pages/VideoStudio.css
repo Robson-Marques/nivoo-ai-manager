@@ -310,3 +310,18 @@
 .studio-narration h4{margin:0 0 8px}
 .studio-narration textarea,.studio-narration select{width:100%;box-sizing:border-box;min-width:0;padding:6px;margin-bottom:6px;background:#0e1728;color:#fff;border:1px solid #52617a;border-radius:5px;font-size:12px}
 .studio-narration button{font-size:12px}.studio-narration small{font-size:11px;color:#b9c8d8}
+
+/* Ferramentas de edição: clipes com alças de trim e modos seleção/lâmina. */
+.studio-edit-tools{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.studio-edit-tools button{font-size:11px;padding:3px 7px;margin:0}
+.studio-edit-tools button.on{background:#0f766e;border-color:#38b2ac}
+.studio-edit-tools label{display:flex;align-items:center;gap:5px;color:#cbd5e1;font-size:11px}
+.studio-edit-tools input[type=range]{width:70px;accent-color:#38bdf8}
+.studio-track-items{overflow-x:auto;scrollbar-width:thin}
+.studio-video-clips{display:flex;align-items:stretch;gap:2px;min-width:100%;height:24px;box-sizing:border-box}
+.studio-video-clip{display:flex;align-items:center;min-width:0;background:#24538a;border:1px solid #5284bb;border-radius:4px;color:#fff;overflow:hidden;cursor:grab;box-sizing:border-box;font-size:11px;user-select:none}
+.studio-video-clip.chosen{outline:2px solid #eecb54;outline-offset:-2px;z-index:2}
+.studio-video-clip .studio-video-title{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;padding:0 3px}
+.studio-video-title small{opacity:.8;font-size:10px}
+.studio-video-grip{height:100%;width:8px;flex:0 0 8px;background:#ffffff2d;border-inline:1px solid #ffffff44;cursor:ew-resize;touch-action:none}
+.studio-video-grip:hover{background:#facc15}

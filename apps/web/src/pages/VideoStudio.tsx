@@ -51,6 +51,10 @@ export function VideoStudio() {
   const undoStack=useRef<Studio[]>([]);
   const redoStack=useRef<Studio[]>([]);
   const dragged=useRef<string|null>(null);
+  const mediaDuration=useRef(new Map<string,number>());
+  const videoTrim=useRef<{id:string;edge:'start'|'end';x:number;width:number;original:Studio}|null>(null);
+  const [editMode,setEditMode]=useState<'select'|'blade'>('select');
+  const [zoom,setZoom]=useState(1);
   const timelineDrag=useRef<{
     kind:'caption'|'asset'|'audio'|'zone'; id:string;
     edge:'move'|'start'|'end'; originX:number; width:number; baseline:Studio;
@@ -251,6 +255,7 @@ export function VideoStudio() {
     obj.onloadedmetadata=()=>{
       const duration=Math.min(14400,Number(obj.duration));
       if(!Number.isFinite(duration)||duration<=0)return setError('Não consegui identificar a duração deste vídeo.');
+      mediaDuration.current.set(m.caminho,duration);
       const c:Clip={id:ident(),source:m.caminho,start:0,end:duration,duration};
       mutate(p=>({...p,clips:[...p.clips,c]}));setSelected(c.id);setTab('clips');
     };
@@ -267,12 +272,15 @@ export function VideoStudio() {
     const obj=document.createElement('audio');
     obj.preload='metadata';
     obj.onloadedmetadata=()=>{
-      // Voz e narração começam no início da montagem, independentemente do cursor.
-      // Não repetir nem esticar falas; se o áudio for menor, sua faixa termina antes.
-      const end=Math.min(Number(obj.duration),total);
+      // Narrações entram uma após outra. Sobreposição continua possível com arraste manual.
+      const offset=Math.max(0,...(project?.audioTracks??[]).map(a=>a.offset+(a.end-a.start)));
+      const available=total-offset;
+      if(available<.05)return setError('Não há espaço para outra narração no vídeo. Amplie a montagem ou mova as faixas existentes.');
+      const end=Math.min(Number(obj.duration),available);
       if(!Number.isFinite(end)||end<=0)return setError('Áudio sem duração válida');
-      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:0,volume:1};
+      const a:AudioTrack={id:ident(),source:m.caminho,start:0,end,offset:+offset.toFixed(3),volume:1};
       mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),a]}));setSelected(a.id);setTab('audio');
+      if(end<Number(obj.duration)-.05)setNotice('Narração adicionada em sequência, mas limitada ao fim do vídeo. Amplie a montagem para usar todo o áudio.');
     };
     obj.onerror=()=>setError('Falha ao ler a duração do áudio.');
     obj.src=midiaUrl(pid,m.caminho,standalone);
@@ -300,7 +308,10 @@ export function VideoStudio() {
     mutate(p=>({...p,clips:p.clips.map(c=>{
       if(c.id!==selected)return c;
       const next={...c,[key]:n};
-      if(key==='start'||key==='end') next.duration=Math.max(.05,next.end-next.start);
+      if(key==='start'||key==='end') {
+        if(next.start<0||next.end-next.start<.05)return c;
+        next.duration=+(next.end-next.start).toFixed(3);
+      }
       return next;
     })}));
   };
@@ -327,13 +338,49 @@ export function VideoStudio() {
       if(i<0||j<0||j>=a.length)return p;
       [a[i],a[j]]=[a[j],a[i]];return {...p,clips:a};});
   };
-  const split=()=>{
-    if(!active || active.clip.id!==selected || active.offset<=.05 || active.offset>=active.clip.duration-.05) return setError('Posicione o cursor dentro do clipe selecionado para dividir.');
+  const split=(clipId=selected)=>{
+    if(!active || active.clip.id!==clipId || active.offset<=.05 || active.offset>=active.clip.duration-.05) return setError('Posicione o cursor dentro do clipe selecionado para dividir.');
     const c=active.clip,cut=c.start+active.offset;
     const left={...c,end:cut,duration:cut-c.start};
     const right={...c,id:ident(),start:cut,duration:c.end-cut};
     mutate(p=>{const i=p.clips.findIndex(v=>v.id===c.id);return {...p,clips:[...p.clips.slice(0,i),left,right,...p.clips.slice(i+1)]};});
     setSelected(right.id);
+  };
+  // Alças dos clipes de vídeo: mudam o ponto de entrada/saída, sem tocar no arquivo original.
+  // O tamanho do clipe e a timeline são recalculados simultaneamente.
+  const startVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>,id:string,edge:'start'|'end')=>{
+    if(!project||total<=0||videoTrim.current)return;
+    e.preventDefault();e.stopPropagation();
+    const width=e.currentTarget.closest('.studio-track-items')?.getBoundingClientRect().width??0;
+    if(width<1)return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    videoTrim.current={id,edge,x:e.clientX,width,original:project};
+    undoStack.current.push(project);
+    if(undoStack.current.length>60)undoStack.current.shift();
+    redoStack.current=[];
+    setSelected(id);setTab('clips');setError('');
+  };
+  const moveVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>)=>{
+    const d=videoTrim.current;if(!d)return;
+    const baseline=d.original;
+    const domain=baseline.clips.reduce((n,c)=>n+c.duration,0);
+    const delta=Math.round((e.clientX-d.x)/d.width*domain*100)/100;
+    setProject({...baseline,clips:baseline.clips.map(c=>{
+      if(c.id!==d.id)return c;
+      const clamp=(v:number,min:number,max:number)=>Math.min(max,Math.max(min,v));
+      const start=d.edge==='start'?clamp(c.start+delta,0,c.end-.05):c.start;
+      // Metadata de origem limita alongamentos até a duração real,
+      // enquanto um ajuste que encurta o clipe funciona sempre.
+      const sourceLimit=mediaDuration.current.get(c.source)??c.end;
+      const end=d.edge==='end'?clamp(c.end+delta,c.start+.05,sourceLimit):c.end;
+      return {...c,start:+start.toFixed(3),end:+end.toFixed(3),duration:+(end-start).toFixed(3)};
+    })});
+    setDirty(true);
+  };
+  const endVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>)=>{
+    if(!videoTrim.current)return;
+    try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{}
+    videoTrim.current=null;
   };
   const reorder=(id:string,target:string)=>{
     if(id===target)return;
@@ -641,7 +688,7 @@ export function VideoStudio() {
             <label>Início (seg) <input type="number" step=".1" value={selectedClip.start} onChange={e=>updateClip('start',e.target.value)}/></label>
             <label>Fim (seg) <input type="number" step=".1" value={selectedClip.end} onChange={e=>updateClip('end',e.target.value)}/></label>
             <label>Volume <input type="number" min="0" max="2" step=".1" value={selectedClip.volume??1} onChange={e=>updateClip('volume',e.target.value)}/></label>
-            <button onClick={split}>✂ Dividir no cursor</button><button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
+            <button onClick={()=>split()}>✂ Dividir no cursor</button><button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
           </div>}
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
           {tab==='captions'&&<div className="studio-fields"><button onClick={addCaption}>+ Adicionar legenda</button>{selectedCaption&&<>
@@ -680,9 +727,26 @@ export function VideoStudio() {
         </aside>
       </div>
       <div className="studio-timeline">
-        <div className="studio-timeline-head"><h3>Linha do tempo</h3><span>Selecione um elemento para editar · Duração {fmt(total)}</span></div>
+        <div className="studio-timeline-head"><h3>Linha do tempo · {fmt(total)}</h3>
+          <div className="studio-edit-tools">
+            <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
+            <button className={editMode==='blade'?'on':''} title="Dividir o clipe no cursor" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
+            <button disabled={!selectedClip} title="Excluir o trecho selecionado, fechando o espaço" onClick={remove}>⌫ Excluir trecho</button>
+            <label title="Ampliar a linha do tempo">Zoom <input type="range" min="1" max="4" step=".25" value={zoom} onChange={e=>setZoom(Number(e.target.value))}/></label>
+          </div></div>
         <div className="studio-tracks">
-          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items">{clips.map(c=><button key={c.id} draggable onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}} onClick={()=>{setSelected(c.id);setTab('clips');seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}} className={selected===c.id?'chosen':''} style={{flex:c.duration,minWidth:40}} title={mediaName(c.source)}>{mediaName(c.source)}<small>{c.duration.toFixed(1)}s</small></button>)}</div></div>
+          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items studio-video-clips" style={{minWidth:zoom===1?'100%':(100*zoom)+'%'}}>{clips.map(c=>
+            <div key={c.id} className={'studio-video-clip'+(selected===c.id?' chosen':'')}
+              draggable={editMode==='select'} onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()}
+              onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}}
+              onClick={()=>{setSelected(c.id);setTab('clips');if(editMode==='blade'){split(c.id)}else{seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}}}
+              style={{flex:c.duration,minWidth:30}} title={mediaName(c.source)+' · '+c.start.toFixed(2)+'–'+c.end.toFixed(2)+'s'}>
+              <span className="studio-video-grip" data-edge="start" title="Arraste para aparar o começo"
+                onPointerDown={e=>startVideoTrim(e,c.id,'start')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
+              <span className="studio-video-title">{mediaName(c.source)} <small>{c.duration.toFixed(1)}s</small></span>
+              <span className="studio-video-grip" data-edge="end" title="Arraste para aparar o fim"
+                onPointerDown={e=>startVideoTrim(e,c.id,'end')} onPointerMove={moveVideoTrim} onPointerUp={endVideoTrim} onPointerCancel={endVideoTrim}/>
+            </div>)}</div></div>
           <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=>timelineBlock('caption',c.id,c.text,c.start,c.end))}</div></div>
           <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=>timelineBlock('asset',a.id,mediaName(a.source),a.start,a.end))}</div></div>
           <div className="studio-track"><span>Voz/Áudio</span><div className="studio-track-overlay studio-audio-timeline">{(project.audioTracks??[]).map(a=>timelineBlock('audio',a.id,mediaName(a.source),a.offset,a.offset+a.end-a.start))}</div></div>
