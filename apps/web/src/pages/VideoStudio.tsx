@@ -494,6 +494,30 @@ export function VideoStudio() {
     suppressClipClick.current=true;
     window.setTimeout(()=>{suppressClipClick.current=false},0);
   };
+  const keepSide=(side:'before'|'after')=>{
+    if(!project||!selectedClip)return;
+    const index=project.clips.findIndex(c=>c.id===selectedClip.id);
+    const begin=project.clips.slice(0,index).reduce((n,c)=>n+c.duration,0);
+    const offset=playhead-begin,c=selectedClip;
+    if(offset<=.05||offset>=c.duration-.05)
+      return setError('Coloque o cursor dentro do clipe para escolher qual lado manter.');
+    const cut=+(c.start+offset).toFixed(3);
+    const kept=side==='before'?{...c,end:cut,duration:cut-c.start}:
+      {...c,start:cut,duration:c.end-cut};
+    const baseline={...project,clips:project.clips.map(x=>x.id===c.id?kept:x)};
+    const from=side==='before'?begin+offset:begin;
+    const to=side==='before'?begin+c.duration:begin+offset;
+    mutate(()=>rippleDelete(baseline,from,to));
+    seek(Math.min(from,total-(to-from)));
+  };
+  const duplicateClip=()=>{
+    if(!project||!selectedClip)return;
+    const index=project.clips.findIndex(c=>c.id===selectedClip.id);
+    const at=project.clips.slice(0,index+1).reduce((n,c)=>n+c.duration,0);
+    const copy={...selectedClip,id:ident()};
+    mutate(p=>rippleInsert({...p,clips:[...p.clips.slice(0,index+1),copy,...p.clips.slice(index+1)]},at,copy.duration));
+    setSelected(copy.id);
+  };
   const reorder=(id:string,target:string)=>{
     if(id===target)return;
     mutate(p=>{
@@ -815,7 +839,11 @@ export function VideoStudio() {
             <label>Início (seg) <input type="number" step=".1" value={selectedClip.start} onChange={e=>updateClip('start',e.target.value)}/></label>
             <label>Fim (seg) <input type="number" step=".1" value={selectedClip.end} onChange={e=>updateClip('end',e.target.value)}/></label>
             <label>Volume <input type="number" min="0" max="2" step=".1" value={selectedClip.volume??1} onChange={e=>updateClip('volume',e.target.value)}/></label>
-            <button onClick={()=>split()}>✂ Dividir no cursor</button><button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
+            <button onClick={()=>split()}>✂ Dividir no cursor</button>
+            <button onClick={()=>keepSide('before')} title="Manter o começo do clipe até o cursor">Manter antes do cursor</button>
+            <button onClick={()=>keepSide('after')} title="Manter apenas o trecho após o cursor">Manter depois do cursor</button>
+            <button onClick={duplicateClip}>Duplicar clipe</button>
+            <button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
           </div>}
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
           {tab==='captions'&&<div className="studio-fields"><button onClick={addCaption}>+ Adicionar legenda</button>{selectedCaption&&<>
