@@ -189,7 +189,10 @@ export class VideoStudioService {
     const key=pid+':'+id;
     if(transcriptions.get(key)?.state==='running') throw new ConflictException('Transcrição já em andamento');
     const done=status.get(key)?.result;
-    if(done?.state!=='done'||!done.output) throw new BadRequestException('Exporte primeiro o vídeo com a narração para gerar legendas por palavra');
+    const currentProject=await this.get(pid,id);
+    const direct=currentProject.clips.length===1&&!currentProject.soundtrack&&!(currentProject.audioTracks?.length);
+    if(!direct&&(done?.state!=='done'||!done.output))
+      throw new BadRequestException('Para vídeos com múltiplas cenas ou faixas, exporte a montagem antes de alinhar a narração');
     if(script!==undefined&&(typeof script!=='string'||script.length>10000))
       throw new BadRequestException('Roteiro inválido');
     transcriptions.set(key,{state:'running'});
@@ -197,7 +200,18 @@ export class VideoStudioService {
       const temp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-caption-'));
       try {
         const {media,studio}=await this.dir(pid);
-        const input=this.src(media,done.output!);
+        let input:string;
+        if(direct){
+          const clip=currentProject.clips[0];
+          const src=this.src(media,clip.source);
+          const cropped=path.join(temp,'source-audio.wav');
+          const prep=spawnSync('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',
+            '-ss',String(clip.start),'-i',src,'-t',String(clip.duration),
+            '-vn','-ar','16000','-ac','1','-c:a','pcm_s16le',cropped],
+            {timeout:120000,encoding:'utf8'});
+          if(prep.status!==0)throw new Error('Não foi possível extrair a narração: '+String(prep.stderr).slice(-250));
+          input=cropped;
+        }else input=this.src(media,done.output!);
         const alignment=path.join(temp,'aligned.json');
         const cmd=path.resolve(__dirname,'../../bin/nivoo-alinhar-narracao');
         const args=[cmd,'--video',input,'--saida',alignment];
