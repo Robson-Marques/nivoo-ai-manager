@@ -46,6 +46,8 @@ const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:s
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 const aiStates=new Map<string,AiState>();
+type ZoneState={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
+const zoneStates=new Map<string,ZoneState>();
 function parseAiJson(text:string):unknown {
   const clean=text.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
   try{return JSON.parse(clean)}catch{
@@ -258,6 +260,64 @@ export class VideoStudioService {
       }finally{fs.rmSync(temp,{recursive:true,force:true});}
     });
     return {state:'running'};
+  }
+
+  zoneStatus(pid:string,id:string):ZoneState {
+    return zoneStates.get(pid+':'+id)??{state:'idle'};
+  }
+
+  async detectZones(pid:string,id:string) {
+    const {media}=await this.dir(pid);
+    const p=this.validate(await this.get(pid,id),media);
+    if(!p.clips.length)throw new BadRequestException('Adicione vídeo à timeline');
+    const key=pid+':'+id;
+    if(zoneStates.get(key)?.state==='running')throw new ConflictException('Detecção já em andamento');
+    zoneStates.set(key,{state:'running'});
+    setImmediate(async()=>{
+      const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-faces-'));
+      try{
+        let offset=0;const regions:ProtectedZone[]=[];
+        for(const clip of p.clips){
+          const destination=path.join(dir,clip.id+'.json');
+          await new Promise<void>((resolve,reject)=>{
+            const child=spawn('python3',[
+              path.resolve(__dirname,'../../bin/nivoo-detectar-zonas'),
+              '--video',this.src(media,clip.source),
+              '--inicio',String(clip.start),'--duracao',String(clip.duration),
+              '--offset',String(offset),'--saida',destination
+            ],{stdio:['ignore','ignore','pipe']});
+            let err='';
+            const timer=setTimeout(()=>child.kill('SIGTERM'),180000);
+            child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1000)});
+            child.on('error',e=>{clearTimeout(timer);reject(e)});
+            child.on('close',code=>{clearTimeout(timer);code===0?resolve():reject(new Error(err||'Falha no OpenCV'))});
+          });
+          const data=JSON.parse(fs.readFileSync(destination,'utf8'));
+          if(Array.isArray(data.regions)){
+            for(const z of data.regions){
+              if(regions.length>=50)break;
+              regions.push({id:'face-'+randomUUID(),...z});
+            }
+          }
+          offset+=clip.duration;
+          if(regions.length>=50)break;
+        }
+        zoneStates.set(key,{state:'draft',regions,warning:'Detecção por amostragem: revisar rostos, logos e textos que possam não ter sido detectados.'});
+      }catch(e:any){
+        zoneStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
+      }finally{fs.rmSync(dir,{recursive:true,force:true})}
+    });
+    return {state:'running'};
+  }
+
+  async applyZones(pid:string,id:string,updatedAt:string) {
+    const state=this.zoneStatus(pid,id);
+    if(state.state!=='draft'||!state.regions)throw new BadRequestException('Nenhuma proposta de regiões para aplicar');
+    const p=await this.get(pid,id);
+    if(p.updatedAt!==updatedAt)throw new ConflictException('A timeline mudou; execute a análise novamente');
+    const saved=await this.save(pid,id,{...p,protectedZones:[...(p.protectedZones??[]),...state.regions]});
+    zoneStates.delete(pid+':'+id);
+    return saved;
   }
 
   aiStatus(pid:string,id:string):AiState {
