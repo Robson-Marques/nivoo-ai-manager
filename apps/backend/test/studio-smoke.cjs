@@ -28,7 +28,7 @@ async function main(){
     let p=await studio.create('any-project','Teste de edição');
     assert.equal((await studio.list('any-project')).length,1);
     p.clips=[{id:'scene-01',source:'midia/entrada/demo.mp4',start:0,end:1.5,duration:1.5}];
-    p.captions=[{id:'text-01',text:'Olá, mundo!',start:.2,end:1.2,x:.5,y:.8,color:'#FFFFFF',fontSize:50,animation:'pop'}];
+    p.captions=[{id:'text-01',text:'Olá, mundo!',start:.2,end:1.2,x:.5,y:.8,color:'#FFFFFF',fontSize:50,animation:'karaoke',words:[{text:'Olá,',start:.2,end:.62},{text:'mundo!',start:.66,end:1.1}]}];
     p.soundtrack={source:'midia/entrada/demo.mp4',volume:.15};
     p.audioTracks=[{id:'voice-01',source:'midia/entrada/demo.mp4',start:0,end:1,offset:.25,volume:.5}];
     p.assets=[{id:'image-01',source:'midia/entrada/overlay.png',start:.3,end:1.1,x:.58,y:.2,w:.2,h:.2}];
