@@ -10,6 +10,8 @@ type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number };
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
+type AiElement={kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
+type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -25,6 +27,7 @@ export function VideoStudio() {
   const [tab,setTab]=useState<'clips'|'captions'|'assets'|'audio'|'protected'>('clips');
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
+  const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
   const [busy,setBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
@@ -67,7 +70,7 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>('/projects/'+pid+'/studio/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');undoStack.current=[];redoStack.current=[];
+    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
@@ -90,6 +93,28 @@ export function VideoStudio() {
     try{
       const r=await api<{state:string}>('/projects/'+pid+'/studio/'+project.id+'/captions/auto','POST',{script:texto});
       setAligning(r);setNotice('Alinhamento local iniciado.');
+    }catch(e:any){setError(e.message)}
+  };
+  useEffect(()=>{
+    if(!project||aiDraft.state!=='running')return;
+    const timer=setInterval(async()=>{
+      try{setAiDraft(await api<AiResult>('/projects/'+pid+'/studio/'+project.id+'/ai/plan'));}
+      catch(e:any){setAiDraft({state:'failed',error:e.message})}
+    },1800);
+    return()=>clearInterval(timer);
+  },[pid,project?.id,aiDraft.state]);
+  const planAi=async()=>{
+    if(!project||dirty)return setError('Salve o projeto antes de solicitar a análise de IA.');
+    const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
+    if(brief===null)return;
+    try{setAiDraft(await api<AiResult>('/projects/'+pid+'/studio/'+project.id+'/ai/plan','POST',{brief}));setError('');}
+    catch(e:any){setError(e.message)}
+  };
+  const applyAi=async()=>{
+    if(!project||dirty)return setError('Salve o projeto antes de aceitar a proposta.');
+    try{
+      const p=await api<Studio>('/projects/'+pid+'/studio/'+project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
+      setProject(p);setAiDraft({state:'idle'});setNotice('Composição sugerida aplicada à timeline. Você pode ajustar cada elemento.');setSelected(null);
     }catch(e:any){setError(e.message)}
   };
   const newProject=async()=>{
@@ -362,6 +387,17 @@ export function VideoStudio() {
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
             <button disabled={aligning.state==='running'||running.state!=='done'} onClick={gerarLegendas}>Gerar legendas pela narração</button>
+            <button disabled={aiDraft.state==='running'||dirty||!project.captions.length} onClick={planAi}>✦ Criar design com IA</button>
+            {aiDraft.state==='running'&&<p>Analisando narração e componentes disponíveis…</p>}
+            {aiDraft.state==='failed'&&<p className="studio-error">IA: {aiDraft.error}</p>}
+            {aiDraft.state==='draft'&&<div className="studio-ai-draft">
+              <strong>Proposta pronta para revisão</strong>
+              <p>{aiDraft.explanation}</p>
+              <p>{aiDraft.elements?.length||0} elementos propostos</p>
+              <ul>{aiDraft.elements?.slice(0,12).map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.asset} ({fmt(el.start)}–{fmt(el.end)})</li>)}</ul>
+              <button onClick={applyAi}>Aplicar à timeline</button>
+              <button onClick={()=>setAiDraft({state:'idle'})}>Descartar prévia</button>
+            </div>}
             <p>Para transcrever e sincronizar palavras, exporte primeiro o vídeo montado. WhisperX/faster-whisper devem estar instalados localmente.</p>
             <p>O agente poderá analisar a narração e sugerir efeitos dinâmicos. O editor manual já funciona sem IA.</p>
             <button onClick={()=>{navigator.clipboard?.writeText(chatInstruction).then(()=>setNotice('Pedido copiado. Abra a conversa do projeto e cole o pedido.')).catch(()=>setNotice(chatInstruction))}}>Copiar pedido para o agente</button>
