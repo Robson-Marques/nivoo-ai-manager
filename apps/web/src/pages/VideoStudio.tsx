@@ -192,6 +192,25 @@ export function VideoStudio() {
   const mediaVideo=media.filter(m=>/\.(mp4|mov|webm|mkv|m4v)$/i.test(m.caminho));
   const mediaAudio=media.filter(m=>/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(m.caminho));
   const mediaImage=media.filter(m=>/\.(png|jpg|jpeg|webp)$/i.test(m.caminho));
+  const removeMedia=async(m:Media)=>{
+    if(m.pasta!=='entrada')return setError('Somente arquivos enviados podem ser excluídos desta biblioteca.');
+    if(dirty)return setError('Salve ou descarte as alterações da edição antes de excluir mídias.');
+    const fileId=m.caminho.split('/').pop();
+    if(!fileId)return;
+    const used=Boolean(project?.clips.some(c=>c.source===m.caminho)||
+      project?.assets.some(a=>a.source===m.caminho)||
+      project?.audioTracks?.some(a=>a.source===m.caminho)||
+      project?.soundtrack?.source===m.caminho);
+    if(used)return setError('Este arquivo está na edição atual. Remova-o da timeline e salve antes de excluir.');
+    if(!window.confirm('Excluir definitivamente "'+m.nome+'" do armazenamento do projeto? Essa ação não pode ser desfeita.'))return;
+    setBusy(true);setError('');
+    try {
+      const response=await api<{videos:Media[]}>('/projects/'+pid+'/videos/'+encodeURIComponent(fileId),'DELETE');
+      setMedia(response.videos);
+      setNotice('Vídeo excluído da biblioteca.');
+    } catch(e:any){setError(e.message)}
+    finally{setBusy(false)}
+  };
   const append=(m:Media)=>{
     if(!project)return;
     // Duracão real obtida pelo player de metadados antes de inserir.
@@ -405,9 +424,18 @@ export function VideoStudio() {
           <h3>Biblioteca</h3>
           <label className="studio-upload">+ Importar mídias<input ref={inputRef} type="file" multiple hidden accept="video/*,audio/*,image/png,image/jpeg,image/webp" onChange={e=>upload(e.target.files)} /></label>
           {busy&&progress>0&&<small>Enviando {progress}%</small>}
-          <h4>Vídeos</h4>{mediaVideo.map(m=><button title={m.nome} key={m.caminho} onClick={()=>append(m)}>＋ {m.nome}</button>)}
+          <h4>Vídeos</h4>{mediaVideo.map(m=><div className="studio-media-row" key={m.caminho}>
+            <button className="studio-media-add" title={'Adicionar '+m.nome} onClick={()=>append(m)}>＋ <span>{m.nome}</span></button>
+            {m.pasta==='entrada'&&<button className="studio-media-delete" disabled={busy} title={'Excluir '+m.nome+' do projeto'} aria-label={'Excluir vídeo '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
+          </div>)}
           <h4>Imagens</h4>{mediaImage.map(m=><button title={m.nome} key={m.caminho} onClick={()=>addImage(m)}>＋ {m.nome}</button>)}
-          <h4>Áudios</h4><small className="studio-audio-help">Escolha apenas um destino para cada arquivo: Voz ou Trilha.</small>{mediaAudio.map(m=><div key={m.caminho} className="studio-audio-source"><span title={m.nome}>{m.nome}</span><button disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este arquivo já está como trilha: remova a trilha antes de adicioná-lo como voz':'Adicionar como faixa de voz independente'}>＋ Voz</button><button onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Usar como trilha musical, sem duplicar na faixa de voz">♫ Trilha</button></div>)}
+          <h4>Áudios</h4><small className="studio-audio-help">Escolha Voz ou Trilha para cada áudio.</small>{mediaAudio.map(m=><div key={m.caminho} className="studio-audio-source">
+            <span className="studio-audio-name" title={m.nome}>{m.nome}</span>
+            <div className="studio-audio-actions">
+              <button disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar na faixa de voz'}>＋ Voz</button>
+              <button onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Usar como trilha musical">♫ Trilha</button>
+            </div>
+          </div>)}
           <h4>Edições</h4>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}
         </aside>
         <main className="studio-preview-panel">

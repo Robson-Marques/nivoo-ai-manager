@@ -372,7 +372,28 @@ export class ProjectsService {
   }
 
   async apagarVideo(id: string, videoId: string) {
-    if (!apagarVideoEnviado(await this.midiaDir(id), videoId)) throw new NotFoundException('Vídeo não encontrado');
+    const media = await this.midiaDir(id);
+    const reference = 'midia/entrada/' + videoId;
+    // Não permitir excluir arquivos referenciados em qualquer edição salva
+    // do projeto, incluindo edições que não estão abertas no navegador.
+    const studioDir = path.join(media, 'studio');
+    if (fs.existsSync(studioDir)) {
+      for (const name of fs.readdirSync(studioDir).filter(v => /^[a-f0-9-]{36}\.json$/i.test(v))) {
+        let document: any;
+        try {
+          document = JSON.parse(fs.readFileSync(path.join(studioDir, name), 'utf8'));
+        } catch {
+          throw new ConflictException('Não foi possível conferir as edições salvas; o arquivo foi preservado.');
+        }
+        if ((document.clips ?? []).some((c:any) => c.source === reference) ||
+            (document.assets ?? []).some((a:any) => a.source === reference) ||
+            (document.audioTracks ?? []).some((a:any) => a.source === reference) ||
+            document.soundtrack?.source === reference) {
+          throw new ConflictException('Arquivo em uso por uma edição do Nivoo Studio. Remova da timeline e salve antes de excluir.');
+        }
+      }
+    }
+    if (!apagarVideoEnviado(media, videoId)) throw new NotFoundException('Vídeo não encontrado');
     return this.videos(id);
   }
 
