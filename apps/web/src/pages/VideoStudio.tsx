@@ -310,14 +310,21 @@ export function VideoStudio() {
       if(key==='b'){setEditMode('blade');return;}
       if(key==='v'){setEditMode('select');return;}
       if(e.key==='Delete'||e.key==='Backspace'){if(selected){e.preventDefault();remove();}return;}
-      if(e.code==='Space'){e.preventDefault();if(!player.current)return;
-        if(player.current.paused){playing.current=true;player.current.play().catch(()=>undefined);syncAudio(playhead,true);}
-        else {player.current.pause();syncAudio(playhead,false);}
-      }
+      if(e.code==='Space'){e.preventDefault();togglePlayback();}
     };
     document.addEventListener('keydown',listener);
     return()=>document.removeEventListener('keydown',listener);
   });
+  // Proteção contra fechamento/atualização com cortes não salvos.
+  useEffect(()=>{
+    const warn=(e:BeforeUnloadEvent)=>{
+      if(!dirty)return;
+      e.preventDefault();
+      e.returnValue='';
+    };
+    window.addEventListener('beforeunload',warn);
+    return()=>window.removeEventListener('beforeunload',warn);
+  },[dirty]);
   const save=async()=>{
     if(!project)return;
     setBusy(true);setError('');
@@ -781,29 +788,61 @@ export function VideoStudio() {
     const same=active && target>=active.begin && target<active.begin+active.clip.duration;
     if(same && player.current) player.current.currentTime=active.clip.start+(target-active.begin);
     setPlayhead(target);
-    syncAudio(target,Boolean(player.current&&!player.current.paused));
+    syncAudio(target,playing.current);
   };
   const playing=useRef(false);
+  const togglePlayback=()=>{
+    if(!player.current)return;
+    if(playing.current){
+      playing.current=false;
+      player.current.pause();
+      syncAudio(playhead,false);
+    }else{
+      playing.current=true;
+      player.current.play().then(()=>syncAudio(playhead,true)).catch(()=>{
+        playing.current=false;setError('Não foi possível reproduzir este vídeo.');
+      });
+    }
+  };
   const onVideoTime=()=>{
     if(!active||!player.current)return;
     const pos=Math.max(0,player.current.currentTime-active.clip.start);
-    syncAudio(active.begin+pos,!player.current.paused);
-    if(pos>=active.clip.duration-.06 && active.begin+active.clip.duration<total-.05) {
-      const continuePlay=!player.current.paused;
-      playing.current=continuePlay;
-      setPlayhead(Math.min(total,active.begin+active.clip.duration+.002));
-    } else setPlayhead(Math.min(total,active.begin+pos));
+    const nextTime=active.begin+Math.min(pos,active.clip.duration);
+    if(pos>=active.clip.duration-.035){
+      if(active.begin+active.clip.duration<total-.01){
+        // Avança mesmo que o clipe seja outro corte do MESMO arquivo.
+        setPlayhead(Math.min(total,active.begin+active.clip.duration+.002));
+      }else{
+        playing.current=false;
+        player.current.pause();
+        syncAudio(total,false);
+        setPlayhead(total);
+      }
+    } else {
+      setPlayhead(Math.min(total,nextTime));
+      syncAudio(nextTime,playing.current&&!player.current.paused);
+    }
   };
   const onVideoEnded=()=>{
-    if(active && playhead<total-.05) seek(active.begin+active.clip.duration+.005);
-    else playing.current=false;
+    if(active&&active.begin+active.clip.duration<total-.01){
+      const next=active.begin+active.clip.duration+.002;
+      setPlayhead(next);
+    }else{
+      playing.current=false;
+      syncAudio(total,false);
+      setPlayhead(total);
+    }
   };
   useEffect(()=>{
     if(!active||!player.current)return;
     const target=active.clip.start+active.offset;
     if(Math.abs(player.current.currentTime-target)>.20)player.current.currentTime=target;
     player.current.volume=Math.max(0,Math.min(1,active.clip.volume??1));
-    if(playing.current&&player.current.paused) player.current.play().catch(()=>undefined);
+    if(playing.current){
+      player.current.play().then(()=>syncAudio(active.begin+active.offset,true)).catch(()=>{
+        playing.current=false;syncAudio(active.begin+active.offset,false);
+      });
+    }else syncAudio(active.begin+active.offset,false);
   },[active?.clip.id,active?.offset===0]);
   const chatInstruction='Analise a narração do vídeo e crie legendas cinéticas e imagens de apoio no Nivoo Studio. Não cubra rostos, logos ou textos importantes. Utilize o vídeo e a timeline salvos no projeto.';
   const activeCaptions=project?.captions.filter(c=>c.start<=playhead&&c.end>playhead)||[];
@@ -863,7 +902,7 @@ export function VideoStudio() {
           <div className="studio-canvas" ref={canvasRef}>
             {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source,standalone)} loop preload="metadata"/>}
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source,standalone)} preload="metadata"/>)}
-            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
+            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{if(!playing.current)syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} onPointerDown={e=>beginDrag(e,'zone',z)} onPointerMove={moveDrag} onPointerUp={endDrag} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
             {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source,standalone)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {aiDraft.state==='draft'&&(aiDraft.elements??[]).filter(el=>el.start<=playhead&&el.end>playhead).map((el,i)=>
@@ -877,7 +916,7 @@ export function VideoStudio() {
           </div>
           <div className="studio-play-controls">
             <button onClick={()=>seek(playhead-5)}>−5s</button>
-            <button onClick={()=>{if(!player.current)return;if(player.current.paused){playing.current=true;player.current.play().catch(()=>undefined);syncAudio(playhead,true);}else{player.current.pause();syncAudio(playhead,false);}}}>▶ / ❚❚</button>
+            <button onClick={togglePlayback} title="Reproduzir ou pausar (Espaço)">▶ / ❚❚</button>
             <button onClick={()=>seek(playhead+5)}>+5s</button>
             <span>{fmt(playhead)} / {fmt(total)}</span>
           </div>
