@@ -355,3 +355,22 @@
 .studio-video-caption{position:relative;z-index:2;padding:2px 4px;width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:linear-gradient(transparent,#08111ed9);font-size:11px;text-shadow:0 1px 2px black}
 .studio-video-caption small{margin-left:4px;font-size:10px}
 .studio-timeline:focus-within{outline-offset:-2px}
+
+/* Estação de trabalho: timeline legível, com rolagem própria e altura ajustável. */
+.studio-timeline{
+  flex:0 0 auto;height:clamp(260px,38vh,480px);min-height:220px;max-height:63vh;
+  resize:vertical;overflow:hidden;position:relative;
+}
+.studio-timeline-head{align-items:center;gap:8px;flex-wrap:wrap}
+.studio-timeline-head h3{white-space:nowrap}
+.studio-unsaved{color:#f59e0b!important;font-size:10px!important;font-weight:600;opacity:1!important}
+.studio-tracks-viewport{flex:1;min-height:0;overflow:auto}
+.studio-track:has(.studio-audio-timeline){height:40px;min-height:40px}
+.studio-track .studio-audio-timeline{height:40px;min-height:40px}
+.studio-track:has(.studio-video-clips){height:48px;min-height:48px}
+.studio-time-ruler{position:sticky;top:0;z-index:5}
+@media(max-width:740px){
+  .studio-timeline{height:340px;min-height:260px;max-height:65vh}
+  .studio-edit-tools{width:100%;justify-content:flex-start}
+  .studio-edit-tools label{margin-left:auto}
+}

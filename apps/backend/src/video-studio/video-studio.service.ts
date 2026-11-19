@@ -32,7 +32,7 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; revision?:string };
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; revision?:string; stage?:string };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
 const studioPython = () => process.env.NIVOO_STUDIO_PYTHON?.trim() || 'python3';
@@ -532,7 +532,7 @@ export class VideoStudioService {
     if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    const result:Status={state:'running',started:new Date().toISOString(),revision:p.updatedAt};
+    const result:Status={state:'running',started:new Date().toISOString(),revision:p.updatedAt,stage:'Preparando o vídeo'};
     status.set(key,{result});
     // Executar após devolver resposta HTTP. O processo é externo e não bloqueia o event loop.
     setImmediate(()=>this.execute(media,p,key).catch(e=>{
@@ -579,6 +579,7 @@ export class VideoStudioService {
       let current=0;
       const segments:string[]=[];
       for(const [i,c] of p.clips.entries()) {
+        entry.result.stage=`Processando clipe ${i+1} de ${p.clips.length}`;
         const source=this.src(media,c.source);
         const info=probe(source);
         if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
@@ -594,12 +595,14 @@ export class VideoStudioService {
           '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
         segments.push(file); current+=duration;
       }
+      entry.result.stage='Juntando os trechos de vídeo';
       const concat=path.join(tmp,'concat.txt');
       fs.writeFileSync(concat,segments.map(x=>`file '${x}'`).join('\n'));
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
       let audioBase=joined;
       if(p.soundtrack||(p.audioTracks?.length??0)>0) {
+        entry.result.stage='Mixando narrações e música';
         const mix=path.join(tmp,'mix.mp4');
         const inputs:string[]=['-i',joined], f:string[]=[];
         const outputs:string[]=['[0:a]'];
@@ -627,6 +630,7 @@ export class VideoStudioService {
           '-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),mix]);
         audioBase=mix;
       }
+      entry.result.stage='Preparando legendas e efeitos';
       const ass=path.join(tmp,'captions.ass');
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
       const lines=p.captions.map(c=>{
@@ -663,11 +667,12 @@ export class VideoStudioService {
       filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
       const output=path.join(media,'saida','studio-'+p.id+'-'+Date.now()+'.mp4');
       fs.mkdirSync(path.dirname(output),{recursive:true});
+      entry.result.stage='Finalizando MP4';
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
         '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
       if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
       if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
-      entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output)};
+      entry.result={...entry.result,state:'done',stage:'Exportação concluída',output:'midia/saida/'+path.basename(output)};
     } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
   }
 }

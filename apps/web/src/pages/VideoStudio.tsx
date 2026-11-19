@@ -15,7 +15,7 @@ type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Capti
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
-type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
+type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;stage?:string };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
@@ -883,7 +883,7 @@ export function VideoStudio() {
     {notice&&<p className="studio-notice">{notice}</p>}
     {aligning.state==='failed'&&<p className="studio-error">Legendas automáticas: {aligning.error}</p>}
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
-    {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
+    {running.state==='running'&&<p className="studio-notice" role="status">⏳ {running.stage||'Preparando renderização'} — você pode continuar usando a interface.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
     {!project?<div className="studio-start"><h3>Suas edições</h3>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}<button onClick={newProject}>Criar primeira edição</button></div>:
@@ -995,7 +995,7 @@ export function VideoStudio() {
         </aside>
       </div>
       <div className="studio-timeline">
-        <div className="studio-timeline-head"><h3>Linha do tempo · {fmt(total)}</h3>
+        <div className="studio-timeline-head"><h3>Linha do tempo · {fmt(total)} {dirty&&<span className="studio-unsaved">● Não salvo</span>}</h3>
           <div className="studio-edit-tools">
             <button className={editMode==='select'?'on':''} title="Selecionar e mover clipes (V)" onClick={()=>setEditMode('select')}>↖ Selecionar</button>
             <button className={editMode==='blade'?'on':''} title="Clique no clipe para dividir no ponto escolhido (B)" onClick={()=>setEditMode('blade')}>✂ Cortar</button>
