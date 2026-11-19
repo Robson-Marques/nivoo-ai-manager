@@ -52,7 +52,11 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
   return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, quem]));
 }
 
-const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 600_000];
+// Limite material do Nivoo: a IA não pode converter uma etapa simples
+// em dezenas de sessões, mesmo que as tentativas não sejam classificadas como FALHA.
+const MAX_TOTAL_EXECUTIONS_PER_STEP = 3;
+const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
+const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
@@ -165,6 +169,16 @@ export class StepExecutorService {
       if (spent.gte(job.project.maxCostUsd)) {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO_PROJETO, `custo do projeto US$ ${spent} ≥ orçamento do projeto US$ ${job.project.maxCostUsd}`);
       }
+    }
+    // HARD STOP: conta todas as sessões iniciadas, não apenas FALHA. Um
+    // resultado SESSAO_ENCERRADA, uma verificação falha ou troca de IA também
+    // consome uma execução. Não reiniciar contagem com resumeFromAttempt.
+    const totalExecutions = await this.prisma.attempt.count({
+      where: { stepId: step.id, status: { not: 'INTERROMPIDA' } },
+    });
+    if (totalExecutions >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_SESSOES,
+        `A etapa já executou ${totalExecutions} vezes (limite rígido: ${MAX_TOTAL_EXECUTIONS_PER_STEP}). O Nivoo interrompeu novas sessões para evitar repetição e gasto de tokens. Consulte as tentativas e corrija a causa antes de criar um novo trabalho.`);
     }
     const failures = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } } });
     if (failures >= job.maxAttemptsPerStep) {
@@ -311,7 +325,12 @@ export class StepExecutorService {
         timeoutMs,
         signal,
         // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
-        options: { model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }) },
+        options: {
+          model: projectModel(job.project, providerId),
+          ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }),
+          // Um plano não pode sobrescrever a trava de turnos do executor.
+          ...(isAi ? { maxTurns: Math.min(20,Math.max(1,Number(((step.providerOptions ?? {}) as { maxTurns?:number }).maxTurns ?? 20))) } : {}),
+        },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
         ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
         onSpawn: (pid) => {
@@ -628,6 +647,15 @@ export class StepExecutorService {
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
+    // Sessões que terminaram por timeout/limite de turnos são execuções reais:
+    // contar também falhas e indisponibilidade, sem abrir uma quarta sessão.
+    const total = await this.prisma.attempt.count({
+      where: { stepId: step.id, status: { not: 'INTERROMPIDA' } },
+    });
+    if (total >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_SESSOES,
+        `Limite de ${MAX_TOTAL_EXECUTIONS_PER_STEP} execuções da etapa alcançado. Progresso salvo; não iniciarei outra sessão automaticamente. Analise o erro e crie um novo plano corrigido.`);
+    }
     const recent = sessions.slice(0, job.repetitionWindow);
     // Avanço = arquivo do trabalho alterado OU progresso anotado pela IA (tarefas longas de leitura e análise
     // passam sessões inteiras lendo antes de escrever). O limite de sessões por etapa segura o resto.
@@ -861,6 +889,10 @@ export class StepExecutorService {
       return 'CONTINUA';
     }
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
+    if (task.resourceWaits >= MAX_RESOURCE_RECHECKS_PER_STEP || waits >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
+        `O recurso/conector continuou indisponível após ${Math.max(task.resourceWaits,waits)} verificações. Interrompido para evitar loop. Resolva a conexão ou ferramenta antes de iniciar outro trabalho: ${detail.slice(0,550)}`);
+    }
     const delay = RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);

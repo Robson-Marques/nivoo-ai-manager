@@ -182,7 +182,7 @@ export class PlannerService {
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
-          maxTurns: Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 40),
+          maxTurns: Math.min(20,Math.max(1,Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 20))),
           model: projectModel(project, providerId),
           // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
@@ -299,6 +299,23 @@ export class PlannerService {
    */
   private async seguirSozinho(projectId: string, conversationId: string, messageId: string, continuacao: boolean): Promise<void> {
     if (!continuacao) return;
+    // Autocorreções de trabalhos que já falharam são sempre manuais: o
+    // assistente apresenta o diagnóstico, mas não dispara um novo job sem Fazer.
+    const mensagem = await this.prisma.conversationMessage.findUnique({
+      where: { id: messageId }, select: { conversationId: true },
+    });
+    if (mensagem?.conversationId) {
+      const ultimaEntrega = await this.prisma.conversationMessage.findFirst({
+        where: { conversationId: mensagem.conversationId, kind: 'entrega', jobId: { not: null } },
+        orderBy: { createdAt: 'desc' }, select: { jobId: true },
+      });
+      if (ultimaEntrega?.jobId) {
+        const jobAnterior = await this.prisma.job.findUnique({
+          where: { id: ultimaEntrega.jobId }, select: { status: true },
+        });
+        if (jobAnterior?.status === 'BLOQUEADO' || jobAnterior?.status === 'FALHOU') return;
+      }
+    }
     const projeto = await this.prisma.project.findUnique({ where: { id: projectId }, select: { seguirSozinho: true } });
     if (!projeto?.seguirSozinho) return;
     // Só continua o que o usuário já pediu: precisa existir um plano aprovado por ele nesta conversa.
@@ -370,9 +387,10 @@ export class PlannerService {
         `Últimas linhas do log:\n${logs.reverse().map((l) => `${l.level} ${l.source}: ${l.message.replace(/\s+/g, ' ').slice(0, 220)}`).join('\n')}`,
         '',
         'SUA TAREFA AGORA (auto-correção): explique ao usuário, em uma frase simples, o que deu errado; e PROPONHA UM PLANO que',
-        'conserta a causa (um rascunho de trabalho novo, como qualquer plano), ajustando o que falhou. Como é a continuação de',
-        'algo que o usuário já aprovou, marque o plano com "continuacao": true (assim ele começa sozinho se o usuário ativou',
-        '"seguir sozinho"). Se o erro for de algo que só o usuário resolve (falta um arquivo, uma conexão, uma decisão), NÃO',
+        'conserta a causa (um rascunho de trabalho novo, como qualquer plano), ajustando o que falhou.',
+        'ATENÇÃO: não marque "continuacao": true após falha/bloqueio e não inicie nova execução automática.',
+        'Apresente o diagnóstico e aguarde o usuário clicar Fazer antes de gastar tokens novamente.',
+        'Se o erro for de algo que só o usuário resolve (falta um arquivo, uma conexão, uma decisão), NÃO',
         'proponha plano: diga o que você precisa dele.',
         'Se este MESMO erro já apareceu numa tentativa de correção anterior (veja a conversa), NÃO repita o mesmo plano: tente',
         'uma abordagem diferente ou, se não houver, peça ajuda ao usuário.',
