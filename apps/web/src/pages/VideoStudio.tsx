@@ -998,10 +998,10 @@ export function VideoStudio() {
               {m.pasta==='entrada'&&<button className="studio-audio-delete" disabled={busy} title={'Excluir '+m.nome+' da biblioteca'} aria-label={'Excluir áudio '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
             </div>
             <div className="studio-audio-actions">
-              <button title={previewing===m.caminho?'Parar prévia do áudio':'Ouvir áudio'} onClick={()=>previewAudio(m)}>{previewing===m.caminho?'■ Parar':'▶ Ouvir'}</button>
-              {standalone&&m.roteiro&&<button title="Carregar texto original da narração" onClick={()=>loadScript(m)}>✎ Roteiro</button>}
-              <button disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar na faixa de voz'}>＋ Voz</button>
-              <button onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Usar como trilha musical">♫ Trilha</button>
+              <button className="studio-audio-icon-button" type="button" aria-label={previewing===m.caminho?'Parar áudio '+m.nome:'Ouvir áudio '+m.nome} title={previewing===m.caminho?'Parar prévia':'Ouvir áudio'} onClick={()=>previewAudio(m)}>{previewing===m.caminho?'■':'▶'}</button>
+              {standalone&&m.roteiro&&<button className="studio-audio-icon-button" type="button" aria-label={'Carregar roteiro de '+m.nome} title="Carregar roteiro" onClick={()=>loadScript(m)}>✎</button>}
+              <button className="studio-audio-icon-button" type="button" aria-label={'Adicionar '+m.nome+' à faixa de voz'} disabled={project.soundtrack?.source===m.caminho} onClick={()=>addAudio(m)} title={project.soundtrack?.source===m.caminho?'Este áudio já é uma trilha':'Adicionar à voz'}>🎙</button>
+              <button className="studio-audio-icon-button" type="button" aria-label={'Usar '+m.nome+' como trilha musical'} onClick={()=>{mutate(p=>({...p,audioTracks:(p.audioTracks??[]).filter(a=>a.source!==m.caminho),soundtrack:{source:m.caminho,volume:.24}}));setSelected(null);setTab('audio');}} title="Adicionar à trilha musical">♫</button>
             </div>
           </div>)}
           <h4>Edições</h4>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}
@@ -1119,11 +1119,11 @@ export function VideoStudio() {
             </div>)}</div></div>
           <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=>timelineBlock('caption',c.id,c.text,c.start,c.end))}</div></div>
           <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=>timelineBlock('asset',a.id,mediaName(a.source),a.start,a.end))}</div></div>
-          {audioLanes.map((lane,i)=><div className="studio-track" key={'voice-'+i}><span>Voz {i+1}</span>
+          {audioLanes.map((lane,i)=><div className="studio-track" key={'voice-'+i}><span className="studio-track-name" title={'Faixa de voz '+(i+1)}><span aria-hidden="true">🎙</span> Voz {i+1}</span>
             <div className="studio-track-overlay studio-audio-timeline">{lane.map(a=>timelineBlock('audio',a.id,mediaName(a.source),a.offset,a.offset+a.end-a.start))}</div>
           </div>)}
           <div className="studio-track"><span>Proteção</span><div className="studio-track-overlay studio-protection-timeline">{(project.protectedZones??[]).map(z=>timelineBlock('zone',z.id,z.label,z.start,z.end))}</div></div>
-          <div className="studio-track"><span>Trilha</span><div className="studio-track-audio">{project.soundtrack?mediaName(project.soundtrack.source):'Sem trilha'}</div></div>
+          <div className="studio-track"><span className="studio-track-name" title="Trilha musical"><span aria-hidden="true">♫</span> Trilha</span><div className="studio-track-audio">{project.soundtrack?mediaName(project.soundtrack.source):'Sem trilha'}</div></div>
         </div></div>
       </div>
     </>}

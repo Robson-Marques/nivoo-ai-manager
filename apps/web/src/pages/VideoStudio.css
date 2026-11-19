@@ -374,3 +374,45 @@
   .studio-edit-tools{width:100%;justify-content:flex-start}
   .studio-edit-tools label{margin-left:auto}
 }
+
+/* Ferramentas de áudio compactas: três ou quatro ícones por linha na biblioteca. */
+.studio-library .studio-audio-actions{
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:center;
+  gap:5px;
+  width:100%;
+  min-width:0;
+}
+.studio-library .studio-audio-actions .studio-audio-icon-button{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  flex:1 1 0;
+  width:auto;
+  min-width:0;
+  max-width:none;
+  height:27px;
+  margin:0;
+  padding:0 2px;
+  font-size:15px;
+  line-height:1;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.studio-library .studio-audio-actions .studio-audio-icon-button:disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+.studio-library .studio-audio-actions .studio-audio-icon-button:focus-visible{
+  outline:2px solid #facc15;
+  outline-offset:1px;
+}
+.studio-track-name{
+  display:flex;
+  align-items:center;
+  gap:3px;
+  white-space:nowrap;
+  overflow:hidden;
+}
+.studio-track-name>span{font-size:13px;flex:0 0 auto}
