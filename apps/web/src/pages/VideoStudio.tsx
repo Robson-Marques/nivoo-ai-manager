@@ -12,6 +12,7 @@ type Asset = { id:string; source:string; start:number; end:number; x:number; y:n
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
 type AiElement={kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+type ZoneProposal={state:'idle'|'running'|'draft'|'failed';error?:string;warning?:string;regions?:ProtectedZone[]};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -28,6 +29,7 @@ export function VideoStudio() {
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
+  const [zonesDraft,setZonesDraft]=useState<ZoneProposal>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
   const [busy,setBusy]=useState(false);
   const [dirty,setDirty]=useState(false);
@@ -70,7 +72,7 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>('/projects/'+pid+'/studio/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
+    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZonesDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
@@ -103,6 +105,26 @@ export function VideoStudio() {
     },1800);
     return()=>clearInterval(timer);
   },[pid,project?.id,aiDraft.state]);
+  useEffect(()=>{
+    if(!project||zonesDraft.state!=='running')return;
+    const timer=setInterval(async()=>{
+      try{setZonesDraft(await api<ZoneProposal>('/projects/'+pid+'/studio/'+project.id+'/zones/detect'))}
+      catch(e:any){setZonesDraft({state:'failed',error:e.message})}
+    },2000);
+    return()=>clearInterval(timer);
+  },[pid,project?.id,zonesDraft.state]);
+  const detectFaces=async()=>{
+    if(!project||dirty)return setError('Salve o projeto antes de detectar rostos.');
+    try{setZonesDraft(await api<ZoneProposal>('/projects/'+pid+'/studio/'+project.id+'/zones/detect','POST',{}));setError('');}
+    catch(e:any){setError(e.message)}
+  };
+  const applyFaces=async()=>{
+    if(!project||dirty)return setError('Salve o projeto antes de aceitar regiões.');
+    try{
+      const saved=await api<Studio>('/projects/'+pid+'/studio/'+project.id+'/zones/apply','POST',{updatedAt:project.updatedAt});
+      setProject(saved);setZonesDraft({state:'idle'});setNotice('Regiões detectadas foram adicionadas. Revise e ajuste.');
+    }catch(e:any){setError(e.message)}
+  };
   const planAi=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de solicitar a análise de IA.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
@@ -386,7 +408,14 @@ export function VideoStudio() {
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
           {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={remove}>Remover faixa</button></>}{project.soundtrack?<><p>Trilha: {project.soundtrack.source.split('/').pop()}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
-          {tab==='protected'&&<div className="studio-fields"><button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
+          {tab==='protected'&&<div className="studio-fields"><button onClick={addZone}>+ Proteger uma região</button>
+            <button disabled={zonesDraft.state==='running'||dirty||!project.clips.length} onClick={detectFaces}>Detectar rostos localmente</button>
+            {zonesDraft.state==='running'&&<p>Verificando os quadros no servidor…</p>}
+            {zonesDraft.state==='failed'&&<p className="studio-error">{zonesDraft.error}</p>}
+            {zonesDraft.state==='draft'&&<div className="studio-ai-draft"><p>{zonesDraft.regions?.length||0} regiões sugeridas. {zonesDraft.warning}</p>
+              <button onClick={applyFaces}>Aplicar regiões</button>
+              <button onClick={()=>setZonesDraft({state:'idle'})}>Descartar</button>
+            </div>}<p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
             <button disabled={aligning.state==='running'||(running.state!=='done'&&!(project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length)))} onClick={gerarLegendas}>Gerar legendas pela narração</button>
