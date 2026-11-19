@@ -45,6 +45,10 @@ export function VideoStudio() {
   const undoStack=useRef<Studio[]>([]);
   const redoStack=useRef<Studio[]>([]);
   const dragged=useRef<string|null>(null);
+  const timelineDrag=useRef<{
+    kind:'caption'|'asset'|'audio'|'zone'; id:string;
+    edge:'move'|'start'|'end'; originX:number; width:number; baseline:Studio;
+  }|null>(null);
   const clips=project?.clips||[];
   const total=clips.reduce((n,c)=>n+c.duration,0);
   const active=useMemo(()=>{
@@ -331,6 +335,118 @@ export function VideoStudio() {
     try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{/* pointer já liberado */}
     dragState.current=null;
   };
+  // Ajustes não destrutivos da timeline. O snapshot inicial evita deriva no
+  // arraste e gera um único ponto de desfazer por operação.
+  const beginTimelineDrag=(e:ReactPointerEvent<HTMLElement>,kind:'caption'|'asset'|'audio'|'zone',id:string)=>{
+    if(!project||total<=0||timelineDrag.current)return;
+    if(e.button!==0)return;
+    const parent=e.currentTarget.parentElement;
+    const width=parent?.getBoundingClientRect().width??0;
+    if(width<=0)return;
+    const edgeNode=(e.target as HTMLElement).closest('[data-timeline-edge]');
+    const edgeAttr=edgeNode?.getAttribute('data-timeline-edge');
+    const edge: 'move'|'start'|'end'=edgeAttr==='start'||edgeAttr==='end'?edgeAttr:'move';
+    e.preventDefault();e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    timelineDrag.current={kind,id,edge,originX:e.clientX,width,baseline:project};
+    undoStack.current.push(project);
+    if(undoStack.current.length>60)undoStack.current.shift();
+    redoStack.current=[];
+    setSelected(id);
+    setTab(kind==='caption'?'captions':kind==='asset'?'assets':kind==='audio'?'audio':'protected');
+    setError('');
+  };
+  const moveTimelineDrag=(e:ReactPointerEvent<HTMLElement>)=>{
+    const d=timelineDrag.current;
+    if(!d||total<=0)return;
+    const shift=Math.round(((e.clientX-d.originX)/d.width)*total*100)/100;
+    const min=.05;
+    const clamp=(v:number,a:number,b:number)=>Math.min(Math.max(v,a),b);
+    const updateRange=<T extends {id:string;start:number;end:number}>(item:T):T=>{
+      if(item.id!==d.id)return item;
+      const length=item.end-item.start;
+      let start=item.start,end=item.end;
+      if(d.edge==='move'){
+        start=clamp(item.start+shift,0,Math.max(0,total-length));
+        end=start+length;
+      }else if(d.edge==='start')start=clamp(item.start+shift,0,item.end-min);
+      else end=clamp(item.end+shift,item.start+min,total);
+      return {...item,start:+start.toFixed(2),end:+end.toFixed(2)};
+    };
+    const baseline=d.baseline;
+    if(d.kind==='caption'){
+      setProject({...baseline,captions:baseline.captions.map(c=>{
+        const next=updateRange(c);
+        if(c.id!==d.id)return c;
+        if(!c.words?.length)return next;
+        const delta=next.start-c.start;
+        const words=d.edge==='move'?c.words.map(w=>({...w,start:+(w.start+delta).toFixed(3),end:+(w.end+delta).toFixed(3)})):
+          c.words.filter(w=>w.end>next.start && w.start<next.end)
+            .map(w=>({...w,start:Math.max(w.start,next.start),end:Math.min(w.end,next.end)}))
+            .filter(w=>w.end-w.start>.01);
+        return words.length?{...next,words}:({...next,words:undefined,animation:c.animation==='karaoke'?'fade':c.animation});
+      })});
+    }else if(d.kind==='asset'){
+      setProject({...baseline,assets:baseline.assets.map(updateRange)});
+    }else if(d.kind==='zone'){
+      setProject({...baseline,protectedZones:(baseline.protectedZones??[]).map(updateRange)});
+    }else{
+      setProject({...baseline,audioTracks:(baseline.audioTracks??[]).map(a=>{
+        if(a.id!==d.id)return a;
+        const length=a.end-a.start;
+        const maxOffset=Math.max(0,total-length);
+        if(d.edge==='move')return {...a,offset:+clamp(a.offset+shift,0,maxOffset).toFixed(2)};
+        if(d.edge==='start'){
+          const change=clamp(shift,-a.offset,length-min);
+          return {...a,offset:+(a.offset+change).toFixed(2),
+            start:+(a.start+change).toFixed(2)};
+        }
+        // O áudio jamais é prolongado artificialmente. Para ampliar um corte,
+        // a duração original é obtida dos metadados carregados no player.
+        const audioDuration=audioPlayers.current.get(a.id)?.duration;
+        const maxSource=audioDuration&&Number.isFinite(audioDuration)&&audioDuration>0?
+          audioDuration:a.end;
+        const maxEnd=Math.min(maxSource,a.start+total-a.offset);
+        return {...a,end:+clamp(a.end+shift,a.start+min,Math.max(a.start+min,maxEnd)).toFixed(2)};
+      })});
+    }
+    setDirty(true);
+  };
+  const endTimelineDrag=(e:ReactPointerEvent<HTMLElement>)=>{
+    if(!timelineDrag.current)return;
+    try{e.currentTarget.releasePointerCapture(e.pointerId)}catch{/* ponteiro liberado */}
+    timelineDrag.current=null;
+  };
+  const timelineBlock=(kind:'caption'|'asset'|'audio'|'zone',id:string,text:string,start:number,end:number)=>{
+    const duration=Math.max(.05,total);
+    return <div key={id} className={'studio-timeline-block'+(selected===id?' chosen':'')}
+      role="button" tabIndex={0}
+      aria-label={text+'. Arraste para mover; bordas para ajustar duração.'}
+      title={text+' · '+fmt(start)+'–'+fmt(end)+' · arraste para mover ou ajustar as bordas'}
+      style={{left:(100*start/duration)+'%',width:(100*(end-start)/duration)+'%'}}
+      onPointerDown={e=>beginTimelineDrag(e,kind,id)}
+      onPointerMove={moveTimelineDrag}
+      onPointerUp={endTimelineDrag}
+      onPointerCancel={endTimelineDrag}
+      onKeyDown={e=>{
+        if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+        e.preventDefault();
+        const rect=e.currentTarget.parentElement?.getBoundingClientRect();
+        if(!rect || !project)return;
+        const amount=e.shiftKey?1:.1;
+        const fakeX=rect.width*amount/Math.max(total,.05)*(e.key==='ArrowRight'?1:-1);
+        const startX=0;
+        timelineDrag.current={kind,id,edge:'move',originX:startX,width:rect.width,baseline:project};
+        undoStack.current.push(project);
+        redoStack.current=[];
+        moveTimelineDrag({clientX:fakeX} as ReactPointerEvent<HTMLElement>);
+        timelineDrag.current=null;
+      }}>
+      <span className="studio-timeline-grip" data-timeline-edge="start" title="Ajustar início"/>
+      <span className="studio-timeline-label">{text}</span>
+      <span className="studio-timeline-grip" data-timeline-edge="end" title="Ajustar fim"/>
+    </div>;
+  };
   const remove=()=>{
     mutate(p=>({...p,clips:p.clips.filter(c=>c.id!==selected),captions:p.captions.filter(c=>c.id!==selected),assets:p.assets.filter(c=>c.id!==selected),audioTracks:(p.audioTracks??[]).filter(c=>c.id!==selected),protectedZones:(p.protectedZones??[]).filter(c=>c.id!==selected)}));
     setSelected(null);
@@ -511,10 +627,10 @@ export function VideoStudio() {
         <div className="studio-timeline-head"><h3>Linha do tempo</h3><span>Selecione um elemento para editar · Duração {fmt(total)}</span></div>
         <div className="studio-tracks">
           <div className="studio-track"><span>Vídeo</span><div className="studio-track-items">{clips.map(c=><button key={c.id} draggable onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}} onClick={()=>{setSelected(c.id);setTab('clips');seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}} className={selected===c.id?'chosen':''} style={{flex:c.duration,minWidth:40}} title={c.source}>{c.source.split('/').pop()}<small>{c.duration.toFixed(1)}s</small></button>)}</div></div>
-          <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=><button key={c.id} className={selected===c.id?'chosen':''} onClick={()=>{setSelected(c.id);setTab('captions');seek(c.start)}} style={{left:(100*c.start/Math.max(total,1))+'%',width:(100*(c.end-c.start)/Math.max(total,1))+'%'}}>{c.text}</button>)}</div></div>
-          <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=><button key={a.id} className={selected===a.id?'chosen':''} onClick={()=>{setSelected(a.id);setTab('assets');seek(a.start)}} style={{left:(100*a.start/Math.max(total,1))+'%',width:(100*(a.end-a.start)/Math.max(total,1))+'%'}}>Imagem</button>)}</div></div>
-          <div className="studio-track"><span>Voz/Áudio</span><div className="studio-track-overlay studio-audio-timeline">{(project.audioTracks??[]).map(a=><button key={a.id} className={selected===a.id?'chosen':''} onClick={()=>{setSelected(a.id);setTab('audio');seek(a.offset)}} style={{left:(100*a.offset/Math.max(total,1))+'%',width:(100*(a.end-a.start)/Math.max(total,1))+'%'}}>{a.source.split('/').pop()}</button>)}</div></div>
-          <div className="studio-track"><span>Proteção</span><div className="studio-track-overlay studio-protection-timeline">{(project.protectedZones??[]).map(z=><button key={z.id} className={selected===z.id?'chosen':''} onClick={()=>{setSelected(z.id);setTab('protected');seek(z.start)}} style={{left:(100*z.start/Math.max(total,1))+'%',width:(100*(z.end-z.start)/Math.max(total,1))+'%'}}>{z.label}</button>)}</div></div>
+          <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=>timelineBlock('caption',c.id,c.text,c.start,c.end))}</div></div>
+          <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=>timelineBlock('asset',a.id,a.source.split('/').pop()||'Imagem',a.start,a.end))}</div></div>
+          <div className="studio-track"><span>Voz/Áudio</span><div className="studio-track-overlay studio-audio-timeline">{(project.audioTracks??[]).map(a=>timelineBlock('audio',a.id,a.source.split('/').pop()||'Áudio',a.offset,a.offset+a.end-a.start))}</div></div>
+          <div className="studio-track"><span>Proteção</span><div className="studio-track-overlay studio-protection-timeline">{(project.protectedZones??[]).map(z=>timelineBlock('zone',z.id,z.label,z.start,z.end))}</div></div>
           <div className="studio-track"><span>Trilha</span><div className="studio-track-audio">{project.soundtrack?.source.split('/').pop()||'Sem trilha'}</div></div>
         </div>
       </div>
