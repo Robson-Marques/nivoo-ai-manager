@@ -172,6 +172,7 @@ export function Layout() {
             <button className="side-botao" onClick={() => setVerArquivados(true)}>
               <IconeArquivo /> Arquivados
             </button>
+            <NavLink to="/studio">🎬 Nivoo Studio</NavLink>
             <NavLink to="/agentes">Agentes</NavLink>
             <NavLink to="/contas">Conexões</NavLink>
             <NavLink to="/diagnostico">Diagnóstico</NavLink>

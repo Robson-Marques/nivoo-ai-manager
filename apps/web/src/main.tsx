@@ -9,6 +9,7 @@ import { Inicio } from './pages/Inicio';
 import { Modelos } from './pages/Modelos';
 import { Projeto } from './pages/Projeto';
 import { VideoStudio } from './pages/VideoStudio';
+import { StudioHome } from './pages/StudioHome';
 import { TelaDeEntrada } from './TelaDeEntrada';
 
 function App() {
@@ -20,6 +21,8 @@ function App() {
           <Route path="/" element={<Inicio />} />
           <Route path="/p/:pid" element={<Projeto />} />
           <Route path="/p/:pid/studio" element={<VideoStudio />} />
+          <Route path="/studio" element={<StudioHome />} />
+          <Route path="/studio/:pid" element={<VideoStudio />} />
           <Route path="/p/:pid/c/:cid" element={<Projeto />} />
           <Route path="/agentes" element={<Modelos />} />
           <Route path="/modelos" element={<Modelos />} />

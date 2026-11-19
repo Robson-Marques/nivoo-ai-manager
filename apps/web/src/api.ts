@@ -295,10 +295,10 @@ async function enviarPedaco(url: string, corpo: Blob, offset: number, total: num
  * grande não trava num único fluxo (flow-control do HTTP/2, timeouts, engasgo da rede) — um pedaço que falha é
  * reenviado sozinho, e o progresso anda de verdade. O último pedaço fecha o vídeo no servidor e devolve o caminho.
  */
-export async function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
+export async function enviarVideo(projetoId: string, file: File, onProgresso: (pct: number) => void, standalone = false): Promise<{ id: string; nome: string; bytes: number; caminho: string; pasta: string }> {
   const PEDACO = 4 * 1024 * 1024;
   const id = ((crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40).padEnd(8, '0');
-  const base = `/api/projects/${projetoId}/videos/chunk?nome=${encodeURIComponent(file.name)}&id=${id}`;
+  const base = `/api/${standalone?'studio/projects':'projects'}/${projetoId}/videos/chunk?nome=${encodeURIComponent(file.name)}&id=${id}`;
   let offset = 0;
   let ultimo: any = null;
   do {

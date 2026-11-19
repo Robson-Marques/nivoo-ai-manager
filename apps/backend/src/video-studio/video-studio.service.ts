@@ -10,6 +10,7 @@ import { arquivoDaMidia, listarVideos } from '../projects/midia';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
+import { maybeProductionMedia } from './standalone-projects';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -67,8 +68,9 @@ export class VideoStudioService {
 
   private async dir(pid: string) {
     const project = await this.prisma.project.findUnique({ where: { id: pid }, select: { dirKey: true } });
-    if (!project) throw new NotFoundException('Projeto não encontrado');
-    const media = this.workspace.projectDirs(project.dirKey).midia;
+    const standalone=maybeProductionMedia(pid);
+    if (!project&&!standalone) throw new NotFoundException('Projeto não encontrado');
+    const media = standalone ?? this.workspace.projectDirs(project!.dirKey).midia;
     const studio = path.join(media, 'studio');
     fs.mkdirSync(studio, { recursive: true });
     return { media, studio };
@@ -359,8 +361,10 @@ export class VideoStudioService {
     if(aiStates.get(key)?.state==='running')throw new ConflictException('Análise de IA já está em andamento');
     if(!p.captions.length)throw new BadRequestException('Gere ou adicione legendas sincronizadas antes da direção criativa');
     const project=await this.prisma.project.findUnique({where:{id:pid},select:{provider:true,dirKey:true}});
-    if(!project)throw new NotFoundException('Projeto não encontrado');
-    const ai=this.providers.get(project.provider);
+    if(!project&&!maybeProductionMedia(pid))throw new NotFoundException('Projeto não encontrado');
+    // Produções independentes usam o agente local configurado, sem projeto de conversa.
+    const provider=project?.provider??'codex-cli';
+    const ai=this.providers.get(provider);
     if(ai.kind==='executor')throw new BadRequestException('Escolha uma conexão de IA no projeto');
     const images=listarVideos(media).filter(v=>/\.(png|jpe?g|webp)$/i.test(v.caminho)).slice(0,30);
     const duration=p.clips.reduce((n,c)=>n+c.duration,0);
@@ -373,7 +377,7 @@ export class VideoStudioService {
         fs.mkdirSync(outputDir,{recursive:true});
       // Amostras espalhadas pela timeline REAL, não apenas pelo primeiro clipe.
       // Usamos até 12 imagens 640px para limitar tokens e tempo de processamento.
-      if(/codex/.test(project.provider)){
+      if(/codex/.test(provider)){
         const captures:{source:string;at:number;position:number}[]=[];
         let offset=0;
         for(const clip of p.clips){

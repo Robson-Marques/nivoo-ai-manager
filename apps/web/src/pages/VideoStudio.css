@@ -299,3 +299,14 @@
   background:#482b38;color:#ffb8c5;font-size:12px;
 }
 .studio-library .studio-audio-delete:hover{background:#813b4f}
+
+/* Projetos independentes e narração dentro do Studio */
+.studio-home{overflow-y:auto}
+.studio-home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.studio-home-item{display:flex;flex-direction:column;gap:8px;padding:18px;color:#e2e8f0!important;text-decoration:none;background:#172033;border:1px solid #364660;border-radius:10px}
+.studio-home-item:hover{border-color:#60a5fa}.studio-home-item small{color:#9caec4}.studio-home-item span{color:#93c5fd}
+.studio-home-empty{padding:24px;background:#172033;color:#e2e8f0;border-radius:10px}
+.studio-narration{background:#101b2d;border:1px solid #38506b;padding:8px;border-radius:8px;margin:10px 0}
+.studio-narration h4{margin:0 0 8px}
+.studio-narration textarea,.studio-narration select{width:100%;box-sizing:border-box;min-width:0;padding:6px;margin-bottom:6px;background:#0e1728;color:#fff;border:1px solid #52617a;border-radius:5px;font-size:12px}
+.studio-narration button{font-size:12px}.studio-narration small{font-size:11px;color:#b9c8d8}
