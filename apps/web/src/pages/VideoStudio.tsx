@@ -95,7 +95,14 @@ export function VideoStudio() {
     return()=>clearInterval(timer);
   },[project?.id,pid,aligning.state]);
   const gerarLegendas=async()=>{
-    if(!project || dirty)return setError('Salve primeiro as alterações da timeline.');
+    if(!project)return;
+    if(aligning.state==='running')return;
+    if(dirty)return setError('Para gerar legendas, clique em Salvar primeiro.');
+    if(!project.clips.length)return setError('Adicione um vídeo à linha do tempo antes de gerar legendas.');
+    const direct=project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length);
+    if(!direct&&(running.state!=='done'||!running.output)){
+      return setError('Sua montagem contém várias cenas ou faixas de áudio. Salve, clique em Exportar MP4 e, quando terminar, gere as legendas.');
+    }
     const texto=window.prompt('Cole o roteiro exato, se existir. Se não houver, deixe vazio para transcrever a fala do vídeo.','');
     if(texto===null)return;
     try{
@@ -134,7 +141,11 @@ export function VideoStudio() {
     }catch(e:any){setError(e.message)}
   };
   const planAi=async()=>{
-    if(!project||dirty)return setError('Salve o projeto antes de solicitar a análise de IA.');
+    if(!project)return;
+    if(aiDraft.state==='running')return;
+    if(dirty)return setError('Para criar o design com IA, clique em Salvar primeiro.');
+    if(!project.clips.length)return setError('Adicione pelo menos um vídeo à timeline.');
+    if(!project.captions.length)return setError('Para criar o design com IA, primeiro gere as legendas pela narração. Se precisar, exporte a montagem antes.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
     if(brief===null)return;
     try{setAiDraft(await api<AiResult>('/projects/'+pid+'/studio/'+project.id+'/ai/plan','POST',{brief}));setError('');}
@@ -607,8 +618,10 @@ export function VideoStudio() {
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
-            <button disabled={aligning.state==='running'||(running.state!=='done'&&!(project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length)))} onClick={gerarLegendas}>Gerar legendas pela narração</button>
-            <button disabled={aiDraft.state==='running'||dirty||!project.captions.length} onClick={planAi}>✦ Criar design com IA</button>
+            <button disabled={aligning.state==='running'} onClick={gerarLegendas}>Gerar legendas pela narração</button>
+            <button disabled={aiDraft.state==='running'} onClick={planAi}>✦ Criar design com IA</button>
+            <p className="studio-ai-guide">{dirty?'● Salve as alterações antes de utilizar a IA.':!project.clips.length?'Adicione um vídeo para começar.':project.clips.length!==1||Boolean(project.soundtrack)||Boolean(project.audioTracks?.length)?running.state!=='done'?'Sua montagem tem várias cenas ou faixas: exporte o MP4 antes de gerar legendas.':'Montagem exportada: agora você pode gerar as legendas.':'Você pode gerar as legendas diretamente do vídeo.'}</p>
+            {!project.captions.length&&<p className="studio-ai-guide">Para criar o design com IA, primeiro gere ou adicione legendas.</p>}
             {aiDraft.state==='running'&&<p>Analisando narração e componentes disponíveis…</p>}
             {aiDraft.state==='failed'&&<p className="studio-error">IA: {aiDraft.error}</p>}
             {aiDraft.state==='draft'&&<div className="studio-ai-draft">
