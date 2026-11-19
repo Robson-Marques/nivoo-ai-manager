@@ -417,6 +417,30 @@ export function VideoStudio() {
   const updateZone=(key:keyof ProtectedZone,value:string)=>{
     mutate(p=>({...p,protectedZones:(p.protectedZones??[]).map(z=>z.id===selected?{...z,[key]:key==='label'?value:num(value)}:z)}));
   };
+  const splitNarration=()=>{
+    if(!project||!selectedAudio)return;
+    const a=selectedAudio;
+    const cut=playhead-a.offset;
+    const len=a.end-a.start;
+    if(cut<.05||cut>len-.05)return setError('Posicione o cursor dentro da narração selecionada para dividir.');
+    const point=+(a.start+cut).toFixed(3);
+    const left={...a,end:point,fadeIn:Math.min(a.fadeIn??0,cut/2),fadeOut:Math.min(a.fadeOut??0,cut/2)};
+    const right={...a,id:ident(),start:point,offset:+playhead.toFixed(3),
+      fadeIn:Math.min(a.fadeIn??0,(len-cut)/2),fadeOut:Math.min(a.fadeOut??0,(len-cut)/2)};
+    mutate(p=>({...p,audioTracks:(p.audioTracks??[]).flatMap(v=>v.id===a.id?[left,right]:[v])}));
+    setSelected(right.id);setTab('audio');
+  };
+  const duplicateNarration=()=>{
+    if(!project||!selectedAudio)return;
+    const a=selectedAudio,position=a.offset+a.end-a.start;
+    const available=total-position;
+    if(available<.05)return setError('Não há espaço após esta narração para duplicar. Amplie o vídeo primeiro.');
+    const length=Math.min(a.end-a.start,available);
+    const copy={...a,id:ident(),end:+(a.start+length).toFixed(3),
+      offset:+position.toFixed(3),fadeIn:Math.min(a.fadeIn??0,length/2),fadeOut:Math.min(a.fadeOut??0,length/2)};
+    mutate(p=>({...p,audioTracks:[...(p.audioTracks??[]),copy]}));
+    setSelected(copy.id);
+  };
   const updateAudio=(key:keyof AudioTrack,value:string)=>{
     mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>{
       if(a.id!==selected)return a;
@@ -868,7 +892,7 @@ export function VideoStudio() {
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
               <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
-          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
+          {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={splitNarration}>✂ Dividir voz no cursor</button><button onClick={duplicateNarration}>Duplicar voz em sequência</button><button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Excluir segmento da voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">
             <h4>✦ Assistente de IA</h4>
