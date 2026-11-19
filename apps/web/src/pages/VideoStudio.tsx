@@ -396,7 +396,15 @@ export function VideoStudio() {
       if(!Number.isFinite(duration)||duration<=0)return setError('Não consegui identificar a duração deste vídeo.');
       mediaDuration.current.set(m.caminho,duration);
       const c:Clip={id:ident(),source:m.caminho,start:0,end:duration,duration};
-      mutate(p=>({...p,clips:[...p.clips,c]}));setSelected(c.id);setTab('clips');
+      // Se houver um último quadro congelado, a nova cena entra antes dele.
+      // O tempo da voz permanece fixo e a parte congelada diminui conforme couber.
+      mutate(p=>{
+        const final=p.clips[p.clips.length-1];
+        if(!final?.freeze)return {...p,clips:[...p.clips,c]};
+        const remaining=+(final.duration-c.duration).toFixed(3);
+        return {...p,clips:[...p.clips.slice(0,-1),c,...(remaining>=.05?[{...final,duration:remaining}]:[])]};
+      });
+      setSelected(c.id);setTab('clips');
     };
     obj.onerror=()=>setError('Não consegui carregar metadados do vídeo. Verifique o formato.');
     obj.src=midiaUrl(pid,m.caminho,standalone);
@@ -597,7 +605,9 @@ export function VideoStudio() {
       const insertAt=d.edge==='start'?before:before+original.duration;
       synced=rippleInsert(updated,insertAt,difference);
     }
-    setProject(synced);
+    // A narração preparada jamais perde trechos durante aparos de vídeo.
+    synced={...synced,audioTracks:baseline.audioTracks};
+    setProject(fitVideoToNarration(synced,Math.max(0,...(baseline.audioTracks??[]).map(a=>a.offset+a.end-a.start))));
     setDirty(true);
   };
   const endVideoTrim=(e:ReactPointerEvent<HTMLSpanElement>)=>{
@@ -620,7 +630,8 @@ export function VideoStudio() {
     const baseline={...project,clips:project.clips.map(x=>x.id===c.id?kept:x)};
     const from=side==='before'?begin+offset:begin;
     const to=side==='before'?begin+c.duration:begin+offset;
-    mutate(()=>rippleDelete(baseline,from,to));
+    mutate(()=>fitVideoToNarration({...rippleDelete(baseline,from,to),audioTracks:project.audioTracks},
+      Math.max(0,...(project.audioTracks??[]).map(a=>a.offset+a.end-a.start))));
     seek(Math.min(from,total-(to-from)));
   };
   const duplicateClip=()=>{
@@ -628,7 +639,7 @@ export function VideoStudio() {
     const index=project.clips.findIndex(c=>c.id===selectedClip.id);
     const at=project.clips.slice(0,index+1).reduce((n,c)=>n+c.duration,0);
     const copy={...selectedClip,id:ident()};
-    mutate(p=>rippleInsert({...p,clips:[...p.clips.slice(0,index+1),copy,...p.clips.slice(index+1)]},at,copy.duration));
+    mutate(p=>({...rippleInsert({...p,clips:[...p.clips.slice(0,index+1),copy,...p.clips.slice(index+1)]},at,copy.duration),audioTracks:p.audioTracks}));
     setSelected(copy.id);
   };
   const reorder=(id:string,target:string)=>{
@@ -806,7 +817,10 @@ export function VideoStudio() {
       if(index>=0){
         const from=p.clips.slice(0,index).reduce((n,c)=>n+c.duration,0);
         const duration=p.clips[index].duration;
-        return rippleDelete({...p,clips:p.clips.filter(c=>c.id!==selected)},from,from+duration);
+        const adjusted=rippleDelete({...p,clips:p.clips.filter(c=>c.id!==selected)},from,from+duration);
+        return adjusted.clips.length?fitVideoToNarration({...adjusted,audioTracks:p.audioTracks},
+          Math.max(0,...(p.audioTracks??[]).map(a=>a.offset+a.end-a.start))):
+          {...adjusted,audioTracks:p.audioTracks};
       }
       return {...p,clips:p.clips.filter(c=>c.id!==selected),
         captions:p.captions.filter(c=>c.id!==selected),
