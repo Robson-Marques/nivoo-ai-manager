@@ -245,6 +245,7 @@ export function VideoStudio() {
   const syncAudio=(t:number,shouldPlay:boolean)=>{
     if(soundtrackPlayer.current){
       const a=soundtrackPlayer.current;
+      a.volume=Math.min(1,Math.max(0,project?.soundtrack?.volume??0));
       if(Math.abs(a.currentTime-t)>.35){try{a.currentTime=t}catch{/* metadata pendente */}}
       if(shouldPlay&&a.paused)a.play().catch(()=>undefined);
       if(!shouldPlay&&!a.paused)a.pause();
@@ -324,7 +325,7 @@ export function VideoStudio() {
         </aside>
         <main className="studio-preview-panel">
           <div className="studio-canvas">
-            {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source)} loop preload="metadata" volume={Math.min(1,project.soundtrack.volume)}/>}
+            {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source)} loop preload="metadata"/>}
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source)} preload="metadata"/>)}
             {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{playing.current=false;syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
