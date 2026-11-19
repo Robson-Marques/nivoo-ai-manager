@@ -43,7 +43,7 @@ const assTime = (s: number) => {
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
-type AiElement = {kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'};
+type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 const aiStates=new Map<string,AiState>();
 function parseAiJson(text:string):unknown {
@@ -282,8 +282,9 @@ export class VideoStudioService {
           instructions:[
             'Você é o diretor de arte de pós-produção do Nivoo Studio.',
             'Analise a narração com seus tempos e proponha um plano de inserções visuais.',
-            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2}],"explanation":"..."}',
-            'Use somente imagens de availableImages. Não invente imagens, logos, URLs ou fatos.',
+            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"explanation":"..."}',
+            'Para gráfico original local use kind=graphic com text, subtitle, variant=spreadsheet|clock|progress|warning|money|check|generic e x,y,w,h. A renderização cria um cartão visual PNG sem API paga.',
+            'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
             'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
             'O resultado será apenas uma PROPOSTA, que precisa ser validada e aceita pelo usuário.',
@@ -310,6 +311,12 @@ export class VideoStudioService {
             if(typeof e.text!=='string'||!e.text.trim()||e.text.length>100)continue;
             rect={x:Math.max(0,e.x-.40),y:Math.max(0,e.y-.065),w:Math.min(.8,1-Math.max(0,e.x-.40)),h:.13};
             if(!['impact','fade','slide'].includes(e.style??'impact'))e.style='impact';
+           }else if(e.kind==='graphic'){
+            if(typeof e.text!=='string'||!e.text.trim()||e.text.length>55||
+              (e.subtitle!==undefined&&(typeof e.subtitle!=='string'||e.subtitle.length>100)))continue;
+            if(!['spreadsheet','clock','progress','warning','money','check','generic'].includes(e.variant||'generic'))e.variant='generic';
+            if(!finite(e.w,.01,1)||!finite(e.h,.01,1)||e.x+e.w!>1||e.y+e.h!>1)continue;
+            rect={x:e.x,y:e.y,w:e.w!,h:e.h!};
           }else if(e.kind==='image'){
             if(typeof e.asset!=='string'||!imageDetails.some(i=>i.source===e.asset))continue;
             if(!finite(e.w,.01,1)||!finite(e.h,.01,1)||e.x+e.w!>1||e.y+e.h!>1)continue;
@@ -333,17 +340,40 @@ export class VideoStudioService {
     const p=await this.get(pid,id);
     if(p.updatedAt!==updatedAt)throw new ConflictException('O projeto mudou após o planejamento. Gere a proposta novamente.');
     const captions=[...p.captions],assets=[...p.assets];
+    const {media,studio}=await this.dir(pid);
+    const generated:string[]=[];
+    try{
     for(const el of draft.elements){
       if(el.kind==='caption')captions.push({id:'ai-'+randomUUID(),text:el.text!,start:el.start,end:el.end,
         x:el.x,y:el.y,fontSize:el.style==='impact'?66:50,color:'#FFFFFF',
         animation:el.style==='slide'?'slide':el.style==='fade'?'fade':'pop'});
-      else assets.push({id:'ai-'+randomUUID(),source:el.asset!,start:el.start,end:el.end,
+      else if(el.kind==='graphic'){
+        const target=path.join(media,'saida','ai-graphic-'+randomUUID()+'.png');
+        const input=path.join(studio,'ai','render-'+randomUUID()+'.json');
+        fs.mkdirSync(path.dirname(input),{recursive:true});
+        fs.writeFileSync(input,JSON.stringify({title:el.text,subtitle:el.subtitle,variant:el.variant}));
+        try{
+          await new Promise<void>((resolve,reject)=>{
+            const child=spawn('node',[path.resolve(__dirname,'../../bin/nivoo-gerar-asset'),input,target],
+              {stdio:['ignore','ignore','pipe']});
+            let err='';
+            const timer=setTimeout(()=>child.kill('SIGTERM'),25000);
+            child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1000);});
+            child.on('error',e=>{clearTimeout(timer);reject(e)});
+            child.on('close',code=>{clearTimeout(timer);code===0?resolve():reject(new Error(err||'Falha ao gerar imagem local'))});
+          });
+        }finally{fs.rmSync(input,{force:true})}
+        generated.push(target);
+        assets.push({id:'ai-'+randomUUID(),source:'midia/saida/'+path.basename(target),start:el.start,end:el.end,
+          x:el.x,y:el.y,w:el.w!,h:el.h!});
+      }else assets.push({id:'ai-'+randomUUID(),source:el.asset!,start:el.start,end:el.end,
         x:el.x,y:el.y,w:el.w!,h:el.h!});
     }
     // Validação centralizada no mesmo método de salvamento manual.
     const saved=await this.save(pid,id,{...p,captions,assets});
     aiStates.delete(key);
     return saved;
+    }catch(e){generated.forEach(f=>fs.rmSync(f,{force:true}));throw e}
   }
 
   async render(pid:string,id:string) {
