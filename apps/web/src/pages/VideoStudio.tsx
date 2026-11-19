@@ -31,6 +31,9 @@ export function VideoStudio() {
   const [progress,setProgress]=useState(0);
   const inputRef=useRef<HTMLInputElement>(null);
   const player=useRef<HTMLVideoElement>(null);
+  const undoStack=useRef<Studio[]>([]);
+  const redoStack=useRef<Studio[]>([]);
+  const dragged=useRef<string|null>(null);
   const clips=project?.clips||[];
   const total=clips.reduce((n,c)=>n+c.duration,0);
   const active=useMemo(()=>{
@@ -58,7 +61,7 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>('/projects/'+pid+'/studio/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');
+    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
@@ -87,11 +90,33 @@ export function VideoStudio() {
     const name=window.prompt('Nome da edição','Novo vídeo');
     if(name===null)return;
     const p=await api<Studio>('/projects/'+pid+'/studio','POST',{title:name||'Novo vídeo'});
-    await refresh();setProject(p);setDirty(false);setPlayhead(0);setSelected(null);
+    await refresh();setProject(p);setDirty(false);setPlayhead(0);setSelected(null);undoStack.current=[];redoStack.current=[];
   };
   const mutate=(fn:(p:Studio)=>Studio)=>{
-    setProject(p=>p?fn(p):p);setDirty(true);setNotice('');
+    if(!project)return;
+    undoStack.current.push(project);
+    if(undoStack.current.length>60)undoStack.current.shift();
+    redoStack.current=[];
+    setProject(fn(project));setDirty(true);setNotice('');
   };
+  const undo=()=>{
+    const prev=undoStack.current.pop();if(!prev||!project)return;
+    redoStack.current.push(project);setProject(prev);setDirty(true);
+  };
+  const redo=()=>{
+    const next=redoStack.current.pop();if(!next||!project)return;
+    undoStack.current.push(project);setProject(next);setDirty(true);
+  };
+  useEffect(()=>{
+    const listener=(e:KeyboardEvent)=>{
+      if(!(e.ctrlKey||e.metaKey)||e.key.toLowerCase()!=='z')return;
+      const target=e.target as HTMLElement;
+      if(['INPUT','TEXTAREA'].includes(target.tagName)||target.isContentEditable)return;
+      e.preventDefault();if(e.shiftKey)redo();else undo();
+    };
+    document.addEventListener('keydown',listener);
+    return()=>document.removeEventListener('keydown',listener);
+  });
   const save=async()=>{
     if(!project)return;
     setBusy(true);setError('');
@@ -157,6 +182,16 @@ export function VideoStudio() {
     mutate(p=>{const i=p.clips.findIndex(v=>v.id===c.id);return {...p,clips:[...p.clips.slice(0,i),left,right,...p.clips.slice(i+1)]};});
     setSelected(right.id);
   };
+  const reorder=(id:string,target:string)=>{
+    if(id===target)return;
+    mutate(p=>{
+      const arr=[...p.clips],from=arr.findIndex(v=>v.id===id),to=arr.findIndex(v=>v.id===target);
+      if(from<0||to<0)return p;
+      const [clip]=arr.splice(from,1);
+      arr.splice(to,0,clip);
+      return {...p,clips:arr};
+    });
+  };
   const remove=()=>{
     mutate(p=>({...p,clips:p.clips.filter(c=>c.id!==selected),captions:p.captions.filter(c=>c.id!==selected),assets:p.assets.filter(c=>c.id!==selected)}));
     setSelected(null);
@@ -210,7 +245,7 @@ export function VideoStudio() {
     <header className="studio-head">
       <div><Link to={'/p/'+pid}>← Projeto</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
-        {project&&<><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button></>}
+        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button></>}
         <button onClick={newProject}>+ Nova edição</button>
       </div>
     </header>
@@ -278,7 +313,7 @@ export function VideoStudio() {
       <div className="studio-timeline">
         <div className="studio-timeline-head"><h3>Linha do tempo</h3><span>Selecione um elemento para editar · Duração {fmt(total)}</span></div>
         <div className="studio-tracks">
-          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items">{clips.map(c=><button key={c.id} onClick={()=>{setSelected(c.id);setTab('clips');seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}} className={selected===c.id?'chosen':''} style={{flex:c.duration,minWidth:40}} title={c.source}>{c.source.split('/').pop()}<small>{c.duration.toFixed(1)}s</small></button>)}</div></div>
+          <div className="studio-track"><span>Vídeo</span><div className="studio-track-items">{clips.map(c=><button key={c.id} draggable onDragStart={()=>{dragged.current=c.id}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();if(dragged.current)reorder(dragged.current,c.id);dragged.current=null}} onClick={()=>{setSelected(c.id);setTab('clips');seek(clips.slice(0,clips.indexOf(c)).reduce((n,v)=>n+v.duration,0))}} className={selected===c.id?'chosen':''} style={{flex:c.duration,minWidth:40}} title={c.source}>{c.source.split('/').pop()}<small>{c.duration.toFixed(1)}s</small></button>)}</div></div>
           <div className="studio-track"><span>Legendas</span><div className="studio-track-overlay">{project.captions.map(c=><button key={c.id} className={selected===c.id?'chosen':''} onClick={()=>{setSelected(c.id);setTab('captions');seek(c.start)}} style={{left:(100*c.start/Math.max(total,1))+'%',width:(100*(c.end-c.start)/Math.max(total,1))+'%'}}>{c.text}</button>)}</div></div>
           <div className="studio-track"><span>Imagens</span><div className="studio-track-overlay">{project.assets.map(a=><button key={a.id} className={selected===a.id?'chosen':''} onClick={()=>{setSelected(a.id);setTab('assets');seek(a.start)}} style={{left:(100*a.start/Math.max(total,1))+'%',width:(100*(a.end-a.start)/Math.max(total,1))+'%'}}>Imagem</button>)}</div></div>
           <div className="studio-track"><span>Trilha</span><div className="studio-track-audio">{project.soundtrack?.source.split('/').pop()||'Sem trilha'}</div></div>
