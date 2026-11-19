@@ -6,7 +6,8 @@ import { spawn, spawnSync, ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
-import { arquivoDaMidia } from '../projects/midia';
+import { arquivoDaMidia, listarVideos } from '../projects/midia';
+import { ProviderRegistry } from '../providers/provider-registry.service';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -42,10 +43,21 @@ const assTime = (s: number) => {
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
+type AiElement = {kind:'caption'|'image';text?:string;asset?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'};
+type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+const aiStates=new Map<string,AiState>();
+function parseAiJson(text:string):unknown {
+  const clean=text.trim().replace(/^\x60\x60\x60(?:json)?\s*/i,'').replace(/\s*\x60\x60\x60$/,'');
+  try{return JSON.parse(clean)}catch{
+    const begin=clean.indexOf('{'),end=clean.lastIndexOf('}');
+    if(begin<0||end<=begin)throw new Error('Agente não devolveu um JSON válido');
+    return JSON.parse(clean.slice(begin,end+1));
+  }
+}
 
 @Injectable()
 export class VideoStudioService {
-  constructor(private readonly prisma: PrismaService, private readonly workspace: WorkspaceService) {}
+  constructor(private readonly prisma: PrismaService, private readonly workspace: WorkspaceService, private readonly providers: ProviderRegistry) {}
 
   private async dir(pid: string) {
     const project = await this.prisma.project.findUnique({ where: { id: pid }, select: { dirKey: true } });
@@ -231,6 +243,107 @@ export class VideoStudioService {
       }finally{fs.rmSync(temp,{recursive:true,force:true});}
     });
     return {state:'running'};
+  }
+
+  aiStatus(pid:string,id:string):AiState {
+    return aiStates.get(pid+':'+id)??{state:'idle'};
+  }
+
+  async aiPlan(pid:string,id:string,brief?:string) {
+    const {media,studio}=await this.dir(pid);
+    const p=this.validate(await this.get(pid,id),media);
+    if(p.clips.length===0)throw new BadRequestException('A timeline está vazia');
+    if((brief??'').length>1200)throw new BadRequestException('Pedido muito longo');
+    const key=pid+':'+id;
+    if(aiStates.get(key)?.state==='running')throw new ConflictException('Análise de IA já está em andamento');
+    if(!p.captions.length)throw new BadRequestException('Gere ou adicione legendas sincronizadas antes da direção criativa');
+    const project=await this.prisma.project.findUnique({where:{id:pid},select:{provider:true,dirKey:true}});
+    if(!project)throw new NotFoundException('Projeto não encontrado');
+    const ai=this.providers.get(project.provider);
+    if(ai.kind==='executor')throw new BadRequestException('Escolha uma conexão de IA no projeto');
+    const images=listarVideos(media).filter(v=>/\.(png|jpe?g|webp)$/i.test(v.caminho)).slice(0,30);
+    const duration=p.clips.reduce((n,c)=>n+c.duration,0);
+    aiStates.set(key,{state:'running'});
+    setImmediate(async()=>{
+      const outputDir=path.join(studio,'ai',id);
+      fs.mkdirSync(outputDir,{recursive:true});
+      const imageDetails=images.map(v=>({name:v.nome,source:v.caminho}));
+      // O agente recebe só um inventário de recursos e textos alinhados, não código executável.
+      const payload={
+        video:{duration,aspectRatio:'determine-from-scene',clips:p.clips.length},
+        speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end})),
+        protectedZones:p.protectedZones??[],
+        availableImages:imageDetails,
+        instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
+      };
+      try{
+        const result=await ai.execute({
+          jobId:randomUUID(),stepId:randomUUID(),attemptId:randomUUID(),
+          instructions:[
+            'Você é o diretor de arte de pós-produção do Nivoo Studio.',
+            'Analise a narração com seus tempos e proponha um plano de inserções visuais.',
+            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2}],"explanation":"..."}',
+            'Use somente imagens de availableImages. Não invente imagens, logos, URLs ou fatos.',
+            'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
+            'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
+            'O resultado será apenas uma PROPOSTA, que precisa ser validada e aceita pelo usuário.',
+            'Não execute comandos, não crie código, não crie arquivos, não modifique o projeto.',
+            JSON.stringify(payload)
+          ].join('\n'),
+          context:'Criar apenas plano de edição em JSON válido. Nenhuma ação externa.',
+          cwd:outputDir,outputDir,timeoutMs:150000,signal:new AbortController().signal,
+          onLog:()=>undefined,options:{maxTurns:1}
+        });
+        if(result.exitCode!==0)throw new Error(result.error||'Falha ao consultar o agente de IA');
+        const raw=parseAiJson(result.output) as {elements?:unknown;explanation?:unknown};
+        if(!raw || !Array.isArray(raw.elements))throw new Error('JSON da IA sem elements[]');
+        const valid:AiElement[]=[];
+        const boxOverlaps=(a:{x:number;y:number;w:number;h:number},b:{x:number;y:number;w:number;h:number})=>
+          a.x<b.x+b.w&&b.x<a.x+a.w&&a.y<b.y+b.h&&b.y<a.y+a.h;
+        for(const v of raw.elements.slice(0,80)){
+          if(!v||typeof v!=='object')continue;
+          const e=v as AiElement;
+          if(!finite(e.start,0,duration)||!finite(e.end,0,duration)||e.end<=e.start||
+             !finite(e.x,0,1)||!finite(e.y,0,1))continue;
+          let rect:{x:number;y:number;w:number;h:number};
+          if(e.kind==='caption'){
+            if(typeof e.text!=='string'||!e.text.trim()||e.text.length>100)continue;
+            rect={x:Math.max(0,e.x-.40),y:Math.max(0,e.y-.065),w:Math.min(.8,1-Math.max(0,e.x-.40)),h:.13};
+            if(!['impact','fade','slide'].includes(e.style??'impact'))e.style='impact';
+          }else if(e.kind==='image'){
+            if(typeof e.asset!=='string'||!imageDetails.some(i=>i.source===e.asset))continue;
+            if(!finite(e.w,.01,1)||!finite(e.h,.01,1)||e.x+e.w!>1||e.y+e.h!>1)continue;
+            rect={x:e.x,y:e.y,w:e.w!,h:e.h!};
+          }else continue;
+          if((p.protectedZones??[]).some(z=>e.start<z.end&&z.start<e.end&&boxOverlaps(rect,z)))continue;
+          valid.push(e);
+        }
+        if(!valid.length)throw new Error('A IA não propôs elementos válidos e seguros');
+        aiStates.set(key,{state:'draft',elements:valid,explanation:String(raw.explanation??'').slice(0,1000)});
+      }catch(e:any){
+        aiStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
+      }
+    });
+    return {state:'running'};
+  }
+
+  async aiApply(pid:string,id:string,updatedAt:string) {
+    const key=pid+':'+id, draft=aiStates.get(key);
+    if(draft?.state!=='draft'||!draft.elements?.length)throw new BadRequestException('Nenhuma proposta de IA disponível');
+    const p=await this.get(pid,id);
+    if(p.updatedAt!==updatedAt)throw new ConflictException('O projeto mudou após o planejamento. Gere a proposta novamente.');
+    const captions=[...p.captions],assets=[...p.assets];
+    for(const el of draft.elements){
+      if(el.kind==='caption')captions.push({id:'ai-'+randomUUID(),text:el.text!,start:el.start,end:el.end,
+        x:el.x,y:el.y,fontSize:el.style==='impact'?66:50,color:'#FFFFFF',
+        animation:el.style==='slide'?'slide':el.style==='fade'?'fade':'pop'});
+      else assets.push({id:'ai-'+randomUUID(),source:el.asset!,start:el.start,end:el.end,
+        x:el.x,y:el.y,w:el.w!,h:el.h!});
+    }
+    // Validação centralizada no mesmo método de salvamento manual.
+    const saved=await this.save(pid,id,{...p,captions,assets});
+    aiStates.delete(key);
+    return saved;
   }
 
   async render(pid:string,id:string) {
