@@ -1,7 +1,7 @@
 name: Studio quick build
 on:
   push:
-    branches: ['feature/video-design-timeline-v1']
+    branches: ['feature/video-design-timeline-v1', 'feature/nivoo-studio-finalizacao']
   pull_request:
     paths:
       - 'apps/backend/src/video-studio/**'
