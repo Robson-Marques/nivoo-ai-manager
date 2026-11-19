@@ -855,14 +855,51 @@ export function VideoStudio() {
     syncAudio(target,playing.current);
   };
   const playing=useRef(false);
+  // Uma nova cena pode vir do mesmo arquivo; o player precisa remontar
+  // e posicionar a origem ANTES de iniciar, nunca inferir o tempo da cena anterior.
+  const sceneReady=useRef<string|null>(null);
+  const prepareScene=()=>{
+    const video=player.current;
+    if(!active||!video)return;
+    const target=active.clip.start+active.offset;
+    sceneReady.current=null;
+    try{
+      if(Math.abs(video.currentTime-target)>.025){
+        video.currentTime=target;
+      }else{
+        sceneReady.current=active.clip.id;
+        if(playing.current)video.play().catch(()=>{
+          playing.current=false;setError('Não foi possível reproduzir esta cena.');
+        });
+      }
+    }catch(e){
+      playing.current=false;
+      setError('Não foi possível posicionar o vídeo no início do corte.');
+    }
+  };
+  const onSceneSeeked=()=>{
+    if(!active||!player.current)return;
+    const target=active.clip.start+active.offset;
+    if(Math.abs(player.current.currentTime-target)>.15&&sceneReady.current!==active.clip.id)return;
+    sceneReady.current=active.clip.id;
+    if(playing.current)player.current.play().then(()=>syncAudio(active.begin+active.offset,true)).catch(()=>{
+      playing.current=false;setError('Não foi possível continuar a reprodução.');
+    });
+    else syncAudio(active.begin+active.offset,false);
+  };
   const togglePlayback=()=>{
-    if(!player.current)return;
+    if(!player.current||!active)return;
     if(playing.current){
       playing.current=false;
       player.current.pause();
       syncAudio(playhead,false);
     }else{
+      // Caso tenha chegado ao fim, iniciar novamente a partir da primeira cena.
+      if(playhead>=total-.01&&total>0){playing.current=true;seek(0);return;}
       playing.current=true;
+      if(sceneReady.current!==active.clip.id){
+        prepareScene();return;
+      }
       player.current.play().then(()=>syncAudio(playhead,true)).catch(()=>{
         playing.current=false;setError('Não foi possível reproduzir este vídeo.');
       });
@@ -870,7 +907,11 @@ export function VideoStudio() {
   };
   const onVideoTime=()=>{
     if(!active||!player.current)return;
-    const pos=Math.max(0,player.current.currentTime-active.clip.start);
+    // Não interpretar o tempo do player anterior como se fosse o novo clipe.
+    if(sceneReady.current!==active.clip.id||player.current.seeking||player.current.readyState<1)return;
+    const raw=player.current.currentTime-active.clip.start;
+    if(raw<-.08)return;
+    const pos=Math.max(0,raw);
     const nextTime=active.begin+Math.min(pos,active.clip.duration);
     if(pos>=active.clip.duration-.035){
       if(active.begin+active.clip.duration<total-.01){
@@ -899,15 +940,9 @@ export function VideoStudio() {
   };
   useEffect(()=>{
     if(!active||!player.current)return;
-    const target=active.clip.start+active.offset;
-    if(Math.abs(player.current.currentTime-target)>.20)player.current.currentTime=target;
     player.current.volume=Math.max(0,Math.min(1,active.clip.volume??1));
-    if(playing.current){
-      player.current.play().then(()=>syncAudio(active.begin+active.offset,true)).catch(()=>{
-        playing.current=false;syncAudio(active.begin+active.offset,false);
-      });
-    }else syncAudio(active.begin+active.offset,false);
-  },[active?.clip.id,active?.offset===0]);
+    prepareScene();
+  },[active?.clip.id]);
   const chatInstruction='Analise a narração do vídeo e crie legendas cinéticas e imagens de apoio no Nivoo Studio. Não cubra rostos, logos ou textos importantes. Utilize o vídeo e a timeline salvos no projeto.';
   const activeCaptions=project?.captions.filter(c=>c.start<=playhead&&c.end>playhead)||[];
   const activeAssets=project?.assets.filter(a=>a.start<=playhead&&a.end>playhead)||[];
@@ -975,7 +1010,7 @@ export function VideoStudio() {
           <div className="studio-canvas" ref={canvasRef}>
             {project.soundtrack&&<audio ref={soundtrackPlayer} src={midiaUrl(pid,project.soundtrack.source,standalone)} loop preload="metadata"/>}
             {(project.audioTracks??[]).map(t=><audio key={t.id} ref={el=>{if(el)audioPlayers.current.set(t.id,el);else audioPlayers.current.delete(t.id);}} src={midiaUrl(pid,t.source,standalone)} preload="metadata"/>)}
-            {active?<video key={active.clip.source} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} playsInline onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{if(!playing.current)syncAudio(playhead,false)}} />:<span>Adicione um vídeo para começar</span>}
+            {active?<video key={active.clip.id} ref={player} src={midiaUrl(pid,active.clip.source,standalone)} preload="auto" playsInline onLoadedMetadata={prepareScene} onSeeked={onSceneSeeked} onTimeUpdate={onVideoTime} onEnded={onVideoEnded} onPause={()=>{if(!playing.current)syncAudio(playhead,false)}} onError={()=>{playing.current=false;setError('Falha ao carregar esta cena. Verifique o arquivo ou o formato do vídeo.')}} />:<span>Adicione um vídeo para começar</span>}
             {(project.protectedZones??[]).filter(z=>z.start<=playhead&&z.end>playhead).map(z=><div key={z.id} onPointerDown={e=>beginDrag(e,'zone',z)} onPointerMove={moveDrag} onPointerUp={endDrag} className="studio-protected" style={{left:(z.x*100)+'%',top:(z.y*100)+'%',width:(z.w*100)+'%',height:(z.h*100)+'%'}} title={z.label}><span>{z.label}</span></div>)}
             {activeAssets.map(a=><img key={a.id} draggable={false} onPointerDown={e=>beginDrag(e,'image',a)} onPointerMove={moveDrag} onPointerUp={endDrag} src={midiaUrl(pid,a.source,standalone)} className={'studio-asset studio-asset-'+(a.animation||'fade')} alt="" style={{left:(a.x*100)+'%',top:(a.y*100)+'%',width:(a.w*100)+'%',height:(a.h*100)+'%'}}/>)}
             {aiDraft.state==='draft'&&(aiDraft.elements??[]).filter(el=>el.start<=playhead&&el.end>playhead).map((el,i)=>
