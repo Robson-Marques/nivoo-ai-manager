@@ -16,7 +16,7 @@ export type StudioClip = {
 };
 export type StudioCaption = {
   id: string; text: string; start: number; end: number; x: number; y: number;
-  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide'|'karaoke'; words?:TimedWord[];
+  fontSize?: number; color?: string; animation?: 'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:TimedWord[];
 };
 export type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 export type StudioAudio = {id:string;source:string;start:number;end:number;offset:number;volume:number};
@@ -44,7 +44,7 @@ const assTime = (s: number) => {
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
-type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'};
+type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 const aiStates=new Map<string,AiState>();
 type ZoneState={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
@@ -381,6 +381,7 @@ export class VideoStudioService {
             'Você é o diretor de arte de pós-produção do Nivoo Studio.',
             'Analise a narração com seus tempos e proponha um plano de inserções visuais.',
             'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"explanation":"..."}',
+            'Para legendas dinâmicas, escolha style=impact|fade|slide|rise|enter-left|enter-right e distribua os destaques por posições diferentes somente se houver área livre; mantenha ênfase e legibilidade.',
             'Para gráfico original local use kind=graphic com text, subtitle, variant=spreadsheet|clock|progress|warning|money|check|generic e x,y,w,h. A renderização cria um cartão visual PNG sem API paga.',
             'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
@@ -409,7 +410,7 @@ export class VideoStudioService {
           if(e.kind==='caption'){
             if(typeof e.text!=='string'||!e.text.trim()||e.text.length>100)continue;
             rect={x:Math.max(0,e.x-.40),y:Math.max(0,e.y-.065),w:Math.min(.8,1-Math.max(0,e.x-.40)),h:.13};
-            if(!['impact','fade','slide'].includes(e.style??'impact'))e.style='impact';
+            if(!['impact','fade','slide','rise','enter-left','enter-right'].includes(e.style??'impact'))e.style='impact';
            }else if(e.kind==='graphic'){
             if(typeof e.text!=='string'||!e.text.trim()||e.text.length>55||
               (e.subtitle!==undefined&&(typeof e.subtitle!=='string'||e.subtitle.length>100)))continue;
@@ -445,7 +446,7 @@ export class VideoStudioService {
     for(const el of draft.elements){
       if(el.kind==='caption')captions.push({id:'ai-'+randomUUID(),text:el.text!,start:el.start,end:el.end,
         x:el.x,y:el.y,fontSize:el.style==='impact'?66:50,color:'#FFFFFF',
-        animation:el.style==='slide'?'slide':el.style==='fade'?'fade':'pop'});
+        animation:el.style==='slide'?'slide':el.style==='fade'?'fade':el.style==='rise'?'rise':el.style==='enter-left'?'enter-left':el.style==='enter-right'?'enter-right':'pop'});
       else if(el.kind==='graphic'){
         const target=path.join(media,'saida','ai-graphic-'+randomUUID()+'.png');
         const input=path.join(studio,'ai','render-'+randomUUID()+'.json');
@@ -571,7 +572,11 @@ export class VideoStudioService {
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
       const lines=p.captions.map(c=>{
         const x=Math.round(c.x*W),y=Math.round(c.y*H);
-        const effect=c.animation==='slide'?`\\move(${x},${y+50},${x},${y},0,350)`: `\\pos(${x},${y})`;
+        const offset=Math.round(Math.min(W*0.12,120));
+        const sx=c.animation==='enter-left'?x-offset:c.animation==='enter-right'?x+offset:x;
+        const sy=c.animation==='slide'?y+50:c.animation==='rise'?y+Math.round(H*.08):y;
+        const moving=['slide','rise','enter-left','enter-right'].includes(c.animation??'');
+        const effect=moving?`\\move(${sx},${sy},${x},${y},0,350)`:`\\pos(${x},${y})`;
         const fade=c.animation==='fade'?'\\fad(160,160)':'';
         const pop=c.animation==='pop'?'\\t(0,200,\\fscx110\\fscy110)':'';
         const kinetic=c.animation==='karaoke'?karaokeAss(c,esc):null;

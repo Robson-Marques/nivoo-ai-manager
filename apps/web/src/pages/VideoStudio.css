@@ -15,7 +15,7 @@
 .studio-canvas video{height:100%;width:100%;object-fit:contain}
 .studio-canvas img{position:absolute;object-fit:contain;pointer-events:none}
 .studio-caption{position:absolute;transform:translate(-50%,-50%);font-weight:800;max-width:86%;line-height:1.1;text-align:center;text-shadow:0 2px 7px #000c;pointer-events:none}
-.studio-caption-fade{animation:studio-in .18s ease-out}.studio-caption-pop{animation:studio-pop .2s ease-out}.studio-caption-slide{animation:studio-slide .25s ease-out}
+.studio-caption-fade{animation:studio-in .18s ease-out}.studio-caption-pop{animation:studio-pop .2s ease-out}.studio-caption-slide{animation:studio-slide .35s ease-out}.studio-caption-rise{animation:studio-rise .35s ease-out}.studio-caption-enter-left{animation:studio-enter-left .35s ease-out}.studio-caption-enter-right{animation:studio-enter-right .35s ease-out}
 @keyframes studio-in{from{opacity:0}to{opacity:1}}@keyframes studio-pop{from{transform:translate(-50%,-50%) scale(.5)}to{transform:translate(-50%,-50%) scale(1)}}@keyframes studio-slide{from{transform:translate(-50%,-10%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
 .studio-play-controls{display:flex;align-items:center;justify-content:center;gap:9px}.studio-preview-panel input[type=range]{width:100%}
 .studio-tabs{display:flex;flex-wrap:wrap;gap:4px}.studio-tabs button{padding:5px 7px;font-size:12px}.studio-tabs button.on{background:#0f766e}
@@ -56,3 +56,7 @@
 /* Destaque cinético do termo pronunciado. A posição da legenda permanece fixa. */
 .studio-caption-karaoke .studio-word{color:#d1d5db;transition:color .08s linear}
 .studio-caption-karaoke .studio-word-active{color:#facc15;text-shadow:0 0 8px #eab308aa,0 2px 7px #000;transition:color .06s linear}
+
+@keyframes studio-rise{from{transform:translate(-50%,40%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
+@keyframes studio-enter-left{from{transform:translate(calc(-50% - 7vw),-50%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}
+@keyframes studio-enter-right{from{transform:translate(calc(-50% + 7vw),-50%);opacity:0}to{transform:translate(-50%,-50%);opacity:1}}

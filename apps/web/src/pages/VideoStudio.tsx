@@ -5,7 +5,7 @@ import './VideoStudio.css';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
-type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'; words?:Array<{text:string;start:number;end:number}> };
+type Caption = { id:string; text:string; start:number; end:number; x:number; y:number; fontSize?:number; color?:string; animation?:'fade'|'pop'|'slide'|'karaoke'|'rise'|'enter-left'|'enter-right'; words?:Array<{text:string;start:number;end:number}> };
 type ProtectedZone = {id:string;label:string;start:number;end:number;x:number;y:number;w:number;h:number};
 type AudioTrack = {id:string;source:string;start:number;end:number;offset:number;volume:number};
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
@@ -379,7 +379,7 @@ export function VideoStudio() {
             <label>Texto <textarea value={selectedCaption.text} onChange={e=>updateCaption('text',e.target.value)}/></label>
             {(['start','end','x','y','fontSize'] as const).map(k=><label key={k}>{k} <input type="number" step=".01" value={selectedCaption[k]??54} onChange={e=>updateCaption(k,e.target.value)}/></label>)}
             <label>Cor <input type="color" value={selectedCaption.color||'#ffffff'} onChange={e=>updateCaption('color',e.target.value)}/></label>
-            <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide</option><option value="karaoke" disabled={!selectedCaption.words?.length}>Destaque palavra a palavra</option></select></label>
+            <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide vertical</option><option value="rise">Subir</option><option value="enter-left">Entrar da esquerda</option><option value="enter-right">Entrar da direita</option><option value="karaoke" disabled={!selectedCaption.words?.length}>Destaque palavra a palavra</option></select></label>
             <button onClick={remove}>Remover legenda</button></>}</div>}
           {tab==='assets'&&<div className="studio-fields"><p>Escolha uma imagem da biblioteca para inserir na timeline.</p>{selectedAsset&&<>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAsset[k]} onChange={e=>updateAsset(k,e.target.value)}/></label>)}
             <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
