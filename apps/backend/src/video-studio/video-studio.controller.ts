@@ -29,6 +29,21 @@ export class VideoStudioController {
     return this.studio.remove(pid,id);
   }
 
+  @Post(':id/zones/detect')
+  zoneDetect(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
+    return this.studio.detectZones(pid,id);
+  }
+
+  @Get(':id/zones/detect')
+  zoneStatus(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
+    return this.studio.zoneStatus(pid,id);
+  }
+
+  @Post(':id/zones/apply')
+  zoneApply(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string, @Body() body: {updatedAt:string}) {
+    return this.studio.applyZones(pid,id,body.updatedAt);
+  }
+
   @Post(':id/ai/plan')
   aiPlan(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string, @Body() body: {brief?:string}) {
     return this.studio.aiPlan(pid,id,body?.brief);
