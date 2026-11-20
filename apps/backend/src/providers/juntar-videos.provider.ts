@@ -6,7 +6,7 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
-import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteiroEmUmaFala } from './kokoro-tts.service';
+import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
 import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
@@ -16,7 +16,7 @@ function textoLocucao(t: TrechoLocucao): string {
   return t.intencao === 'pergunta' ? frase.replace(/[!?\.]+$/, '') + '?' : 
     (t.intencao === 'chamada' || t.intencao === 'destaque') ? frase.replace(/[!?\.]+$/, '') + '!' : frase;
 }
-type Narracao = { trechos?: TrechoLocucao[]; texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Pronuncias; volumeFundoSobVoz?: number };
+type Narracao = { trechos?: TrechoLocucao[]; texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Pronuncias; volumeFundoSobVoz?: number };
 
 /** Modelos de música do Google (Lyria), do mais completo ao clipe de 30 s. */
 const MODELOS_MUSICA = ['lyria-3-pro-preview', 'lyria-3-clip-preview'];
@@ -198,11 +198,11 @@ export class JuntarVideosProvider implements AiProvider {
           const absM = this.resolver(req, meta);
           const vozEscolhida = o.narracao.voz ?? (o.narracao.motor === 'gemini' ? VOZ_PADRAO_GEMINI : VOZ_PADRAO);
           const motor = o.narracao.motor ?? vozConhecida(vozEscolhida)?.motor ?? 'kokoro';
-          const velocidade = o.narracao.velocidade ?? 1;
+          const velocidade = o.narracao.velocidade ?? velocidadePadraoLocucao(o.narracao.ritmo ?? 'natural');
           const pronuncias = o.narracao.pronuncias ?? {};
-          const trechos = motor === 'kokoro' ? (o.narracao.trechos ?? []) : [];
+          const trechos = motor === 'kokoro' ? (o.narracao.trechos?.length ? o.narracao.trechos : frasesDeLocucao(o.narracao.texto ?? '')) : [];
           const textoInteiro = (o.narracao.texto ?? trechos.map(t => t.texto).join(' ')).trim();
-          const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
+          const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, ritmo: o.narracao.ritmo ?? 'natural', pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
             voz = absG;
             vozInfo = `narração ${guardada} (reaproveitada)`;
@@ -213,7 +213,7 @@ export class JuntarVideosProvider implements AiProvider {
               try {
                 // Não costurar vários MP3s: uma síntese mantém contexto
                 // de prosódia do roteiro inteiro (inclusive a pergunta final).
-                const textoGeracao = trechos.length ? roteiroEmUmaFala(trechos) : textoInteiro;
+                const textoGeracao = trechos.length ? roteiroEmUmaFala(trechos, o.narracao.ritmo ?? 'natural') : textoInteiro;
                 if (trechos.some(t => t.pausaAposMs !== undefined))
                   req.onLog('Pausas solicitadas como marcadores internos do Kokoro em uma única síntese; sem concatenação de MP3.');
                 if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))

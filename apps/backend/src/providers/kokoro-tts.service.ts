@@ -2,6 +2,21 @@ import { Injectable } from '@nestjs/common';
 import { VOZES_KOKORO, vozConhecida } from './vozes';
 
 export type Pronuncias = Record<string, string>;
+export type RitmoLocucao = 'calmo' | 'natural' | 'dinamico';
+
+/** Ritmo é um conceito de linguagem natural; milissegundos são detalhe interno. */
+export function pausaPadraoLocucao(ritmo: RitmoLocucao = 'natural'): number {
+  return ritmo === 'calmo' ? 430 : ritmo === 'dinamico' ? 190 : 310;
+}
+export function velocidadePadraoLocucao(ritmo: RitmoLocucao = 'natural'): number {
+  return ritmo === 'calmo' ? 0.85 : ritmo === 'dinamico' ? 1 : 0.9;
+}
+/** Separa APENAS frases completas; vírgulas e perguntas permanecem inteiras. */
+export function frasesDeLocucao(texto: string): TrechoDeLocucao[] {
+  const blocos = texto.trim().match(/[^.!?\n]+(?:[.!?]+|(?=\n|$))/g) ?? [];
+  return blocos.map(frase => ({ texto: frase.trim() })).filter(t => t.texto);
+}
+
 export type TrechoDeLocucao = {
   texto: string;
   intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural';
@@ -50,13 +65,13 @@ export function unirTrechosContinuos(trechos: TrechoDeLocucao[]): TrechoDeLocuca
  * A sintaxe documentada é [pause:0.5s]; não usar tags SSML sem ssml:true.
  * Uma marcação de pausa não garante emoção nem entonação interrogativa.
  */
-export function roteiroEmUmaFala(trechos: TrechoDeLocucao[]): string {
+export function roteiroEmUmaFala(trechos: TrechoDeLocucao[], ritmo: RitmoLocucao = 'natural'): string {
   const partes = unirTrechosContinuos(trechos);
   return partes.map((t, i) => {
     const frase = t.texto.trim();
     const texto = t.intencao === 'pergunta' ? frase.replace(/[.!?]+$/, '') + '?' :
       (t.intencao === 'chamada' || t.intencao === 'destaque') ? frase.replace(/[.!?]+$/, '') + '!' : frase;
-    const pausa = i === partes.length - 1 ? 0 : t.pausaAposMs ?? 0;
+    const pausa = i === partes.length - 1 ? 0 : t.pausaAposMs ?? pausaPadraoLocucao(ritmo);
     // O marcador é enviado DENTRO do mesmo input ao servidor Kokoro.
     // Sem pausas configuradas, deixa a pontuação natural atuar.
     return pausa > 0 ? `${texto} [pause:${(pausa / 1000).toFixed(2)}s]` : texto;

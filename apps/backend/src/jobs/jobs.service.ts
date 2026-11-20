@@ -715,7 +715,7 @@ export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipele
 
 /** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
 /** Narração (voz): Kokoro local por padrão, Gemini paga opcional, ou um áudio pronto do projeto. */
-function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number; trechos?: Array<{ texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number }> } {
+function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number; ritmo?: 'calmo' | 'natural' | 'dinamico'; trechos?: Array<{ texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number }> } {
   if (!n || typeof n !== 'object') throw new BadRequestException(`Etapa ${key}: narracao deve ser {"texto":"..."} ou {"arquivo":"audio/voz.mp3"}`);
   const out: ReturnType<typeof narracaoValida> = {};
   if (n.arquivo !== undefined) {
@@ -766,6 +766,11 @@ function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string
     out.voz = v.id;
   } else if (out.motor) {
     out.voz = vozPadraoDoMotor(out.motor);
+  }
+  if (n.ritmo !== undefined) {
+    if (!['calmo', 'natural', 'dinamico'].includes(n.ritmo))
+      throw new BadRequestException(`Etapa ${key}: narracao.ritmo deve ser calmo, natural ou dinamico`);
+    out.ritmo = n.ritmo;
   }
   if (n.velocidade !== undefined) {
     const v = Number(n.velocidade);

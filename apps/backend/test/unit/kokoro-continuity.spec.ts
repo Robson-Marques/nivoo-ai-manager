@@ -52,3 +52,17 @@ describe('Kokoro-FastAPI: pausas em uma única geração', () => {
     expect(texto).toBe('E você, vai ficar de fora dessa?');
   });
 });
+
+describe('Ritmo natural sem jargão no prompt', () => {
+  const { frasesDeLocucao, roteiroEmUmaFala, velocidadePadraoLocucao } = require('../../src/providers/kokoro-tts.service');
+  it('gera pausas internas automaticamente com texto simples', () => {
+    const roteiro = 'É hoje! Black na sua quinta-feira! Das sete às nove da noite, dois sabores especiais em promoção! Peça agora a sua pizza e aproveite!';
+    const texto = roteiroEmUmaFala(frasesDeLocucao(roteiro), 'calmo');
+    expect(texto).toBe('É hoje! [pause:0.43s] Black na sua quinta-feira! [pause:0.43s] Das sete às nove da noite, dois sabores especiais em promoção! [pause:0.43s] Peça agora a sua pizza e aproveite!');
+    expect(velocidadePadraoLocucao('calmo')).toBe(0.85);
+  });
+  it('não interrompe a oração após uma vírgula', () => {
+    const texto = roteiroEmUmaFala(frasesDeLocucao('E você, vai ficar de fora dessa?'), 'calmo');
+    expect(texto).toBe('E você, vai ficar de fora dessa?');
+  });
+});

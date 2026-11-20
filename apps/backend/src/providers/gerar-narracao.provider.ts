@@ -4,12 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
-import { KokoroTtsError, KokoroTtsService, roteiroEmUmaFala } from './kokoro-tts.service';
+import { KokoroTtsError, KokoroTtsService, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
 import { VOZ_PADRAO_KOKORO } from './vozes';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 type Frase = { texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number };
-type Opcoes = { arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; pronuncias?: Record<string,string> };
+type Opcoes = { arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Record<string,string> };
 function textoDaFrase(t: Frase): string {
   const frase = t.texto.trim();
   if (t.intencao === 'pergunta') return frase.replace(/[.!?]+$/, '') + '?';
@@ -40,8 +40,8 @@ export class GerarNarracaoProvider implements AiProvider {
     const nome = o.arquivo ?? 'out/previa-locucao.mp3';
     if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(nome) || nome.split('/').includes('..'))
       return { exitCode: 1, output: '', error: 'Destino de prévia deve ser out/<nome>.mp3' };
-    const trechos = o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : [];
-    const texto = roteiroEmUmaFala(trechos);
+    const trechos = o.trechos?.length ? o.trechos : frasesDeLocucao(o.texto ?? '');
+    const texto = roteiroEmUmaFala(trechos, o.ritmo ?? 'natural');
     if (!texto) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
     // A marcação é interpretada pelo Kokoro-FastAPI durante uma única síntese.
     // Nunca separar a locução em arquivos e concatenar.
@@ -52,7 +52,7 @@ export class GerarNarracaoProvider implements AiProvider {
     try {
       // A API recebe o roteiro inteiro em uma síntese, sem recortes nem silêncios
       // colocados pelo FFmpeg. Pausas vêm da pontuação interpretada pela voz.
-      const velocidade = o.velocidade ?? trechos[0]?.velocidade ?? 1;
+      const velocidade = o.velocidade ?? velocidadePadraoLocucao(o.ritmo ?? 'natural');
       req.onLog('Gerando locução contínua em uma chamada ao Kokoro (sem cortes, velocidade ' + velocidade + ').');
       if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
         req.onLog('Atenção: velocidade por frase foi ignorada para preservar uma só interpretação. Usando a velocidade global.', 'WARN');
