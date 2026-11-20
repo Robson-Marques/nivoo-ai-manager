@@ -105,8 +105,8 @@ export class VideoStudioService {
       try{
         const args=[
           '-hide_banner','-loglevel','error','-nostdin',
-          '-f','lavfi','-i','color=c=0x155a9c:s=240x135:r=24:d=1.55,drawbox=x=18:y=25:w=78:h=82:color=0xffd36a:t=fill,drawbox=x=105:y=45:w=95:h=46:color=0x6fc5ed:t=fill',
-          '-f','lavfi','-i','color=c=0xdd743c:s=240x135:r=24:d=1.55,drawbox=x=142:y=22:w=77:h=87:color=0x86ebdd:t=fill,drawbox=x=38:y=48:w=90:h=40:color=0xf9d87c:t=fill',
+          '-f','lavfi','-i','color=c=0x155a9c:s=240x136:r=24:d=1.55,drawbox=x=18:y=25:w=78:h=82:color=0xffd36a:t=fill,drawbox=x=105:y=45:w=95:h=46:color=0x6fc5ed:t=fill',
+          '-f','lavfi','-i','color=c=0xdd743c:s=240x136:r=24:d=1.55,drawbox=x=142:y=22:w=77:h=87:color=0x86ebdd:t=fill,drawbox=x=38:y=48:w=90:h=40:color=0xf9d87c:t=fill',
           '-filter_complex',`[0:v][1:v]xfade=transition=${type}:duration=1:offset=0.25[v]`,
           '-map','[v]','-t','1.5','-an','-c:v','libx264','-preset','ultrafast',
           '-threads','2','-crf','27','-pix_fmt','yuv420p','-movflags','+faststart','-y',partial,
