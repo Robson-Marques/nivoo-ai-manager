@@ -9,7 +9,7 @@ import { VOZ_PADRAO_KOKORO } from './vozes';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 type Frase = { texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number };
-type Opcoes = { arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Record<string,string> };
+type Opcoes = { arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Record<string,string>; fechamentoAlternativo?: string };
 function textoDaFrase(t: Frase): string {
   const frase = t.texto.trim();
   if (t.intencao === 'pergunta') return frase.replace(/[.!?]+$/, '') + '?';
@@ -68,8 +68,34 @@ export class GerarNarracaoProvider implements AiProvider {
         { cwd: req.cwd, env: minimalEnv(), timeoutMs: Math.min(req.timeoutMs, 180000), signal: req.signal });
       if (result.exitCode !== 0) return { exitCode: 1, output: '', error: 'Falha ao normalizar MP3: ' + result.stderr.slice(-350) };
       if (!fs.existsSync(target) || !fs.statSync(target).size) return { exitCode: 1, output: '', error: 'Prévia MP3 vazia' };
-      req.onLog('Locução contínua disponível: ' + nome);
-      return { exitCode: 0, output: 'Prévia da locução contínua gerada: ' + nome + '. Aguardando aprovação antes do vídeo.', stopReason: 'completed' };
+      // Comparação opcional: a mesma voz/velocidade/pausas em duas locuções
+      // completas e independentes. Não juntar frases e não renderizar MP4.
+      // O texto original nunca é sobrescrito pela alternativa.
+      let alternativa: string | null = null;
+      if (o.fechamentoAlternativo?.trim()) {
+        const original = trechos[trechos.length - 1];
+        if (!original) return { exitCode: 1, output: '', error: 'Sem frase final para comparar' };
+        const alternativaTexto = o.fechamentoAlternativo.trim();
+        const outrasFrases = [...trechos.slice(0, -1), {
+          ...original, texto: alternativaTexto, intencao: 'chamada' as const,
+        }];
+        const textoAlternativo = roteiroEmUmaFala(outrasFrases, o.ritmo ?? 'natural');
+        alternativa = nome.replace(/\.mp3$/i, '-alternativa.mp3');
+        req.onLog('Gerando versão B com CTA alternativo (mesma voz e ritmo), sem alterar o original.');
+        let alternativaAudio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
+        try { alternativaAudio = await this.kokoro.gerar(textoAlternativo, o.voz ?? VOZ_PADRAO_KOKORO, velocidade, o.pronuncias ?? {}, req.signal); }
+        catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: 'Prévia A preservada: ' + nome, error: 'Falha na alternativa B: ' + err.message, resourceUnavailable: err.indisponivel }; }
+        const rawAlt = path.join(tmp, 'alternativa-original.mp3');
+        fs.writeFileSync(rawAlt, alternativaAudio.bytes);
+        const destinoAlt = resolveInside(req.cwd, alternativa);
+        const convAlt = await runProcess('ffmpeg',
+          ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', rawAlt, '-map', '0:a:0', '-c:a', 'libmp3lame', '-q:a', '3', destinoAlt],
+          { cwd: req.cwd, env: minimalEnv(), timeoutMs: Math.min(req.timeoutMs, 180000), signal: req.signal });
+        if (convAlt.exitCode !== 0 || !fs.existsSync(destinoAlt) || !fs.statSync(destinoAlt).size)
+          return { exitCode: 1, output: 'Prévia A preservada: ' + nome, error: 'Falha ao preparar a alternativa B: ' + convAlt.stderr.slice(-350) };
+      }
+      req.onLog('Locução contínua disponível: ' + nome + (alternativa ? ' e ' + alternativa : ''));
+      return { exitCode: 0, output: 'Prévia A: ' + nome + (alternativa ? '; prévia B: ' + alternativa : '') + '. Aguardando a escolha do usuário antes do vídeo.', stopReason: 'completed' };
     }finally{fs.rmSync(tmp,{recursive:true,force:true});}
   }
 }

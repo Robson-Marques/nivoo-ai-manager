@@ -181,6 +181,12 @@ export class JobsService {
         if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(arquivo) || arquivo.split('/').includes('..'))
           throw new BadRequestException(`Etapa ${key}: arquivo deve ser out/<nome>.mp3`);
         Object.assign(providerOptions, validada, { arquivo });
+        if (opts.fechamentoAlternativo !== undefined) {
+          const fechamento = String(opts.fechamentoAlternativo).trim();
+          if (!fechamento || fechamento.length > 300 || /[\\[\\]<>]/.test(fechamento))
+            throw new BadRequestException(`Etapa ${key}: fechamentoAlternativo deve ser uma frase simples com até 300 caracteres`);
+          providerOptions.fechamentoAlternativo = fechamento;
+        }
         verificacao = verifyCommand ?? `test -s '${arquivo}'`;
       }
       // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
