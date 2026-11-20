@@ -310,9 +310,26 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     if (v && painel) onPainel(); // tela dividida: o painel recolhe para a barra de cima
   };
   const [contas, setContas] = useState<any[]>([]);
+  const [areasDisponiveis, setAreasDisponiveis] = useState<Array<{ id: string; slug: string; name: string }>>([]);
+  const [trocandoArea, setTrocandoArea] = useState(false);
   useEffect(() => {
     api<any[]>('/accounts').then(setContas).catch(() => undefined);
+    api<Array<{ id: string; slug: string; name: string }>>('/areas')
+      .then(setAreasDisponiveis).catch(() => undefined);
   }, []);
+  const trocarArea = useCallback(async (slug: string) => {
+    if (!slug || slug === projeto.area?.slug || trocandoArea) return;
+    setTrocandoArea(true);
+    setErro(null);
+    try {
+      await api(`/projects/${projeto.id}`, 'PATCH', { base: slug });
+      onProjetoMudou();
+    } catch (e: any) {
+      setErro(e?.message ?? 'Não foi possível alterar a área do projeto.');
+    } finally {
+      setTrocandoArea(false);
+    }
+  }, [projeto.id, projeto.area?.slug, trocandoArea, onProjetoMudou]);
   // Trocar a IA do projeto: o trabalho não terminado passa para a nova IA e continua (o servidor cuida).
   const trocar = useCallback(
     async (id: string) => {
@@ -611,7 +628,18 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
         <header className="conversa-topo">
           <div>
             <h1>{projeto.name}</h1>
-            <span className="tag">{projeto.area?.name}</span>{' '}
+            <select
+              className="seletor-ia"
+              aria-label="Área ou agente do projeto"
+              title="Mudar o agente deste projeto sem excluir arquivos, conversas ou resultados"
+              value={projeto.area?.slug ?? ''}
+              disabled={trocandoArea || !areasDisponiveis.length}
+              onChange={(e) => void trocarArea(e.target.value)}
+            >
+              {areasDisponiveis.length
+                ? areasDisponiveis.map((a) => <option key={a.id} value={a.slug}>{a.name}</option>)
+                : <option value={projeto.area?.slug ?? ''}>{projeto.area?.name ?? 'Área'}</option>}
+            </select>{' '}
             <select className="seletor-ia" value={projeto.provider} onChange={(e) => trocar(e.target.value)} title="IA que trabalha neste projeto (pode trocar a qualquer momento)">
               {(contas.length ? contas : [{ id: projeto.provider, nome: NOME_IA[projeto.provider] ?? projeto.provider, conectado: true }]).map((c) => (
                 <option key={c.id} value={c.id}>
