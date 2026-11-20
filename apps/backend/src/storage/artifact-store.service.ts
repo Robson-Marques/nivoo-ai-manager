@@ -117,6 +117,37 @@ export class ArtifactStoreService {
     return created;
   }
 
+  /**
+   * Publica no catálogo de resultados os MP4s realmente produzidos pelo job,
+   * independentemente da avaliação final. Só usa destinos explícitos do plano.
+   * Não altera a mídia original e não aprova critérios visuais.
+   */
+  async registrarVideosDoTrabalho(meta: { projectId: string; jobId: string; stepId?: string; attemptId?: string },
+    mediaDir: string, caminhos: string[]): Promise<Artifact[]> {
+    const registrados: Artifact[] = [];
+    const unicos = [...new Set(caminhos)].filter(p => /^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(p));
+    for (const nome of unicos) {
+      const absolute = path.resolve(mediaDir, nome.slice('midia/'.length));
+      try {
+        const raiz = fs.realpathSync(mediaDir);
+        const real = fs.realpathSync(absolute);
+        if (!real.startsWith(raiz + path.sep)) continue;
+        if (!fs.statSync(real).isFile() || !fs.statSync(real).size) continue;
+        const hash = await sha256File(real);
+        const existente = await this.prisma.artifact.findFirst({
+          where: { projectId: meta.projectId, jobId: meta.jobId, name: nome, sha256: hash, kind: 'FILE' },
+        });
+        if (existente) { registrados.push(existente); continue; }
+        registrados.push(await this.storeFile({
+          ...meta, name: nome, kind: 'FILE', mimeType: 'video/mp4',
+        }, real));
+      } catch {
+        // Mídia ainda não produzida: não cria artefato falso nem falha o job.
+      }
+    }
+    return registrados;
+  }
+
   async read(projectId: string, artifactId: string): Promise<{ artifact: Artifact; content: Buffer }> {
     const artifact = await this.prisma.artifact.findFirst({ where: { id: artifactId, projectId } });
     if (!artifact) throw new NotFoundException('Artefato não encontrado neste projeto');

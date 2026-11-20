@@ -1580,7 +1580,7 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
     <div className="arquivos-trabalho">
       {resultados.length > 0 && (
         <>
-          <span className="small"><b>Resultados do trabalho ({resultados.length})</b> — relatórios e documentos que a IA entregou:</span>
+          <span className="small"><b>Resultados produzidos ({resultados.length})</b> — vídeos e arquivos disponíveis, mesmo quando a revisão do trabalho está pendente:</span>
           <div className="arquivos-chips">
             {resultados.map((r) => (
               <button key={r.id} className="arquivo-chip resultado" onClick={() => setResultadoAberto(r)} title={`${tamanho(r.bytes)} · sha256 ${String(r.sha256).slice(0, 12)}`}>
@@ -1615,19 +1615,26 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
 function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any; onFechar: () => void }) {
   const [texto, setTexto] = useState<string | null>(null);
   const [imagem, setImagem] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
   const url = `/projects/${projetoId}/artifacts/${r.id}`;
   const ehImagem = /\.(png|jpe?g|gif|webp)$/i.test(String(r.nome));
+  const ehVideo = /\.(mp4|webm|mov)$/i.test(String(r.nome));
   useEffect(() => {
-    if (ehImagem) {
+    if (ehImagem || ehVideo) {
+      let active = true;
       let u: string | null = null;
-      urlDoArquivo(url).then((x) => setImagem((u = x)));
-      return () => {
-        if (u) URL.revokeObjectURL(u);
-      };
+      urlDoArquivo(url).then(x => {
+        if (!x) return;
+        if (!active) { URL.revokeObjectURL(x); return; }
+        u = x;
+        if (ehVideo) setVideoUrl(x);
+        else setImagem(x);
+      });
+      return () => { active = false; if (u) URL.revokeObjectURL(u); };
     }
     lerArquivo(url).then(setTexto);
-  }, [url, ehImagem]);
+  }, [url, ehImagem, ehVideo]);
   return (
     <div className="modal-fundo" onClick={onFechar}>
       <div className="modal largo" onClick={(e) => e.stopPropagation()}>
@@ -1656,7 +1663,7 @@ function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any
             <button className="secondary" onClick={onFechar}>Fechar</button>
           </span>
         </div>
-        {ehImagem ? (imagem ? <img className="foto-resultado" src={imagem} alt={r.nome} /> : <p className="muted">Carregando…</p>) : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
+        {ehVideo ? (videoUrl ? <video controls playsInline preload="metadata" src={videoUrl} style={{width:'100%',maxHeight:'70vh'}} /> : <p className="muted">Carregando vídeo…</p>) : ehImagem ? (imagem ? <img className="foto-resultado" src={imagem} alt={r.nome} /> : <p className="muted">Carregando…</p>) : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
       </div>
     </div>
   );

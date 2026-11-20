@@ -24,6 +24,7 @@ import { ConversationsService } from '../conversations/conversations.service';
 import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
 import { TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { historicoGit, textoDoRepositorio } from '../git/contexto-git';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
@@ -490,6 +491,7 @@ export class PlannerService {
       '           "verifyCommand":"comando bash que retorna 0 quando a etapa está pronta, ex.: test -s docs/briefing.md"}],',
       ' "criteria":[{"key":"...","description":"...","kind":"FILE_EXISTS","config":{"path":"docs/briefing.md"}}]}',
       'Regras do plano:',
+      ...VIDEO_QUALITY_POLICY.map(line => '- ' + line),
       '- CONTRATO INVIOLÁVEL DE SAÍDAS: arquivos de vídeo finais ou temporários do Nivoo (MP4/MOV/WEBM)',
       '  ficam em midia/saida/<nome>.mp4, nunca out/. Em out/ grave somente relatórios, imagens de conferência',
       '  e outros artefatos não-vídeo. O backend valida/corrige os comandos de renderização ao aceitar o plano.',

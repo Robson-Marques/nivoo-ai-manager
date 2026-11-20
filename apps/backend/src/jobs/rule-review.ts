@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { VIDEO_QUALITY_POLICY } from './video-quality-policy';
 /**
  * Conferência das regras ("a trava"): todo trabalho feito por IA termina com uma sessão SEPARADA, sem a
  * memória da sessão que fez o trabalho, que compara as mudanças com o perfil do projeto (regras da base,
@@ -26,6 +27,8 @@ export function ruleReviewStep(dependsOn: string[], provider: string) {
     dependsOn,
     instructions: [
       'Você é um REVISOR independente. Você não fez este trabalho; confira-o com rigor.',
+      'Para trabalhos audiovisuais, aplique o padrão de qualidade abaixo sem impor o mesmo estilo a todos os vídeos:',
+      ...VIDEO_QUALITY_POLICY,
       '1. Leia o perfil do projeto (regras da base, regras do projeto, materiais em contexto/), a memória e o objetivo.',
       '2. Examine TODAS as mudanças listadas em "Mudanças feitas por este trabalho" e os arquivos alterados. Se existir out/telas/',
       '   (fotos das telas tiradas pela conferência, computador e celular), ABRA as fotos: layout quebrado, texto cortado ou',

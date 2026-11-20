@@ -37,6 +37,7 @@ import { bancoDeTesteDisponivel, descartarBancoDeTeste, prepararBancoDeTeste, TE
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
+import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
@@ -524,6 +525,18 @@ export class StepExecutorService {
     );
     const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir);
     if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
+    // Um MP4 entregue não desaparece porque a revisão visual ou outro critério
+    // ficou pendente. Publica o vídeo como resultado assim que ele existe.
+    const expected = await this.prisma.acceptanceCriterion.findMany({
+      where: { jobId: job.id, kind: 'FILE_EXISTS' }, select: { config: true },
+    });
+    const fromCriteria = expected.map(c => (c.config as { path?: unknown } | null)?.path).filter((v): v is string => typeof v === 'string');
+    const fromStep = [step.instructions, step.verifyCommand ?? ''].flatMap(t => [...t.matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)].map(m => m[0]));
+    const videos = await this.artifacts.registrarVideosDoTrabalho(
+      { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id },
+      this.pastaDeMidia(job.project.dirKey), [...fromCriteria, ...fromStep],
+    );
+    if (videos.length) await L(`Vídeo(s) disponível(is) para assistir e baixar, mesmo com conferência pendente: ${videos.map(v => v.name).join(', ')}`, 'INFO', attempt.id);
 
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
@@ -993,6 +1006,9 @@ export class StepExecutorService {
     const sections: ContextSection[] = [];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
+    if (/\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))) {
+      add('qualidade-video', ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)', ...VIDEO_QUALITY_POLICY.map(s => '- ' + s)]);
+    }
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
