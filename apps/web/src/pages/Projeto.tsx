@@ -1643,21 +1643,22 @@ function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any
   const url = `/projects/${projetoId}/artifacts/${r.id}`;
   const ehImagem = /\.(png|jpe?g|gif|webp)$/i.test(String(r.nome));
   const ehVideo = /\.(mp4|webm|mov)$/i.test(String(r.nome));
+  const ehAudio = /\.(mp3|wav|m4a|ogg|aac)$/i.test(String(r.nome));
   useEffect(() => {
-    if (ehImagem || ehVideo) {
+    if (ehImagem || ehVideo || ehAudio) {
       let active = true;
       let u: string | null = null;
       urlDoArquivo(url).then(x => {
         if (!x) return;
         if (!active) { URL.revokeObjectURL(x); return; }
         u = x;
-        if (ehVideo) setVideoUrl(x);
+        if (ehVideo || ehAudio) setVideoUrl(x);
         else setImagem(x);
       });
       return () => { active = false; if (u) URL.revokeObjectURL(u); };
     }
     lerArquivo(url).then(setTexto);
-  }, [url, ehImagem, ehVideo]);
+  }, [url, ehImagem, ehVideo, ehAudio]);
   return (
     <div className="modal-fundo" onClick={onFechar}>
       <div className="modal largo" onClick={(e) => e.stopPropagation()}>
@@ -1686,7 +1687,7 @@ function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any
             <button className="secondary" onClick={onFechar}>Fechar</button>
           </span>
         </div>
-        {ehVideo ? (videoUrl ? <video controls playsInline preload="metadata" src={videoUrl} style={{width:'100%',maxHeight:'70vh'}} /> : <p className="muted">Carregando vídeo…</p>) : ehImagem ? (imagem ? <img className="foto-resultado" src={imagem} alt={r.nome} /> : <p className="muted">Carregando…</p>) : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
+        {ehAudio ? (videoUrl ? <audio controls preload="metadata" src={videoUrl} style={{width:'100%'}} /> : <p className="muted">Carregando áudio…</p>) : ehVideo ? (videoUrl ? <video controls playsInline preload="metadata" src={videoUrl} style={{width:'100%',maxHeight:'70vh'}} /> : <p className="muted">Carregando vídeo…</p>) : ehImagem ? (imagem ? <img className="foto-resultado" src={imagem} alt={r.nome} /> : <p className="muted">Carregando…</p>) : <pre className="texto-arquivo">{texto ?? 'Carregando…'}</pre>}
       </div>
     </div>
   );

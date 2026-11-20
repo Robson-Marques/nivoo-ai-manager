@@ -7,6 +7,7 @@ import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider } from './gemini-api.provider';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { JuntarVideosProvider } from './juntar-videos.provider';
+import { GerarNarracaoProvider } from './gerar-narracao.provider';
 import { ArquivosProjetoProvider } from './arquivos-projeto.provider';
 import { LocalShellProvider } from './local-shell.provider';
 import { AiProvider, ProviderStatus } from './provider.interface';
@@ -25,10 +26,11 @@ export class ProviderRegistry {
     geminiApi: GeminiApiProvider,
     video: GeminiVideoProvider,
     juntar: JuntarVideosProvider,
+    gerarNarracao: GerarNarracaoProvider,
     arquivos: ArquivosProjetoProvider,
     shell: LocalShellProvider,
   ) {
-    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, video, juntar, arquivos, shell]) this.providers.set(p.id, p);
+    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, video, juntar, gerarNarracao, arquivos, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */

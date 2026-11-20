@@ -34,10 +34,10 @@ function comPreflightVisual(raw: unknown, defaultProvider: string): unknown {
   const result: any[] = [];
   const referencia = raw.find((s: any) => {
     const provider = String(s?.provider ?? defaultProvider);
-    return provider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'arquivos-projeto'].includes(provider);
+    return provider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'gerar-narracao', 'arquivos-projeto'].includes(provider);
   });
   const ai = referencia ? String(referencia.provider ?? defaultProvider) :
-    (defaultProvider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'arquivos-projeto'].includes(defaultProvider) ? defaultProvider : null);
+    (defaultProvider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'gerar-narracao', 'arquivos-projeto'].includes(defaultProvider) ? defaultProvider : null);
   for (const s of raw) {
     const text = String(s?.instructions ?? '');
     const isRender = (s?.provider ?? defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(text);
@@ -168,6 +168,20 @@ export class JobsService {
         Object.assign(providerOptions, opcoesDeJuncao(key, opts));
         // Vídeo editado em midia/ fica na pasta de mídia durável (fora do worktree): quem confere é o provider (exitCode).
         verificacao = verifyCommand ?? (String(providerOptions.arquivo).startsWith('midia/') ? 'true' : `test -s '${providerOptions.arquivo}'`);
+      }
+      // Gerador local de prévia: somente MP3, antes de qualquer montagem de vídeo.
+      if ((provider ?? defaultProvider) === 'gerar-narracao') {
+        const origem = opts.narracao && typeof opts.narracao === 'object' ? opts.narracao : opts;
+        // "arquivo" em gerar-narracao é o DESTINO MP3, não um áudio de entrada.
+        // O validador da locução não pode interpretá-lo como narracao.arquivo.
+        const { arquivo: _saida, ...entrada } = origem;
+        const validada = narracaoValida(key, { ...entrada, motor: 'kokoro' });
+        if (validada.arquivo) throw new BadRequestException(`Etapa ${key}: gerar-narracao exige texto ou trechos, não arquivo pronto`);
+        const arquivo = String(opts.arquivo ?? 'out/previa-locucao.mp3');
+        if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(arquivo) || arquivo.split('/').includes('..'))
+          throw new BadRequestException(`Etapa ${key}: arquivo deve ser out/<nome>.mp3`);
+        Object.assign(providerOptions, validada, { arquivo });
+        verificacao = verifyCommand ?? `test -s '${arquivo}'`;
       }
       // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
       // git guarda tudo (dá para voltar qualquer arquivo) — não pede uma segunda confirmação.

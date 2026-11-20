@@ -25,6 +25,8 @@ const MIME: Record<string, string> = {
   '.log': 'text/plain',
   '.py': 'text/x-python',
   '.png': 'image/png',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
   '.html': 'text/html',
 };
 
