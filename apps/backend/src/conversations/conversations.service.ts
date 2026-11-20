@@ -109,6 +109,82 @@ export class ConversationsService {
   }
 
   /**
+   * Move o histórico de uma conversa entre projetos, sem mover a memória ou trabalhos
+   * já executados do projeto original. Anexos locais são copiados antes do commit.
+   */
+  async move(projectId: string, conversationId: string, targetProjectId: string) {
+    if (!targetProjectId || targetProjectId === projectId) throw new BadRequestException('Escolha outro projeto de destino');
+    const [origin, target] = await Promise.all([
+      this.prisma.project.findUnique({ where: { id: projectId }, select: { dirKey: true } }),
+      this.prisma.project.findUnique({ where: { id: targetProjectId, archivedAt: null }, select: { dirKey: true } }),
+    ]);
+    if (!origin) throw new NotFoundException('Projeto de origem não encontrado');
+    if (!target) throw new NotFoundException('Projeto de destino não encontrado ou arquivado');
+    const previous = path.join(this.workspace.projectDirs(origin.dirKey).root, 'anexos', conversationId);
+    const next = path.join(this.workspace.projectDirs(target.dirKey).root, 'anexos', conversationId);
+    if (fs.existsSync(next)) throw new ConflictException('Já existe uma pasta de anexos desta conversa no destino');
+    const conversation = await this.conversation(projectId, conversationId);
+    if (conversation.archivedAt) throw new ConflictException('Desarquive a conversa antes de movê-la');
+    const messages = await this.prisma.conversationMessage.findMany({
+      where: { conversationId }, select: { id: true, status: true, jobId: true, attachments: true },
+    });
+    if (messages.some(m => m.status === 'PENDENTE')) throw new ConflictException('Aguarde a conclusão da resposta antes de mover a conversa');
+    if (messages.some(m => m.jobId)) throw new ConflictException('Esta conversa possui trabalhos aprovados vinculados ao projeto original e ainda não pode ser movida com segurança');
+    // Mídias do projeto são referências externas à pasta de anexos. Só mover
+    // automaticamente quando os arquivos puderem ser preservados no destino.
+    const media = new Set<string>();
+    for (const message of messages) {
+      for (const a of (Array.isArray(message.attachments) ? message.attachments : []) as Anexo[]) {
+        if (a.caminho) media.add(a.caminho);
+      }
+    }
+    const sourceMedia = this.workspace.projectDirs(origin.dirKey).midia;
+    const targetMedia = this.workspace.projectDirs(target.dirKey).midia;
+    const copies: Array<{ from: string; to: string }> = [];
+    for (const relative of media) {
+      const from = arquivoDaMidia(sourceMedia, relative);
+      if (!from) throw new ConflictException('Mídia da conversa não encontrada no projeto original: ' + relative);
+      const to = path.resolve(targetMedia, relative);
+      if (!to.startsWith(path.resolve(targetMedia) + path.sep)) throw new BadRequestException('Caminho de mídia inválido');
+      if (fs.existsSync(to)) throw new ConflictException('Já existe uma mídia com o mesmo caminho no destino: ' + relative);
+      copies.push({ from, to });
+    }
+    const copiedMedia: string[] = [];
+    let copiedAttachments = false;
+    try {
+      if (fs.existsSync(previous)) {
+        fs.mkdirSync(path.dirname(next), { recursive: true });
+        fs.cpSync(previous, next, { recursive: true, errorOnExist: true, force: false });
+        copiedAttachments = true;
+      }
+      for (const file of copies) {
+        fs.mkdirSync(path.dirname(file.to), { recursive: true });
+        fs.copyFileSync(file.from, file.to, fs.constants.COPYFILE_EXCL);
+        copiedMedia.push(file.to);
+      }
+      await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${conversationId} FOR UPDATE`;
+        const current = await tx.conversation.findFirst({ where: { id: conversationId, projectId } });
+        if (!current) throw new ConflictException('Esta conversa já foi movida ou excluída');
+        const pending = await tx.conversationMessage.count({ where: { conversationId, status: 'PENDENTE' } });
+        if (pending) throw new ConflictException('A IA começou uma resposta; tente novamente depois');
+        const linked = await tx.conversationMessage.count({ where: { conversationId, jobId: { not: null } } });
+        if (linked) throw new ConflictException('A conversa tem trabalhos vinculados ao projeto original');
+        await tx.conversation.update({ where: { id: conversationId }, data: { projectId: targetProjectId } });
+      });
+    } catch (e) {
+      if (copiedAttachments) fs.rmSync(next, { recursive: true, force: true });
+      for (const mediaPath of copiedMedia) fs.rmSync(mediaPath, { force: true });
+      throw e;
+    }
+    // Só remove os anexos de origem depois da transação: mover não apaga mensagens.
+    if (copiedAttachments) {
+      try { fs.rmSync(previous, { recursive: true, force: true }); } catch { /* cópia de origem pode permanecer */ }
+    }
+    return { id: conversationId, projectId: targetProjectId };
+  }
+
+  /**
    * Exclui a conversa (mensagens). O que ela gerou para o projeto continua: memória, arquivos e trabalhos.
    * Uma resposta em andamento é parada antes.
    */
