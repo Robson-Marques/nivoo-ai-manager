@@ -39,6 +39,7 @@ import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
+import { prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
 export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
@@ -233,6 +234,34 @@ export class StepExecutorService {
     const outputDir = path.join(worktree, 'out');
 
     const isAi = provider.kind !== 'executor';
+    // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
+    // permanente e devem ser extraídos pelo backend, ANTES de gastar sessões de IA.
+    // A composição/renderização já aprovada não é repetida.
+    if (isAi && quadrosRequeridos(step.verifyCommand ?? '').length) {
+      const etapas = await this.prisma.step.findMany({
+        where: { jobId: job.id, provider: 'local-shell' },
+        orderBy: { order: 'asc' },
+        select: { instructions: true },
+      });
+      const saidas = etapas.flatMap(s => {
+        const linhas = [...s.instructions.matchAll(/\bnivoo-renderizar-motion\b[^\n]*?--saida\s+['"]?(midia\/saida\/[A-Za-z0-9._-]+\.mp4)/g)];
+        return linhas.map(m => m[1]);
+      });
+      const publicadas = await this.prisma.artifact.findMany({
+        where: { jobId: job.id, mimeType: 'video/mp4' },
+        orderBy: { createdAt: 'asc' },
+        select: { name: true },
+      });
+      const frames = await prepararQuadrosDoVideo(
+        worktree, this.pastaDeMidia(job.project.dirKey), step.verifyCommand ?? '',
+        [...publicadas.map(a => a.name), ...saidas],
+      );
+      if (frames.erro) {
+        await L('Extração de quadros do MP4 pelo backend falhou: ' + frames.erro, 'ERROR');
+        return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL, frames.erro);
+      }
+      if (frames.gerados.length) await L('Quadros extraídos do MP4 existente pelo backend (sem IA, sem renderização): ' + frames.gerados.join(', '));
+    }
     // Preflight antes de criar attempt ou gastar tokens: geração de imagem via
     // skill do CLI não garante um PNG gravado na pasta que o teste exige.
     if (isAi) {
