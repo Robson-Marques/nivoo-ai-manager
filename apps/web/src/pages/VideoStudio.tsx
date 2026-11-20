@@ -1651,7 +1651,7 @@ export function VideoStudio() {
               <button type="button" className="studio-clip-remove" title="Remover corte selecionado" aria-label="Remover corte selecionado" onClick={remove}>×</button>
             </div>
             <span className="studio-clip-hint">Passe o mouse ou use Tab para ver as ações.</span>
-          </div>
+          </div>}
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
           {tab==='captions'&&<div className="studio-fields"><button onClick={addCaption}>+ Adicionar legenda</button>{selectedCaption&&<>
             <label>Texto <textarea value={selectedCaption.text} onChange={e=>updateCaption('text',e.target.value)}/></label>
