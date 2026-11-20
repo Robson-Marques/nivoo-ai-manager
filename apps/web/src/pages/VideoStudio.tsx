@@ -1629,16 +1629,28 @@ export function VideoStudio() {
         <aside className="studio-properties">
           <h3>Ferramentas</h3>
           <div className="studio-tabs">{(['clips','captions','assets','audio','protected'] as const).map(t=><button key={t} className={tab===t?'on':''} onClick={()=>setTab(t)}>{ {clips:'Cortes',captions:'Legendas',assets:'Imagens',audio:'Áudio',protected:'Proteção'}[t]}</button>)}</div>
-          {tab==='clips'&&selectedClip&&<div className="studio-fields"><h4>Corte selecionado</h4>
-            <label>Início (seg) <input type="number" step=".1" value={selectedClip.start} onChange={e=>updateClip('start',e.target.value)}/></label>
-            <label>Fim (seg) <input type="number" step=".1" value={selectedClip.end} onChange={e=>updateClip('end',e.target.value)}/></label>
-            <label>Volume <input type="number" min="0" max="2" step=".1" value={selectedClip.volume??1} onChange={e=>updateClip('volume',e.target.value)}/></label>
-            <button onClick={()=>split()}>✂ Dividir no cursor</button>
-            <button onClick={()=>keepSide('before')} title="Manter o começo do clipe até o cursor">Manter antes do cursor</button>
-            <button onClick={()=>keepSide('after')} title="Manter apenas o trecho após o cursor">Manter depois do cursor</button>
-            <button onClick={duplicateClip}>Duplicar clipe</button><button onClick={extendEnding} title="Congelar último quadro para a narração caber">❄ Estender final até narração</button>
-            <button onClick={()=>move(selectedClip.id,-1)}>Mover para esquerda</button><button onClick={()=>move(selectedClip.id,1)}>Mover para direita</button><button onClick={remove}>Remover corte</button>
-          </div>}
+          {tab==='clips'&&selectedClip&&<div className="studio-fields studio-clip-inspector">
+            <div className="studio-clip-inspector-title">
+              <h4>Corte selecionado</h4>
+              <span title={mediaName(selectedClip.source)}>{mediaName(selectedClip.source)}</span>
+            </div>
+            <div className="studio-clip-fields">
+              <label>Início (s)<input aria-label="Início do corte em segundos" type="number" step=".1" value={selectedClip.start} onChange={e=>updateClip('start',e.target.value)}/></label>
+              <label>Fim (s)<input aria-label="Fim do corte em segundos" type="number" step=".1" value={selectedClip.end} onChange={e=>updateClip('end',e.target.value)}/></label>
+              <label>Volume<input aria-label="Volume do corte" type="number" min="0" max="2" step=".1" value={selectedClip.volume??1} onChange={e=>updateClip('volume',e.target.value)}/></label>
+            </div>
+            <div className="studio-clip-tools" role="group" aria-label="Edição do corte selecionado">
+              <button type="button" title="Dividir no cursor" aria-label="Dividir no cursor" onClick={()=>split()}>✂</button>
+              <button type="button" title="Manter somente antes do cursor" aria-label="Manter somente antes do cursor" onClick={()=>keepSide('before')}>◧</button>
+              <button type="button" title="Manter somente depois do cursor" aria-label="Manter somente depois do cursor" onClick={()=>keepSide('after')}>◨</button>
+              <button type="button" title="Duplicar clipe" aria-label="Duplicar clipe" onClick={duplicateClip}>⧉</button>
+              <button type="button" title="Estender último quadro até o fim da narração" aria-label="Estender último quadro até o fim da narração" onClick={extendEnding}>▣</button>
+              <button type="button" title="Mover clipe para a esquerda" aria-label="Mover clipe para a esquerda" onClick={()=>move(selectedClip.id,-1)}>←</button>
+              <button type="button" title="Mover clipe para a direita" aria-label="Mover clipe para a direita" onClick={()=>move(selectedClip.id,1)}>→</button>
+              <button type="button" className="studio-clip-remove" title="Remover corte selecionado" aria-label="Remover corte selecionado" onClick={remove}>×</button>
+            </div>
+            <span className="studio-clip-hint">Passe o mouse ou use Tab para ver as ações.</span>
+          </div>
           {tab==='clips'&&!selectedClip&&<p>Selecione um clipe na timeline para cortar ou mover.</p>}
           {tab==='captions'&&<div className="studio-fields"><button onClick={addCaption}>+ Adicionar legenda</button>{selectedCaption&&<>
             <label>Texto <textarea value={selectedCaption.text} onChange={e=>updateCaption('text',e.target.value)}/></label>
@@ -1652,8 +1664,9 @@ export function VideoStudio() {
             </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
           {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume','fadeIn','fadeOut'] as const).map(k=><label key={k}>{ {start:'Início no arquivo',end:'Fim no arquivo',offset:'Posição na timeline',volume:'Volume',fadeIn:'Fade de entrada (s)',fadeOut:'Fade de saída (s)'}[k]}<input type="number" min="0" step=".01" value={selectedAudio[k]??0} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button onClick={extendEnding} title="Congelar o último quadro até a narração terminar">❄ Ajustar vídeo à voz</button><button onClick={splitNarration}>✂ Dividir voz no cursor</button><button onClick={duplicateNarration}>Duplicar voz em sequência</button><button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Excluir segmento da voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
-          <div className="studio-ai">
-            <h4>✦ Assistente de IA</h4>
+          <details className="studio-ai studio-ai-collapsible">
+            <summary title="Mostrar ou ocultar ferramentas de inteligência artificial">✦ Assistente de IA</summary>
+            <div className="studio-ai-content">
             <button disabled={aligning.state==='running'} onClick={gerarLegendas}>Gerar legendas pela narração</button>
             <button disabled={aiDraft.state==='running'} onClick={planAi}>✦ Criar design com IA</button>
             <p className="studio-ai-guide">{dirty?'● Salve as alterações antes de utilizar a IA.':!project.clips.length?'Adicione um vídeo para começar.':project.clips.length!==1||Boolean(project.soundtrack)||Boolean(project.audioTracks?.length)?running.state!=='done'?'Sua montagem tem várias cenas ou faixas: exporte o MP4 antes de gerar legendas.':'Montagem exportada: agora você pode gerar as legendas.':'Você pode gerar as legendas diretamente do vídeo.'}</p>
@@ -1672,7 +1685,8 @@ export function VideoStudio() {
             <p>O agente poderá analisar a narração e sugerir efeitos dinâmicos. O editor manual já funciona sem IA.</p>
             <button onClick={()=>{navigator.clipboard?.writeText(chatInstruction).then(()=>setNotice('Pedido copiado. Abra a conversa do projeto e cole o pedido.')).catch(()=>setNotice(chatInstruction))}}>Copiar pedido para o agente</button>
             {!standalone&&<Link to={'/p/'+pid}>Abrir conversa do projeto</Link>}
-          </div>
+            </div>
+          </details>
         </aside>
       </div>
       <div className="studio-timeline">
