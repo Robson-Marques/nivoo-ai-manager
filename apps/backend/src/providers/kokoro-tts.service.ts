@@ -46,16 +46,20 @@ export function unirTrechosContinuos(trechos: TrechoDeLocucao[]): TrechoDeLocuca
 
 
 /**
- * Roteiro para UMA única chamada TTS: não injeta silêncios ou marcadores SSML
- * não suportados. Pontuação e espaços entre frases são pistas prosódicas.
- * Velocidade é global: não muda no meio de uma geração.
+ * Uma chamada TTS, com pausas explícitas do Kokoro-FastAPI (não do FFmpeg).
+ * A sintaxe documentada é [pause:0.5s]; não usar tags SSML sem ssml:true.
+ * Uma marcação de pausa não garante emoção nem entonação interrogativa.
  */
 export function roteiroEmUmaFala(trechos: TrechoDeLocucao[]): string {
-  return unirTrechosContinuos(trechos).map(t => {
+  const partes = unirTrechosContinuos(trechos);
+  return partes.map((t, i) => {
     const frase = t.texto.trim();
-    if (t.intencao === 'pergunta') return frase.replace(/[.!?]+$/, '') + '?';
-    if (t.intencao === 'chamada' || t.intencao === 'destaque') return frase.replace(/[.!?]+$/, '') + '!';
-    return frase;
+    const texto = t.intencao === 'pergunta' ? frase.replace(/[.!?]+$/, '') + '?' :
+      (t.intencao === 'chamada' || t.intencao === 'destaque') ? frase.replace(/[.!?]+$/, '') + '!' : frase;
+    const pausa = i === partes.length - 1 ? 0 : t.pausaAposMs ?? 0;
+    // O marcador é enviado DENTRO do mesmo input ao servidor Kokoro.
+    // Sem pausas configuradas, deixa a pontuação natural atuar.
+    return pausa > 0 ? `${texto} [pause:${(pausa / 1000).toFixed(2)}s]` : texto;
   }).join(' ').replace(/\s+/g, ' ').trim();
 }
 

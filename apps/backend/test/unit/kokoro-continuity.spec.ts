@@ -31,3 +31,24 @@ describe('Kokoro: continuidade prosódica por oração', () => {
     expect(falas[1].pausaAposMs).toBe(200);
   });
 });
+
+describe('Kokoro-FastAPI: pausas em uma única geração', () => {
+  it('insere tags documentadas entre frases sem concatenação', () => {
+    const { roteiroEmUmaFala } = require('../../src/providers/kokoro-tts.service');
+    const texto = roteiroEmUmaFala([
+      { texto: 'É hoje!', intencao: 'chamada', pausaAposMs: 350 },
+      { texto: 'Black na sua quinta-feira!', intencao: 'destaque', pausaAposMs: 400 },
+      { texto: 'Das sete às nove da noite, dois sabores em promoção!', pausaAposMs: 450 },
+      { texto: 'Peça agora a sua pizza e aproveite!', intencao: 'chamada' },
+    ]);
+    expect(texto).toBe('É hoje! [pause:0.35s] Black na sua quinta-feira! [pause:0.40s] Das sete às nove da noite, dois sabores em promoção! [pause:0.45s] Peça agora a sua pizza e aproveite!');
+  });
+  it('não separa a pergunta final nem insere pausa após você', () => {
+    const { roteiroEmUmaFala } = require('../../src/providers/kokoro-tts.service');
+    const texto = roteiroEmUmaFala([
+      { texto: 'E você,', pausaAposMs: 350 },
+      { texto: 'Vai ficar de fora dessa?', intencao: 'pergunta' },
+    ]);
+    expect(texto).toBe('E você, vai ficar de fora dessa?');
+  });
+});

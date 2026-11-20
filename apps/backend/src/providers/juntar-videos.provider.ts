@@ -215,7 +215,7 @@ export class JuntarVideosProvider implements AiProvider {
                 // de prosódia do roteiro inteiro (inclusive a pergunta final).
                 const textoGeracao = trechos.length ? roteiroEmUmaFala(trechos) : textoInteiro;
                 if (trechos.some(t => t.pausaAposMs !== undefined))
-                  req.onLog('Pausas pós-processadas desativadas: usando pontuação natural do roteiro.');
+                  req.onLog('Pausas solicitadas como marcadores internos do Kokoro em uma única síntese; sem concatenação de MP3.');
                 if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
                   req.onLog('Velocidades individuais ignoradas para preservar a locução contínua.', 'WARN');
                 const local = await this.kokoro.gerar(textoGeracao, vozEscolhida, velocidade, pronuncias, req.signal);

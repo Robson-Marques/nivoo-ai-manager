@@ -43,6 +43,9 @@ export class GerarNarracaoProvider implements AiProvider {
     const trechos = o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : [];
     const texto = roteiroEmUmaFala(trechos);
     if (!texto) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
+    // A marcação é interpretada pelo Kokoro-FastAPI durante uma única síntese.
+    // Nunca separar a locução em arquivos e concatenar.
+    if (texto.includes('[pause:')) req.onLog('Pausas internas Kokoro-FastAPI presentes no roteiro, sem cortes do áudio.');
     const target = resolveInside(req.cwd, nome);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-kokoro-preview-'));
@@ -54,7 +57,7 @@ export class GerarNarracaoProvider implements AiProvider {
       if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
         req.onLog('Atenção: velocidade por frase foi ignorada para preservar uma só interpretação. Usando a velocidade global.', 'WARN');
       if (trechos.some(t => t.pausaAposMs !== undefined))
-        req.onLog('Pausas artificiais foram desativadas: a pontuação define as pausas naturais.', 'INFO');
+        req.onLog('Pausas aplicadas pelo próprio Kokoro com marcadores [pause:Ns] dentro de uma única síntese.', 'INFO');
       let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
       try { audio = await this.kokoro.gerar(texto, o.voz ?? VOZ_PADRAO_KOKORO, velocidade, o.pronuncias ?? {}, req.signal); }
       catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: '', error: err.message, resourceUnavailable: err.indisponivel }; }
