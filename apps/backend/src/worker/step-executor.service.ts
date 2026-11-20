@@ -1,4 +1,5 @@
 import { registrarErro } from '../diagnostico/erros';
+import { diagnosticoRenderDeterministico } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
@@ -715,6 +716,15 @@ export class StepExecutorService {
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
+    }
+
+    // Falhas determinísticas de scripts/montagem não se corrigem por repetição.
+    if (!isAi && providerId === 'local-shell') {
+      const explicacao = diagnosticoRenderDeterministico((result.output ?? '') + '\n' + (result.error ?? ''));
+      if (explicacao) {
+        await this.checkpoint(job.id, step, worktree, `erro determinístico na etapa ${step.key}`, { tentativa: number });
+        return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA, explicacao);
+      }
     }
 
     // FALHA: repetição improdutiva?

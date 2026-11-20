@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * Extrai quadros sem construir filtros select=eq(n,0)+eq(n,1)+...
+ * Decodificação sequencial do FFmpeg, com no máximo dois threads de filtro.
+ * Uso: nivoo-extrair-quadros <video.mp4> --pasta out/quadros [--indices 0,8,16] [--largura 540] [--limite 900]
+ * Sem --indices, extrai todos os quadros até --limite.
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const args = process.argv.slice(2);
+function falha(msg) { console.error('nivoo-extrair-quadros: ' + msg); process.exit(2); }
+function opcao(name, fallback) { const i = args.indexOf(name); return i < 0 ? fallback : args[i+1]; }
+const entrada = args[0];
+const pastaArg = opcao('--pasta', '');
+const indicesArg = opcao('--indices', '');
+const largura = Number(opcao('--largura', '540'));
+const limite = Number(opcao('--limite', '900'));
+if (!entrada || entrada.startsWith('--') || !pastaArg || !pastaArg.startsWith('out/')) falha('uso: <video> --pasta out/<nome> [--indices 0,8,16] [--largura 540]');
+if (!Number.isInteger(largura) || largura < 64 || largura > 1920) falha('--largura inválida (64 a 1920)');
+if (!Number.isInteger(limite) || limite < 1 || limite > 1800) falha('--limite inválido (1 a 1800)');
+const medias = process.env.NIVOO_MIDIA_DIR;
+const video = entrada.startsWith('midia/') && medias ? path.resolve(medias, entrada.slice(6)) : path.resolve(entrada);
+const pasta = path.resolve(pastaArg);
+const cwd = process.cwd();
+if (!pasta.startsWith(path.join(cwd, 'out') + path.sep)) falha('--pasta deve ficar dentro de out/');
+if (!fs.existsSync(video) || !fs.statSync(video).isFile()) falha('vídeo não encontrado: ' + entrada);
+let indices = null;
+if (indicesArg) {
+  if (!/^\d+(?:,\d+)*$/.test(indicesArg)) falha('--indices aceita somente números separados por vírgula');
+  indices = [...new Set(indicesArg.split(',').map(Number))].sort((a,b) => a-b);
+  if (indices.some(n => !Number.isSafeInteger(n) || n < 0 || n >= limite)) falha('índice fora de --limite');
+}
+const qtd = indices ? indices[indices.length-1] + 1 : limite;
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-quadros-'));
+const arquivo = n => 'quadro-' + String(n).padStart(6,'0') + '.png';
+try {
+  // Um único filtro de escala: nenhuma expressão select gigante.
+  const res = spawnSync('ffmpeg', [
+    '-nostdin', '-hide_banner', '-loglevel', 'error', '-threads', '2', '-filter_threads', '1',
+    '-i', video, '-map', '0:v:0', '-an', '-sn', '-vf', 'scale='+largura+':-2',
+    '-fps_mode', 'passthrough', '-frames:v', String(qtd), '-start_number', '0',
+    path.join(tmp, 'quadro-%06d.png'),
+  ], { encoding:'utf8', timeout:180000, maxBuffer:2*1024*1024 });
+  if (res.error || res.status !== 0) {
+    console.error('nivoo-extrair-quadros: ffmpeg falhou: '+String(res.stderr || res.error?.message || 'erro desconhecido').slice(-1600));
+    process.exitCode = 1;
+  } else {
+    fs.mkdirSync(pasta, { recursive:true });
+    const disponiveis = fs.readdirSync(tmp).filter(n=>/^quadro-\d{6}\.png$/.test(n));
+    const usar = indices ?? disponiveis.map(n=>Number(n.slice(7,13)));
+    let gravados = 0;
+    for(const n of usar) {
+      const src = path.join(tmp, arquivo(n));
+      if(!fs.existsSync(src)) { console.error('nivoo-extrair-quadros: quadro inexistente: '+n); process.exitCode = 1; break; }
+      fs.copyFileSync(src, path.join(pasta, arquivo(n))); gravados++;
+    }
+    if (gravados === usar.length) {
+      const manifest = { fonte: entrada, largura, frames: usar, quantidade: gravados, metodo:'decodificacao-sequencial-sem-select' };
+      fs.writeFileSync(path.join(pasta, 'quadros.json'), JSON.stringify(manifest,null,2));
+      console.log('nivoo-extrair-quadros: '+gravados+' quadros em '+pastaArg+' (sem filtro select)');
+    }
+  }
+} finally { fs.rmSync(tmp, { recursive:true, force:true }); }
