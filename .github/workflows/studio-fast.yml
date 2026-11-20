@@ -1,13 +1,7 @@
 name: Studio quick build
+# Manual only. Do not trigger builds for commits or pull requests.
 on:
-  push:
-    branches: ['feature/video-design-timeline-v1']
-  pull_request:
-    paths:
-      - 'apps/backend/src/video-studio/**'
-      - 'apps/web/src/pages/VideoStudio*'
-      - 'apps/web/src/main.tsx'
-      - 'apps/web/src/Layout.tsx'
+  workflow_dispatch:
 jobs:
   compile:
     runs-on: ubuntu-latest

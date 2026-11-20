@@ -1,8 +1,8 @@
 name: CI
 
+# Manual only. Prevent CI emails and expensive runs on every push.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
