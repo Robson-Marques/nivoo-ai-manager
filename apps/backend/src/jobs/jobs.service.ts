@@ -262,7 +262,10 @@ export class JobsService {
       if (kind === 'METRIC_THRESHOLD') {
         reqString(config, 'path');
         if (!['>', '>=', '<', '<=', '==', '!='].includes(String(config.op ?? '>='))) throw new BadRequestException(`Critério ${key}: operador inválido`);
-        if (!Number.isFinite(Number(config.value))) throw new BadRequestException(`Critério ${key}: value numérico obrigatório`);
+        if (config.value === undefined || config.value === null || typeof config.value === 'boolean' ||
+            (typeof config.value === 'string' && !config.value.trim()) || !Number.isFinite(Number(config.value)))
+          throw new BadRequestException(`Critério ${key}: config.value numérico obrigatório para METRIC_THRESHOLD. Se a verificação é textual, escolha COMMAND; não invente um número`);
+        config.value = Number(config.value);
       }
       return { key, description: reqString(c, 'description', 2000), kind, config: config as Prisma.InputJsonValue };
     });

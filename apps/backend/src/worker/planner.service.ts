@@ -207,7 +207,7 @@ export class PlannerService {
           return;
         }
       }
-      const parsed = extractJson(result.output);
+      let parsed = extractJson(result.output);
       let kind = 'resposta';
       let content = result.output.trim();
       let plan: Prisma.InputJsonValue | undefined;
@@ -239,8 +239,55 @@ export class PlannerService {
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
         } catch (e: any) {
-          kind = 'resposta';
-          content = `${String(parsed.texto ?? '')}\n\n[O plano proposto não passou na validação: ${e?.response?.message ?? e?.message}. Peça para a IA ajustar.]`.trim();
+          // Um plano inválido não deve ser devolvido ao usuário para ele depurar JSON.
+          // Uma única correção interna, com o erro exato do contrato, e nova validação.
+          // Sem executar trabalho nem inventar limiares numéricos.
+          const erroInicial = String(e?.response?.message ?? e?.message ?? 'plano inválido').slice(0, 700);
+          let reparoErro = erroInicial;
+          gravarAndamento('Conferindo o plano: ajustando uma configuração inválida antes de apresentar.');
+          try {
+            const instrucaoReparo = [
+              'Corrija SOMENTE a estrutura do plano JSON anterior. Não execute nada.',
+              'O validador do backend rejeitou o plano por: ' + erroInicial,
+              'Preserve objetivo, scripts e arquivos aprovados, etapas e seus comandos corretos.',
+              'Use apenas valores comprovados. Em METRIC_THRESHOLD, config.value tem de ser um número real',
+              'explicitamente derivado do requisito; caso contrário use FILE_EXISTS, ARTIFACT_PRESENT',
+              'ou COMMAND com verificação determinística adequada, nunca invente uma métrica.',
+              'Não retire critérios importantes nem troque uma checagem semântica por simples existência',
+              'para forçar aprovação. Prefira um critério operacional que prove a entrega pretendida.',
+              'Responda SOMENTE um bloco JSON completo de tipo plano, com job íntegro.',
+              'JSON ANTERIOR:',
+              JSON.stringify(parsed).slice(0, 24000),
+            ].join('\n');
+            const reparo = await this.registry.get(providerId).execute({
+              jobId: 'conversa', stepId: msg.conversationId, attemptId: msg.id,
+              instructions: instrucaoReparo, context: '', cwd: tmp,
+              outputDir: path.join(tmp, 'out'), systemPrompt: profile.text,
+              mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
+              timeoutMs: Math.min(180_000, Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000),
+              signal,
+              options: { maxTurns: 3, model: projectModel(project, providerId) },
+              onLog: (linha) => gravarAndamento(linha),
+            });
+            if (reparo.interrupted || signal.aborted) return;
+            if (reparo.exitCode !== 0 || reparo.resourceUnavailable) throw new Error(reparo.error ?? 'reparo indisponível');
+            const corrigido = extractJson(reparo.output);
+            if (corrigido?.tipo !== 'plano' || !corrigido.job) throw new Error('A correção não retornou um plano estruturado');
+            const validado = this.jobs.validatePlan({ ...corrigido.job, defaultProvider: providerId });
+            const noProjeto = Array.isArray(corrigido.job?.anexosNoProjeto)
+              ? corrigido.job.anexosNoProjeto
+                  .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && caminhoDoProjeto(x?.para))
+                  .map((x: any) => ({ anexo: String(x.anexo), para: caminhoDoProjeto(x.para) as string }))
+              : [];
+            plan = { ...validado, ...(noProjeto.length ? { anexosNoProjeto: noProjeto } : {}) } as unknown as Prisma.InputJsonValue;
+            parsed = corrigido;
+            kind = 'plano';
+            content = String(corrigido.texto ?? parsed.texto ?? 'Plano conferido e corrigido.');
+          } catch (erroReparo: any) {
+            reparoErro = String(erroReparo?.response?.message ?? erroReparo?.message ?? 'reparo inválido').slice(0, 700);
+            kind = 'resposta';
+            content = `A configuração do plano ainda está inválida e não será executada. Erro: ${reparoErro}. A versão anterior foi preservada. O Nivoo tentou uma correção interna, mas não conseguiu validá-la.`;
+          }
         }
       } else if (parsed?.tipo === 'resposta') {
         content = String(parsed.texto ?? '');
@@ -490,6 +537,12 @@ export class PlannerService {
       ' "steps":[{"key":"etapa1","title":"...","instructions":"o que a IA deve fazer","dependsOn":[],',
       '           "verifyCommand":"comando bash que retorna 0 quando a etapa está pronta, ex.: test -s docs/briefing.md"}],',
       ' "criteria":[{"key":"...","description":"...","kind":"FILE_EXISTS","config":{"path":"docs/briefing.md"}}]}',
+      'CONTRATO DE CRITÉRIOS: METRIC_THRESHOLD exige config.path, config.op e config.value',
+      'NUMÉRICO (ex.: {"path":"out/medidas.json","op":">=","value":1}). Nunca use',
+      'METRIC_THRESHOLD para verificar campo de texto como resultado="passou"; use',
+      'COMMAND com um teste que examine o campo ou outro critério compatível.',
+      'Não invente value numérico. O Nivoo valida o plano e pode pedir uma correção',
+      'interna se o contrato for rejeitado. A correção não pode omitir critérios reais.',
       'Regras do plano:',
       ...VIDEO_QUALITY_POLICY.map(line => '- ' + line),
       '- PRÉ-RENDERIZAÇÃO VISUAL OBRIGATÓRIA: o backend insere automaticamente uma captura real da composição',
