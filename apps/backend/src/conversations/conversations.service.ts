@@ -134,7 +134,7 @@ export class ConversationsService {
     // automaticamente quando os arquivos puderem ser preservados no destino.
     const media = new Set<string>();
     for (const message of messages) {
-      for (const a of (Array.isArray(message.attachments) ? message.attachments : []) as Anexo[]) {
+      for (const a of (Array.isArray(message.attachments) ? message.attachments : []) as unknown as Anexo[]) {
         if (a.caminho) media.add(a.caminho);
       }
     }
