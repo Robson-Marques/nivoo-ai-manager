@@ -58,11 +58,27 @@ describe('Ritmo natural sem jargão no prompt', () => {
   it('gera pausas internas automaticamente com texto simples', () => {
     const roteiro = 'É hoje! Black na sua quinta-feira! Das sete às nove da noite, dois sabores especiais em promoção! Peça agora a sua pizza e aproveite!';
     const texto = roteiroEmUmaFala(frasesDeLocucao(roteiro), 'calmo');
-    expect(texto).toBe('É hoje! [pause:0.43s] Black na sua quinta-feira! [pause:0.43s] Das sete às nove da noite, dois sabores especiais em promoção! [pause:0.43s] Peça agora a sua pizza e aproveite!');
+    expect(texto).toBe('É hoje! [pause:0.08s] Black na sua quinta-feira! [pause:0.08s] Das sete às nove da noite, dois sabores especiais em promoção! [pause:0.08s] Peça agora a sua pizza e aproveite!');
     expect(velocidadePadraoLocucao('calmo')).toBe(0.85);
   });
   it('não interrompe a oração após uma vírgula', () => {
     const texto = roteiroEmUmaFala(frasesDeLocucao('E você, vai ficar de fora dessa?'), 'calmo');
     expect(texto).toBe('E você, vai ficar de fora dessa?');
+  });
+});
+
+describe('Calibração de pausas adicionais', () => {
+  const { pausaPadraoLocucao, roteiroEmUmaFala, frasesDeLocucao } = require('../../src/providers/kokoro-tts.service');
+  it('não soma quase meio segundo ao silêncio já criado pelo Kokoro', () => {
+    expect(pausaPadraoLocucao('calmo')).toBe(80);
+    expect(pausaPadraoLocucao('natural')).toBe(60);
+    expect(pausaPadraoLocucao('dinamico')).toBe(0);
+  });
+  it('não corta nem separa um roteiro contínuo e preserva pontuação interna', () => {
+    const roteiro = 'É hoje! Black na sua quinta-feira! Das sete às nove da noite, dois sabores especiais em promoção! Peça agora a sua pizza e aproveite!';
+    const saida = roteiroEmUmaFala(frasesDeLocucao(roteiro), 'calmo');
+    expect(saida.match(/\\[pause:/g)).toHaveLength(3);
+    expect(saida).toContain('Das sete às nove da noite, dois sabores especiais em promoção!');
+    expect(saida).toMatch(/Peça agora a sua pizza e aproveite!$/);
   });
 });

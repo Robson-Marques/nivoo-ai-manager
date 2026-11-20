@@ -4,9 +4,16 @@ import { VOZES_KOKORO, vozConhecida } from './vozes';
 export type Pronuncias = Record<string, string>;
 export type RitmoLocucao = 'calmo' | 'natural' | 'dinamico';
 
-/** Ritmo é um conceito de linguagem natural; milissegundos são detalhe interno. */
+/**
+ * Pausa ADICIONAL (não pausa total).
+ * Comparação de prévias locais em 2026-11-20 (-40 dB):
+ * com +430ms: silêncios de 650ms, 705ms e 761ms.
+ * O sintetizador naturalmente pausa ~220-330ms após frases.
+ * Assim, o ritmo calmo adiciona só ~80ms; nunca 430ms além da pontuação.
+ * Não modifica timbre, tempo da fala, nem corta a gravação.
+ */
 export function pausaPadraoLocucao(ritmo: RitmoLocucao = 'natural'): number {
-  return ritmo === 'calmo' ? 430 : ritmo === 'dinamico' ? 190 : 310;
+  return ritmo === 'calmo' ? 80 : ritmo === 'dinamico' ? 0 : 60;
 }
 export function velocidadePadraoLocucao(ritmo: RitmoLocucao = 'natural'): number {
   return ritmo === 'calmo' ? 0.85 : ritmo === 'dinamico' ? 1 : 0.9;
@@ -73,7 +80,7 @@ export function roteiroEmUmaFala(trechos: TrechoDeLocucao[], ritmo: RitmoLocucao
       (t.intencao === 'chamada' || t.intencao === 'destaque') ? frase.replace(/[.!?]+$/, '') + '!' : frase;
     const pausa = i === partes.length - 1 ? 0 : t.pausaAposMs ?? pausaPadraoLocucao(ritmo);
     // O marcador é enviado DENTRO do mesmo input ao servidor Kokoro.
-    // Sem pausas configuradas, deixa a pontuação natural atuar.
+    // Pausa ADICIONAL discreta; o Kokoro já pausa pela pontuação.
     return pausa > 0 ? `${texto} [pause:${(pausa / 1000).toFixed(2)}s]` : texto;
   }).join(' ').replace(/\s+/g, ' ').trim();
 }
