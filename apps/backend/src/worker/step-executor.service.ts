@@ -37,6 +37,7 @@ import { bancoDeTesteDisponivel, descartarBancoDeTeste, prepararBancoDeTeste, TE
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
+import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
 export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
@@ -992,6 +993,17 @@ export class StepExecutorService {
         '## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```',
         ...(emOut.length ? ['Resultados em out/ (relatórios e documentos entregues; leia e confira também):', ...emOut.slice(0, 100).map((f) => `- ${f}`)] : []),
       ]);
+      if (vinculo) {
+        const provas = evidenciasDeVideo(this.workspace.projectDirs(vinculo.dirKey).midia, worktree,
+          criteria.map(c=>({kind:c.kind,config:c.config})));
+        if(provas.length) add('revisao-midia',[
+          '## Evidências de vídeo da mídia permanente',
+          'Leia os arquivos JSON e inspecione as imagens em contexto/revisao-midia.',
+          'Não declare inexistente um MP4 só porque a sandbox não acessa o link midia/.',
+          'Avalie os quadros intermediários e não apenas o quadro final; a fluidez exige evidência própria.',
+          ...provas.map(p=>'- '+p),
+        ]);
+      }
     }
     if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'))) {
       add('conversa', [
