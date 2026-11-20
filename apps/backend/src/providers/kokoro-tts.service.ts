@@ -2,6 +2,37 @@ import { Injectable } from '@nestjs/common';
 import { VOZES_KOKORO, vozConhecida } from './vozes';
 
 export type Pronuncias = Record<string, string>;
+export type TrechoDeLocucao = {
+  texto: string;
+  intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural';
+  velocidade?: number;
+  pausaAposMs?: number;
+};
+
+/**
+ * Não interrompa uma frase no meio de uma oração: cada chamada Kokoro
+ * reinicia o contexto de prosódia e pode mudar sotaque, pitch e ritmo.
+ * Ex.: ["E você,", "vai ficar de fora dessa?"] vira UMA geração.
+ * Pausas explícitas entre frases completas continuam independentes.
+ */
+export function unirTrechosContinuos(trechos: TrechoDeLocucao[]): TrechoDeLocucao[] {
+  const saida: TrechoDeLocucao[] = [];
+  for (const original of trechos) {
+    const atual = { ...original, texto: original.texto.trim() };
+    const anterior = saida[saida.length - 1];
+    const continua = anterior && /[,;:]$/.test(anterior.texto) &&
+      /^[a-zà-ú]/u.test(atual.texto) &&
+      !/[.!?]$/.test(anterior.texto);
+    if (!continua) { saida.push(atual); continue; }
+    // O trecho seguinte controla a intenção terminal (pergunta, por exemplo).
+    // O tempo de pausa entre as metades é substituído pela vírgula natural.
+    anterior.texto = anterior.texto + ' ' + atual.texto;
+    anterior.intencao = atual.intencao ?? anterior.intencao;
+    anterior.pausaAposMs = atual.pausaAposMs;
+    anterior.velocidade = anterior.velocidade ?? atual.velocidade;
+  }
+  return saida;
+}
 
 export class KokoroTtsError extends Error {
   constructor(message: string, readonly indisponivel = false) {

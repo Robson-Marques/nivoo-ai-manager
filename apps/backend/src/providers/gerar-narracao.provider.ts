@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
-import { KokoroTtsError, KokoroTtsService } from './kokoro-tts.service';
+import { KokoroTtsError, KokoroTtsService, unirTrechosContinuos } from './kokoro-tts.service';
 import { VOZ_PADRAO_KOKORO } from './vozes';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
@@ -40,7 +40,8 @@ export class GerarNarracaoProvider implements AiProvider {
     const nome = o.arquivo ?? 'out/previa-locucao.mp3';
     if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(nome) || nome.split('/').includes('..'))
       return { exitCode: 1, output: '', error: 'Destino de prévia deve ser out/<nome>.mp3' };
-    const trechos = o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : [];
+    const trechos = unirTrechosContinuos(o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : []);
+    if (trechos.length !== (o.trechos?.length ?? trechos.length)) req.onLog('Kokoro: frases que formam uma oração foram unidas para preservar a entonação.');
     if (!trechos.length) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
     const target = resolveInside(req.cwd, nome);
     fs.mkdirSync(path.dirname(target), { recursive: true });

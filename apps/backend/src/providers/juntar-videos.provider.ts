@@ -6,7 +6,7 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
-import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias } from './kokoro-tts.service';
+import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, unirTrechosContinuos } from './kokoro-tts.service';
 import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
@@ -200,7 +200,7 @@ export class JuntarVideosProvider implements AiProvider {
           const motor = o.narracao.motor ?? vozConhecida(vozEscolhida)?.motor ?? 'kokoro';
           const velocidade = o.narracao.velocidade ?? 1;
           const pronuncias = o.narracao.pronuncias ?? {};
-          const trechos = motor === 'kokoro' ? (o.narracao.trechos ?? []) : [];
+          const trechos = motor === 'kokoro' ? unirTrechosContinuos(o.narracao.trechos ?? []) : [];
           const textoInteiro = (o.narracao.texto ?? trechos.map(t => t.texto).join(' ')).trim();
           const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
