@@ -1030,6 +1030,28 @@ export class StepExecutorService {
       if (vinculo) {
         const provas = evidenciasDeVideo(this.workspace.projectDirs(vinculo.dirKey).midia, worktree,
           criteria.map(c=>({kind:c.kind,config:c.config})));
+        // Recibo real do backend: o vídeo está registrado como artefato do job,
+        // portanto já possui endpoint autenticado para assistir e baixar.
+        const publicados = await this.prisma.artifact.findMany({
+          where: { projectId: job.projectId, jobId: job.id, mimeType: 'video/mp4' },
+          select: { id: true, name: true, sizeBytes: true, sha256: true },
+        });
+        const recibo = {
+          responsabilidade: 'backend do Nivoo',
+          criterio: 'registro do MP4 como artefato acessível na API; reprodução visual no navegador não foi testada',
+          videos: publicados.map(v => ({
+            nome: v.name, bytes: v.sizeBytes, sha256: v.sha256,
+            endpoint: `/projects/${job.projectId}/artifacts/${v.id}`,
+          })),
+        };
+        fs.mkdirSync(path.join(worktree, 'contexto'), { recursive: true });
+        fs.writeFileSync(path.join(worktree, 'contexto', 'publicacao-midia.json'), JSON.stringify(recibo, null, 2));
+        if (publicados.length) add('publicacao-midia', [
+          '## Registro oficial de publicação do backend',
+          'Leia contexto/publicacao-midia.json: cada vídeo tem endpoint autenticado para visualização/download.',
+          'A confirmação de abertura do player no navegador não cabe à IA revisora; não transforme essa limitação em reprovação.',
+          ...publicados.map(v => `- ${v.name}: ${v.sizeBytes} bytes; /projects/${job.projectId}/artifacts/${v.id}`),
+        ]);
         if(provas.length) add('revisao-midia',[
           '## Evidências de vídeo da mídia permanente',
           'Leia os arquivos JSON e inspecione as imagens em contexto/revisao-midia.',

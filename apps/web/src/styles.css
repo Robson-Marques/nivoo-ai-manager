@@ -112,7 +112,13 @@ textarea { resize: vertical; line-height: 1.5; }
 .conversa-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .conversa-topo h1 { font-size: 17px; margin: 0; display: inline; margin-right: 8px; }
 .mensagens { flex: 1; overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
-.mensagens > * { max-width: 760px; width: 100%; margin-left: auto; margin-right: auto; }
+.mensagens > * { max-width: min(100%, 1480px); width: 100%; margin-left: auto; margin-right: auto; }
+.mensagens > .msg.eu { max-width: min(88%, 1060px); width: fit-content; margin-right: 0; margin-left: auto; }
+@media (min-width: 1350px) {
+  .mensagens { padding-inline: clamp(20px, 3vw, 56px); }
+  .conversa.com-painel .mensagens > * { max-width: min(100%, 1220px); }
+}
+
 .msg { padding: 10px 14px; border-radius: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .msg.eu { background: var(--accent); color: #fff; max-width: 600px; margin-right: 0; width: auto; align-self: flex-end; }
 .msg.ia { background: var(--panel); border: 1px solid var(--line); }
@@ -138,7 +144,7 @@ textarea { resize: vertical; line-height: 1.5; }
 .progresso button.link, .mem-item button.link { color: var(--muted); padding: 0 4px; text-decoration: underline; font-size: 12px; }
 .dica { color: var(--muted); text-align: center; margin-top: 10vh; }
 .chip { margin: 4px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 18px; }
-.entrada { padding: 10px 18px 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px; max-width: 800px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.entrada { padding: 10px clamp(18px, 3vw, 56px) 16px; display: grid; grid-template-columns: 1fr auto; gap: 8px; max-width: 1580px; width: 100%; margin: 0 auto; box-sizing: border-box; }
 .entrada .error { grid-column: 1 / -1; }
 .entrada textarea { resize: none; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .painel { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }

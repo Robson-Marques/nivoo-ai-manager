@@ -97,6 +97,17 @@ export class CompletionService {
     }
     // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
+    // Erro de responsabilidade exclusiva da plataforma: a IA do projeto não
+    // controla os endpoints, a tela ou o navegador. Não repetir sessões inúteis.
+    const somentePublicacao = falhas.every(f => f.key === RULE_REVIEW_STEP) &&
+      violacoesAgora.length > 0 &&
+      violacoesAgora.every(v => /(?:player|download|publica[çc][aã]o|v[ií]nculo|associa[çc][aã]o).*?(?:conversa|nivoo|backend|interface)|(?:conversa|nivoo|backend|interface).*?(?:player|download|publica[çc][aã]o|v[ií]nculo|associa[çc][aã]o)/i.test(v));
+    if (somentePublicacao) {
+      await this.logs.log(job.id,
+        'Revisão cobra apenas publicação do player/download (responsabilidade do backend). Não criar outra sessão de IA para essa falha de plataforma.',
+        { source: 'evaluator', level: 'WARN' });
+      return false;
+    }
     const cobranca = [
       ...violacoesAgora.map((v) => v.slice(0, 300)),
       ...falhas.filter((f) => f.key !== RULE_REVIEW_STEP).map((f) => `${f.key} — ${criterios.find((c) => c.key === f.key)?.description ?? ''}`),
