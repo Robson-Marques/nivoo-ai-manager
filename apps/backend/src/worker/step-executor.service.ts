@@ -334,6 +334,25 @@ export class StepExecutorService {
       const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !docsPendentes.has(f) && !f.startsWith('contexto/'));
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
     }
+    // As etapas locais também podem consumir arquivos de trabalhos anteriores.
+    // Antes só as sessões de IA recebiam contexto/resultados/, portanto um plano
+    // de recuperação com local-shell falhava em "cp: arquivo inexistente", mesmo
+    // quando o artefato já estava guardado no catálogo do Nivoo.
+    if (!isAi) {
+      const origem = await this.prisma.conversationMessage.findFirst({
+        where: { jobId: job.id }, select: { conversationId: true },
+      });
+      if (origem) {
+        const outros = (await jobsDaConversa(this.prisma, origem.conversationId))
+          .filter(id => id !== job.id);
+        const resultados = await this.artifacts.copiarResultados(
+          job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'),
+        );
+        if (resultados.length) {
+          await L(`Resultados anteriores disponíveis também ao executor local: ${resultados.length} arquivo(s) em contexto/resultados/`);
+        }
+      }
+    }
     const treeBefore = await this.workspace.snapshotHash(worktree);
 
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
