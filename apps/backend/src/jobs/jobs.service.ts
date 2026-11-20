@@ -772,7 +772,7 @@ function transicaoValida(key: string, t: unknown): string {
   return v;
 }
 
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida> } {
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
   const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
@@ -812,6 +812,11 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
     if (!cortes.every((c: unknown) => c === null)) out.cortes = cortes;
   }
   if (o.narracao !== undefined) out.narracao = narracaoValida(key, o.narracao);
+  if (o.sincronizarVideoComNarracao !== undefined) {
+    if (typeof o.sincronizarVideoComNarracao !== 'boolean') throw new BadRequestException(`Etapa ${key}: sincronizarVideoComNarracao deve ser booleano`);
+    if (o.sincronizarVideoComNarracao && !out.narracao) throw new BadRequestException(`Etapa ${key}: sincronização exige narração`);
+    out.sincronizarVideoComNarracao = o.sincronizarVideoComNarracao;
+  }
   return out;
 }
 

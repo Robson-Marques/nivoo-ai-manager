@@ -50,7 +50,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao; sincronizarVideoComNarracao?: boolean };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
@@ -224,11 +224,40 @@ export class JuntarVideosProvider implements AiProvider {
           }
         }
         const nDur = voz ? await durDe(voz) : 0;
-        // 3) ALVO = o maior entre o vídeo e a narração. Se a fala passar do vídeo, segura o último quadro (não corta).
-        const alvo = Math.max(vDur, nDur);
-        if (alvo > vDur + 0.05) {
+        // Quando o pedido é narração sincronizada, a voz tem ritmo NATURAL.
+        // Ajustamos somente a imagem para acompanhar a voz: nunca modificamos
+        // o pitch, nunca aplicamos atempo na voz pronta. Sem silêncio prolongado.
+        // Para vídeos de várias cenas, exigir solicitação explícita no plano.
+        const ajustarPelaLocucao = !!voz && nDur > 0 &&
+          (o.sincronizarVideoComNarracao === true || (cenas.length === 1 && !musica && (o.volumeCenas ?? 1) === 0));
+        let duracaoFinalAlvo = Math.max(vDur, nDur);
+        if (ajustarPelaLocucao) {
+          if (o.cortes?.some(c => c?.velocidade && c.velocidade !== 1)) {
+            req.onLog('Sincronização: a velocidade já foi modificada em cortes; o ajuste final usa a duração real da voz.', 'INFO');
+          }
+          const alvoVoz = Math.max(0.3, nDur + 0.15);
+          const fator = vDur / alvoVoz;
+          if (fator > 2.5 || fator < 0.5) {
+            return { exitCode: 1, output: '', error: `Narração de ${nDur.toFixed(2)}s incompatível com vídeo de ${vDur.toFixed(2)}s (fator ${fator.toFixed(2)}x); adapte o roteiro ou replaneje a duração visual, sem acelerar artificialmente a voz.`, costUsd: custo, costEstimated: !!custo };
+          }
+          if (Math.abs(vDur - alvoVoz) > 0.18) {
+            const sincronizado = path.join(tmp, 'sincronizado.mp4');
+            const sync = await ff(['-i', saida, '-an', '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=24`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
+            if (sync.exitCode !== 0) return { exitCode: 1, output: '', error: 'Não foi possível sincronizar imagem com a narração: ' + sync.stderr.trim().slice(-250), costUsd: custo, costEstimated: !!custo };
+            fs.renameSync(sincronizado, saida);
+            req.onLog(`Sincronização da imagem: ${vDur.toFixed(2)}s → ${alvoVoz.toFixed(2)}s (${fator.toFixed(2)}x); a voz natural foi preservada.`);
+          }
+          duracaoFinalAlvo = await durDe(saida);
+          const desvio = Math.abs(duracaoFinalAlvo - nDur);
+          if (desvio > 0.55) return { exitCode: 1, output: '', error: `Sincronização não conferiu: imagem ${duracaoFinalAlvo.toFixed(2)}s, narração ${nDur.toFixed(2)}s.`, costUsd: custo, costEstimated: !!custo };
+        }
+        // 3) ALVO = o maior entre o vídeo e a narração.
+
+        const alvo = ajustarPelaLocucao ? Math.max(duracaoFinalAlvo, nDur) : Math.max(vDur, nDur);
+        const duracaoImagemAtual = ajustarPelaLocucao ? duracaoFinalAlvo : vDur;
+        if (alvo > duracaoImagemAtual + 0.05) {
           const esticado = path.join(tmp, 'esticado.mp4');
-          const e = await ff(['-i', saida, '-vf', `tpad=stop_mode=clone:stop_duration=${(alvo - vDur).toFixed(3)}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', ...(videoTemAudio ? ['-c:a', 'copy'] : ['-an']), '-movflags', '+faststart', esticado], 1_800_000);
+          const e = await ff(['-i', saida, '-vf', `tpad=stop_mode=clone:stop_duration=${(alvo - duracaoImagemAtual).toFixed(3)}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', ...(videoTemAudio ? ['-c:a', 'copy'] : ['-an']), '-movflags', '+faststart', esticado], 1_800_000);
           if (e.exitCode === 0) fs.renameSync(esticado, saida);
           else req.onLog(`não consegui esticar o vídeo até o fim da narração (${e.stderr.trim().slice(-160)})`, 'WARN');
         }
