@@ -183,7 +183,7 @@ export class JobsService {
         Object.assign(providerOptions, validada, { arquivo });
         if (opts.fechamentoAlternativo !== undefined) {
           const fechamento = String(opts.fechamentoAlternativo).trim();
-          if (!fechamento || fechamento.length > 300 || /[\\[\\]<>]/.test(fechamento))
+          if (!fechamento || fechamento.length > 300 || [...'[]<>'].some(c => fechamento.includes(c)))
             throw new BadRequestException(`Etapa ${key}: fechamentoAlternativo deve ser uma frase simples com até 300 caracteres`);
           providerOptions.fechamentoAlternativo = fechamento;
         }
