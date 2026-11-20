@@ -23,6 +23,73 @@ const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_T
  * O vídeo durável mora SEMPRE em midia/saida; out/ é só para relatórios,
  * frames PNG/JPEG e outras evidências. Não depende da boa vontade da IA.
  */
+/**
+ * Insere a revisão do quadro ANTES do MP4 na estrutura do job, mesmo quando
+ * o planejador esquece de propor uma etapa de direção de arte. Não escolhe
+ * automaticamente uma referência: o agente recebe os anexos originais.
+ */
+function comPreflightVisual(raw: unknown, defaultProvider: string): unknown {
+  if (!Array.isArray(raw)) return raw;
+  const keys = new Set(raw.map((s: any) => String(s?.key ?? '')));
+  const result: any[] = [];
+  const referencia = raw.find((s: any) => {
+    const provider = String(s?.provider ?? defaultProvider);
+    return provider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'arquivos-projeto'].includes(provider);
+  });
+  const ai = referencia ? String(referencia.provider ?? defaultProvider) :
+    (defaultProvider !== 'local-shell' && !['gemini-video', 'juntar-videos', 'arquivos-projeto'].includes(defaultProvider) ? defaultProvider : null);
+  for (const s of raw) {
+    const text = String(s?.instructions ?? '');
+    const isRender = (s?.provider ?? defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(text);
+    if (!isRender || !ai) { result.push(s); continue; }
+    // validatePlan já insere essas duas etapas; create recebe o plano
+    // normalizado e não pode duplicá-las.
+    if (Array.isArray(s.dependsOn) && s.dependsOn.some((d: unknown) => String(d).startsWith('direcao-arte-'))) {
+      result.push(s);
+      continue;
+    }
+    const source = /\bnivoo-renderizar-motion\s+(motion\/[A-Za-z0-9._/-]+)/.exec(text)?.[1];
+    if (!source || source.split('/').includes('..')) {
+      throw new BadRequestException('O renderizador motion deve indicar uma pasta motion/<nome> para a conferência visual prévia');
+    }
+    const seconds = /--segundos\s+(\d+)/.exec(text)?.[1] ?? '15';
+    const size = /--tamanho\s+(\d+x\d+)/.exec(text)?.[1] ?? '1920x1080';
+    const slug = String(s.key).slice(0, 28);
+    let n = 1, key = 'qa-visual-' + slug;
+    while (keys.has(key)) key = 'qa-visual-' + slug + '-' + (++n);
+    keys.add(key);
+    const evidence = 'out/qualidade/' + key;
+    let check = 'direcao-arte-' + slug, n2 = 1;
+    while (keys.has(check)) check = 'direcao-arte-' + slug + '-' + (++n2);
+    keys.add(check);
+    const previous = Array.isArray(s.dependsOn) ? s.dependsOn : [];
+    result.push({
+      key, title: 'Capturar composição antes do vídeo', provider: 'local-shell',
+      dependsOn: previous,
+      instructions: `nivoo-conferir-arte ${source} --saida ${evidence} --segundos ${seconds} --tamanho ${size}`,
+      verifyCommand: `test -s ${evidence}/quadro.png && test -s ${evidence}/evidencias.json`,
+    });
+    result.push({
+      key: check, title: 'Inspecionar fidelidade e acabamento antes da renderização',
+      provider: ai, dependsOn: [key],
+      instructions: [
+        `LEIA ${evidence}/evidencias.json e ABRA ${evidence}/quadro.png.`,
+        'Leia o briefing original em contexto/conversa-do-pedido.md e compare com a REFERÊNCIA VISUAL CORRETA em contexto/anexos (não confunda fundos, logos e fotos isoladas com cartaz final).',
+        'Confira textos literalmente, proporção e enquadramento dos ativos, força visual relativa, paleta, amarelos e vermelhos quando pedidos, textura, brilho, profundidade e margens.',
+        'Em peça sem referência, confira consistência com o estilo do briefing, sem adicionar neon/efeitos apenas por ser premium.',
+        'Se observar diferenças, corrija APENAS os elementos necessários no HTML/CSS/JS e CAPTURE DE NOVO o quadro usando o mesmo comando nivoo-conferir-arte da etapa anterior.',
+        'Não redimensione ou recolora imagens originais indevidamente. Não refaça a sequência de animação já aprovada.',
+        `Salve ${evidence}/parecer.json contendo {"conforme":true|false,"referencia":"caminho ou sem referencia","comparacoes":[{"aspecto":"...","observacao":"...","acao":"..."}],"correcoes":[],"pendencias":[]}.`,
+        'Só marque conforme=true se a imagem final foi realmente aberta e verificada; se faltar ferramenta de inspeção, registre impedimento concreto, não invente aprovação.',
+        'A checagem é ANTES de renderizar MP4, para evitar repetição de vídeos caros.',
+      ].join('\n'),
+      verifyCommand: `python3 -c "import json,sys; d=json.load(open('${evidence}/parecer.json')); sys.exit(0 if d.get('conforme') is True and isinstance(d.get('comparacoes'),list) and len(d['comparacoes'])>=3 and not d.get('pendencias') else 1)"`,
+    });
+    result.push({ ...s, dependsOn: [...new Set([...previous, check])] });
+  }
+  return result;
+}
+
 function validarSaidaMotion(command: string, origem: string): string {
   if (!/\bnivoo-renderizar-motion\b/.test(command)) return command;
   let fixed = command;
@@ -192,7 +259,7 @@ export class JobsService {
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const brutas = comVideoCompleto(plan.steps, defaultProvider);
+    const brutas = comPreflightVisual(comVideoCompleto(plan.steps, defaultProvider), defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
@@ -208,7 +275,7 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(comVideoCompleto(body.steps ?? [], defaultProvider), defaultProvider);
+    const steps = this.parseSteps(comPreflightVisual(comVideoCompleto(body.steps ?? [], defaultProvider), defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.

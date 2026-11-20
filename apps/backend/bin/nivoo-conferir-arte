@@ -1,0 +1,78 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * Prévia de direção de arte ANTES do MP4, sem chamar IA nem codificar vídeo.
+ * Uso: nivoo-conferir-arte motion/<pasta> --saida out/qualidade/<nome> [--segundos 25] [--tamanho 1080x1920]
+ * Gera quadro.png e evidencias.json. A comparação artística é feita pela etapa
+ * revisora com a referência, não por um número arbitrário de saturação.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+const opt = (key, fallback) => { const i = args.indexOf(key); return i >= 0 ? args[i + 1] : fallback; };
+const raw = args[0] || '';
+const output = opt('--saida', '');
+const seconds = Number(opt('--segundos', '15'));
+const dimensions = String(opt('--tamanho', '1080x1920'));
+const m = /^(\d{2,5})x(\d{2,5})$/.exec(dimensions);
+if (!/^motion\/[a-zA-Z0-9._/-]+$/.test(raw) || raw.split('/').includes('..') ||
+    !/^out\/qualidade\/[a-zA-Z0-9_-]+$/.test(output) ||
+    !m || !Number.isFinite(seconds) || seconds < 1 || seconds > 120) {
+  console.error('Uso: nivoo-conferir-arte motion/<pasta> --saida out/qualidade/<id> --segundos 25 --tamanho 1080x1920');
+  process.exit(2);
+}
+let entry = path.resolve(raw);
+if (fs.existsSync(entry) && fs.statSync(entry).isDirectory()) entry = path.join(entry, 'index.html');
+if (!fs.existsSync(entry) || !fs.statSync(entry).isFile()) {
+  console.error('Prévia visual: arquivo de composição ausente: ' + raw);
+  process.exit(2);
+}
+const dir = path.resolve(output);
+const refs = [];
+const root = path.resolve('contexto', 'anexos');
+const visit = (folder, depth) => {
+  if (depth > 3 || refs.length >= 30 || !fs.existsSync(folder)) return;
+  for (const item of fs.readdirSync(folder, { withFileTypes: true })) {
+    if (refs.length >= 30) break;
+    if (item.isSymbolicLink()) continue;
+    const abs = path.join(folder, item.name);
+    if (item.isDirectory()) visit(abs, depth + 1);
+    else if (item.isFile() && /\.(png|jpe?g|webp)$/i.test(item.name))
+      refs.push(path.relative(process.cwd(), abs).split(path.sep).join('/'));
+  }
+};
+visit(root, 0);
+(async () => {
+  const { chromium } = require('playwright-core');
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu', '--force-color-profile=srgb'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: Number(m[1]), height: Number(m[2]) }, deviceScaleFactor: 1 });
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e.message).slice(0, 220)));
+    await page.goto('file://' + entry, { waitUntil: 'load', timeout: 30000 });
+    // É uma captura real do estágio final, não um recorte do cartaz.
+    const deadline = Date.now() + seconds * 1000;
+    while (Date.now() < deadline) {
+      if (await page.evaluate(() => window.__motionFim === true).catch(() => false)) break;
+      await page.waitForTimeout(200);
+    }
+    fs.mkdirSync(dir, { recursive: true });
+    const frame = path.join(dir, 'quadro.png');
+    await page.screenshot({ path: frame, fullPage: false, animations: 'allow' });
+    const report = {
+      tipo: 'preflight-visual', origem: raw, quadro: path.relative(process.cwd(), frame).split(path.sep).join('/'),
+      largura: Number(m[1]), altura: Number(m[2]), segundosSolicitados: seconds,
+      referenciasDisponiveis: refs, referenciaEscolhidaAutomaticamente: false,
+      errosJavascript: errors,
+      observacao: 'O servidor capturou a composição antes do MP4; qualidade, fidelidade e legibilidade exigem comparação visual com a referência correta. Não inventar nota de qualidade.',
+    };
+    fs.writeFileSync(path.join(dir, 'evidencias.json'), JSON.stringify(report, null, 2));
+    console.log('Prévia visual capturada: ' + report.quadro + ' | referências: ' + refs.length);
+    if (errors.length) {
+      console.error('Composição contém erro JS: ' + errors[0]);
+      process.exitCode = 4;
+    }
+  } finally {
+    await browser.close();
+  }
+})().catch(e => { console.error('Falha ao capturar composição: ' + (e?.message || e)); process.exitCode = 4; });
