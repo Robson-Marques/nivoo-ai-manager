@@ -148,14 +148,21 @@ export class ConversationsService {
       if (!to.startsWith(path.resolve(targetMedia) + path.sep)) throw new BadRequestException('Caminho de mídia inválido');
       if (fs.existsSync(to)) throw new ConflictException('Já existe uma mídia com o mesmo caminho no destino: ' + relative);
       copies.push({ from, to });
+      // Preserva também o nome original e eventuais roteiros associados à mídia.
+      for (const suffix of ['.nome', '.roteiro.txt']) {
+        if (fs.existsSync(from + suffix)) {
+          if (fs.existsSync(to + suffix)) throw new ConflictException('Metadados de mídia já existem no destino: ' + relative);
+          copies.push({ from: from + suffix, to: to + suffix });
+        }
+      }
     }
     const copiedMedia: string[] = [];
     let copiedAttachments = false;
     try {
       if (fs.existsSync(previous)) {
         fs.mkdirSync(path.dirname(next), { recursive: true });
-        fs.cpSync(previous, next, { recursive: true, errorOnExist: true, force: false });
         copiedAttachments = true;
+        fs.cpSync(previous, next, { recursive: true, errorOnExist: true, force: false });
       }
       for (const file of copies) {
         fs.mkdirSync(path.dirname(file.to), { recursive: true });
@@ -170,6 +177,8 @@ export class ConversationsService {
         if (pending) throw new ConflictException('A IA começou uma resposta; tente novamente depois');
         const linked = await tx.conversationMessage.count({ where: { conversationId, jobId: { not: null } } });
         if (linked) throw new ConflictException('A conversa tem trabalhos vinculados ao projeto original');
+        // Sessões de IA pertencem ao ambiente anterior; nova mensagem inicia sessão no destino.
+        await tx.conversationMessage.updateMany({ where: { conversationId }, data: { sessionId: null } });
         await tx.conversation.update({ where: { id: conversationId }, data: { projectId: targetProjectId } });
       });
     } catch (e) {
