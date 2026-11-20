@@ -77,7 +77,7 @@ describe('Calibração de pausas adicionais', () => {
   it('não corta nem separa um roteiro contínuo e preserva pontuação interna', () => {
     const roteiro = 'É hoje! Black na sua quinta-feira! Das sete às nove da noite, dois sabores especiais em promoção! Peça agora a sua pizza e aproveite!';
     const saida = roteiroEmUmaFala(frasesDeLocucao(roteiro), 'calmo');
-    expect(saida.match(/\\[pause:/g)).toHaveLength(3);
+    expect(saida.match(/\[pause:/g)).toHaveLength(3);
     expect(saida).toContain('Das sete às nove da noite, dois sabores especiais em promoção!');
     expect(saida).toMatch(/Peça agora a sua pizza e aproveite!$/);
   });
