@@ -36,8 +36,9 @@ export function aplicarPrioridadeDosExecutores(raw: unknown, defaultProvider: st
     const ffmpegMontagem = /\bffmpeg\b/.test(instr) &&
       (/(?:-filter_complex\b|-c:v\b|-c:a\b|-map\b)/.test(instr) ||
        /(?:midia\/saida\/|out\/)[\w.-]+\.mp4\b/i.test(instr));
-    const ferramentaApropriada = /\bnivoo-(?:renderizar-motion|analisar-video|extrair-quadros|conferir-arte)\b/.test(instr);
-    if ((scriptDeMontagem || ffmpegMontagem) && !ferramentaApropriada) {
+    // Presença de ferramenta oficial em OUTRA parte da instrução não
+    // autoriza um script de montagem improvisado na mesma etapa.
+    if (scriptDeMontagem || ffmpegMontagem) {
       throw new BadRequestException(
         'A estrutura interna tem prioridade: montagem, mixagem e ajuste de duração de MP4 devem usar o executor juntar-videos. ' +
         'Forneça providerOptions.cenas, arquivo, narracao, trilha e sincronizarVideoComNarracao. ' +
