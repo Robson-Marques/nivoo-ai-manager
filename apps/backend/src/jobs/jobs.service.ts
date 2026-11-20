@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
+import { aplicarPrioridadeDosExecutores } from './executor-priority';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -282,7 +283,7 @@ export class JobsService {
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const brutas = comPreflightVisual(comVideoCompleto(plan.steps, defaultProvider), defaultProvider);
+    const brutas = comPreflightVisual(comVideoCompleto(aplicarPrioridadeDosExecutores(plan.steps, defaultProvider), defaultProvider), defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
@@ -298,7 +299,7 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(comPreflightVisual(comVideoCompleto(body.steps ?? [], defaultProvider), defaultProvider), defaultProvider);
+    const steps = this.parseSteps(comPreflightVisual(comVideoCompleto(aplicarPrioridadeDosExecutores(body.steps ?? [], defaultProvider), defaultProvider), defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.
