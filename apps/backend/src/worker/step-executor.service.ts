@@ -395,11 +395,29 @@ export class StepExecutorService {
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
     const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
     let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
+    // O renderizador motion grava exclusivamente em midia/saida/. Planos antigos
+    // podem pedir --saida out/*.mp4 em verifyCommand; corrigir aqui evita abrir
+    // novas sessões de IA para tentar alterar um comando imutável no banco.
+    let saidaMotionCorrigida: string | null = null;
+    if (/\bnivoo-renderizar-motion\b/.test(verifyCommandEfetivo)) {
+      const match = /--saida[ \t]+(?:"(out\/[A-Za-z0-9._-]+\.mp4)"|'(out\/[A-Za-z0-9._-]+\.mp4)'|(out\/[A-Za-z0-9._-]+\.mp4))/.exec(verifyCommandEfetivo);
+      const antigo = match?.[1] ?? match?.[2] ?? match?.[3];
+      if (antigo) {
+        const novo = 'midia/saida/' + path.basename(antigo);
+        // Troca tanto o destino do renderizador quanto o arquivo lido pelo
+        // ffmpeg de extração de quadros na mesma conferência.
+        verifyCommandEfetivo = verifyCommandEfetivo.split(antigo).join(novo);
+        saidaMotionCorrigida = antigo + ' → ' + novo;
+      }
+    }
     let verified = !verifyCommand;
     let faltaPrograma: string | null = null;
     let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
     let credencialFaltando: string | null = null; // registro de pacotes privado sem token: só o usuário resolve
     if ((result.exitCode === 0 || (isAi && result.sessionEnded)) && !result.interrupted && !result.resourceUnavailable && verifyCommand) {
+      if (saidaMotionCorrigida) {
+        await L(`Conferência: saída motion ajustada automaticamente (${saidaMotionCorrigida}); não é necessário refazer a composição nem abrir outra sessão.`, 'WARN', attempt.id);
+      }
       // Banco de teste descartável do trabalho (testes de integração do projeto).
       const banco = await prepararBancoDeTeste(job.id).catch(async (e) => {
         await L(`Banco de teste indisponível: ${e?.message ?? e}`, 'WARN', attempt.id);
