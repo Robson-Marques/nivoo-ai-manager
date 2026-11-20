@@ -27,6 +27,11 @@ export class ConversationsController {
     return this.conversations.update(pid, cid, body);
   }
 
+  @Post(':cid/move')
+  move(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string, @Body() body: any) {
+    return this.conversations.move(pid, cid, body?.targetProjectId);
+  }
+
   @Delete(':cid')
   remove(@Param('pid', ParseUUIDPipe) pid: string, @Param('cid', ParseUUIDPipe) cid: string) {
     return this.conversations.remove(pid, cid);
