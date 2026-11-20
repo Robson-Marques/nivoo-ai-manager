@@ -170,7 +170,12 @@ function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId
           <ol>
             {r.perguntas.map((q: any, i: number) => (
               <li key={i}>
-                <span style={{ whiteSpace: 'pre-wrap' }}>{q.pergunta}</span>
+                {String(q.pergunta).length > 450 ? (
+                  <details>
+                    <summary>{String(q.pergunta).split('\n').find((linha: string) => linha.trim())?.slice(0, 180) ?? 'Detalhes da pergunta'}</summary>
+                    <div style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{q.pergunta}</div>
+                  </details>
+                ) : <span style={{ whiteSpace: 'pre-wrap' }}>{q.pergunta}</span>}
                 {q.opcoes?.length > 0 && (
                   <div className="opcoes-resposta">
                     {q.opcoes.map((o: string, k: number) => (
@@ -582,7 +587,21 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   };
 
   // Avisos do sistema (ex.: "continuei com outra IA") aparecem; o registro técnico da aprovação, não.
-  const mensagens: any[] = (conv?.messages ?? []).filter((m: any) => m.kind !== 'sistema' || !m.content.startsWith('Plano aprovado'));
+  const mensagensBase: any[] = (conv?.messages ?? []).filter((m: any) => m.kind !== 'sistema' || !m.content.startsWith('Plano aprovado'));
+  // Se a IA repete o texto da última entrega antes de propor um plano,
+  // renderizar a entrega UMA vez e conservar somente a proposta nova.
+  // Não descarta mensagens ou anexos persistidos no banco.
+  const mensagens: any[] = mensagensBase.map((m, i) => {
+    const anterior = mensagensBase[i - 1];
+    if (m.kind !== 'plano' || anterior?.kind !== 'entrega' || !m.content || !anterior.content) return m;
+    const a = String(anterior.content).trim();
+    const b = String(m.content).trim();
+    if (b === a || b.startsWith(a + '\n')) return { ...m, content: b.slice(a.length).trim() };
+    // Algumas respostas repetem a entrega com espaços diferentes.
+    if (b.replace(/\s+/g, ' ').startsWith(a.replace(/\s+/g, ' ')) && b.length < a.length + 250)
+      return { ...m, content: '' };
+    return m;
+  });
   const ultimaIa = [...mensagens].reverse().find((m) => m.role === 'ASSISTENTE' && m.kind !== 'sistema');
 
   return (
@@ -1050,8 +1069,12 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {['BLOQUEADO', 'FALHOU'].includes(job.status) && job.blockedReason !== 'PAUSADO' && (
         <span>
           Parei: {conferenciaFalhou(job) ? 'a revisão final precisa de você (veja abaixo)' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
-          <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
-          <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
+          {!conferenciaFalhou(job) && (
+            <>
+              <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
+              <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
+            </>
+          )}
           {conferenciaFalhou(job) && job.status === 'BLOQUEADO' && <RevisaoParada projetoId={projetoId} jobId={jobId} onMudou={carregar} />}
           <DetalhesDaParada job={job} />
         </span>

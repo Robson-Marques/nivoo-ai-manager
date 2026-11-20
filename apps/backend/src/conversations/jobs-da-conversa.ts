@@ -38,6 +38,11 @@ export async function avisarConversaQueParou(
     });
     const ids = [...new Set(entregasRecentes.map((m) => m.jobId).filter((x): x is string => !!x && x !== jobId))];
     const jaTentadas = ids.length ? await prisma.job.count({ where: { id: { in: ids }, status: { in: ['BLOQUEADO', 'FALHOU'] } } }) : 0;
+    // Falha de critério final não é autorização para abrir um NOVO plano
+    // automaticamente: a tela do trabalho já mostra revisão e arquivos.
+    // Antes ela criava entrega pendente + plano de "conserto" duplicando
+    // o resultado e gerando outro ciclo de IA sem corrigir a origem.
+    if (/crit[eé]rio n[aã]o atendido:|conferencia-regras|revis[aã]o final/i.test(motivo)) return;
     if (jaTentadas < AUTOCORRIGIR_MAX) {
       // A IA da conversa recebe o erro (como entrega pendente) e propõe o conserto; roda sozinho se "seguir sozinho".
       await prisma.$transaction(async (tx: any) => {

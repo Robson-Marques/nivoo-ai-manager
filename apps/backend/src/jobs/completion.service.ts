@@ -108,6 +108,32 @@ export class CompletionService {
         { source: 'evaluator', level: 'WARN' });
       return false;
     }
+    // A revisão pode relatar LIMITES DE EVIDÊNCIA (sem acesso à escuta ou ASR).
+    // Nenhuma sessão adicional de edição é capaz de tornar o áudio "confirmado"
+    // apenas reescrevendo pareceres. Diferenciar incerteza de defeito comprovado.
+    const revisaoAtual = lerRevisao(worktree);
+    const somenteRevisao = falhas.length > 0 && falhas.every(f => f.key === RULE_REVIEW_STEP);
+    // Trabalhos de leitura/conferência não têm uma etapa capaz de remontar a mídia.
+    // Uma violação verdadeira continua BLOQUEADA, mas não gera "corrigir relatório"
+    // com IA, que nunca reexecutaria a montagem nem alteraria o MP4.
+    const trabalhoDeConferencia = /confer[eê]ncia|revis[aã]o|auditoria|verifica[çc][aã]o/i.test(job.title) &&
+      job.steps.filter(s => s.key !== RULE_REVIEW_STEP && !/^(correcao-criterios-|resposta-usuario-)/.test(s.key))
+        .every(s => /^(medir|revisar|conferir|verificar|analisar|auditar)/i.test(s.key));
+    if (somenteRevisao && trabalhoDeConferencia) {
+      await this.logs.log(job.id,
+        'Trabalho somente de conferência, sem etapa de remontagem: reprovado com evidência, mas sem abrir sessões de IA incapazes de corrigir a mídia.',
+        { source: 'evaluator', level: 'WARN' });
+      return false;
+    }
+    const incerta = (v: string) => /(?:falta|faltou|pendente|sem|n[aã]o (?:foi|consegui|consegue|é poss[ií]vel)|precisa|depende).{0,95}(?:confirm|escut|ouvir|audi[çc][aã]o|transcri[çc][aã]o|reconhecimento confi[aá]vel|verifica[çc][aã]o)|(?:ind[ií]cio|suspeita|prov[aá]vel|sem evid[eê]ncia)/i.test(v);
+    if (somenteRevisao && revisaoAtual &&
+        ((revisaoAtual.perguntas.length > 0 && violacoesAgora.every(incerta)) ||
+         (violacoesAgora.length > 0 && violacoesAgora.every(incerta)))) {
+      await this.logs.log(job.id,
+        'Revisão parou por impossibilidade de confirmar escuta/sincronia, sem falha corrigível demonstrada. Não criar sessões de IA para reescrever o relatório; mostrar a pendência uma vez na revisão.',
+        { source: 'evaluator', level: 'WARN' });
+      return false;
+    }
     const cobranca = [
       ...violacoesAgora.map((v) => v.slice(0, 300)),
       ...falhas.filter((f) => f.key !== RULE_REVIEW_STEP).map((f) => `${f.key} — ${criterios.find((c) => c.key === f.key)?.description ?? ''}`),
