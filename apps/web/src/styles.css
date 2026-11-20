@@ -434,3 +434,11 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 /* Anexo de mídia (vídeo/áudio) que falhou ao subir: fica em vermelho na bandeja de anexos da mensagem. */
 .anexo-chip.erro { border-color: var(--bad); color: var(--bad); }
 .origem-video select { font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+
+/* Conversas podem ser arrastadas sobre outro projeto; o destino fica explícito. */
+.conversa-item[draggable="true"]{cursor:grab}
+.conversa-item[draggable="true"]:active{cursor:grabbing}
+.proj-linha.proj-drop-target{background:rgba(56,189,248,.20);outline:2px solid #38bdf8;outline-offset:-2px}
+.mover-conversa-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.modal[aria-label="Mover conversa"]{max-width:440px}
+.modal[aria-label="Mover conversa"] select{display:block;width:100%;margin-top:6px}
