@@ -38,6 +38,11 @@ export function Layout() {
   const [conversas, setConversas] = useState<any[] | null>(null);
   const [novo, setNovo] = useState(false);
   const [verArquivados, setVerArquivados] = useState(false);
+  const [mover, setMover] = useState<any | null>(null);
+  const [destino, setDestino] = useState('');
+  const [movendo, setMovendo] = useState(false);
+  const [erroMover, setErroMover] = useState('');
+  const [dragDestino, setDragDestino] = useState<string | null>(null);
   // Projeto arquivado aberto (pelo "Arquivados"): aparece no menu enquanto estiver aberto, com as conversas dele.
   const [abertoArquivado, setAbertoArquivado] = useState<any | null>(null);
   // Lista de projetos recolhida para a esquerda (lembrado neste navegador).
@@ -116,18 +121,43 @@ export function Layout() {
     await recarregarConversas();
   };
 
+  const moverConversa = async (c: any, targetId: string) => {
+    if (!pid || !targetId || pid === targetId) return;
+    setMovendo(true); setErroMover('');
+    try {
+      await api(`/projects/${pid}/conversations/${c.id}/move`, 'POST', { targetProjectId: targetId });
+      setMover(null);
+      await recarregarConversas();
+      if (c.id === cid) nav(`/p/${targetId}/c/${c.id}`);
+      else nav(`/p/${targetId}`);
+    } catch (e: any) {
+      setErroMover(e?.message ?? 'Não foi possível mover a conversa');
+      setMover(c); setDestino(targetId);
+    } finally {
+      setMovendo(false); setDragDestino(null);
+    }
+  };
+
+  const iniciarMover = (c: any) => {
+    setMover(c);
+    setDestino((projetos ?? []).find(p => p.id !== pid)?.id ?? '');
+    setErroMover('');
+  };
   const listaConversas = (projetoId: string) =>
     conversas && conversas.length > 0 ? (
       <div className="conversas">
         {conversas.map((c) => (
-          <ItemConversa key={c.id} c={c} pid={projetoId} ativa={c.id === cid} onAcao={acaoConversa} />
+          <ItemConversa key={c.id} c={c} pid={projetoId} ativa={c.id === cid} onAcao={acaoConversa} onMover={iniciarMover} />
         ))}
       </div>
     ) : null;
 
   const linhaProjeto = (p: any) => (
     <div key={p.id}>
-      <div className={`proj-linha${p.id === pid ? ' on' : ''}${p.archivedAt ? ' arquivado' : ''}`}>
+      <div className={`proj-linha${p.id === pid ? ' on' : ''}${p.archivedAt ? ' arquivado' : ''}${dragDestino===p.id?' proj-drop-target':''}`}
+        onDragOver={e=>{if(p.id!==pid&&!p.archivedAt&&e.dataTransfer.types.includes('application/x-nivoo-conversation')){e.preventDefault();e.dataTransfer.dropEffect='move';setDragDestino(p.id)}}}
+        onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDragDestino(null)}}
+        onDrop={e=>{e.preventDefault();setDragDestino(null);if(p.id===pid||p.archivedAt)return;try{const data=JSON.parse(e.dataTransfer.getData('application/x-nivoo-conversation'));if(data.projectId===pid&&data.id){const c=conversas?.find(x=>x.id===data.id);if(c)void moverConversa(c,p.id)}}catch{setErroMover('Não foi possível ler a conversa arrastada')}}}>
         <Link to={`/p/${p.id}`} className="proj">{p.name}</Link>
         <Link to={`/p/${p.id}/studio`} title="Abrir Nivoo Studio — editor de vídeo" aria-label={`Abrir editor de vídeo do projeto ${p.name}`} className="proj-acao">🎬</Link>
         <button className="proj-acao" title="Nova conversa" aria-label={`Nova conversa em ${p.name}`} onClick={() => novaConversa(p.id)}>
@@ -196,6 +226,25 @@ export function Layout() {
             }}
           />
         )}
+        {mover && (
+          <div className="modal-fundo" onClick={()=>!movendo&&setMover(null)}>
+            <div className="modal" role="dialog" aria-modal="true" aria-label="Mover conversa" onClick={e=>e.stopPropagation()}>
+              <h2>Mover para projeto</h2>
+              <p>Conversa: <strong>{mover.title}</strong></p>
+              <label>Projeto de destino
+                <select value={destino} disabled={movendo} onChange={e=>setDestino(e.target.value)}>
+                  {(projetos??[]).filter(p=>p.id!==pid&&!p.archivedAt).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </label>
+              <p className="muted">O histórico e os anexos acompanham a conversa. Memórias e trabalhos já criados permanecem no projeto original.</p>
+              {erroMover&&<div className="error" role="alert">{erroMover}</div>}
+              <div className="mover-conversa-actions">
+                <button className="secondary" disabled={movendo} onClick={()=>setMover(null)}>Cancelar</button>
+                <button disabled={movendo||!destino} onClick={()=>void moverConversa(mover,destino)}>{movendo?'Movendo…':'Mover conversa'}</button>
+              </div>
+            </div>
+          </div>
+        )}
         {novo && (
           <NovoProjeto
             onFechar={() => setNovo(false)}
@@ -211,15 +260,16 @@ export function Layout() {
   );
 }
 
-function ItemConversa({ c, pid, ativa, onAcao }: { c: any; pid: string; ativa: boolean; onAcao: (c: any, a: 'renomear' | 'arquivar' | 'excluir') => void }) {
+function ItemConversa({ c, pid, ativa, onAcao, onMover }: { c: any; pid: string; ativa: boolean; onAcao: (c: any, a: 'renomear' | 'arquivar' | 'excluir') => void; onMover: (c: any) => void }) {
   const [menu, setMenu] = useState(false);
   return (
-    <div className={`conversa-item${ativa ? ' on' : ''}`}>
+    <div className={`conversa-item${ativa ? ' on' : ''}`} draggable onDragStart={e=>{e.dataTransfer.setData('application/x-nivoo-conversation',JSON.stringify({id:c.id,projectId:pid}));e.dataTransfer.setData('text/plain',c.title);e.dataTransfer.effectAllowed='move'}} title="Arraste para outro projeto ou use ⋯ → Mover para projeto">
       <Link to={`/p/${pid}/c/${c.id}`} title={c.title}>{c.title}</Link>
       <button className="mais" aria-label={`Opções da conversa ${c.title}`} onClick={() => setMenu(!menu)}>⋯</button>
       {menu && (
         <div className="menu-conversa" onMouseLeave={() => setMenu(false)}>
           <button onClick={() => { setMenu(false); onAcao(c, 'renomear'); }}>Renomear</button>
+          <button onClick={() => { setMenu(false); onMover(c); }}>Mover para projeto</button>
           <button onClick={() => { setMenu(false); onAcao(c, 'arquivar'); }}>Arquivar</button>
           <button className="perigo" onClick={() => { setMenu(false); onAcao(c, 'excluir'); }}>Excluir</button>
         </div>
