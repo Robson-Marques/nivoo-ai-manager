@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
-import { KokoroTtsError, KokoroTtsService, unirTrechosContinuos } from './kokoro-tts.service';
+import { KokoroTtsError, KokoroTtsService, roteiroEmUmaFala } from './kokoro-tts.service';
 import { VOZ_PADRAO_KOKORO } from './vozes';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
@@ -40,32 +40,33 @@ export class GerarNarracaoProvider implements AiProvider {
     const nome = o.arquivo ?? 'out/previa-locucao.mp3';
     if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(nome) || nome.split('/').includes('..'))
       return { exitCode: 1, output: '', error: 'Destino de prévia deve ser out/<nome>.mp3' };
-    const trechos = unirTrechosContinuos(o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : []);
-    if (trechos.length !== (o.trechos?.length ?? trechos.length)) req.onLog('Kokoro: frases que formam uma oração foram unidas para preservar a entonação.');
-    if (!trechos.length) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
+    const trechos = o.trechos?.length ? o.trechos : o.texto?.trim() ? [{ texto: o.texto.trim() }] : [];
+    const texto = roteiroEmUmaFala(trechos);
+    if (!texto) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
     const target = resolveInside(req.cwd, nome);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-kokoro-preview-'));
     try {
-      const arquivos: string[] = [];
-      for (const [i, t] of trechos.entries()) {
-        if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
-        const vel = t.velocidade ?? o.velocidade ?? 1;
-        req.onLog(`Sintetizando frase ${i+1}/${trechos.length}, intenção ${t.intencao ?? 'natural'}, velocidade ${vel}`);
-        let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
-        try { audio = await this.kokoro.gerar(textoDaFrase(t), o.voz ?? VOZ_PADRAO_KOKORO, vel, o.pronuncias ?? {}, req.signal); }
-        catch (e) { const err=e instanceof KokoroTtsError?e:new KokoroTtsError(String(e)); return { exitCode: 1, output:'',error:err.message,resourceUnavailable:err.indisponivel }; }
-        const arquivo = path.join(tmp,`frase-${i}.mp3`);
-        fs.writeFileSync(arquivo,audio.bytes);
-        arquivos.push(arquivo);
-      }
-      const filtros=trechos.map((t,i)=>`[${i}:a]aresample=24000,aformat=channel_layouts=mono,apad=pad_dur=${(i===trechos.length-1?0:(t.pausaAposMs??160)/1000).toFixed(3)}[s${i}]`);
-      filtros.push(`${trechos.map((_,i)=>`[s${i}]`).join('')}concat=n=${trechos.length}:v=0:a=1[a]`);
-      const result=await runProcess('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',...arquivos.flatMap(f=>['-i',f]),'-filter_complex',filtros.join(';'),'-map','[a]','-c:a','libmp3lame','-q:a','3',target],{cwd:req.cwd,env:minimalEnv(),timeoutMs:Math.min(req.timeoutMs,180000),signal:req.signal});
-      if(result.exitCode!==0)return {exitCode:1,output:'',error:'Falha na união da locução: '+result.stderr.slice(-350)};
-      if(!fs.existsSync(target)||!fs.statSync(target).size)return {exitCode:1,output:'',error:'Prévia MP3 vazia'};
-      req.onLog('MP3 disponível para escuta: '+nome);
-      return {exitCode:0,output:'Prévia de voz criada em '+nome+'. Aguarda aprovação antes do MP4.',stopReason:'completed'};
+      // A API recebe o roteiro inteiro em uma síntese, sem recortes nem silêncios
+      // colocados pelo FFmpeg. Pausas vêm da pontuação interpretada pela voz.
+      const velocidade = o.velocidade ?? trechos[0]?.velocidade ?? 1;
+      req.onLog('Gerando locução contínua em uma chamada ao Kokoro (sem cortes, velocidade ' + velocidade + ').');
+      if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
+        req.onLog('Atenção: velocidade por frase foi ignorada para preservar uma só interpretação. Usando a velocidade global.', 'WARN');
+      if (trechos.some(t => t.pausaAposMs !== undefined))
+        req.onLog('Pausas artificiais foram desativadas: a pontuação define as pausas naturais.', 'INFO');
+      let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
+      try { audio = await this.kokoro.gerar(texto, o.voz ?? VOZ_PADRAO_KOKORO, velocidade, o.pronuncias ?? {}, req.signal); }
+      catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: '', error: err.message, resourceUnavailable: err.indisponivel }; }
+      const original = path.join(tmp, 'original.mp3');
+      fs.writeFileSync(original, audio.bytes);
+      const result = await runProcess('ffmpeg',
+        ['-nostdin','-hide_banner','-loglevel','error','-y','-i',original,'-map','0:a:0','-c:a','libmp3lame','-q:a','3',target],
+        { cwd: req.cwd, env: minimalEnv(), timeoutMs: Math.min(req.timeoutMs, 180000), signal: req.signal });
+      if (result.exitCode !== 0) return { exitCode: 1, output: '', error: 'Falha ao normalizar MP3: ' + result.stderr.slice(-350) };
+      if (!fs.existsSync(target) || !fs.statSync(target).size) return { exitCode: 1, output: '', error: 'Prévia MP3 vazia' };
+      req.onLog('Locução contínua disponível: ' + nome);
+      return { exitCode: 0, output: 'Prévia da locução contínua gerada: ' + nome + '. Aguardando aprovação antes do vídeo.', stopReason: 'completed' };
     }finally{fs.rmSync(tmp,{recursive:true,force:true});}
   }
 }

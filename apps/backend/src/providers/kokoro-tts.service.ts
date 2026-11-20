@@ -44,6 +44,21 @@ export function unirTrechosContinuos(trechos: TrechoDeLocucao[]): TrechoDeLocuca
   return saida;
 }
 
+
+/**
+ * Roteiro para UMA única chamada TTS: não injeta silêncios ou marcadores SSML
+ * não suportados. Pontuação e espaços entre frases são pistas prosódicas.
+ * Velocidade é global: não muda no meio de uma geração.
+ */
+export function roteiroEmUmaFala(trechos: TrechoDeLocucao[]): string {
+  return unirTrechosContinuos(trechos).map(t => {
+    const frase = t.texto.trim();
+    if (t.intencao === 'pergunta') return frase.replace(/[.!?]+$/, '') + '?';
+    if (t.intencao === 'chamada' || t.intencao === 'destaque') return frase.replace(/[.!?]+$/, '') + '!';
+    return frase;
+  }).join(' ').replace(/\s+/g, ' ').trim();
+}
+
 export class KokoroTtsError extends Error {
   constructor(message: string, readonly indisponivel = false) {
     super(message);

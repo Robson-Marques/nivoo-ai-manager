@@ -6,7 +6,7 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
-import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, unirTrechosContinuos } from './kokoro-tts.service';
+import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteiroEmUmaFala } from './kokoro-tts.service';
 import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
@@ -200,7 +200,7 @@ export class JuntarVideosProvider implements AiProvider {
           const motor = o.narracao.motor ?? vozConhecida(vozEscolhida)?.motor ?? 'kokoro';
           const velocidade = o.narracao.velocidade ?? 1;
           const pronuncias = o.narracao.pronuncias ?? {};
-          const trechos = motor === 'kokoro' ? unirTrechosContinuos(o.narracao.trechos ?? []) : [];
+          const trechos = motor === 'kokoro' ? (o.narracao.trechos ?? []) : [];
           const textoInteiro = (o.narracao.texto ?? trechos.map(t => t.texto).join(' ')).trim();
           const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
@@ -211,30 +211,15 @@ export class JuntarVideosProvider implements AiProvider {
             if (motor === 'kokoro') {
               req.onLog(`Gerando a narração local, sem token, com o Kokoro (voz ${vozEscolhida}, velocidade ${velocidade}): ${textoInteiro.slice(0, 120)}`);
               try {
-                if (trechos.length) {
-                  const partes: string[] = [];
-                  for (const [i, t] of trechos.entries()) {
-                    const fala = textoLocucao(t);
-                    const vel = t.velocidade ?? velocidade;
-                    req.onLog(`Locução ${i + 1}/${trechos.length} (${t.intencao ?? 'natural'}, velocidade ${vel}): ${fala.slice(0, 90)}`);
-                    const audio = await this.kokoro.gerar(fala, vozEscolhida, vel, pronuncias, req.signal);
-                    const arquivo = path.join(tmp, `voz-frase-${i + 1}.mp3`);
-                    if (!await this.audioParaMp3(audio.bytes, audio.mime, arquivo, tmp))
-                      throw new KokoroTtsError(`Conversão da frase ${i + 1} falhou`);
-                    partes.push(arquivo);
-                  }
-                  const unido = path.join(tmp, 'voz-dirigida.mp3');
-                  const filtros = trechos.map((t, i) =>
-                    `[${i}:a]aresample=24000,aformat=channel_layouts=mono,apad=pad_dur=${(i === trechos.length - 1 ? 0 : (t.pausaAposMs ?? 160) / 1000).toFixed(3)}[s${i}]`);
-                  filtros.push(`${trechos.map((_, i) => `[s${i}]`).join('')}concat=n=${trechos.length}:v=0:a=1[a]`);
-                  const unir = await ff([...partes.flatMap(f => ['-i', f]), '-filter_complex', filtros.join(';'), '-map', '[a]', '-c:a', 'libmp3lame', '-q:a', '3', unido], 180_000);
-                  if (unir.exitCode !== 0 || !fs.existsSync(unido))
-                    throw new KokoroTtsError('Não consegui unir as frases: ' + unir.stderr.slice(-220));
-                  g = { bytes: fs.readFileSync(unido), mime: 'audio/mpeg', modelo: 'Kokoro-82M direção por frases', custo: 0 };
-                } else {
-                  const local = await this.kokoro.gerar(textoInteiro, vozEscolhida, velocidade, pronuncias, req.signal);
-                  g = { bytes: local.bytes, mime: local.mime, modelo: local.modelo, custo: 0 };
-                }
+                // Não costurar vários MP3s: uma síntese mantém contexto
+                // de prosódia do roteiro inteiro (inclusive a pergunta final).
+                const textoGeracao = trechos.length ? roteiroEmUmaFala(trechos) : textoInteiro;
+                if (trechos.some(t => t.pausaAposMs !== undefined))
+                  req.onLog('Pausas pós-processadas desativadas: usando pontuação natural do roteiro.');
+                if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
+                  req.onLog('Velocidades individuais ignoradas para preservar a locução contínua.', 'WARN');
+                const local = await this.kokoro.gerar(textoGeracao, vozEscolhida, velocidade, pronuncias, req.signal);
+                g = { bytes: local.bytes, mime: local.mime, modelo: 'Kokoro-82M locução contínua', custo: 0 };
               } catch (e: any) {
                 const k = e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e?.message ?? e));
                 g = { erro: k.message, indisponivel: k.indisponivel };
