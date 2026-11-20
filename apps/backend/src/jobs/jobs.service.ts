@@ -701,16 +701,46 @@ export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipele
 
 /** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
 /** Narração (voz): Kokoro local por padrão, Gemini paga opcional, ou um áudio pronto do projeto. */
-function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number } {
+function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number; trechos?: Array<{ texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number }> } {
   if (!n || typeof n !== 'object') throw new BadRequestException(`Etapa ${key}: narracao deve ser {"texto":"..."} ou {"arquivo":"audio/voz.mp3"}`);
-  const out: { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number } = {};
+  const out: ReturnType<typeof narracaoValida> = {};
   if (n.arquivo !== undefined) {
     const a = caminhoDoProjeto(n.arquivo);
     if (!a || !/\.(mp3|wav|m4a|aac|ogg)$/i.test(a)) throw new BadRequestException(`Etapa ${key}: narracao.arquivo deve ser um áudio do projeto (mp3, wav, m4a, aac, ogg)`);
     out.arquivo = a;
   }
   if (n.texto !== undefined && String(n.texto).trim()) out.texto = String(n.texto).trim().slice(0, 5000);
-  if (!out.arquivo && !out.texto) throw new BadRequestException(`Etapa ${key}: narracao precisa de "texto" (voz gerada) ou "arquivo" (áudio do projeto)`);
+  if (n.trechos !== undefined) {
+    if (!Array.isArray(n.trechos) || n.trechos.length < 1 || n.trechos.length > 12 || out.arquivo)
+      throw new BadRequestException(`Etapa ${key}: trechos devem ter entre 1 e 12 frases e não podem acompanhar áudio pronto`);
+    const partes: NonNullable<typeof out.trechos> = [];
+    for (const [i, trecho] of n.trechos.entries()) {
+      if (!trecho || typeof trecho.texto !== 'string' || !trecho.texto.trim() || trecho.texto.length > 700)
+        throw new BadRequestException(`Etapa ${key}: texto inválido no trecho ${i + 1}`);
+      const t: typeof partes[number] = { texto: trecho.texto.trim() };
+      if (trecho.intencao !== undefined) {
+        if (!['chamada', 'destaque', 'pergunta', 'natural'].includes(trecho.intencao))
+          throw new BadRequestException(`Etapa ${key}: intenção inválida no trecho ${i + 1}`);
+        t.intencao = trecho.intencao;
+      }
+      if (trecho.velocidade !== undefined) {
+        if (typeof trecho.velocidade !== 'number' || !Number.isFinite(trecho.velocidade) || trecho.velocidade < 0.75 || trecho.velocidade > 1.25)
+          throw new BadRequestException(`Etapa ${key}: velocidade inválida no trecho ${i + 1}`);
+        t.velocidade = trecho.velocidade;
+      }
+      if (trecho.pausaAposMs !== undefined) {
+        if (!Number.isInteger(trecho.pausaAposMs) || trecho.pausaAposMs < 0 || trecho.pausaAposMs > 1500)
+          throw new BadRequestException(`Etapa ${key}: pausaAposMs inválida no trecho ${i + 1}`);
+        t.pausaAposMs = trecho.pausaAposMs;
+      }
+      partes.push(t);
+    }
+    if (partes.reduce((sum, t) => sum + t.texto.length, 0) > 5000)
+      throw new BadRequestException(`Etapa ${key}: trechos excedem o limite de texto`);
+    out.trechos = partes;
+  }
+  if (!out.arquivo && !out.texto && !out.trechos?.length)
+    throw new BadRequestException(`Etapa ${key}: narração exige texto, trechos ou arquivo`);
   const motor = n.motor === undefined ? undefined : String(n.motor).trim().toLowerCase();
   if (motor !== undefined && motor !== 'kokoro' && motor !== 'gemini') throw new BadRequestException(`Etapa ${key}: narracao.motor deve ser "kokoro" ou "gemini"`);
   if (motor) out.motor = motor as MotorNarracao;
