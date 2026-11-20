@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { VideoStudioService } from './video-studio.service';
 
 /** Editor para produções audiovisuais independentes. */
@@ -8,6 +9,14 @@ export class StandaloneStudioEditorController {
 
   @Get('transitions')
   transitions(){return {supported:this.studio.supportedTransitions()};}
+
+  @Get('transitions/preview/:type')
+  async preview(@Param('type') type:string,@Res() res:Response){
+    const file=await this.studio.transitionPreview(type);
+    res.setHeader('Cache-Control','private, max-age=86400');
+    res.type('video/mp4');
+    return res.sendFile(file);
+  }
 
   @Get()
   list(@Param('pid', ParseUUIDPipe) pid: string) { return this.studio.list(pid); }

@@ -533,3 +533,22 @@
 .studio-ai-collapsible .studio-ai-content{padding:0 0 6px}
 .studio-ai-collapsible:not([open]){padding-bottom:0}
 @media(min-width:1051px){.studio-workspace{grid-template-columns:minmax(160px,210px) minmax(0,1fr) minmax(230px,270px)}}
+
+/* Previews reais em MP4 renderizadas pelo mesmo xfade usado na exportação. */
+.studio-effect-demo{position:relative;width:100%;height:42px;overflow:hidden;border-radius:5px;background:#1a5b9a;isolation:isolate}
+.studio-effect-demo video{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;pointer-events:none;z-index:2}
+.studio-effect-demo-poster{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;z-index:0}
+.studio-effect-demo-poster span{display:grid;place-items:center;font-weight:800;font-size:17px;color:white}
+.studio-effect-demo-a{background:#155a9c}.studio-effect-demo-b{background:#dd743c}
+.studio-effect-demo-hover{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;
+  background:#0007;color:white;padding:1px 6px;border-radius:100px;font-size:12px;pointer-events:none}
+.studio-effect-demo-error{position:absolute;inset:0;z-index:4;background:#172033cc;color:#ffd1d1;display:grid;place-items:center;font-size:10px}
+.studio-transition-option .studio-transition-select{padding:5px 4px 18px}
+.studio-transition-preview-large{border:1px solid #415674;background:#0c1727;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.studio-transition-preview-title{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap}
+.studio-transition-preview-title span{font-size:10px;color:#a6bed8}
+.studio-effect-demo-large{height:auto;aspect-ratio:16/9;max-height:165px}
+.studio-effect-demo-large video{object-fit:contain}
+.studio-effect-demo-large .studio-effect-demo-poster span{font-size:40px}
+.studio-transition-preview-large>small{font-size:10px;color:#a9bcd4}
+@media(max-height:750px){.studio-effect-demo-large{max-height:115px}.studio-transition-presets{max-height:190px}}

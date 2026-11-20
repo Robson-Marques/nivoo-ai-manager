@@ -52,6 +52,8 @@ const assTime = (s: number) => {
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const allXfadeTransitions=["fade","fadeblack","fadewhite","fadegrays","fadefast","fadeslow","dissolve","distance","hblur","wipeleft","wiperight","wipeup","wipedown","wipetl","wipetr","wipebl","wipebr","smoothleft","smoothright","smoothup","smoothdown","slideleft","slideright","slideup","slidedown","coverleft","coverright","coverup","coverdown","revealleft","revealright","revealup","revealdown","circleopen","circleclose","circlecrop","rectcrop","vertopen","vertclose","horzopen","horzclose","radial","squeezeh","squeezev","zoomin","pixelize","diagtl","diagtr","diagbl","diagbr","hlslice","hrslice","vuslice","vdslice","hlwind","hrwind","vuwind","vdwind"] as const;
 let cachedTransitions:string[]|undefined;
+const transitionPreviewJobs=new Map<string,Promise<string>>();
+const transitionPreviewCache=path.join(os.tmpdir(),'nivoo-studio-transition-previews-v1');
 const status = new Map<string, { result: Status; process?: ChildProcess }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
@@ -85,6 +87,45 @@ export class VideoStudioService {
     }
     cachedTransitions=allXfadeTransitions.filter(name=>names.has(name));
     return cachedTransitions;
+  }
+  /**
+   * Preview fiel à exportação: usa o MESMO filtro xfade do render final.
+   * Vídeo demo com cores e formas distintas, sem depender das mídias do usuário.
+   * O resultado fica em cache; só é gerado quando alguém pede a prévia.
+   */
+  async transitionPreview(type:string):Promise<string>{
+    if(!this.supportedTransitions().includes(type))throw new BadRequestException('Transição indisponível neste servidor');
+    const output=path.join(transitionPreviewCache,type+'.mp4');
+    if(fs.existsSync(output)&&fs.statSync(output).size>1000)return output;
+    const running=transitionPreviewJobs.get(type);
+    if(running)return running;
+    const work=(async()=>{
+      await fs.promises.mkdir(transitionPreviewCache,{recursive:true});
+      const partial=path.join(transitionPreviewCache,type+'-'+randomUUID()+'.mp4');
+      try{
+        const args=[
+          '-hide_banner','-loglevel','error','-nostdin',
+          '-f','lavfi','-i','color=c=0x155a9c:s=240x135:r=24:d=1.55,drawbox=x=18:y=25:w=78:h=82:color=0xffd36a:t=fill,drawbox=x=105:y=45:w=95:h=46:color=0x6fc5ed:t=fill',
+          '-f','lavfi','-i','color=c=0xdd743c:s=240x135:r=24:d=1.55,drawbox=x=142:y=22:w=77:h=87:color=0x86ebdd:t=fill,drawbox=x=38:y=48:w=90:h=40:color=0xf9d87c:t=fill',
+          '-filter_complex',`[0:v][1:v]xfade=transition=${type}:duration=1:offset=0.25[v]`,
+          '-map','[v]','-t','1.5','-an','-c:v','libx264','-preset','ultrafast',
+          '-threads','2','-crf','27','-pix_fmt','yuv420p','-movflags','+faststart','-y',partial,
+        ];
+        await new Promise<void>((resolve,reject)=>{
+          const ff=spawn('ffmpeg',args,{stdio:['ignore','ignore','pipe']});
+          let detail='';
+          const kill=setTimeout(()=>ff.kill('SIGKILL'),20000);
+          ff.stderr?.on('data',(chunk:Buffer)=>{detail=(detail+chunk.toString()).slice(-1000)});
+          ff.on('error',err=>{clearTimeout(kill);reject(err)});
+          ff.on('close',code=>{clearTimeout(kill);code===0?resolve():reject(new Error('FFmpeg prévia: '+detail.slice(-300)))});
+        });
+        if((await fs.promises.stat(partial)).size<1000)throw new Error('Prévia de transição vazia');
+        await fs.promises.rename(partial,output);
+        return output;
+      }finally{await fs.promises.rm(partial,{force:true}).catch(()=>undefined)}
+    })();
+    transitionPreviewJobs.set(type,work);
+    try{return await work}finally{transitionPreviewJobs.delete(type)}
   }
   private async dir(pid: string) {
     const project = await this.prisma.project.findUnique({ where: { id: pid }, select: { dirKey: true } });

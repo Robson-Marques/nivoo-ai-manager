@@ -4,6 +4,7 @@ import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
 import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
+import { StudioTransitionDemo } from './StudioTransitionDemo';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
 type TransitionType=string;
@@ -1785,7 +1786,7 @@ export function VideoStudio() {
               <button type="button" className="studio-transition-select" disabled={!availableTransitions.includes(p.type)}
                 title={availableTransitions.includes(p.type)?p.description:'Não suportada pelo FFmpeg deste servidor'}
                 onClick={()=>setTransitionType(p.type)}>
-                <span className={'studio-transition-swatch effect-'+p.type} aria-hidden="true">{p.symbol}</span>
+                <StudioTransitionDemo path={edits} type={p.type} duration={transitionDuration} label={p.label}/>
                 <span>{p.label}</span>
               </button>
               <button className="studio-transition-favorite" type="button" title={transitionFavorites.includes(p.type)?'Retirar dos favoritos':'Adicionar aos favoritos'}
@@ -1795,6 +1796,16 @@ export function VideoStudio() {
               </button>
             </div>)}
             {!visibleTransitions.length&&<p>Nenhuma transição encontrada.</p>}
+          </div>
+          <div className="studio-transition-preview-large" aria-label="Prévia maior da transição escolhida">
+            <div className="studio-transition-preview-title">
+              <strong>▶ Prévia: {transitionPresets.find(p=>p.type===transitionType)?.label??transitionType}</strong>
+              <span>{transitionDuration.toFixed(2)}s · demonstração FFmpeg</span>
+            </div>
+            {availableTransitions.includes(transitionType)?
+              <StudioTransitionDemo path={edits} type={transitionType} duration={transitionDuration} label={transitionType} large/>:
+              <p>Selecione uma transição disponível para assistir.</p>}
+            <small>O vídeo demonstra o efeito real com cenas A e B de exemplo.</small>
           </div>
           <label>Duração <strong>{transitionDuration.toFixed(2)}s</strong>
             <input type="range" min=".1" max={Math.max(.1,Math.min(2,(transitionTarget?.duration??2)-.05))}
