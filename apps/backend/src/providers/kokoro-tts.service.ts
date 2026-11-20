@@ -20,16 +20,26 @@ export function unirTrechosContinuos(trechos: TrechoDeLocucao[]): TrechoDeLocuca
   for (const original of trechos) {
     const atual = { ...original, texto: original.texto.trim() };
     const anterior = saida[saida.length - 1];
-    const continua = anterior && /[,;:]$/.test(anterior.texto) &&
-      /^[a-zà-ú]/u.test(atual.texto) &&
-      !/[.!?]$/.test(anterior.texto);
-    if (!continua) { saida.push(atual); continue; }
-    // O trecho seguinte controla a intenção terminal (pergunta, por exemplo).
-    // O tempo de pausa entre as metades é substituído pela vírgula natural.
-    anterior.texto = anterior.texto + ' ' + atual.texto;
-    anterior.intencao = atual.intencao ?? anterior.intencao;
-    anterior.pausaAposMs = atual.pausaAposMs;
-    anterior.velocidade = anterior.velocidade ?? atual.velocidade;
+    // Forma da pergunta final varia conforme o planejador:
+    // "E você,", "E você", "E você…" ou até "E você." + "Vai ficar..."
+    // Todas precisam de UMA geração; nunca um silêncio de 350 ms entre elas.
+    const inicioPergunta = !!anterior &&
+      /^e\s+voc[eê][,;:.!?…]*$/iu.test(anterior.texto) &&
+      /^vai\s+ficar\b/iu.test(atual.texto);
+    // Também preserve o contexto de orações divididas por vírgula,
+    // mesmo quando a segunda parte começa com maiúscula.
+    const continuaOracao = !!anterior && /[,;:]$/.test(anterior.texto) &&
+      /^[a-zà-ú]/iu.test(atual.texto);
+    if (!inicioPergunta && !continuaOracao) { saida.push(atual); continue; }
+    // Não usar pausaAposMs do meio da oração: vírgula no texto é a pausa natural.
+    const inicio = inicioPergunta ? 'E você,' : anterior!.texto;
+    const complemento = inicioPergunta
+      ? atual.texto[0].toLocaleLowerCase('pt-BR') + atual.texto.slice(1)
+      : atual.texto;
+    anterior!.texto = inicio + ' ' + complemento;
+    anterior!.intencao = atual.intencao ?? anterior!.intencao;
+    anterior!.pausaAposMs = atual.pausaAposMs;
+    anterior!.velocidade = atual.velocidade ?? anterior!.velocidade;
   }
   return saida;
 }
