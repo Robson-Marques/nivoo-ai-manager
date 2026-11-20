@@ -18,6 +18,31 @@ import { OrchestratorService } from './orchestrator.service';
 
 const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_THRESHOLD', 'MANUAL_APPROVAL'] as const;
 
+/**
+ * Contrato do renderizador motion, aplicado ao registrar/validar o plano.
+ * O vídeo durável mora SEMPRE em midia/saida; out/ é só para relatórios,
+ * frames PNG/JPEG e outras evidências. Não depende da boa vontade da IA.
+ */
+function validarSaidaMotion(command: string, origem: string): string {
+  if (!/\bnivoo-renderizar-motion\b/.test(command)) return command;
+  let fixed = command;
+  // Compatibilidade: corrige automaticamente planos que tentam criar MP4 em out/.
+  // Atualiza também as referências subsequentes (ex.: ffmpeg -i out/...).
+  const obsolete = [...fixed.matchAll(/--saida\s+["']?(out\/[A-Za-z0-9._-]+\.mp4)["']?/g)].map(m => m[1]);
+  for (const oldPath of obsolete) fixed = fixed.split(oldPath).join('midia/saida/' + path.basename(oldPath));
+  // Valida cada chamada, inclusive em scripts com vários renderizadores.
+  const renders = fixed.split(/\bnivoo-renderizar-motion\b/).slice(1);
+  for (const render of renders) {
+    const line = render.split('\n', 1)[0];
+    const output = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(line);
+    if (!output || !/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(output[1] ?? output[2] ?? output[3])) {
+      throw new BadRequestException(`${origem}: nivoo-renderizar-motion exige --saida midia/saida/<nome>.mp4 (nunca out/)`);
+    }
+  }
+  return fixed;
+}
+
+
 export interface StepInput {
   key: string;
   title: string;
@@ -47,8 +72,10 @@ export class JobsService {
       const key = reqString(s, 'key', 60);
       if (!/^[a-z0-9][a-z0-9_-]*$/i.test(key)) throw new BadRequestException(`Chave de etapa inválida: ${key}`);
       if (key === RULE_REVIEW_STEP) throw new BadRequestException(`A etapa ${RULE_REVIEW_STEP} é criada pelo sistema`);
-      const instructions = reqString(s, 'instructions', 100000);
-      const verifyCommand = optString(s, 'verifyCommand', 5000);
+      const rawInstructions = reqString(s, 'instructions', 100000);
+      const rawVerifyCommand = optString(s, 'verifyCommand', 5000);
+      const instructions = validarSaidaMotion(rawInstructions, `Etapa ${key} (instruções)`);
+      const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : undefined;
       const provider = optString(s, 'provider', 60);
       if (provider && !this.registry.has(provider)) throw new BadRequestException(`Conector desconhecido: ${provider}`);
       // Etapas executadas por IA precisam de verificação determinística: o agente não encerra a etapa sozinho.
@@ -134,10 +161,16 @@ export class JobsService {
       const config = (c.config ?? {}) as Record<string, unknown>;
       if (kind === 'COMMAND') {
         reqString(config, 'command');
+        config.command = validarSaidaMotion(String(config.command), `Critério ${key}`);
         const pol = evaluatePolicy(String(config.command));
         if (!pol.allowed) throw new BadRequestException(`Comando do critério ${key} não permitido: ${pol.reasons.join('; ')}`);
       }
-      if (kind === 'FILE_EXISTS') reqString(config, 'path');
+      if (kind === 'FILE_EXISTS') {
+        const destino = reqString(config, 'path');
+        if (/^out\/.+\.(?:mp4|mov|mkv|webm|m4v)$/i.test(destino)) {
+          throw new BadRequestException(`Critério ${key}: vídeos devem ser verificados em midia/saida/, nunca out/`);
+        }
+      }
       if (kind === 'ARTIFACT_PRESENT' && !config.name && !config.pattern) throw new BadRequestException(`Critério ${key}: informe name ou pattern`);
       if (kind === 'METRIC_THRESHOLD') {
         reqString(config, 'path');
