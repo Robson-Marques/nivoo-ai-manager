@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
@@ -35,6 +35,68 @@ function normalizeTransitions(p:Studio):Studio{
     }
     return {...c,transition:{...c.transition,duration:+Math.min(limit,Math.max(.1,c.transition.duration)).toFixed(2)}};
   })};
+}
+/** Preview local na timeline. O vídeo demonstrativo e a exportação utilizam o xfade real do FFmpeg.
+ * Cada transição suportada recebe sua própria geometria em vez de cair no mesmo slide. */
+function transitionFrameStyle(type:TransitionType,progress:number):CSSProperties{
+  const t=Math.max(0,Math.min(1,progress));
+  const remain=(1-t)*100;
+  const fade={opacity:1-t};
+  const inset=(top:number,right:number,bottom:number,left:number):CSSProperties=>({
+    clipPath:`inset(${top}% ${right}% ${bottom}% ${left}%)`
+  });
+  switch(type){
+    case 'fade':case 'dissolve':return fade;
+    case 'fadefast':return {opacity:1-Math.min(1,t*2)};
+    case 'fadeslow':return {opacity:1-t*t};
+    case 'fadeblack':return {opacity:1-t,filter:`brightness(${Math.max(0,1-2*t)})`};
+    case 'fadewhite':return {opacity:1-t,filter:`brightness(${1+2*t})`};
+    case 'fadegrays':return {opacity:1-t,filter:`grayscale(${t})`};
+    case 'distance':return {opacity:1-t,transform:`scale(${1+t*.18})`};
+    case 'hblur':return {opacity:1-t,filter:`blur(${t*24}px)`};
+    case 'wipeleft':case 'smoothleft':return inset(0,t*100,0,0);
+    case 'wiperight':case 'smoothright':return inset(0,0,0,t*100);
+    case 'wipeup':case 'smoothup':return inset(t*100,0,0,0);
+    case 'wipedown':case 'smoothdown':return inset(0,0,t*100,0);
+    case 'wipetl':case 'diagtl':return {clipPath:`polygon(0 0,${remain}% 0,0 ${remain}%)`};
+    case 'wipetr':case 'diagtr':return {clipPath:`polygon(100% 0,${t*100}% 0,100% ${remain}%)`};
+    case 'wipebl':case 'diagbl':return {clipPath:`polygon(0 100%,0 ${t*100}%,${remain}% 100%)`};
+    case 'wipebr':case 'diagbr':return {clipPath:`polygon(100% 100%,${t*100}% 100%,100% ${t*100}%)`};
+    case 'slideleft':return {transform:`translateX(-${t*100}%)`};
+    case 'slideright':return {transform:`translateX(${t*100}%)`};
+    case 'slideup':return {transform:`translateY(-${t*100}%)`};
+    case 'slidedown':return {transform:`translateY(${t*100}%)`};
+    case 'coverleft':return {transform:`translateX(-${t*100}%)`,opacity:1-t*.25};
+    case 'coverright':return {transform:`translateX(${t*100}%)`,opacity:1-t*.25};
+    case 'coverup':return {transform:`translateY(-${t*100}%)`,opacity:1-t*.25};
+    case 'coverdown':return {transform:`translateY(${t*100}%)`,opacity:1-t*.25};
+    case 'revealleft':return inset(0,0,0,t*100);
+    case 'revealright':return inset(0,t*100,0,0);
+    case 'revealup':return inset(0,0,t*100,0);
+    case 'revealdown':return inset(t*100,0,0,0);
+    case 'circleopen':return {clipPath:`circle(${remain*0.75}% at center)`};
+    case 'circleclose':return {clipPath:`circle(${remain*0.75}% at center)`,transform:`scale(${1-t*.15})`};
+    case 'circlecrop':return {clipPath:`circle(${remain*.75}% at center)`,opacity:1-t*.2};
+    case 'rectcrop':return inset(t*50,t*50,t*50,t*50);
+    case 'vertopen':return inset(0,t*50,0,t*50);
+    case 'vertclose':return {clipPath:`polygon(0 0,100% 0,100% ${remain/2}%,0 ${remain/2}%,0 ${100-remain/2}%,100% ${100-remain/2}%,100% 100%,0 100%)`};
+    case 'horzopen':return inset(t*50,0,t*50,0);
+    case 'horzclose':return {clipPath:`polygon(0 0,${remain/2}% 0,${remain/2}% 100%,0 100%,100% 100%,${100-remain/2}% 100%,${100-remain/2}% 0,100% 0)`};
+    case 'radial':return {maskImage:`conic-gradient(transparent 0 ${t*360}deg,black ${t*360}deg 360deg)`};
+    case 'squeezeh':return {transform:`scaleX(${1-t})`};
+    case 'squeezev':return {transform:`scaleY(${1-t})`};
+    case 'zoomin':return {opacity:1-t,transform:`scale(${1+t*1.5})`};
+    case 'pixelize':return {opacity:1-t,filter:`blur(${Math.round(t*12)}px)`};
+    case 'hlslice':return {clipPath:`polygon(0 0,${remain}% 0,${remain}% 50%,100% 50%,100% 100%,${t*100}% 100%,${t*100}% 50%,0 50%)`};
+    case 'hrslice':return {clipPath:`polygon(${t*100}% 0,100% 0,100% 50%,0 50%,0 100%,${remain}% 100%,${remain}% 50%,${t*100}% 50%)`};
+    case 'vuslice':return {clipPath:`polygon(0 ${t*100}%,50% ${t*100}%,50% 100%,100% 100%,100% ${remain}%,50% ${remain}%,50% 0,0 0)`};
+    case 'vdslice':return {clipPath:`polygon(0 0,50% 0,50% ${remain}%,100% ${remain}%,100% 100%,50% 100%,50% ${t*100}%,0 ${t*100}%)`};
+    case 'hlwind':return {transform:`translateX(-${t*35}%)`,clipPath:`inset(0 ${t*100}% 0 0)`};
+    case 'hrwind':return {transform:`translateX(${t*35}%)`,clipPath:`inset(0 0 0 ${t*100}%)`};
+    case 'vuwind':return {transform:`translateY(-${t*35}%)`,clipPath:`inset(${t*100}% 0 0 0)`};
+    case 'vdwind':return {transform:`translateY(${t*35}%)`,clipPath:`inset(0 0 ${t*100}% 0)`};
+    default:return fade;
+  }
 }
 const transitionPresets:{type:TransitionType;label:string;category:string;symbol:string;description:string}[]=[
   {
@@ -603,14 +665,7 @@ export function VideoStudio() {
   const transitionProgress=activeTransition&&active?Math.min(1,active.offset/activeTransition.duration):1;
   const incomingIndex=active?clips.findIndex(c=>c.id===active.clip.id):-1;
   const outgoingClip=activeTransition&&incomingIndex>0?clips[incomingIndex-1]:null;
-  const previousFrameStyle=activeTransition?(
-    activeTransition.type==='fade'?{opacity:1-transitionProgress}:
-    activeTransition.type==='wipeleft'?{clipPath:`inset(0 ${transitionProgress*100}% 0 0)`}:
-    activeTransition.type==='wiperight'?{clipPath:`inset(0 0 0 ${transitionProgress*100}%)`}:
-    activeTransition.type==='circleopen'?{clipPath:`circle(${(1-transitionProgress)*78}% at center)`}:
-    activeTransition.type==='slideleft'?{transform:`translateX(-${transitionProgress*100}%)`}:
-    {transform:`translateX(${transitionProgress*100}%)`}
-  ):undefined;
+  const previousFrameStyle=activeTransition?transitionFrameStyle(activeTransition.type,transitionProgress):undefined;
   const selectedCaption=project?.captions.find(c=>c.id===selected);
   const selectedAsset=project?.assets.find(c=>c.id===selected);
   const selectedAudio=project?.audioTracks?.find(c=>c.id===selected);
