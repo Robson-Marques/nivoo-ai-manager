@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
-import { aplicarPrioridadeDosExecutores, normalizarCenasDeMontagem } from './executor-priority';
+import { aplicarPrioridadeDosExecutores, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -147,6 +147,10 @@ export class JobsService {
       const instructions = validarSaidaMotion(rawInstructions, `Etapa ${key} (instruções)`);
       const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : undefined;
       const provider = optString(s, 'provider', 60);
+      if ((provider ?? defaultProvider) === 'local-shell') {
+        const invalido = erroDeComandoLocal(instructions);
+        if (invalido) throw new BadRequestException(`Etapa ${key}: ${invalido}`);
+      }
       if (provider && !this.registry.has(provider)) throw new BadRequestException(`Conector desconhecido: ${provider}`);
       // Etapas executadas por IA precisam de verificação determinística: o agente não encerra a etapa sozinho.
       if (this.registry.get(provider ?? defaultProvider).kind !== 'executor' && !verifyCommand) {

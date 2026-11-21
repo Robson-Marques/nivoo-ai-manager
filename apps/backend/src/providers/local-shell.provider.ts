@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { minimalEnv, PASTA_FERRAMENTAS, runProcess } from '../common/exec';
+import { erroDeComandoLocal } from '../jobs/executor-priority';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
@@ -32,6 +33,11 @@ export class LocalShellProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
+    const invalido = erroDeComandoLocal(req.instructions);
+    if (invalido) {
+      req.onLog(invalido, 'ERROR');
+      return { exitCode: 2, output: '', error: invalido };
+    }
     const r = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', req.instructions], {
       cwd: req.cwd,
       env: minimalEnv({
@@ -53,6 +59,8 @@ export class LocalShellProvider implements AiProvider {
     if (r.aborted) return { exitCode: -1, output, interrupted: true, error: 'interrompido' };
     if (r.timedOut) return { exitCode: -1, output, error: `timeout após ${req.timeoutMs} ms` };
     if (r.spawnError) return { exitCode: -1, output, error: r.spawnError, resourceUnavailable: true };
-    return { exitCode: r.exitCode ?? -1, output, error: r.exitCode === 0 ? undefined : `exit ${r.exitCode}` };
+    const mensagem = r.exitCode === 0 ? undefined : 
+      `Comando local falhou (exit ${r.exitCode ?? -1}): ${(r.stderr || r.stdout || '').trim().slice(-1800) || req.instructions.slice(0, 200)}`;
+    return { exitCode: r.exitCode ?? -1, output, error: mensagem };
   }
 }

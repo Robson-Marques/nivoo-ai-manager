@@ -728,6 +728,13 @@ export class StepExecutorService {
         `Montagem interrompida na primeira falha; arquivos originais preservados. ${detalhe.slice(0, 2500)}`);
     }
 
+    // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
+    if (!isAi && providerId === 'local-shell' && result.exitCode === 127) {
+      const mensagem = (result.error || result.output || '').trim();
+      await this.checkpoint(job.id, step, worktree, `comando local inexistente na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        `Comando local inválido ou não instalado; não vou repetir sem alteração: ${mensagem.slice(0, 2200)}`);
+    }
     // Falhas determinísticas de scripts/montagem não se corrigem por repetição.
     if (!isAi && providerId === 'local-shell') {
       const explicacao = diagnosticoRenderDeterministico((result.output ?? '') + '\n' + (result.error ?? ''));
