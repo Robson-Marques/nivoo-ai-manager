@@ -845,10 +845,15 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
     <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
       {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
       {!(m.kind === 'plano' && m.jobId) && !(m.kind === 'entrega' && m.jobId) && <TextoDaIa texto={m.content} />}
-      {Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
+      {m.kind !== 'entrega' && Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
         <PerguntasComOpcoes perguntas={m.perguntas} respondida={respondida} onResponder={onResponder} />
       )}
-      {m.kind === 'entrega' && m.jobId && <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />}
+      {m.kind === 'entrega' && m.jobId && (
+        <>
+          <QuadrosEntregues projetoId={projetoId} jobId={m.jobId} />
+          <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />
+        </>
+      )}
       {m.kind === 'plano' && m.plan && m.jobId && (
         <div className="plano">
           <span className="muted small">✓ Plano aprovado</span>
@@ -1800,6 +1805,43 @@ async function baixarResultadoDoTrabalho(projetoId: string, resultado: Resultado
 
 /** Só os arquivos de entrega ficam destacados; logs e quadros de inspeção continuam acessíveis. */
 /** Arquivos que o trabalho criou/alterou/apagou: clique abre para ler (texto) ou assistir (vídeo). */
+/** Quadros oficiais anexados à entrega sem acionar uma segunda sessão de IA. */
+function QuadrosEntregues({ projetoId, jobId }: { projetoId: string; jobId: string }) {
+  const [quadros, setQuadros] = useState<Array<{ key: string; title: string; src: string }>>([]);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    const urls: string[] = [];
+    (async () => {
+      const lista = await api<Array<{ key: string; title: string }>>(`/projects/${projetoId}/jobs/${jobId}/previews`);
+      const imagens = await Promise.all(lista.map(async item => {
+        const blob = await apiBlob(`/projects/${projetoId}/jobs/${jobId}/previews/${encodeURIComponent(item.key)}/image`);
+        if (blob.type !== 'image/png' || !blob.size) throw new Error('Quadro de prévia ausente ou inválido');
+        const src = URL.createObjectURL(blob);
+        urls.push(src);
+        return { key: item.key, title: item.title, src };
+      }));
+      if (!cancelado) setQuadros(imagens);
+    })().catch((e: any) => { if (!cancelado) setErro(String(e?.message ?? e)); });
+    return () => { cancelado = true; urls.forEach(url => URL.revokeObjectURL(url)); };
+  }, [projetoId, jobId]);
+  if (!quadros.length && !erro) return null;
+  return (
+    <section aria-label="Prévias visuais entregues" style={{ marginTop: 12 }}>
+      <strong>Prévias produzidas ({quadros.length})</strong>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+        {quadros.map(quadro => (
+          <figure key={quadro.key} style={{ margin: 0, maxWidth: 320 }}>
+            <img src={quadro.src} alt={quadro.title} style={{ width: '100%', maxHeight: 440, objectFit: 'contain' }} />
+            <figcaption className="muted small">{quadro.title}</figcaption>
+          </figure>
+        ))}
+      </div>
+      {erro && <p className="error">{erro}</p>}
+    </section>
+  );
+}
+
 function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: string }) {
   const [lista, setLista] = useState<any[] | null>(null);
   const [resultados, setResultados] = useState<ResultadoVisivel[]>([]);
