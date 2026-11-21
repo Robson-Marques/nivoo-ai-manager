@@ -832,8 +832,13 @@ function transicaoValida(key: string, t: unknown): string {
 }
 
 export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
-  const cenas = normalizarCenasDeMontagem(o).map((c: unknown) => caminhoDoProjeto(c));
-  if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
+  const cenas: string[] = normalizarCenasDeMontagem(o).map((c: unknown): string => {
+    const caminho = caminhoDoProjeto(c);
+    if (!caminho || !/\.(mp4|mov|webm)$/i.test(caminho))
+      throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
+    return caminho;
+  });
+  if (!cenas.length) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
   const arquivo = caminhoDoProjeto(o.arquivo) ?? '';
   if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
