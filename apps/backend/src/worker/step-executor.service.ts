@@ -40,7 +40,7 @@ import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
-import { prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
+import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
 export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
@@ -703,6 +703,11 @@ export class StepExecutorService {
     }
 
     if (attemptStatus === 'SESSAO_ENCERRADA') {
+      const reprovacaoVisual = parecerVisualNaoAprovado(worktree, step.verifyCommand ?? '');
+      if (reprovacaoVisual) {
+        await this.checkpoint(job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number });
+        return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, reprovacaoVisual);
+      }
       return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes);
     }
 
