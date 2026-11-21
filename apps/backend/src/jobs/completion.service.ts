@@ -467,9 +467,22 @@ export class CompletionService {
   private async pedirEntrega(jobId: string): Promise<void> {
     const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
     if (!plano) return;
+    // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
+    // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
+    // Também evita nova entrega se uma avaliação for repetida.
     await this.prisma.$transaction(async (tx) => {
-      const m = await tx.conversationMessage.create({ data: { conversationId: plano.conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE', kind: 'entrega', jobId } });
-      await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: m.id } });
+      const existente = await tx.conversationMessage.findFirst({ where: { jobId, kind: 'entrega' }, select: { id: true } });
+      if (existente) return;
+      await tx.conversationMessage.create({
+        data: {
+          conversationId: plano.conversationId,
+          role: 'ASSISTENTE',
+          content: 'Trabalho concluído. Os arquivos e as prévias produzidas estão disponíveis abaixo para conferência. Nenhuma aprovação adicional será solicitada automaticamente.',
+          status: 'PRONTA',
+          kind: 'entrega',
+          jobId,
+        },
+      });
     });
   }
 
