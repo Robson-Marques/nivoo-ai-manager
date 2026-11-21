@@ -1099,12 +1099,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {['BLOQUEADO', 'FALHOU'].includes(job.status) && job.blockedReason !== 'PAUSADO' && (
         <span>
           Parei: {conferenciaFalhou(job) ? 'a revisão final precisa de você (veja abaixo)' : MOTIVO[job.blockedReason] ?? 'algo deu errado'}.{' '}
-          {!conferenciaFalhou(job) && (
-            <>
-              <button className="secondary" onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>Tentar de novo</button>
-              <TrocarIa depois={async () => { await api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }); await carregar(); }} />
-            </>
-          )}
+          {!conferenciaFalhou(job) && <span className="muted small">Execução encerrada. O progresso está preservado; nenhuma nova tentativa será iniciada automaticamente.</span>}
           {conferenciaFalhou(job) && job.status === 'BLOQUEADO' && <RevisaoParada projetoId={projetoId} jobId={jobId} onMudou={carregar} />}
           <DetalhesDaParada job={job} />
         </span>
@@ -1400,6 +1395,13 @@ function DetalhesDaParada({ job }: { job: any }) {
   return (
     <div className="detalhes-parada">
       <button className="link" onClick={() => setAberto(!aberto)}>{aberto ? 'ocultar detalhes' : 'ver o que aconteceu'}</button>
+      <button
+        className="secondary small"
+        onClick={async () => {
+          await copiarTexto([`Trabalho: ${job.title ?? job.id}`, `Situação: ${job.status}`, `ID: ${job.id}`, ...linhas].join('\n\n'));
+          setCopiado(true);
+        }}
+      >{copiado ? 'Diagnóstico copiado' : 'Copiar erro'}</button>
       {aberto && (
         <>
           <pre>{linhas.join('\n\n')}</pre>
