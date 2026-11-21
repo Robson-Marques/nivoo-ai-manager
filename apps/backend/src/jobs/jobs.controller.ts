@@ -9,6 +9,7 @@ import { LogService } from './log.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { listarVideos } from '../projects/midia';
 import { tipoMidia } from '../storage/media-kind';
+import { visualPreviews } from './visual-previews';
 
 @Controller('projects/:pid')
 export class JobsController {
@@ -41,6 +42,40 @@ export class JobsController {
     const job = await this.prisma.job.findFirst({ where: { id: jid, projectId: pid }, include: { project: { select: { dirKey: true } } } });
     if (!job) throw new NotFoundException('Trabalho não encontrado');
     return job.mergedCommit ? this.workspace.arquivosDoCommit(job.project.dirKey, job.mergedCommit) : [];
+  }
+
+  /** Quadros reais produzidos: a aprovação visual usa esta lista, não a descrição da IA. */
+  @Get('jobs/:jid/previews')
+  async approvalPreviews(@Param('pid', ParseUUIDPipe) pid: string, @Param('jid', ParseUUIDPipe) jid: string) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jid, projectId: pid },
+      include: { project: { select: { dirKey: true } }, steps: true },
+    });
+    if (!job) throw new NotFoundException('Trabalho não encontrado');
+    const root = await this.workspace.ensureJobWorktree(job.project.dirKey, jid);
+    return visualPreviews(root, job.steps).map(({ key, title, updatedAt }) => ({ key, title, updatedAt }));
+  }
+
+  /** Imagem da prévia protegida pelo mesmo login do Nivoo; nunca expõe caminho arbitrário. */
+  @Get('jobs/:jid/previews/:key/image')
+  async approvalPreviewImage(
+    @Param('pid', ParseUUIDPipe) pid: string,
+    @Param('jid', ParseUUIDPipe) jid: string,
+    @Param('key') key: string,
+    @Res() res: Response,
+  ) {
+    const job = await this.prisma.job.findFirst({
+      where: { id: jid, projectId: pid },
+      include: { project: { select: { dirKey: true } }, steps: true },
+    });
+    if (!job) throw new NotFoundException('Trabalho não encontrado');
+    const root = await this.workspace.ensureJobWorktree(job.project.dirKey, jid);
+    const preview = visualPreviews(root, job.steps).find((item) => item.key === key);
+    if (!preview) throw new NotFoundException('Prévia não encontrada ou ainda não produzida');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(preview.file);
   }
 
   @Get('jobs/:jid/report')
