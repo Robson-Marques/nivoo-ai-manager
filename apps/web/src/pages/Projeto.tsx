@@ -1681,7 +1681,7 @@ function CatalogoMidiaProjeto({ projetoId, versao }: { projetoId: string; versao
   );
 }
 
-type ResultadoVisivel = { id: string; nome: string; bytes: number; sha256?: string; criadoEm?: string | null };
+type ResultadoVisivel = { id: string; nome: string; bytes: number; sha256?: string; criadoEm?: string | null; principal?: boolean };
 
 function tipoDeResultado(r: ResultadoVisivel): { nome: string; icone: string; importante: boolean } {
   const nome = String(r.nome).toLowerCase();
@@ -1726,7 +1726,9 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
   const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
   const visiveis = (lista ?? []).slice(0, 40);
   const tamanho = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
-  const entregas = resultados.filter((r) => tipoDeResultado(r).importante);
+  const videoPrincipal = resultados.find(r => r.principal && /\.(mp4|mov|webm)$/i.test(r.nome));
+  const entregas = resultados.filter((r) => tipoDeResultado(r).importante && (!videoPrincipal || r.id === videoPrincipal.id));
+  const outrasMidias = resultados.filter((r) => tipoDeResultado(r).importante && videoPrincipal && r.id !== videoPrincipal.id);
   const tecnicos = resultados.filter((r) => !tipoDeResultado(r).importante);
   const baixar = async (r: ResultadoVisivel) => {
     setErroDownload(null);
@@ -1739,8 +1741,8 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
     <div className="arquivos-trabalho">
       {entregas.length > 0 && (
         <section aria-label="Arquivos para assistir e baixar">
-          <strong>Arquivos para assistir e baixar ({entregas.length})</strong>
-          <p className="muted small">Vídeos, locuções e trilhas gerados neste trabalho. Clique em “Abrir” para assistir ou ouvir.</p>
+          <strong>{videoPrincipal ? 'Vídeo final deste trabalho' : `Arquivos para assistir e baixar (${entregas.length})`}</strong>
+          <p className="muted small">{videoPrincipal ? 'Arquivo gerado pela etapa oficial de montagem.' : 'Abra para conferir antes de baixar.'}</p>
           <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
             {entregas.map((r) => {
               const tipo = tipoDeResultado(r);
@@ -1762,6 +1764,18 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
           </div>
         </section>
       )}
+      {outrasMidias.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary className="small">Outras versões e áudios deste trabalho ({outrasMidias.length})</summary>
+          <div className="arquivos-chips" style={{ marginTop: 8 }}>
+            {outrasMidias.map(r => (
+              <button key={r.id} className="arquivo-chip resultado" onClick={() => setResultadoAberto(r)}>
+                {tipoDeResultado(r).nome}: {r.nome.split('/').pop()} · {tamanho(r.bytes)}
+              </button>
+            ))}
+          </div>
+        </details>
+      )}
       {erroDownload && <p className="error" role="alert">Não consegui baixar: {erroDownload}</p>}
       {tecnicos.length > 0 && (
         <details style={{ marginTop: 12 }}>
@@ -1776,8 +1790,8 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
         </details>
       )}
       {resultadoAberto && <ResultadoAberto projetoId={projetoId} r={resultadoAberto} onFechar={() => setResultadoAberto(null)} />}
-      {!lista?.length ? null : <>
-      <span className="small">Arquivos deste trabalho ({lista.length}):</span>
+      {!lista?.length ? null : <details style={{ marginTop: 12 }}>
+      <summary className="small">Arquivos internos do projeto ({lista.length}) — README, código e relatórios</summary>
       <div className="arquivos-chips">
         {visiveis.map((f) =>
           f.status === 'D' ? (
@@ -1790,7 +1804,7 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
         )}
         {lista.length > visiveis.length && <span className="muted small">… e mais {lista.length - visiveis.length} (veja na aba Arquivos)</span>}
       </div>
-      </>}
+      </details>}
       {aberto && <ArquivoAberto projetoId={projetoId} caminho={aberto} onFechar={() => setAberto(null)} />}
     </div>
   );

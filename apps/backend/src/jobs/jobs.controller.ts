@@ -164,7 +164,17 @@ export class JobsController {
     // Trabalho concluído antes de os resultados irem para a pasta do projeto: guarda agora (uma vez).
     const job = await this.prisma.job.findFirst({ where: { id: jid, projectId: pid, status: 'CONCLUIDO' }, include: { project: { select: { dirKey: true } } } });
     if (job && r.length) await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(() => null);
-    return r.map((a) => ({ id: a.id, nome: a.name, bytes: a.sizeBytes, sha256: a.sha256, criadoEm: a.createdAt }));
+    // Entrega principal vem da SAÍDA declarada na última etapa oficial de montagem,
+    // não do nome do arquivo nem da ordem dos artefatos de prévia.
+    const etapaFinal = await this.prisma.step.findFirst({
+      where: { jobId: jid, provider: 'juntar-videos', status: 'CONCLUIDO' },
+      orderBy: { order: 'desc' },
+      select: { providerOptions: true },
+    });
+    const saida = String((etapaFinal?.providerOptions as any)?.arquivo ?? '');
+    const principal = r.find(a => saida && a.name === saida);
+    return r.map((a) => ({ id: a.id, nome: a.name, bytes: a.sizeBytes, sha256: a.sha256,
+      criadoEm: a.createdAt, principal: a.id === principal?.id }));
   }
 
   @Get('media-catalog')
