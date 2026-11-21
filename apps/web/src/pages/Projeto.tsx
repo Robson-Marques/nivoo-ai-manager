@@ -1511,8 +1511,11 @@ function motivoLegivel(erro: string): string {
 
 /** Trabalho rodando: barra pelas etapas (a etapa atual animada), tempo, sessão e a última atividade da IA. */
 function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: any }) {
-  const total = job.steps.length || 1;
-  const pct = Math.round((feitas / total) * 100);
+  const originais = job.steps.filter((s: any) => !s.key.startsWith('correcao-criterios-'));
+  const total = originais.length || 1;
+  const feitasOriginais = originais.filter((s: any) => s.status === 'CONCLUIDO').length;
+  const revisando = job.steps.some((s: any) => s.key.startsWith('correcao-criterios-'));
+  const pct = Math.min(95, Math.round((feitasOriginais / total) * 100));
   // Só a rodada atual da etapa: uma etapa que já concluiu antes e voltou a rodar (ex.: a revisão depois de uma
   // correção) não herda o tempo nem os erros das rodadas passadas — antes aparecia um erro de horas atrás.
   const todas = atual ? [...job.attempts.filter((a: any) => a.stepId === atual.id)].sort((a: any, b: any) => a.number - b.number) : [];
@@ -1530,13 +1533,13 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
         <span className="pulso" aria-hidden="true" />
         <b>{pct}%</b>
         <span>
-          Etapa {Math.min(feitas + 1, total)} de {total}
+          {revisando ? 'Conferindo e ajustando o resultado' : `Etapa ${Math.min(feitasOriginais + 1, total)} de ${total}`}
           {atual ? `: ${atual.title || atual.key}` : ''}
         </span>
       </div>
       <div className="barra" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="feito" style={{ width: `${pct}%` }} />
-        {feitas < total && <div className="atual" style={{ width: `${100 / total}%` }} />}
+        {feitasOriginais < total && <div className="atual" style={{ width: `${100 / total}%` }} />}
       </div>
       <div className="muted small">
         {job.status !== 'PENDENTE' && !atual && feitas >= total ? 'Etapas prontas: conferindo o resultado final…' : job.status === 'PENDENTE' || !inicio ? 'Na fila para começar…' : `Rodando há ${duracao(inicio)}${tentativas.length > 1 ? ` · sessão ${tentativas.length} (continua de onde parou)` : ''}`}

@@ -53,6 +53,33 @@ function getPath(obj: any, p: string): unknown {
   return p.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 }
 
+
+export function capturasMotionDesatualizadas(worktree: string, steps: Array<{key:string; provider:string|null; instructions:string; status:string}>): string[] {
+  const vencidas: string[] = [];
+  for (const step of steps) {
+    if (step.provider !== 'local-shell' || step.status !== 'CONCLUIDO') continue;
+    const match = /\bnivoo-conferir-arte\s+(motion\/[A-Za-z0-9._/-]+)\\s+--saida\\s+(out\/qualidade\\/[A-Za-z0-9_-]+)/.exec(step.instructions);
+    if (!match || match[1].split('/').includes('..')) continue;
+    const dir = path.resolve(worktree, match[1]);
+    const png = path.resolve(worktree, match[2], 'quadro.png');
+    if (!dir.startsWith(worktree + path.sep) || !fs.existsSync(dir) || !fs.existsSync(png)) continue;
+    const pngTime = fs.statSync(png).mtimeMs;
+    const fontes: string[] = [];
+    const ler = (pasta: string, level: number) => {
+      if (level > 3 || fontes.length > 200) return;
+      for (const item of fs.readdirSync(pasta, {withFileTypes:true})) {
+        if (item.isSymbolicLink()) continue;
+        const full = path.join(pasta,item.name);
+        if (item.isDirectory()) ler(full,level+1);
+        else if(item.isFile() && /\.(html|css|js|mjs|png|jpe?g|svg|webp)$/i.test(item.name)) fontes.push(full);
+      }
+    };
+    ler(dir,0);
+    if(fontes.some(f=>fs.statSync(f).mtimeMs>pngTime+200)) vencidas.push(step.key);
+  }
+  return vencidas;
+}
+
 /**
  * Único componente que pode marcar um job como CONCLUIDO.
  * Verifica critérios com evidências gravadas; critérios subjetivos exigem aprovação explícita.
@@ -104,6 +131,36 @@ export class CompletionService {
         `Conferência final reprovada, mas o limite global de ${maxRodadas} correção(ões) automática(s) já foi atingido (${rodadas} executadas). Não criarei outra etapa. É necessário corrigir a causa, a ferramenta ou o critério.`,
         { source:'evaluator',level:'WARN' });
       return false;
+    }
+    // Quando o código muda, uma captura anterior não valida a nova composição.
+    const vencidas = capturasMotionDesatualizadas(worktree, job.steps);
+    if (vencidas.length) {
+      const refazer = new Set(vencidas);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const step of job.steps) {
+          if (refazer.has(step.key) || step.key.startsWith('correcao-criterios-')) continue;
+          if (step.dependsOn.some(dep => refazer.has(dep))) { refazer.add(step.key); changed = true; }
+        }
+      }
+      if (job.steps.some(s => s.key === RULE_REVIEW_STEP)) refazer.add(RULE_REVIEW_STEP);
+      fs.rmSync(path.join(worktree, RULE_REVIEW_REPORT), {force:true});
+      const qualityDir = path.join(worktree, 'out/qualidade');
+      if (fs.existsSync(qualityDir)) for (const name of fs.readdirSync(qualityDir)) {
+        if (/parecer.*\.json$/i.test(name)) fs.rmSync(path.join(qualityDir,name),{force:true});
+      }
+      await this.prisma.$transaction(async tx => {
+        await OrchestratorService.lockJob(tx,job.id);
+        for (const key of refazer) {
+          const step = job.steps.find(s=>s.key===key);
+          if(step) await tx.step.update({where:{id:step.id},data:{status:'PENDENTE',statusDetail:'recapturar composição atualizada'}});
+        }
+        await tx.job.update({where:{id:job.id},data:{status:'EXECUTANDO',blockedReason:null,statusDetail:'recapturando quadros atualizados'}});
+      });
+      await this.logs.log(job.id, 'Recaptura por alteração visual: '+[...refazer].join(', '), {source:'evaluator',level:'INFO'});
+      await this.orchestrator.scheduleReady(job.id);
+      return true;
     }
     // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
