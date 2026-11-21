@@ -205,7 +205,19 @@ npm run build --silent
 # Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
-ok "backend e interface compilados"
+# Scripts oficiais podem chegar pelo Git sem bit executável. O chmod genérico
+# acima preserva o modo original e NÃO corrige um script 0644 (exit 126).
+# Garanta execução dos renderizadores locais antes de reiniciar workers.
+for executable in "$APP_DIR/apps/backend/bin/nivoo-renderizar-motion" "$APP_DIR/apps/backend/bin/nivoo-conferir-arte"; do
+  if [ -f "$executable" ]; then
+    chmod 755 "$executable"
+    if ! test -x "$executable"; then
+      echo "ERRO: executor oficial sem permissão de execução: $executable" >&2
+      exit 1
+    fi
+  fi
+done
+ok "backend e interface compilados; executores de motion habilitados"
 
 # Bibliotecas Python do Nivoo Studio; instaladas uma vez e reutilizadas.
 step "Nivoo Studio — transcrição, alinhamento e proteção visual"
