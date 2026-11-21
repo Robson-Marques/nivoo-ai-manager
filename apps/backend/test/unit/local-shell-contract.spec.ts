@@ -5,6 +5,9 @@ describe('Contrato de comandos do executor local', () => {
     'Retome o trabalho existente e capture a prévia',
     'Capture a composição atualizada',
     'Confira a prévia antes de renderizar',
+    'retome',
+    'capturar',
+    'execute',
   ])('recusa uma instrução em linguagem natural (%s)', value => {
     expect(erroDeComandoLocal(value)).toMatch(/texto em vez de comando Bash/);
   });

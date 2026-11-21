@@ -82,8 +82,9 @@ export function erroDeComandoLocal(instructions: string): string | null {
   if (/^(?:\.|\/|~\/)[^\s]*?(?:\s|$)/.test(first)) return null;
   if (/^(?:if|for|while|until|case|function|\{|\}|\(|\)|then|else|elif|fi|do|done|esac|set|export|unset|source|eval|exec|trap|cd|pwd|echo|printf|test|\[|\[\[|:|true|false|read|local|return|exit|wait|shift|umask|command|type|hash|alias|unalias|declare|readonly|pushd|popd|dirs|mapfile|readarray|shopt|ulimit|jobs|kill|disown|time|coproc|select)\b/.test(first)) return null;
   if (/^(?:nivoo(?:-[\w-]+)?|node|npm|npx|pnpm|yarn|bun|python(?:3(?:\.\d+)?)?|bash|sh|git|ffmpeg|ffprobe|cat|ls|find|grep|rg|sed|awk|cut|sort|uniq|head|tail|wc|jq|tee|mkdir|cp|mv|rm|touch|chmod|chown|ln|stat|file|sha256sum|date|sleep|curl|wget|tar|unzip|zip|docker|systemctl|journalctl|psql|sqlite3|java|make|cmake|gcc|g\+\+|tsc|vite|jest|pytest|playwright|convert|magick|ffplay|identify|ffmpeg-normalize|bc|xargs|du|df|dd|timeout|mktemp|realpath|dirname|basename|readlink|diff|cmp|patch|which|printenv|envsubst|perl|ruby|php|go|cargo|rustc|dotnet|mvn|gradle|ssh|scp|rsync)\b/.test(first)) return null;
-  // Um comando próprio é permitido quando é nome simples e não uma frase.
-  if (/^[a-z][a-z0-9_-]*(?:\s+--?[\w-]+(?:=\S+)?)?\s*$/.test(first)) return null;
+  // Binário não reconhecido não é autorização para executar uma palavra da conversa.
+  // Ferramentas próprias devem ser chamadas por caminho explícito (./scripts/...)
+  // ou cadastradas no núcleo, em vez de inferidas de texto livre.
   const word = first.split(/[\s;|&]+/)[0];
   return `A etapa local-shell recebeu texto em vez de comando Bash: "${first.slice(0, 150)}". ` +
     `O executor é determinístico: use uma chamada CLI real (por exemplo, nivoo-conferir-arte) ou atribua a tarefa de análise à IA; não execute "${word}" no terminal.`;
