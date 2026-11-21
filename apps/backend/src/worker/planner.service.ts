@@ -481,6 +481,25 @@ export class PlannerService {
       this.prisma.conversationMessage.findMany({ where: { conversationId, id: { not: messageId } }, orderBy: { createdAt: 'desc' }, take: 20 }),
     ]);
     const arquivos = (await this.workspace.listMainFiles(project.dirKey)).filter((f) => !f.path.startsWith('.'));
+    // Contexto de execução pertence ao PROJETO, não à conversa atual.
+    // Uma conversa nova deve saber quais trabalhos terminaram, falharam ou
+    // deixaram composição pronta antes de propor reconstruí-la.
+    const trabalhosRecentes = await this.prisma.job.findMany({
+      where: { projectId: project.id },
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+      select: {
+        id: true, title: true, status: true, blockedReason: true,
+        createdAt: true, steps: {
+          orderBy: { order: 'asc' },
+          select: { key: true, title: true, status: true, provider: true },
+        },
+      },
+    });
+    const indiceTrabalhos = trabalhosRecentes.map(j => {
+      const etapas = j.steps.map(e => `${e.key}:${e.status}`).join(', ');
+      return `- ${j.title} [${j.id}] ${j.status}${j.blockedReason ? ` (${j.blockedReason})` : ''}; etapas: ${etapas}`;
+    });
     // Os resultados de jobs anteriores vivem no catálogo de artefatos, não necessariamente em midia/.
     // A IA deve saber que o executor juntar-videos os resolve diretamente por nome.
     const artefatosRecentes = await this.prisma.artifact.findMany({
@@ -531,6 +550,11 @@ export class PlannerService {
       ...(await textoDoRepositorio(this.workspace.projectDirs(project.dirKey).repo, project, { semPastaGit: true })),
       '',
       `Arquivos da pasta principal do projeto (diretório atual): ${arquivos.slice(0, MAX_ARQUIVOS).map((f) => f.path).join(', ') || 'vazia'}${arquivos.length > MAX_ARQUIVOS ? ` … e mais ${arquivos.length - MAX_ARQUIVOS}` : ''}`,
+      '## Trabalhos anteriores deste PROJETO — inclusive de outras conversas',
+      ...(indiceTrabalhos.length ? indiceTrabalhos : ['(nenhum trabalho anterior)']),
+      'Estes estados são fatos do banco: CONCLUIDO confirma a etapa; BLOQUEADO/FALHOU não confirma entrega. Não invente que um arquivo existe só porque uma etapa diz CONCLUIDO.',
+      'Ao ouvir "terminar", "continuar", "ajustar", "refazer" ou pedido curto, leia primeiro o objetivo atual, os trabalhos recentes, os arquivos principais e o catálogo antes de decidir se deve preservar ou criar algo.',
+      'Reutilize somente artefatos e composições realmente acessíveis ao NOVO trabalho. Se a composição estiver exclusivamente no worktree de um trabalho anterior, reconheça a dependência; não finja que já está na pasta principal.',
       ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
       '## Arquivos de mídia reutilizáveis dos trabalhos anteriores (catálogo REAL do projeto)',
       arquivosDeMidia.length
@@ -556,6 +580,12 @@ export class PlannerService {
       '',
       '## Como responder',
       'Fale de forma simples e direta, em português, sem jargão técnico: o usuário não é programador.',
+      'CONTRATO PERMANENTE — PROMPT MÍNIMO: o usuário descreve apenas o RESULTADO. Não exigir que diga qual IA, executor, comando, arquivo interno, teste, caminho, etapa ou estratégia utilizar.',
+      'A seleção técnica e a sequência de trabalho são responsabilidade do NÚCLEO, com a estrutura e os contratos existentes. Não transfira essas decisões para o usuário.',
+      'Prioridade: (1) intenção atual, (2) estado real do projeto e resultados já acessíveis, (3) contratos internos de planejamento/execução/validação. Não executar prosa da conversa como comando.',
+      'Pedidos simples como "termine o vídeo" devem levar a um plano coerente com o estado do projeto, sem impor outro tutorial técnico ou solicitar que o usuário repita restrições já conhecidas.',
+      'Uma mudança de áudio não autoriza refazer imagens. Uma mudança visual não autoriza criar áudio. Não produzir versões redundantes sem causa identificada e sem necessidade do pedido.',
+      'Só fazer pergunta quando faltar decisão essencial do usuário; falha de ferramenta ou contrato interno deve ser tratada no sistema, não apresentada como escolha técnica dele.',
       'Responda perguntas diretamente. Quando houver trabalho a fazer (criar, alterar ou organizar arquivos), proponha um plano.',
       'ESCOPO: se o pedido estiver fora do escopo do projeto ou contrariar as regras da base ou do projeto, NÃO proponha plano:',
       'responda (tipo "resposta") explicando, com educação, por que não pode e o que é possível dentro do projeto.',
