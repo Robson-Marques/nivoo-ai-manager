@@ -11,6 +11,19 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// Os comandos são instalados em /usr/local/bin, enquanto o pacote
+// playwright-core pertence ao app em /opt/nivoo/app/node_modules.
+// Resolver pelo diretório do projeto, não pelo diretório do binário.
+function playwrightCore() {
+  const bases = [process.env.NIVOO_APP_DIR, '/opt/nivoo/app', process.cwd(), path.resolve(__dirname, '../../..')]
+    .filter(Boolean);
+  try {
+    return require(require.resolve('playwright-core', { paths: bases }));
+  } catch (e) {
+    throw new Error('playwright-core não encontrado na instalação Nivoo (/opt/nivoo/app/node_modules). Confira a etapa 6 de nivoo update. ' + (e?.message ?? e));
+  }
+}
+
 const { spawnSync } = require('node:child_process');
 
 const args = process.argv.slice(2);
@@ -47,14 +60,10 @@ if (!W || !H) {
 (async () => {
   let chromium;
   try {
-    ({ chromium } = require('playwright-core'));
-  } catch {
-    try {
-      ({ chromium } = await import('playwright-core'));
-    } catch {
-      console.error('nivoo-renderizar-motion: navegador sem tela não instalado (playwright-core ausente). Rode "nivoo update".');
-      process.exit(3);
-    }
+    ({ chromium } = playwrightCore());
+  } catch (e) {
+    console.error('nivoo-renderizar-motion: ' + e.message);
+    process.exit(3);
   }
   const dirVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-motion-'));
   let navegador;

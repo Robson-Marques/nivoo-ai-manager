@@ -279,6 +279,9 @@ ok "pnpm $(pnpm --version 2>/dev/null), yarn $(yarn --version 2>/dev/null)"
 # Comando de administração
 install -m 755 "$APP_DIR/deploy/nivoo" /usr/local/bin/nivoo
 install -m 755 "$APP_DIR/apps/backend/bin/nivoo-conferir-arte" /usr/local/bin/nivoo-conferir-arte
+# Autoteste obrigatório: o binário copiado deve achar a MESMA dependência que npm instalou.
+# Falhar aqui evita gastar sessões de IA descobrindo ausência de playwright-core depois.
+node -e "require(require.resolve('playwright-core',{paths:['$APP_DIR']})); console.log('ok: Playwright resolvido pelo executável instalado')" 
 
 # Prévia dos projetos: com domínio da Cloudflare já configurado, cria o endereço previa-<endereço> no mesmo túnel.
 if [ -f /etc/cloudflared/config.yml ] && ! grep -q 'hostname: previa-' /etc/cloudflared/config.yml && [ -x /usr/local/bin/nivoo ]; then
