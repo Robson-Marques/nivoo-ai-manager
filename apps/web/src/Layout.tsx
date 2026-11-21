@@ -1,6 +1,6 @@
 import { Marca } from './Marca';
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { api } from './api';
 import { NovoProjeto } from './pages/NovoProjeto';
 import { IconeArquivo, IconeMais } from './Icones';
@@ -34,6 +34,23 @@ export function Layout() {
   const pid = rota?.params.pid;
   const cid = rotaConversa?.params.cid;
   const nav = useNavigate();
+  const location = useLocation();
+  const [menuMobileAberto, setMenuMobileAberto] = useState(false);
+  const [mobile, setMobile] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const atualizar = () => setMobile(mq.matches);
+    atualizar();
+    mq.addEventListener('change', atualizar);
+    return () => mq.removeEventListener('change', atualizar);
+  }, []);
+  useEffect(() => { setMenuMobileAberto(false); }, [location.pathname]);
+  useEffect(() => {
+    if (!menuMobileAberto || !mobile) return;
+    const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuMobileAberto(false); };
+    window.addEventListener('keydown', fechar);
+    return () => window.removeEventListener('keydown', fechar);
+  }, [menuMobileAberto, mobile]);
   const [projetos, setProjetos] = useState<any[] | null>(null);
   const [conversas, setConversas] = useState<any[] | null>(null);
   const [novo, setNovo] = useState(false);
@@ -171,16 +188,18 @@ export function Layout() {
   return (
     <ProjetosCtx.Provider value={{ projetos, recarregar, novoProjeto: () => setNovo(true), conversas, recarregarConversas }}>
       <div className={recolhido ? 'chat-app lado-recolhido' : 'chat-app'}>
-        {recolhido ? (
+        <button type="button" className="mobile-menu-trigger" aria-label={menuMobileAberto ? 'Fechar menu de projetos' : 'Abrir menu de projetos'} aria-expanded={menuMobileAberto} aria-controls="menu-projetos" onClick={() => setMenuMobileAberto(x => !x)}>☰</button>
+        {mobile && menuMobileAberto && <button type="button" className="mobile-menu-backdrop" aria-label="Fechar menu de projetos" onClick={() => setMenuMobileAberto(false)} />}
+        {recolhido && !mobile ? (
           <aside className="chat-side recolhida">
             <button className="lado-botao" title="Mostrar os projetos" aria-label="Mostrar os projetos" onClick={() => setRecolhido(false)}>☰</button>
             <button className="lado-botao" title="Novo projeto" aria-label="Novo projeto" onClick={() => setNovo(true)}>+</button>
           </aside>
         ) : (
-        <aside className="chat-side">
+        <aside className={`chat-side${mobile ? ' mobile-drawer' : ''}${menuMobileAberto ? ' mobile-drawer-aberto' : ''}`} id="menu-projetos" aria-label="Projetos e conversas">
           <div className="lado-topo">
             <Link to="/" className="brand"><Marca tamanho={30} /></Link>
-            <button className="lado-botao" title="Recolher para a esquerda" aria-label="Recolher a lista de projetos" onClick={() => setRecolhido(true)}>‹</button>
+            <button className="lado-botao" title={mobile ? 'Fechar projetos' : 'Recolher para a esquerda'} aria-label={mobile ? 'Fechar projetos' : 'Recolher a lista de projetos'} onClick={() => mobile ? setMenuMobileAberto(false) : setRecolhido(true)}>‹</button>
           </div>
           <button className="novo" onClick={() => setNovo(true)}>+ Novo projeto</button>
           <nav className="proj-list">

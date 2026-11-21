@@ -783,6 +783,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
         )}
       </div>
       {previa && <PreviaDoProjeto projetoId={projeto.id} onFechar={() => setPrevia(false)} onPedirIa={responderPerguntas} />}
+      {painel && <button type="button" className="painel-mobile-backdrop" aria-label="Fechar painel e voltar à conversa" onClick={onPainel} />}
       {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} aba={aba} onAba={onAba} onFechar={onPainel} />}
     </div>
     </IaContexto.Provider>
