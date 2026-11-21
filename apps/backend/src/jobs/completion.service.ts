@@ -54,6 +54,42 @@ function getPath(obj: any, p: string): unknown {
 }
 
 /**
+ * Identifica capturas oficiais ausentes ou mais antigas que os arquivos da composição.
+ * Só considera etapas explicitamente vinculadas ao comando oficial de captura.
+ */
+export function capturasMotionDesatualizadas(worktree: string, steps: Array<{ key: string; provider: string | null; instructions: string; status: string }>): string[] {
+  const root = path.resolve(worktree);
+  const vencidas: string[] = [];
+  for (const step of steps) {
+    if (step.provider !== 'local-shell' || step.status !== 'CONCLUIDO') continue;
+    const match = /\bnivoo-conferir-arte\s+(motion\/[A-Za-z0-9._/-]+)\s+--saida\s+(out\/qualidade\/[A-Za-z0-9_-]+)/.exec(step.instructions);
+    if (!match || match[1].split('/').includes('..') || match[2].split('/').includes('..')) continue;
+    const dir = path.resolve(root, match[1]);
+    const png = path.resolve(root, match[2], 'quadro.png');
+    if (!dir.startsWith(root + path.sep) || !png.startsWith(root + path.sep) || !fs.existsSync(dir)) continue;
+    try {
+      if (!fs.existsSync(png)) { vencidas.push(step.key); continue; }
+      const pngTime = fs.statSync(png).mtimeMs;
+      const fontes: string[] = [];
+      const ler = (pasta: string, nivel: number) => {
+        if (nivel > 3 || fontes.length > 200) return;
+        for (const item of fs.readdirSync(pasta, { withFileTypes: true })) {
+          if (item.isSymbolicLink()) continue;
+          const full = path.join(pasta, item.name);
+          if (item.isDirectory()) ler(full, nivel + 1);
+          else if (item.isFile() && /\.(html|css|js|mjs|png|jpe?g|svg|webp)$/i.test(item.name)) fontes.push(full);
+        }
+      };
+      ler(dir, 0);
+      if (fontes.some((f) => fs.statSync(f).mtimeMs > pngTime + 200)) vencidas.push(step.key);
+    } catch {
+      vencidas.push(step.key); // Falha de leitura nunca valida uma captura.
+    }
+  }
+  return vencidas;
+}
+
+/**
  * Único componente que pode marcar um job como CONCLUIDO.
  * Verifica critérios com evidências gravadas; critérios subjetivos exigem aprovação explícita.
  */
@@ -220,6 +256,47 @@ export class CompletionService {
     const report: EvaluationReport = { jobId, finalStatus: job.status, pendingSteps: [], criteria: [], pendencias: [] };
     if (!['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
       report.pendencias.push(`job em ${job.status}; avaliação ignorada`);
+      return report;
+    }
+    // Antes de considerar a aprovação antiga, recaptura composições editadas depois do quadro.
+    // Reavaliar um trabalho bloqueado não cria outra correção de IA nem autoriza o MP4.
+    const worktreeParaCapturas = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    const vencidas = capturasMotionDesatualizadas(worktreeParaCapturas, job.steps);
+    if (vencidas.length) {
+      const refazer = new Set(vencidas);
+      let mudou = true;
+      while (mudou) {
+        mudou = false;
+        for (const step of job.steps) {
+          if (refazer.has(step.key) || step.key.startsWith('correcao-criterios-')) continue;
+          if (step.dependsOn.some((dep) => refazer.has(dep))) {
+            refazer.add(step.key);
+            mudou = true;
+          }
+        }
+      }
+      const revisao = job.steps.find((step) => step.key === RULE_REVIEW_STEP);
+      if (revisao) refazer.add(RULE_REVIEW_STEP);
+      await this.prisma.$transaction(async (tx) => {
+        await OrchestratorService.lockJob(tx, job.id);
+        for (const key of refazer) {
+          const step = job.steps.find((item) => item.key === key);
+          if (step) await tx.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: 'recapturar composição atualizada' } });
+        }
+        await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: 'recapturando quadros atualizados' } });
+      });
+      fs.rmSync(path.join(worktreeParaCapturas, RULE_REVIEW_REPORT), { force: true });
+      const qualityDir = path.join(worktreeParaCapturas, 'out', 'qualidade');
+      if (fs.existsSync(qualityDir)) {
+        for (const name of fs.readdirSync(qualityDir)) {
+          if (/parecer.*\.json$/i.test(name)) fs.rmSync(path.join(qualityDir, name), { force: true });
+        }
+      }
+      await this.logs.log(job.id, 'Recaptura necessária após alteração visual: ' + [...refazer].join(', '), { source: 'evaluator', level: 'INFO' });
+      await this.orchestrator.scheduleReady(job.id);
+      report.finalStatus = 'EXECUTANDO';
+      report.pendingSteps = [...refazer];
+      report.pendencias.push('Prévias antigas: recaptura e revisão agendadas antes de concluir.');
       return report;
     }
     report.pendingSteps = job.steps.filter((s) => s.status !== 'CONCLUIDO').map((s) => `${s.key} (${s.status})`);
