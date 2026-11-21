@@ -58,7 +58,7 @@ export function capturasMotionDesatualizadas(worktree: string, steps: Array<{key
   const vencidas: string[] = [];
   for (const step of steps) {
     if (step.provider !== 'local-shell' || step.status !== 'CONCLUIDO') continue;
-    const match = /\bnivoo-conferir-arte\s+(motion\/[A-Za-z0-9._/-]+)\\s+--saida\\s+(out\/qualidade\\/[A-Za-z0-9_-]+)/.exec(step.instructions);
+    const match = /\bnivoo-conferir-arte\s+(motion\/[A-Za-z0-9._/-]+)\s+--saida\s+(out\/qualidade\/[A-Za-z0-9_-]+)/.exec(step.instructions);
     if (!match || match[1].split('/').includes('..')) continue;
     const dir = path.resolve(worktree, match[1]);
     const png = path.resolve(worktree, match[2], 'quadro.png');
