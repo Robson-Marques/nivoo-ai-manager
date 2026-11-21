@@ -209,6 +209,25 @@ function RevisaoParada({ projetoId, jobId, onMudou }: { projetoId: string; jobId
       </label>
       <div className="row">
         <button
+          className="secondary"
+          disabled={ocupado}
+          title="Conferir a composição e refazer somente as capturas que ficaram antigas"
+          onClick={async () => {
+            setOcupado(true);
+            setErro(null);
+            try {
+              await api(`/projects/${projetoId}/jobs/${jobId}/evaluate`, 'POST');
+              onMudou();
+            } catch (e: any) {
+              setErro(e.message);
+            } finally {
+              setOcupado(false);
+            }
+          }}
+        >
+          Reavaliar e atualizar prévias
+        </button>
+        <button
           disabled={ocupado || !resposta.trim()}
           onClick={async () => {
             setOcupado(true);
