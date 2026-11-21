@@ -196,7 +196,10 @@ export function Layout() {
             <button className="lado-botao" title="Novo projeto" aria-label="Novo projeto" onClick={() => setNovo(true)}>+</button>
           </aside>
         ) : (
-        <aside className={`chat-side${mobile ? ' mobile-drawer' : ''}${menuMobileAberto ? ' mobile-drawer-aberto' : ''}`} id="menu-projetos" aria-label="Projetos e conversas">
+        <aside className={`chat-side${mobile ? ' mobile-drawer' : ''}${menuMobileAberto ? ' mobile-drawer-aberto' : ''}`} id="menu-projetos" aria-label="Projetos e conversas" onClick={(e) => {
+          // Fecha a gaveta também ao selecionar a rota atual; sem depender de mudança de URL.
+          if (mobile && (e.target as HTMLElement).closest('a[href]')) setMenuMobileAberto(false);
+        }}>
           <div className="lado-topo">
             <Link to="/" className="brand"><Marca tamanho={30} /></Link>
             <button className="lado-botao" title={mobile ? 'Fechar projetos' : 'Recolher para a esquerda'} aria-label={mobile ? 'Fechar projetos' : 'Recolher a lista de projetos'} onClick={() => mobile ? setMenuMobileAberto(false) : setRecolhido(true)}>‹</button>
