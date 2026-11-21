@@ -814,19 +814,23 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
   return (
     <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
       {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
-      <TextoDaIa texto={m.content} />
+      {!(m.kind === 'plano' && m.jobId) && !(m.kind === 'entrega' && m.jobId) && <TextoDaIa texto={m.content} />}
       {Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
         <PerguntasComOpcoes perguntas={m.perguntas} respondida={respondida} onResponder={onResponder} />
       )}
       {m.kind === 'entrega' && m.jobId && <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />}
-      {m.kind === 'plano' && m.plan && (
+      {m.kind === 'plano' && m.plan && m.jobId && (
+        <div className="plano">
+          <span className="muted small">✓ Plano aprovado</span>
+          <Progresso projetoId={projetoId} jobId={m.jobId} onMudou={onMudou} />
+        </div>
+      )}
+      {m.kind === 'plano' && m.plan && !m.jobId && (
         <div className="plano">
           <b>Posso fazer isto:</b>
           <ol>{(m.plan.steps ?? []).map((s: any, i: number) => <li key={i}>{s.title || s.key}</li>)}</ol>
           <p className="muted small">No fim, uma IA separada confere se tudo seguiu as regras do agente e do projeto. Só então fica pronto.</p>
-          {m.jobId ? (
-            <Progresso projetoId={projetoId} jobId={m.jobId} onMudou={onMudou} />
-          ) : podeFazer ? (
+          {podeFazer ? (
             <div className="row">
               <button disabled={indo} onClick={() => { setIndo(true); onFazer().finally(() => setIndo(false)); }}>{indo ? 'Começando…' : 'Fazer'}</button>
               <span className="muted small">ou responda abaixo para ajustar o plano</span>
@@ -1065,9 +1069,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   const aprovacao = job.approvals?.find((a: any) => a.status === 'PENDENTE');
   return (
     <div className={`progresso p-${job.status}${job.blockedReason === 'PAUSADO' ? ' pausado' : ''}`}>
-      {job.status === 'CONCLUIDO' && <span>Pronto. O resultado já está na pasta do projeto.</span>}
-      {job.status === 'CONCLUIDO' && <ArquivosDoTrabalho projetoId={projetoId} jobId={jobId} />}
-      {job.status === 'CONCLUIDO' && <VideosDoTrabalho projetoId={projetoId} steps={job.steps} />}
+      {job.status === 'CONCLUIDO' && <span className="muted small">Concluído. Entrega abaixo.</span>}
       {['EXECUTANDO', 'PENDENTE'].includes(job.status) && <Andamento job={job} feitas={feitas} atual={atual} />}
       {job.status === 'AGUARDANDO_RECURSO' && (
         <span>
@@ -1748,7 +1750,16 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
               const tipo = tipoDeResultado(r);
               return (
                 <div key={r.id} className="arquivo-chip resultado" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
-                  <span aria-hidden="true" style={{ fontSize: 22 }}>{tipo.icone}</span>
+                  {r.id === videoPrincipal?.id ? (
+                    <button type="button" aria-label="Abrir prévia do vídeo final" title="Abrir vídeo final" className="secondary" style={{ padding: 0, width: 110, height: 155, overflow: 'hidden', borderRadius: 8, flexShrink: 0 }} onClick={() => setResultadoAberto(r)}>
+                      <video
+                        src={urlAutenticada(`/projects/${projetoId}/artifacts/${r.id}#t=0.1`)}
+                        muted playsInline preload="metadata"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : <span aria-hidden="true" style={{ fontSize: 22 }}>{tipo.icone}</span>}
                   <div style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere' }}>
                     <strong>{tipo.nome}</strong>
                     <div className="small">{String(r.nome).split('/').pop()}</div>
