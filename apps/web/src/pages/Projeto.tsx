@@ -1611,15 +1611,43 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
   );
 }
 
+type ResultadoVisivel = { id: string; nome: string; bytes: number; sha256?: string; criadoEm?: string };
+
+function tipoDeResultado(r: ResultadoVisivel): { nome: string; icone: string; importante: boolean } {
+  const nome = String(r.nome).toLowerCase();
+  if (/\.(mp4|webm|mov)$/.test(nome)) return { nome: /(?:previa|prévia|preview|teste)[-_./]/i.test(nome) ? 'Prévia de vídeo' : 'Vídeo', icone: '🎬', importante: true };
+  if (/\.(mp3|wav|m4a|ogg|aac)$/.test(nome)) {
+    if (/trilha|instrumental|musica|música|soundtrack/.test(nome)) return { nome: 'Trilha musical', icone: '🎵', importante: true };
+    if (/locucao|locução|narracao|narração|voz|fala|tts/.test(nome)) return { nome: 'Locução', icone: '🎙️', importante: true };
+    return { nome: 'Áudio', icone: '🎧', importante: true };
+  }
+  return { nome: 'Arquivo técnico', icone: '📄', importante: false };
+}
+
+async function baixarResultadoDoTrabalho(projetoId: string, resultado: ResultadoVisivel): Promise<void> {
+  const url = await urlDoArquivo(`/projects/${projetoId}/artifacts/${resultado.id}`);
+  if (!url) throw new Error('Não foi possível obter o arquivo. Verifique se ele ainda está disponível.');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = String(resultado.nome).split('/').pop() ?? 'resultado';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/** Só os arquivos de entrega ficam destacados; logs e quadros de inspeção continuam acessíveis. */
 /** Arquivos que o trabalho criou/alterou/apagou: clique abre para ler (texto) ou assistir (vídeo). */
 function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: string }) {
   const [lista, setLista] = useState<any[] | null>(null);
-  const [resultados, setResultados] = useState<any[]>([]);
+  const [resultados, setResultados] = useState<ResultadoVisivel[]>([]);
   const [aberto, setAberto] = useState<string | null>(null);
-  const [resultadoAberto, setResultadoAberto] = useState<any | null>(null);
+  const [resultadoAberto, setResultadoAberto] = useState<ResultadoVisivel | null>(null);
+  const [erroDownload, setErroDownload] = useState<string | null>(null);
+  const [baixandoId, setBaixandoId] = useState<string | null>(null);
   useEffect(() => {
     api<any[]>(`/projects/${projetoId}/jobs/${jobId}/arquivos`).then(setLista).catch(() => setLista([]));
-    api<any[]>(`/projects/${projetoId}/jobs/${jobId}/resultados`)
+    api<ResultadoVisivel[]>(`/projects/${projetoId}/jobs/${jobId}/resultados`)
       .then((r) => setResultados(r.filter((x) => !/^conferencia-regras\.json$|^respostas-do-usuario\.md$/.test(x.nome))))
       .catch(() => setResultados([]));
   }, [projetoId, jobId]);
@@ -1627,19 +1655,54 @@ function ArquivosDoTrabalho({ projetoId, jobId }: { projetoId: string; jobId: st
   const nome: Record<string, string> = { A: 'novo', M: 'alterado', D: 'apagado', R: 'movido' };
   const visiveis = (lista ?? []).slice(0, 40);
   const tamanho = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : b >= 1024 ? `${Math.round(b / 1024)} KB` : `${b} B`);
+  const entregas = resultados.filter((r) => tipoDeResultado(r).importante);
+  const tecnicos = resultados.filter((r) => !tipoDeResultado(r).importante);
+  const baixar = async (r: ResultadoVisivel) => {
+    setErroDownload(null);
+    setBaixandoId(r.id);
+    try { await baixarResultadoDoTrabalho(projetoId, r); }
+    catch (e: any) { setErroDownload(String(e?.message ?? 'Falha no download')); }
+    finally { setBaixandoId(null); }
+  };
   return (
     <div className="arquivos-trabalho">
-      {resultados.length > 0 && (
-        <>
-          <span className="small"><b>Resultados produzidos ({resultados.length})</b> — vídeos e arquivos disponíveis, mesmo quando a revisão do trabalho está pendente:</span>
-          <div className="arquivos-chips">
-            {resultados.map((r) => (
-              <button key={r.id} className="arquivo-chip resultado" onClick={() => setResultadoAberto(r)} title={`${tamanho(r.bytes)} · sha256 ${String(r.sha256).slice(0, 12)}`}>
+      {entregas.length > 0 && (
+        <section aria-label="Arquivos para assistir e baixar">
+          <strong>Arquivos para assistir e baixar ({entregas.length})</strong>
+          <p className="muted small">Vídeos, locuções e trilhas gerados neste trabalho. Clique em “Abrir” para assistir ou ouvir.</p>
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            {entregas.map((r) => {
+              const tipo = tipoDeResultado(r);
+              return (
+                <div key={r.id} className="arquivo-chip resultado" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', flexWrap: 'wrap' }}>
+                  <span aria-hidden="true" style={{ fontSize: 22 }}>{tipo.icone}</span>
+                  <div style={{ flex: '1 1 220px', minWidth: 0, overflowWrap: 'anywhere' }}>
+                    <strong>{tipo.nome}</strong>
+                    <div className="small">{String(r.nome).split('/').pop()}</div>
+                    <span className="muted small">{tamanho(r.bytes)}</span>
+                  </div>
+                  <button type="button" className="secondary" onClick={() => setResultadoAberto(r)}>Abrir</button>
+                  <button type="button" onClick={() => void baixar(r)} disabled={baixandoId === r.id}>
+                    {baixandoId === r.id ? 'Preparando…' : 'Baixar'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {erroDownload && <p className="error" role="alert">Não consegui baixar: {erroDownload}</p>}
+      {tecnicos.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary className="small">Arquivos técnicos e de conferência ({tecnicos.length}) — mostrar somente se necessário</summary>
+          <div className="arquivos-chips" style={{ marginTop: 8 }}>
+            {tecnicos.map((r) => (
+              <button key={r.id} className="arquivo-chip resultado" onClick={() => setResultadoAberto(r)} title={`${tamanho(r.bytes)} · arquivo técnico`}>
                 {r.nome} <span className="muted">· {tamanho(r.bytes)}</span>
               </button>
             ))}
           </div>
-        </>
+        </details>
       )}
       {resultadoAberto && <ResultadoAberto projetoId={projetoId} r={resultadoAberto} onFechar={() => setResultadoAberto(null)} />}
       {!lista?.length ? null : <>
