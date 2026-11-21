@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { LogService } from './log.service';
 import { OrchestratorService } from './orchestrator.service';
+import { WorkspaceService } from '../storage/workspace.service';
+import { isVisualApproval, requiredPreviewCount, visualPreviews } from './visual-previews';
 
 @Injectable()
 export class ApprovalsService {
@@ -13,6 +15,7 @@ export class ApprovalsService {
     private readonly queue: QueueService,
     private readonly orchestrator: OrchestratorService,
     private readonly logs: LogService,
+    private readonly workspace: WorkspaceService,
   ) {}
 
   list(projectId?: string, status?: string) {
@@ -32,6 +35,22 @@ export class ApprovalsService {
     if (!a) throw new NotFoundException('Aprovação não encontrada');
     if (a.status !== 'PENDENTE') throw new ConflictException(`Aprovação já decidida (${a.status})`);
     if (body?.projectId && body.projectId !== a.projectId) throw new NotFoundException('Aprovação não pertence ao projeto');
+    if (decision === 'APROVADO' && isVisualApproval(a.description)) {
+      const job = await this.prisma.job.findFirst({
+        where: { id: a.jobId ?? '', projectId: a.projectId },
+        include: { project: { select: { dirKey: true } }, steps: true },
+      });
+      if (!job) throw new NotFoundException('Trabalho não encontrado');
+      const root = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+      const previews = visualPreviews(root, job.steps);
+      const required = requiredPreviewCount(a.description);
+      if (previews.length < required) {
+        throw new ConflictException(`Não é possível aprovar: ${previews.length} de ${required} prévias foram produzidas. O Nivoo deve gerar e apresentar todas antes de pedir aprovação.`);
+      }
+      if (body?.previewsPresented !== true) {
+        throw new ConflictException('Abra e confira todas as prévias no painel antes de aprovar.');
+      }
+    }
     await this.prisma.approval.update({ where: { id: a.id }, data: { status: decision, decidedBy, reason, decidedAt: new Date() } });
 
     const jobId = a.jobId!;
