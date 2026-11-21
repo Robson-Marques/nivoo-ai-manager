@@ -1084,9 +1084,8 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   useEffect(() => {
     if (terminal) onMudou();
   }, [terminal, onMudou]);
-  if (!job) return <div className="progresso">…</div>;
-  const feitas = job.steps.filter((s: any) => s.status === 'CONCLUIDO').length;
-  const atual = job.steps.find((s: any) => s.status !== 'CONCLUIDO');
+  const feitas = (job?.steps ?? []).filter((s: any) => s.status === 'CONCLUIDO').length;
+  const atual = job?.steps?.find((s: any) => s.status !== 'CONCLUIDO');
   const acao = async (fn: () => Promise<any>) => {
     setErro(null);
     try {
@@ -1096,7 +1095,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       setErro(e.message);
     }
   };
-  const aprovacao = job.approvals?.find((a: any) => a.status === 'PENDENTE');
+  const aprovacao = job?.approvals?.find((a: any) => a.status === 'PENDENTE');
   const aprovacaoVisual = aprovacao && /pr[eé]vias?|quadros? (?:visuais?|para aprova[cç][aã]o)/i.test(String(aprovacao.description));
   const requiredPreviews = /\\b(duas|dois|2)\\s+pr[eé]vias?/i.test(String(aprovacao?.description ?? '')) ? 2
     : Math.max(1, Math.min(20, Number(/\\b(\\d+)\\s+pr[eé]vias?/i.exec(String(aprovacao?.description ?? ''))?.[1] ?? 1)));
@@ -1104,7 +1103,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
   const [previewLoaded, setPreviewLoaded] = useState<Record<string, boolean>>({});
   const [previewError, setPreviewError] = useState<string | null>(null);
   useEffect(() => {
-    if (!aprovacaoVisual || job.status !== 'AGUARDANDO_APROVACAO') {
+    if (!aprovacaoVisual || job?.status !== 'AGUARDANDO_APROVACAO') {
       setPreviewImages([]);
       setPreviewLoaded({});
       return;
@@ -1130,9 +1129,10 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       cancelled = true;
       urls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [projetoId, jobId, aprovacao?.id, aprovacaoVisual, job.status]);
+  }, [projetoId, jobId, aprovacao?.id, aprovacaoVisual, job?.status]);
   const previewsReady = !aprovacaoVisual || (previewImages.length >= requiredPreviews &&
     previewImages.every((p) => previewLoaded[p.key]));
+  if (!job) return <div className="progresso">…</div>;
   return (
     <div className={`progresso p-${job.status}${job.blockedReason === 'PAUSADO' ? ' pausado' : ''}`}>
       {job.status === 'CONCLUIDO' && <span className="muted small">Concluído. Entrega abaixo.</span>}
