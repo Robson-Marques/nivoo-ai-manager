@@ -66,7 +66,8 @@ export function capturasMotionDesatualizadas(worktree: string, steps: Array<{ ke
     if (!match || match[1].split('/').includes('..') || match[2].split('/').includes('..')) continue;
     const dir = path.resolve(root, match[1]);
     const png = path.resolve(root, match[2], 'quadro.png');
-    if (!dir.startsWith(root + path.sep) || !png.startsWith(root + path.sep) || !fs.existsSync(dir)) continue;
+    if (!dir.startsWith(root + path.sep) || !png.startsWith(root + path.sep)) continue;
+    if (!fs.existsSync(dir)) { vencidas.push(step.key); continue; }
     try {
       if (!fs.existsSync(png)) { vencidas.push(step.key); continue; }
       const pngTime = fs.statSync(png).mtimeMs;
@@ -254,7 +255,7 @@ export class CompletionService {
       include: { steps: true, criteria: true, project: true },
     });
     const report: EvaluationReport = { jobId, finalStatus: job.status, pendingSteps: [], criteria: [], pendencias: [] };
-    if (!['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
+    if (!['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO', 'BLOQUEADO'].includes(job.status)) {
       report.pendencias.push(`job em ${job.status}; avaliação ignorada`);
       return report;
     }
@@ -382,7 +383,7 @@ export class CompletionService {
     const updated = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       const r = await tx.job.updateMany({
-        where: { id: jobId, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'] } },
+        where: { id: jobId, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO', 'BLOQUEADO'] } },
         data: {
           status,
           blockedReason: reason,
@@ -474,7 +475,7 @@ export class CompletionService {
     const r = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
       return tx.job.updateMany({
-        where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'] } },
+        where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO', 'BLOQUEADO'] } },
         data: { status: 'BLOQUEADO', blockedReason: BlockedReason.CONFLITO_INCORPORACAO, statusDetail: detail, mergeStatus: 'CONFLITO' },
       });
     });
