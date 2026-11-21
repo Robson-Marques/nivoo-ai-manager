@@ -1,7 +1,7 @@
 import { ClipboardEvent, createContext, FormEvent, KeyboardEvent, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { BotaoDitado } from '../Ditado';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, enviarVideo, enviarZipDeVideos, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, urlAutenticada, copiarTexto } from '../api';
+import { api, apiBlob, enviarVideo, enviarZipDeVideos, fileToBase64, lerArquivo, nomeUsuario, urlDoArquivo, urlAutenticada, copiarTexto } from '../api';
 import { useProjetos } from '../Layout';
 import { Ajustes } from './Ajustes';
 import { GitDoProjeto } from './Git';
@@ -1097,6 +1097,42 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
     }
   };
   const aprovacao = job.approvals?.find((a: any) => a.status === 'PENDENTE');
+  const aprovacaoVisual = aprovacao && /pr[eé]vias?|quadros? (?:visuais?|para aprova[cç][aã]o)/i.test(String(aprovacao.description));
+  const requiredPreviews = /\\b(duas|dois|2)\\s+pr[eé]vias?/i.test(String(aprovacao?.description ?? '')) ? 2
+    : Math.max(1, Math.min(20, Number(/\\b(\\d+)\\s+pr[eé]vias?/i.exec(String(aprovacao?.description ?? ''))?.[1] ?? 1)));
+  const [previewImages, setPreviewImages] = useState<Array<{ key: string; title: string; src: string }>>([]);
+  const [previewLoaded, setPreviewLoaded] = useState<Record<string, boolean>>({});
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!aprovacaoVisual || job.status !== 'AGUARDANDO_APROVACAO') {
+      setPreviewImages([]);
+      setPreviewLoaded({});
+      return;
+    }
+    let cancelled = false;
+    let urls: string[] = [];
+    setPreviewImages([]);
+    setPreviewLoaded({});
+    setPreviewError(null);
+    (async () => {
+      const items = await api<Array<{ key: string; title: string }>>(`/projects/${projetoId}/jobs/${jobId}/previews`);
+      if (cancelled) return;
+      const fetched = await Promise.all(items.map(async (item) => {
+        const blob = await apiBlob(`/projects/${projetoId}/jobs/${jobId}/previews/${encodeURIComponent(item.key)}/image`);
+        if (blob.type !== 'image/png' || !blob.size) throw new Error('A imagem da prévia está vazia ou inválida.');
+        const src = URL.createObjectURL(blob);
+        urls.push(src);
+        return { key: item.key, title: item.title, src };
+      }));
+      if (!cancelled) setPreviewImages(fetched);
+    })().catch((e: any) => { if (!cancelled) setPreviewError(e.message); });
+    return () => {
+      cancelled = true;
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [projetoId, jobId, aprovacao?.id, aprovacaoVisual, job.status]);
+  const previewsReady = !aprovacaoVisual || (previewImages.length >= requiredPreviews &&
+    previewImages.every((p) => previewLoaded[p.key]));
   return (
     <div className={`progresso p-${job.status}${job.blockedReason === 'PAUSADO' ? ' pausado' : ''}`}>
       {job.status === 'CONCLUIDO' && <span className="muted small">Concluído. Entrega abaixo.</span>}
@@ -1109,15 +1145,32 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
         </span>
       )}
       {job.status === 'AGUARDANDO_APROVACAO' && (
-        <span>
-          Preciso da sua confirmação{aprovacao ? `: ${aprovacao.description}` : ''}.{' '}
+        <div>
+          <p>Preciso da sua confirmação{aprovacao ? `: ${aprovacao.description}` : ''}.</p>
+          {aprovacaoVisual && (
+            <div>
+              <p className="muted small">Prévia para avaliação — é obrigatório apresentar as imagens antes da aprovação.</p>
+              {previewImages.map((preview) => (
+                <div key={preview.key}>
+                  <b>{preview.title}</b>
+                  <img src={preview.src} alt={preview.title} style={{ display: 'block', maxWidth: '100%', maxHeight: 420, objectFit: 'contain' }}
+                    onLoad={() => setPreviewLoaded((prev) => ({ ...prev, [preview.key]: true }))}
+                    onError={() => setPreviewError('Não foi possível exibir a imagem ' + preview.title)} />
+                </div>
+              ))}
+              {previewError && <p className="error">{previewError}</p>}
+              {!previewsReady && <p className="error">Aguardando as prévias: {previewImages.length} de {requiredPreviews} imagens disponíveis. Não é permitido aprovar sem conferir todas.</p>}
+            </div>
+          )}
           {aprovacao && (
             <>
-              <button onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', { decision: 'APROVADO', decidedBy: nomeUsuario() }))}>Pode seguir</button>{' '}
+              <button disabled={!previewsReady || !!previewError} onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', {
+                decision: 'APROVADO', decidedBy: nomeUsuario(), ...(aprovacaoVisual ? { previewsPresented: true } : {}),
+              }))}>Pode seguir</button>{' '}
               <button className="danger" onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', { decision: 'REJEITADO', decidedBy: nomeUsuario() }))}>Não</button>
             </>
           )}
-        </span>
+        </div>
       )}
       {job.status === 'BLOQUEADO' && job.blockedReason === 'PAUSADO' && (
         <span>
