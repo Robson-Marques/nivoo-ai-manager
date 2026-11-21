@@ -126,15 +126,10 @@ export class CompletionService {
     // Quando o código muda, uma captura anterior não valida a nova composição.
     const vencidas = capturasMotionDesatualizadas(worktree, job.steps);
     if (vencidas.length) {
+      // Uma prévia antiga não invalida todas as etapas dependentes: isso
+      // refazia direção de arte e renderização, consumindo tokens novamente.
+      // Recapture somente os quadros; mantenha IA, motion e MP4 já concluídos.
       const refazer = new Set(vencidas);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const step of job.steps) {
-          if (refazer.has(step.key) || step.key.startsWith('correcao-criterios-')) continue;
-          if (step.dependsOn.some(dep => refazer.has(dep))) { refazer.add(step.key); changed = true; }
-        }
-      }
       if (job.steps.some(s => s.key === RULE_REVIEW_STEP)) refazer.add(RULE_REVIEW_STEP);
       fs.rmSync(path.join(worktree, RULE_REVIEW_REPORT), {force:true});
       const qualityDir = path.join(worktree, 'out/qualidade');
