@@ -718,6 +718,16 @@ export class StepExecutorService {
       return 'CONCLUIDO';
     }
 
+    // A montagem pelo executor oficial é determinística: repetir o mesmo plano,
+    // com os mesmos arquivos e argumentos, não corrige mídia inválida nem erro FFmpeg.
+    // Bloquear na primeira falha com mensagem real, sem gastar outras tentativas.
+    if (!isAi && providerId === 'juntar-videos') {
+      const detalhe = (result.error || result.output || 'O executor de vídeo não informou a causa').trim();
+      await this.checkpoint(job.id, step, worktree, `montagem falhou na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        `Montagem interrompida na primeira falha; arquivos originais preservados. ${detalhe.slice(0, 2500)}`);
+    }
+
     // Falhas determinísticas de scripts/montagem não se corrigem por repetição.
     if (!isAi && providerId === 'local-shell') {
       const explicacao = diagnosticoRenderDeterministico((result.output ?? '') + '\n' + (result.error ?? ''));
