@@ -123,15 +123,6 @@ export class CompletionService {
     // O teto conta TODA correção no mesmo trabalho. Retomar, trocar a IA e
     // alterar o texto da violação não zeram esse limite. Recuperar um trabalho
     // bloqueado exige análise/decisão, e não novas correções automáticas.
-    const configurado = Number(process.env.NIVOO_CORRECOES_MAX ?? 2);
-    const maxRodadas = Number.isFinite(configurado) ? Math.min(3,Math.max(0,Math.floor(configurado))) : 2;
-    const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).sort((a, b) => b.order - a.order);
-    if (maxRodadas === 0 || rodadas >= maxRodadas) {
-      await this.logs.log(job.id,
-        `Conferência final reprovada, mas o limite global de ${maxRodadas} correção(ões) automática(s) já foi atingido (${rodadas} executadas). Não criarei outra etapa. É necessário corrigir a causa, a ferramenta ou o critério.`,
-        { source:'evaluator',level:'WARN' });
-      return false;
-    }
     // Quando o código muda, uma captura anterior não valida a nova composição.
     const vencidas = capturasMotionDesatualizadas(worktree, job.steps);
     if (vencidas.length) {
@@ -161,6 +152,15 @@ export class CompletionService {
       await this.logs.log(job.id, 'Recaptura por alteração visual: '+[...refazer].join(', '), {source:'evaluator',level:'INFO'});
       await this.orchestrator.scheduleReady(job.id);
       return true;
+    }
+    const configurado = Number(process.env.NIVOO_CORRECOES_MAX ?? 2);
+    const maxRodadas = Number.isFinite(configurado) ? Math.min(3,Math.max(0,Math.floor(configurado))) : 2;
+    const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).sort((a, b) => b.order - a.order);
+    if (maxRodadas === 0 || rodadas >= maxRodadas) {
+      await this.logs.log(job.id,
+        `Conferência final reprovada, mas o limite global de ${maxRodadas} correção(ões) automática(s) já foi atingido (${rodadas} executadas). Não criarei outra etapa. É necessário corrigir a causa, a ferramenta ou o critério.`,
+        { source:'evaluator',level:'WARN' });
+      return false;
     }
     // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
