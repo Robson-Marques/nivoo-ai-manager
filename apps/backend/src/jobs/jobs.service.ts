@@ -77,6 +77,8 @@ function comPreflightVisual(raw: unknown, defaultProvider: string): unknown {
         `LEIA ${evidence}/evidencias.json e ABRA ${evidence}/quadro.png.`,
         'Leia o briefing original em contexto/conversa-do-pedido.md e compare com a REFERÊNCIA VISUAL CORRETA em contexto/anexos (não confunda fundos, logos e fotos isoladas com cartaz final).',
         'Confira textos literalmente, proporção e enquadramento dos ativos, força visual relativa, paleta, amarelos e vermelhos quando pedidos, textura, brilho, profundidade e margens.',
+        'Quando a referência tiver relevo, compare profundidade 2.5D: separação de planos, perspectiva sutil, sombras de contato, luz consistente, brilho de bordas e oclusão. Cartões chapados com sombras iguais não reproduzem o efeito.',
+        'Sem referência com volume, não imponha 3D. Preserve o logotipo original, fotografias e legibilidade, e verifique um quadro do movimento além do quadro estático.',
         'Em peça sem referência, confira consistência com o estilo do briefing, sem adicionar neon/efeitos apenas por ser premium.',
         'Se observar diferenças, corrija APENAS os elementos necessários no HTML/CSS/JS e CAPTURE DE NOVO o quadro usando o mesmo comando nivoo-conferir-arte da etapa anterior.',
         'Não redimensione ou recolora imagens originais indevidamente. Não refaça a sequência de animação já aprovada.',
