@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { normalizarCenasDeMontagem } from './jobs.service';
 
 /**
  * Núcleo decide o executor: pedidos de montagem de vídeo não podem ser
@@ -16,7 +17,8 @@ export function aplicarPrioridadeDosExecutores(raw: unknown, defaultProvider: st
     if (provider !== 'local-shell') return step;
     const instr = String(step.instructions ?? '');
     const opts = step.providerOptions ?? {};
-    const temEntradasDeMontagem = Array.isArray(opts.cenas) && opts.cenas.length > 0 &&
+    const cenas = normalizarCenasDeMontagem(opts);
+    const temEntradasDeMontagem = cenas.length > 0 &&
       typeof opts.arquivo === 'string' && /\.mp4$/i.test(opts.arquivo);
     // Instrução técnica conflitante com os parâmetros de montagem: o contrato
     // vence e o núcleo substitui o método por seu executor oficial.
@@ -26,7 +28,7 @@ export function aplicarPrioridadeDosExecutores(raw: unknown, defaultProvider: st
         provider: 'juntar-videos',
         instructions: 'Montagem de mídia pelo executor interno obrigatório; preservar cenas, locução e trilha.',
         verifyCommand: undefined,
-        providerOptions: opts,
+        providerOptions: { ...opts, cenas },
       };
     }
     // Só recusa comandos que realmente fazem montagem/exportação.

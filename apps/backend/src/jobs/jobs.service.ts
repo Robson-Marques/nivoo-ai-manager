@@ -831,8 +831,25 @@ function transicaoValida(key: string, t: unknown): string {
   return v;
 }
 
+/**
+ * Compatibilidade com planejamento em linguagem natural:
+ * uma única cena pode vir como string ou campo "video"/"videoOriginal".
+ * Nunca deduzir a fonte a partir do nome do arquivo de SAÍDA;
+ * quando ambíguo, exigir escolha explícita em vez de inventar caminho.
+ */
+export function normalizarCenasDeMontagem(o: any): unknown[] {
+  if (!o || typeof o !== 'object') return [];
+  if (Array.isArray(o.cenas)) return o.cenas;
+  if (typeof o.cenas === 'string' && o.cenas.trim()) return [o.cenas.trim()];
+  const entrada = o.videoOriginal ?? o.videoEntrada ?? o.video ?? o.cena;
+  if (typeof entrada === 'string' && entrada.trim()) return [entrada.trim()];
+  if (entrada && typeof entrada === 'object' && typeof entrada.arquivo === 'string')
+    return [entrada.arquivo.trim()];
+  return [];
+}
+
 export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
-  const cenas = Array.isArray(o.cenas) ? o.cenas.map((c: unknown) => caminhoDoProjeto(c)) : [];
+  const cenas = normalizarCenasDeMontagem(o).map((c: unknown) => caminhoDoProjeto(c));
   if (!cenas.length || cenas.some((c: string | null) => !c || !/\.(mp4|mov|webm)$/i.test(c))) throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
   if (cenas.length > 200) throw new BadRequestException(`Etapa ${key}: no máximo 200 cenas`);
   const arquivo = caminhoDoProjeto(o.arquivo) ?? '';
