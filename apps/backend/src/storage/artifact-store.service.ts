@@ -6,6 +6,7 @@ import { appConfig } from '../config';
 import { sha256, sha256File } from '../common/hash';
 import { resolveInside } from '../common/path-guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { tipoMidia, TipoMidia } from './media-kind';
 
 export interface ArtifactMeta {
   projectId: string;
@@ -165,7 +166,7 @@ export class ArtifactStoreService {
    * conversa, com IDs imutáveis. Sem adivinhar por basename.
    */
   async mediaCatalog(projectId: string): Promise<Array<{
-    id: string; nome: string; tipo: 'video' | 'locucao' | 'trilha' | 'audio';
+    id: string; nome: string; tipo: TipoMidia;
     bytes: number; trabalhoId: string | null; criadoEm: Date; referencia: string;
   }>> {
     const artifacts = await this.prisma.artifact.findMany({
@@ -189,11 +190,7 @@ export class ArtifactStoreService {
         seen.add(key);
         return true;
       }).map(a => {
-        const n = a.name.toLowerCase();
-        const tipo = /\.(mp4|mov|webm)$/.test(n) ? 'video'
-          : /trilha|instrumental|m[uú]sica|soundtrack/.test(n) ? 'trilha'
-          : /locu[cç][aã]o|narr[aã]c[aã]o|voz|fala|tts/.test(n) ? 'locucao' : 'audio';
-        return { id: a.id, nome: a.name, tipo: tipo as 'video' | 'locucao' | 'trilha' | 'audio',
+        return { id: a.id, nome: a.name, tipo: tipoMidia(a.name),
           bytes: a.sizeBytes, trabalhoId: a.jobId, criadoEm: a.createdAt,
           referencia: 'artefato/' + a.id + '/' + a.name.split('/').pop() };
       });

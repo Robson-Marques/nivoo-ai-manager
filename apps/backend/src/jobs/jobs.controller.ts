@@ -8,6 +8,7 @@ import { JobsService } from './jobs.service';
 import { LogService } from './log.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { listarVideos } from '../projects/midia';
+import { tipoMidia } from '../storage/media-kind';
 
 @Controller('projects/:pid')
 export class JobsController {
@@ -176,11 +177,7 @@ export class JobsController {
     const locais = listarVideos(this.workspace.projectDirs(projeto.dirKey).midia)
       .filter(v => /\.(mp4|mov|webm|mp3|wav|m4a|aac|ogg)$/i.test(v.caminho))
       .map(v => {
-        const n = v.nome.toLowerCase();
-        const tipo = /\.(mp4|mov|webm)$/.test(v.caminho.toLowerCase()) ? 'video'
-          : /trilha|instrumental|m[uú]sica/.test(n) ? 'trilha'
-          : /locu[cç][aã]o|narr[aã]c[aã]o|voz|tts/.test(n) ? 'locucao' : 'audio';
-        return { id: 'midia:' + v.caminho, nome: v.nome, tipo, bytes: v.bytes,
+        return { id: 'midia:' + v.caminho, nome: v.nome, tipo: tipoMidia(v.nome, v.caminho), bytes: v.bytes,
           trabalhoId: null, criadoEm: null, referencia: v.caminho, caminho: v.caminho };
       });
     return [...resultados, ...locais];
