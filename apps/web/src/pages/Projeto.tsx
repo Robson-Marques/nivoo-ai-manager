@@ -257,7 +257,11 @@ export function Projeto() {
   const { recarregar, recarregarConversas, projetos } = useProjetos();
   const [projeto, setProjeto] = useState<any>(null);
   // Painel da direita (Memória, Arquivos, Git, Ajustes): aberto/fechado e a aba ficam lembrados neste navegador.
-  const [painel, setPainelBruto] = useState(() => lerPreferencia('nivoo_painel', '1') === '1');
+  const [painel, setPainelBruto] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches
+      ? false
+      : lerPreferencia('nivoo_painel', '1') === '1'
+  );
   const [aba, setAbaBruta] = useState<AbaPainel>(() => (lerPreferencia('nivoo_aba', 'memoria') as AbaPainel));
   const setPainel = (v: boolean) => {
     setPainelBruto(v);
@@ -302,6 +306,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   const [erro, setErro] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [versaoPainel, setVersaoPainel] = useState(0);
+  const [opcoesMobile, setOpcoesMobile] = useState(false);
   // Prévia do projeto ao lado da conversa (tela dividida); lembrado neste navegador.
   const [previa, setPreviaBruta] = useState(() => lerPreferencia('nivoo_previa', '0') === '1');
   const setPrevia = (v: boolean) => {
@@ -626,8 +631,12 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
     <div className={`conversa${painel ? ' com-painel' : ''}${previa ? ' com-previa' : ''}`}>
       <div className="conversa-col">
         <header className="conversa-topo">
-          <div>
-            <h1>{projeto.name}</h1>
+          <div className="conversa-identidade">
+            <h1 title={projeto.name}>{projeto.name}</h1>
+            <button type="button" className="mobile-config-toggle secondary" aria-expanded={opcoesMobile} aria-controls="configuracoes-projeto" onClick={() => setOpcoesMobile(v => !v)}>
+              {opcoesMobile ? 'Fechar opções' : 'Opções'}
+            </button>
+            <div id="configuracoes-projeto" className={`configuracoes-projeto${opcoesMobile ? ' aberta' : ''}`}>
             <select
               className="seletor-ia"
               aria-label="Área ou agente do projeto"
@@ -648,8 +657,9 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
               ))}
             </select>{' '}
             <SeletorModelo projeto={projeto} onMudou={onProjetoMudou} className="seletor-ia" />
+            </div>
             {projeto.archivedAt && <span className="tag">projeto arquivado</span>}
-            {conv && <div className="muted small titulo-conversa">{conv.title}</div>}
+            {conv && <div className="muted small titulo-conversa" title={conv.title}>{conv.title}</div>}
           </div>
           <div className="acoes-topo">
             {/* Painel recolhido: as abas ficam aqui em cima e abrem o painel direto nelas. */}
@@ -660,8 +670,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
                 ))}
               </div>
             )}
-            <button className={previa ? 'secondary ativo' : 'secondary'} onClick={() => setPrevia(!previa)} title="Ver o site ou sistema do projeto rodando, ao lado da conversa">{previa ? 'Fechar prévia' : 'Ver o projeto'}</button>
-            <button className="secondary" onClick={onPainel} title={painel ? 'Recolher o painel (as abas ficam aqui em cima)' : 'Abrir o painel'}>{painel ? 'Recolher painel ›' : '‹ Painel'}</button>
+            <button className={previa ? 'secondary ativo' : 'secondary'} onClick={() => setPrevia(!previa)} title="Ver o site ou sistema do projeto rodando, ao lado da conversa"><span className="desktop-label">{previa ? 'Fechar prévia' : 'Ver o projeto'}</span><span className="mobile-label">{previa ? 'Fechar' : 'Prévia'}</span></button>
+            <button className="secondary" onClick={onPainel} title={painel ? 'Recolher o painel' : 'Abrir o painel'} aria-expanded={painel}><span className="desktop-label">{painel ? 'Recolher painel ›' : '‹ Painel'}</span><span className="mobile-label">{painel ? 'Fechar painel' : 'Painel'}</span></button>
           </div>
         </header>
 
@@ -773,7 +783,7 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
         )}
       </div>
       {previa && <PreviaDoProjeto projetoId={projeto.id} onFechar={() => setPrevia(false)} onPedirIa={responderPerguntas} />}
-      {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} aba={aba} onAba={onAba} />}
+      {painel && <Painel projeto={projeto} versao={versaoPainel} onProjetoMudou={onProjetoMudou} aba={aba} onAba={onAba} onFechar={onPainel} />}
     </div>
     </IaContexto.Provider>
   );
@@ -1245,7 +1255,7 @@ export function gravarPreferencia(chave: string, valor: string): void {
   }
 }
 
-function Painel({ projeto, versao, onProjetoMudou, aba, onAba }: { projeto: any; versao: number; onProjetoMudou: () => void; aba: AbaPainel; onAba: (a: AbaPainel) => void }) {
+function Painel({ projeto, versao, onProjetoMudou, aba, onAba, onFechar }: { projeto: any; versao: number; onProjetoMudou: () => void; aba: AbaPainel; onAba: (a: AbaPainel) => void; onFechar: () => void }) {
   const projetoId = projeto.id;
   const setAba = onAba;
   const [memoria, setMemoria] = useState<any[] | null>(null);
@@ -1269,6 +1279,7 @@ function Painel({ projeto, versao, onProjetoMudou, aba, onAba }: { projeto: any;
     setAberto({ path, conteudo: /\.(mp4|webm|mov)$/i.test(path) ? '' : await lerArquivo(`/projects/${projetoId}/files/content?path=${encodeURIComponent(path)}`) });
   return (
     <aside className="painel">
+      <div className="painel-mobile-barra"><strong>Painel do projeto</strong><button type="button" className="secondary" onClick={onFechar}>Voltar à conversa</button></div>
       <div className="abas">
         <button className={aba === 'memoria' ? 'tab active' : 'tab'} onClick={() => setAba('memoria')}>Memória</button>
         <button className={aba === 'arquivos' ? 'tab active' : 'tab'} onClick={() => setAba('arquivos')}>Arquivos</button>

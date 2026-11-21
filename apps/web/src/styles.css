@@ -448,3 +448,101 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .mover-conversa-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .modal[aria-label="Mover conversa"]{max-width:440px}
 .modal[aria-label="Mover conversa"] select{display:block;width:100%;margin-top:6px}
+
+/* Mobile operacional: conversa ocupa a tela; painel e controles avançados são sob demanda. */
+.mobile-config-toggle, .mobile-label, .painel-mobile-barra { display: none; }
+.configuracoes-projeto { display: contents; }
+@media (max-width: 900px) {
+  .chat-app, .chat-app.lado-recolhido {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+  .chat-side, .chat-side.recolhida {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    overflow: hidden;
+    min-height: 44px;
+    max-height: 58px;
+  }
+  .chat-side .brand { font-size: 14px; white-space: nowrap; padding: 0 2px; }
+  .chat-side .novo { padding: 5px 7px; width: auto; flex: 0 0 auto; font-size: 12px; }
+  .proj-list { flex: 1 1 auto; min-width: 0; flex-basis: auto; overflow-x: auto; overflow-y: hidden; white-space: nowrap; max-height: 48px; }
+  .proj-list .proj { white-space: nowrap; }
+  .side-foot { display: none; }
+  .chat-main { min-height: 0; min-width: 0; overflow: hidden; }
+  .conversa, .conversa.com-painel, .conversa.com-previa, .conversa.com-previa.com-painel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+  }
+  .conversa-col { flex: 1 1 auto; min-height: 0; min-width: 0; }
+  .conversa-topo {
+    flex: 0 0 auto;
+    gap: 4px 8px;
+    padding: 7px 10px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    position: relative;
+  }
+  .conversa-identidade { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+  .conversa-topo h1 { display: block; font-size: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; margin: 0; }
+  .conversa-topo .titulo-conversa, .conversa-topo .tag { display: none; }
+  .mobile-config-toggle { display: block; padding: 5px 7px; font-size: 12px; flex: 0 0 auto; }
+  .configuracoes-projeto {
+    display: none;
+    position: absolute;
+    z-index: 30;
+    top: 100%;
+    left: 8px;
+    right: 8px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.2);
+  }
+  .configuracoes-projeto.aberta { display: flex; flex-direction: column; gap: 8px; }
+  .configuracoes-projeto .seletor-ia { display: block; width: 100%; max-width: 100%; min-height: 36px; }
+  .acoes-topo { flex: 0 0 auto; flex-wrap: nowrap; gap: 5px; }
+  .acoes-topo > button { padding: 5px 7px; font-size: 12px; white-space: nowrap; }
+  .acoes-topo .desktop-label, .abas-topo { display: none; }
+  .acoes-topo .mobile-label { display: inline; }
+  .mensagens { flex: 1 1 auto; min-height: 0; padding: 10px 9px; gap: 9px; overscroll-behavior: contain; }
+  .mensagens > .msg.eu { max-width: 94%; }
+  .entrada { flex: 0 0 auto; width: 100%; padding: 7px 8px max(7px, env(safe-area-inset-bottom)); gap: 6px; max-width: none; }
+  .entrada textarea { min-height: 40px; max-height: 24dvh; padding: 8px 10px; font-size: 16px; }
+  .entrada .clipe, .entrada .microfone { width: 36px; height: 38px; }
+  .entrada > button:last-child { padding: 8px; }
+  .conversa > .painel, .conversa > .previa {
+    position: absolute;
+    inset: 0;
+    z-index: 25;
+    border: 0;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    background: var(--panel);
+  }
+  .painel-mobile-barra {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+  }
+  .painel-mobile-barra button { font-size: 12px; padding: 7px 9px; }
+  .painel .abas { flex: 0 0 auto; overflow-x: auto; }
+  .painel .abas .tab { flex: 1 0 auto; padding: 9px 10px; }
+  .painel .lista { min-height: 0; overflow: auto; }
+}
