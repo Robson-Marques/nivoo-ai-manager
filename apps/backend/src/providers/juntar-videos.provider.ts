@@ -3,6 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
+import { appConfig } from '../config';
+import { PrismaService } from '../prisma/prisma.service';
 import { resolveInside } from '../common/path-guard';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
@@ -44,6 +46,7 @@ export class JuntarVideosProvider implements AiProvider {
   constructor(
     private readonly video: GeminiVideoProvider,
     private readonly kokoro: KokoroTtsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -62,6 +65,56 @@ export class JuntarVideosProvider implements AiProvider {
     return resolveInside(req.cwd, rel);
   }
 
+  /**
+   * Mídia anterior já armazenada como artefato do projeto pode ser usada
+   * diretamente, sem pedir upload nem copiar arquivos para midia/.
+   * Exige correspondência inequívoca; nunca escolhe um áudio diferente
+   * só porque foi gerado por último ou porque o pedido disse "aprovado".
+   */
+  private async resolverEntrada(req: ExecutionRequest, rel: string): Promise<string> {
+    const local = this.resolver(req, rel);
+    if (fs.existsSync(local) && fs.statSync(local).isFile() && fs.statSync(local).size > 0) return local;
+
+    const nome = path.posix.basename(rel);
+    if (!/^[\w. -]+\.(mp4|mov|webm|mp3|wav|m4a|aac|ogg)$/i.test(nome))
+      throw new Error(`Arquivo de mídia não encontrado ou nome inválido: ${rel}`);
+    const job = await this.prisma.job.findUnique({ where: { id: req.jobId }, select: { projectId: true } });
+    if (!job) throw new Error(`Trabalho não localizado ao recuperar mídia: ${req.jobId}`);
+
+    const candidatos = await this.prisma.artifact.findMany({
+      where: {
+        projectId: job.projectId,
+        kind: 'FILE',
+        OR: [
+          { name: rel },
+          { name: nome },
+          { name: { endsWith: '/' + nome } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { name: true, storagePath: true, sha256: true, sizeBytes: true, jobId: true },
+    });
+    // Correspondência do caminho completo é mais forte que apenas o basename.
+    const exatos = candidatos.filter(a => a.name === rel);
+    const disponiveis = exatos.length ? exatos : candidatos;
+    const distintos = [...new Map(disponiveis.map(a => [a.sha256, a])).values()];
+    if (!distintos.length) throw new Error(
+      `Mídia ausente no projeto: ${rel}. Não há arquivo físico nem artefato com esse nome. ` +
+      'Consulte a lista de resultados e use o nome exato do arquivo existente.'
+    );
+    if (distintos.length > 1) throw new Error(
+      `Há ${distintos.length} versões diferentes para ${rel} nos resultados. ` +
+      `A escolha é ambígua: ${disponiveis.slice(0, 6).map(a => `${a.jobId?.slice(0, 8) ?? '-'}:${a.name}`).join(', ')}. ` +
+      'Escolha o artefato correto; o Nivoo não substituirá a locução aprovada automaticamente.'
+    );
+    const arquivo = resolveInside(appConfig().artifactsRoot, distintos[0].storagePath);
+    if (!fs.existsSync(arquivo) || fs.statSync(arquivo).size === 0)
+      throw new Error(`Artefato registrado, mas não disponível no armazenamento: ${distintos[0].name}`);
+    req.onLog(`Mídia reaproveitada dos resultados do trabalho ${distintos[0].jobId?.slice(0, 8) ?? '-'}: ${distintos[0].name}`);
+    return arquivo;
+  }
+
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao; sincronizarVideoComNarracao?: boolean };
     const cenas = o.cenas ?? [];
@@ -72,8 +125,7 @@ export class JuntarVideosProvider implements AiProvider {
     try {
       const entradas: string[] = [];
       for (const c of cenas) {
-        const abs = this.resolver(req, c);
-        if (!fs.existsSync(abs) || !fs.statSync(abs).size) return { exitCode: 1, output: '', error: `cena não encontrada: ${c}` };
+        const abs = await this.resolverEntrada(req, c);
         entradas.push(abs);
       }
       // Tamanho do vídeo final = o da primeira cena (as outras se ajustam, com faixa se a proporção for outra).
@@ -175,8 +227,7 @@ export class JuntarVideosProvider implements AiProvider {
         // 1) MÚSICA de fundo: um áudio do projeto, ou gerada pelo Lyria (reaproveitada quando a descrição não muda).
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
-          musica = this.resolver(req, o.trilha.arquivo);
-          if (!fs.existsSync(musica)) return { exitCode: 1, output: '', error: `trilha não encontrada no projeto: ${o.trilha.arquivo}` };
+          musica = await this.resolverEntrada(req, o.trilha.arquivo);
           trilhaInfo = `trilha ${o.trilha.arquivo}`;
         } else if (o.trilha?.descricao) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
@@ -203,8 +254,7 @@ export class JuntarVideosProvider implements AiProvider {
         let voz: string | null = null;
         let vozInfo = '';
         if (o.narracao?.arquivo) {
-          voz = this.resolver(req, o.narracao.arquivo);
-          if (!fs.existsSync(voz)) return { exitCode: 1, output: '', error: `narração não encontrada no projeto: ${o.narracao.arquivo}`, costUsd: custo, costEstimated: !!custo };
+          voz = await this.resolverEntrada(req, o.narracao.arquivo);
           vozInfo = `narração ${o.narracao.arquivo}`;
         } else if (o.narracao?.texto?.trim() || o.narracao?.trechos?.length) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-narracao.mp3');
