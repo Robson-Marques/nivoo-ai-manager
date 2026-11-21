@@ -78,6 +78,16 @@ export class CompletionService {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
+    // Montagem pelo executor oficial: depois de produzir um MP4, uma revisão
+    // reprovada não pode criar outra etapa de IA que remonte o mesmo arquivo.
+    // A avaliação registra os critérios pendentes, mas preserva a versão existente
+    // para o usuário ouvir e decidir se quer uma alteração explícita.
+    if (job.steps.some(s => s.provider === 'juntar-videos')) {
+      await this.logs.log(job.id,
+        'Montagem de mídia já executada. Não criar etapa automática de remontagem após avaliação; preservar o MP4 e apresentar os critérios pendentes.',
+        { source: 'evaluator', level: 'WARN' });
+      return false;
+    }
     const daIa = job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.provider ?? job.defaultProvider).filter(ia);
     if (!daIa.length) return false;
     if (falhas.some((f) => criterios.find((c) => c.key === f.key)?.kind === 'MANUAL_APPROVAL')) return false;
