@@ -30,7 +30,7 @@ export class ApprovalsService {
     const decision = body?.decision === 'APROVADO' ? 'APROVADO' : body?.decision === 'REJEITADO' ? 'REJEITADO' : null;
     if (!decision) throw new ConflictException('decision deve ser APROVADO ou REJEITADO');
     const decidedBy = reqString(body, 'decidedBy', 100);
-    const reason = optString(body, 'reason', 2000) ?? null;
+    let reason = optString(body, 'reason', 2000) ?? null;
     const a = await this.prisma.approval.findUnique({ where: { id: approvalId } });
     if (!a) throw new NotFoundException('Aprovação não encontrada');
     if (a.status !== 'PENDENTE') throw new ConflictException(`Aprovação já decidida (${a.status})`);
@@ -50,6 +50,7 @@ export class ApprovalsService {
       if (body?.previewsPresented !== true) {
         throw new ConflictException('Abra e confira todas as prévias no painel antes de aprovar.');
       }
+      reason = [reason, `NIVOO_PREVIEWS_PRESENTED:${required}`].filter(Boolean).join('; ');
     }
     await this.prisma.approval.update({ where: { id: a.id }, data: { status: decision, decidedBy, reason, decidedAt: new Date() } });
 
