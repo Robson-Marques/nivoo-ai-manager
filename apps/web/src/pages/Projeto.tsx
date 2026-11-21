@@ -1681,7 +1681,7 @@ function CatalogoMidiaProjeto({ projetoId, versao }: { projetoId: string; versao
   );
 }
 
-type ResultadoVisivel = { id: string; nome: string; bytes: number; sha256?: string; criadoEm?: string };
+type ResultadoVisivel = { id: string; nome: string; bytes: number; sha256?: string; criadoEm?: string | null };
 
 function tipoDeResultado(r: ResultadoVisivel): { nome: string; icone: string; importante: boolean } {
   const nome = String(r.nome).toLowerCase();
