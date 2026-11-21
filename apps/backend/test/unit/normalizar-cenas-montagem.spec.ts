@@ -1,4 +1,5 @@
-import { normalizarCenasDeMontagem, opcoesDeJuncao } from '../../src/jobs/jobs.service';
+import { opcoesDeJuncao } from '../../src/jobs/jobs.service';
+import { normalizarCenasDeMontagem } from '../../src/jobs/executor-priority';
 
 describe('Montagem de uma cena: normalização no núcleo', () => {
   const origem = 'midia/saida/black-na-sua-quinta-refinamento-final.mp4';

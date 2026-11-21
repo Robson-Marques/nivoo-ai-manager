@@ -1,5 +1,22 @@
 import { BadRequestException } from '@nestjs/common';
-import { normalizarCenasDeMontagem } from './jobs.service';
+/**
+ * Compatibilidade com planejamento em linguagem natural:
+ * uma única cena pode vir como string ou campo "video"/"videoOriginal".
+ * Nunca deduzir a fonte a partir do nome do arquivo de SAÍDA;
+ * quando ambíguo, exigir escolha explícita em vez de inventar caminho.
+ */
+export function normalizarCenasDeMontagem(o: any): unknown[] {
+  if (!o || typeof o !== 'object') return [];
+  if (Array.isArray(o.cenas)) return o.cenas;
+  if (typeof o.cenas === 'string' && o.cenas.trim()) return [o.cenas.trim()];
+  const entrada = o.videoOriginal ?? o.videoEntrada ?? o.video ?? o.cena;
+  if (typeof entrada === 'string' && entrada.trim()) return [entrada.trim()];
+  if (entrada && typeof entrada === 'object' && typeof entrada.arquivo === 'string')
+    return [entrada.arquivo.trim()];
+  return [];
+}
+
+
 
 /**
  * Núcleo decide o executor: pedidos de montagem de vídeo não podem ser

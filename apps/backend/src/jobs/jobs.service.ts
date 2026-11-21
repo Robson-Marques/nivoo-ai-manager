@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
-import { aplicarPrioridadeDosExecutores } from './executor-priority';
+import { aplicarPrioridadeDosExecutores, normalizarCenasDeMontagem } from './executor-priority';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -829,23 +829,6 @@ function transicaoValida(key: string, t: unknown): string {
   const v = String(t).trim().toLowerCase();
   if (!TRANSICOES.includes(v)) throw new BadRequestException(`Etapa ${key}: transicao deve ser uma de: ${TRANSICOES.join(', ')}`);
   return v;
-}
-
-/**
- * Compatibilidade com planejamento em linguagem natural:
- * uma única cena pode vir como string ou campo "video"/"videoOriginal".
- * Nunca deduzir a fonte a partir do nome do arquivo de SAÍDA;
- * quando ambíguo, exigir escolha explícita em vez de inventar caminho.
- */
-export function normalizarCenasDeMontagem(o: any): unknown[] {
-  if (!o || typeof o !== 'object') return [];
-  if (Array.isArray(o.cenas)) return o.cenas;
-  if (typeof o.cenas === 'string' && o.cenas.trim()) return [o.cenas.trim()];
-  const entrada = o.videoOriginal ?? o.videoEntrada ?? o.video ?? o.cena;
-  if (typeof entrada === 'string' && entrada.trim()) return [entrada.trim()];
-  if (entrada && typeof entrada === 'object' && typeof entrada.arquivo === 'string')
-    return [entrada.arquivo.trim()];
-  return [];
 }
 
 export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
