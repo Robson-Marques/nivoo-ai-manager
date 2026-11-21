@@ -1616,7 +1616,7 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
 
 type MidiaCatalogada = {
   id: string; nome: string; tipo: 'video' | 'locucao' | 'trilha' | 'audio';
-  bytes: number; trabalhoId: string | null; criadoEm: string; referencia: string;
+  bytes: number; trabalhoId: string | null; criadoEm: string | null; referencia: string; caminho?: string;
 };
 
 /** Visão única dos arquivos aproveitáveis de TODOS os trabalhos, não dos PNGs de QA. */
@@ -1697,7 +1697,10 @@ function tipoDeResultado(r: ResultadoVisivel): { nome: string; icone: string; im
 async function baixarResultadoDoTrabalho(projetoId: string, resultado: ResultadoVisivel): Promise<void> {
   // Streaming direto do servidor, sem transformar um MP4 inteiro em Blob no navegador.
   const a = document.createElement('a');
-  a.href = urlAutenticada(`/projects/${projetoId}/artifacts/${resultado.id}?download=1`);
+  const midia = (resultado as MidiaCatalogada).caminho;
+  a.href = midia
+    ? urlAutenticada(`/projects/${projetoId}/midia/content?path=${encodeURIComponent(midia)}`)
+    : urlAutenticada(`/projects/${projetoId}/artifacts/${resultado.id}?download=1`);
   a.download = String(resultado.nome).split('/').pop() ?? 'resultado';
   document.body.appendChild(a);
   a.click();
@@ -1799,12 +1802,18 @@ function ResultadoAberto({ projetoId, r, onFechar }: { projetoId: string; r: any
   const [imagem, setImagem] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
-  const url = `/projects/${projetoId}/artifacts/${r.id}`;
+  const url = r.caminho
+    ? `/projects/${projetoId}/midia/content?path=${encodeURIComponent(r.caminho)}`
+    : `/projects/${projetoId}/artifacts/${r.id}`;
   const ehImagem = /\.(png|jpe?g|gif|webp)$/i.test(String(r.nome));
   const ehVideo = /\.(mp4|webm|mov)$/i.test(String(r.nome));
   const ehAudio = /\.(mp3|wav|m4a|ogg|aac)$/i.test(String(r.nome));
   useEffect(() => {
-    if (ehImagem || ehVideo || ehAudio) {
+    if (ehVideo || ehAudio) {
+      setVideoUrl(urlAutenticada(url));
+      return;
+    }
+    if (ehImagem) {
       let active = true;
       let u: string | null = null;
       urlDoArquivo(url).then(x => {
