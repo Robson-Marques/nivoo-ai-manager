@@ -1515,7 +1515,7 @@ function Andamento({ job, feitas, atual }: { job: any; feitas: number; atual: an
   const total = originais.length || 1;
   const feitasOriginais = originais.filter((s: any) => s.status === 'CONCLUIDO').length;
   const revisando = job.steps.some((s: any) => s.key.startsWith('correcao-criterios-'));
-  const pct = Math.min(95, Math.round((feitasOriginais / total) * 100));
+  const pct = revisando ? 95 : Math.min(95, Math.round((feitasOriginais / total) * 100));
   // Só a rodada atual da etapa: uma etapa que já concluiu antes e voltou a rodar (ex.: a revisão depois de uma
   // correção) não herda o tempo nem os erros das rodadas passadas — antes aparecia um erro de horas atrás.
   const todas = atual ? [...job.attempts.filter((a: any) => a.stepId === atual.id)].sort((a: any, b: any) => a.number - b.number) : [];
