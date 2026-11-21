@@ -103,3 +103,25 @@ export async function prepararQuadrosDoVideo(
     return { gerados: [], video: filename, erro: 'Conferência técnica indisponível: ' + (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }
 }
+
+/**
+ * Revisão visual que recusou explicitamente o MP4 não é erro temporário.
+ * Não repetir sessões da IA tentando forçar "passou": preserve o vídeo e
+ * devolva a decisão humana com a justificativa registrada no parecer.
+ */
+export function parecerVisualNaoAprovado(worktree: string, command: string): string | null {
+  if (!quadrosRequeridos(command).length || !/["']resultado["']/.test(command)) return null;
+  const match = /grep\s+-Eq\s+(?:"[^"]*"|'[^']*')\s+(out\/[A-Za-z0-9_./-]+\.json)/.exec(command);
+  const relative = match?.[1];
+  if (!relative || relative.split('/').includes('..')) return null;
+  const root = path.resolve(worktree);
+  const file = path.resolve(root, relative);
+  if (!file.startsWith(root + path.sep)) return null;
+  try {
+    const report = JSON.parse(fs.readFileSync(file, 'utf8')) as { resultado?: unknown };
+    if (typeof report.resultado !== 'string' || report.resultado === 'passou') return null;
+    return `A conferência visual registrou resultado "${report.resultado}" em ${relative}. O MP4 existente foi preservado. Não iniciar nova sessão de IA para repetir a mesma reprovação; apresentar o parecer e exigir ajuste pontual ou decisão do usuário.`;
+  } catch {
+    return null;
+  }
+}
