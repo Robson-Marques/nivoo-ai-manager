@@ -10,6 +10,13 @@ import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteir
 import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
+
+/** Mensagem operacional completa: não esconder a falha atrás de "exit 1". */
+function explicarFalhaMidia(etapa: string, r: { exitCode: number | null; stderr: string; stdout: string; timedOut?: boolean; aborted?: boolean; spawnError?: string }): string {
+  const detalhes = [r.spawnError, r.stderr?.trim(), r.stdout?.trim()].filter(Boolean).join(' | ').slice(-2800);
+  const estado = r.aborted ? 'interrompido' : r.timedOut ? 'tempo excedido' : `exit ${r.exitCode ?? 'desconhecido'}`;
+  return `${etapa} (${estado}). ${detalhes || 'FFmpeg não retornou detalhes; confira acesso aos arquivos, espaço livre, permissões e logs do worker.'}`;
+}
 type TrechoLocucao = { texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number };
 function textoLocucao(t: TrechoLocucao): string {
   const frase = t.texto.trim();
@@ -84,6 +91,14 @@ export class JuntarVideosProvider implements AiProvider {
         const parte = path.join(tmp, `parte-${String(i).padStart(3, '0')}.mp4`);
         // Recorte (cortar início/fim) e velocidade deste clipe, se o plano pediu. Tudo reencoda igual; sem custo.
         const corte = o.cortes?.[i] ?? null;
+        // Um vídeo já aprovado é reutilizado sem reencode desnecessário.
+        // Só a sincronização global e a mixagem finais irão processá-lo.
+        if (entradas.length === 1 && !corte) {
+          fs.copyFileSync(entradas[i], parte);
+          partes.push(parte);
+          req.onLog(`Vídeo aprovado reaproveitado sem regenerar nem recodificar: ${cenas[i]}`);
+          continue;
+        }
         const ini = Number.isFinite(corte?.inicio) && (corte!.inicio as number) > 0 ? Number(corte!.inicio) : 0;
         const fim = Number.isFinite(corte?.fim) && (corte!.fim as number) > ini ? Number(corte!.fim) : null;
         const vel = Number.isFinite(corte?.velocidade) && (corte!.velocidade as number) > 0 ? Number(corte!.velocidade) : 1;
@@ -97,7 +112,7 @@ export class JuntarVideosProvider implements AiProvider {
         const r = await ff([...args, '-vf', vf, ...af, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2', parte]);
         if (r.exitCode !== 0) {
           if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
-          return { exitCode: 1, output: '', error: `não consegui preparar ${cenas[i]}: ${r.stderr.trim().slice(-300)}` };
+          return { exitCode: 1, output: '', error: explicarFalhaMidia(`Preparação do vídeo ${cenas[i]}`, r) };
         }
         partes.push(parte);
         req.onLog(`cena ${i + 1}/${cenas.length} pronta: ${cenas[i]}`);
@@ -144,7 +159,7 @@ export class JuntarVideosProvider implements AiProvider {
         fs.writeFileSync(lista, partes.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
         r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
       }
-      if (r.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui juntar as cenas: ${r.stderr.trim().slice(-300)}`, interrupted: req.signal.aborted };
+      if (r.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('União das cenas', r), interrupted: req.signal.aborted };
       // ÁUDIO: música de fundo (trilha) + narração (voz) por cima, montadas JUNTAS. O vídeo pode nem ter som próprio
       // (ex.: uma prévia pronta, sem áudio): então música/voz viram a trilha. O vídeo final tem o TAMANHO DO ÁUDIO —
       // se a narração passar do vídeo, a imagem segura o último quadro até a fala acabar (nunca corta pela metade).
@@ -239,6 +254,8 @@ export class JuntarVideosProvider implements AiProvider {
           }
         }
         const nDur = voz ? await durDe(voz) : 0;
+        if (voz && !(nDur > 0)) return { exitCode: 1, output: '', error: `Não foi possível determinar a duração da locução: ${o.narracao?.arquivo ?? 'arquivo gerado'}` };
+        if (!(vDur > 0)) return { exitCode: 1, output: '', error: `Não foi possível determinar a duração do vídeo: ${cenas.join(', ')}` };
         // Quando o pedido é narração sincronizada, a voz tem ritmo NATURAL.
         // Ajustamos somente a imagem para acompanhar a voz: nunca modificamos
         // o pitch, nunca aplicamos atempo na voz pronta. Sem silêncio prolongado.
@@ -258,7 +275,7 @@ export class JuntarVideosProvider implements AiProvider {
           if (Math.abs(vDur - alvoVoz) > 0.18) {
             const sincronizado = path.join(tmp, 'sincronizado.mp4');
             const sync = await ff(['-i', saida, '-an', '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=24`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
-            if (sync.exitCode !== 0) return { exitCode: 1, output: '', error: 'Não foi possível sincronizar imagem com a narração: ' + sync.stderr.trim().slice(-250), costUsd: custo, costEstimated: !!custo };
+            if (sync.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('Sincronização do vídeo com a narração', sync), costUsd: custo, costEstimated: !!custo };
             fs.renameSync(sincronizado, saida);
             req.onLog(`Sincronização da imagem: ${vDur.toFixed(2)}s → ${alvoVoz.toFixed(2)}s (${fator.toFixed(2)}x); a voz natural foi preservada.`);
           }
@@ -274,7 +291,7 @@ export class JuntarVideosProvider implements AiProvider {
           const esticado = path.join(tmp, 'esticado.mp4');
           const e = await ff(['-i', saida, '-vf', `tpad=stop_mode=clone:stop_duration=${(alvo - duracaoImagemAtual).toFixed(3)}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', ...(videoTemAudio ? ['-c:a', 'copy'] : ['-an']), '-movflags', '+faststart', esticado], 1_800_000);
           if (e.exitCode === 0) fs.renameSync(esticado, saida);
-          else req.onLog(`não consegui esticar o vídeo até o fim da narração (${e.stderr.trim().slice(-160)})`, 'WARN');
+          else return { exitCode: 1, output: '', error: explicarFalhaMidia('Extensão do último quadro até a narração', e), costUsd: custo, costEstimated: !!custo };
         }
         // 4) Monta a faixa de áudio de tamanho `alvo`: música (trim/loop + fade) + áudio do vídeo + voz (com ducking).
         const volM = o.trilha?.volume ?? 0.3;
@@ -316,7 +333,7 @@ export class JuntarVideosProvider implements AiProvider {
         if (rotuloFinal) {
           const comAudio = path.join(tmp, 'com-audio.mp4');
           const m = await ff([...inputs, '-filter_complex', filtros.join(';'), '-map', '0:v', '-map', `[${rotuloFinal}]`, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', alvo.toFixed(2), '-movflags', '+faststart', comAudio], 1_800_000);
-          if (m.exitCode !== 0) return { exitCode: 1, output: '', error: `não consegui montar o áudio: ${m.stderr.trim().slice(-300)}`, costUsd: custo, costEstimated: !!custo };
+          if (m.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('Mixagem de vídeo, locução e trilha', m), costUsd: custo, costEstimated: !!custo };
           fs.renameSync(comAudio, saida);
         }
         if (!trilhaInfo && videoTemAudio && volC !== 1) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
@@ -355,6 +372,10 @@ export class JuntarVideosProvider implements AiProvider {
       const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}${narracaoInfo ? `; ${narracaoInfo}` : ''}`;
       req.onLog(resumo);
       return { exitCode: 0, output: resumo, stopReason: 'completed', ...(custo ? { costUsd: custo, costEstimated: true } : {}) };
+    } catch (e: any) {
+      const erro = `Falha interna na montagem (sem descartar os arquivos originais): ${e?.message ?? String(e)}`;
+      req.onLog(erro, 'ERROR');
+      return { exitCode: 1, output: '', error: erro };
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
