@@ -101,7 +101,7 @@ export class CompletionService {
    * etapa, portanto o limite de tentativas POR ETAPA não a contém. Limite
    * global impede ciclos de revisão/correção com dezenas de etapas pagas.
    */
-  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; status: string; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
