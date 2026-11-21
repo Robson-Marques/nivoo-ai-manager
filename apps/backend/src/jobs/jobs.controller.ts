@@ -165,6 +165,11 @@ export class JobsController {
     return r.map((a) => ({ id: a.id, nome: a.name, bytes: a.sizeBytes, sha256: a.sha256, criadoEm: a.createdAt }));
   }
 
+  @Get('media-catalog')
+  async catalogoMidias(@Param('pid', ParseUUIDPipe) pid: string) {
+    return this.artifacts.mediaCatalog(pid);
+  }
+
   @Get('artifacts')
   async listArtifacts(@Param('pid', ParseUUIDPipe) pid: string, @Query('jobId') jobId?: string) {
     return this.prisma.artifact.findMany({ where: { projectId: pid, ...(jobId ? { jobId } : {}) }, orderBy: { createdAt: 'desc' }, take: 500 });
@@ -172,14 +177,17 @@ export class JobsController {
 
   @Get('artifacts/:aid')
   async download(@Param('pid', ParseUUIDPipe) pid: string, @Param('aid', ParseUUIDPipe) aid: string, @Res() res: Response) {
-    const { artifact, content } = await this.artifacts.read(pid, aid);
+    const { artifact, abs } = await this.artifacts.location(pid, aid);
     res.setHeader('Content-Type', artifact.mimeType);
     res.setHeader('X-Content-SHA256', artifact.sha256);
     // Conteúdo gerado por agentes: nunca executa scripts no contexto da aplicação.
     res.setHeader('Content-Security-Policy', 'sandbox; default-src \'none\'; img-src data:; style-src \'unsafe-inline\'');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(artifact.name.split('/').pop() ?? 'artefato')}"`);
-    res.send(content);
+    // Express envia em streaming com suporte a HTTP Range, sem carregar MP4 na RAM.
+    res.sendFile(abs, { acceptRanges: true }, (err) => {
+      if (err && !res.headersSent) res.status(500).end('Falha ao enviar o arquivo');
+    });
   }
 }
 

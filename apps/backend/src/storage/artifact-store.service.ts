@@ -150,10 +150,57 @@ export class ArtifactStoreService {
     return registrados;
   }
 
-  async read(projectId: string, artifactId: string): Promise<{ artifact: Artifact; content: Buffer }> {
+  /** Referência imutável e verificável para consumo/download em streaming. */
+  async location(projectId: string, artifactId: string): Promise<{ artifact: Artifact; abs: string }> {
     const artifact = await this.prisma.artifact.findFirst({ where: { id: artifactId, projectId } });
     if (!artifact) throw new NotFoundException('Artefato não encontrado neste projeto');
     const abs = resolveInside(appConfig().artifactsRoot, artifact.storagePath);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile())
+      throw new NotFoundException('Arquivo físico do artefato não encontrado');
+    return { artifact, abs };
+  }
+
+  /**
+   * Catálogo de mídias de TODOS os trabalhos do projeto, não apenas a última
+   * conversa, com IDs imutáveis. Sem adivinhar por basename.
+   */
+  async mediaCatalog(projectId: string): Promise<Array<{
+    id: string; nome: string; tipo: 'video' | 'locucao' | 'trilha' | 'audio';
+    bytes: number; trabalhoId: string | null; criadoEm: Date; referencia: string;
+  }>> {
+    const artifacts = await this.prisma.artifact.findMany({
+      where: { projectId, kind: 'FILE', name: { endsWith: '.mp3' } },
+      orderBy: { createdAt: 'desc' }, take: 1000,
+    });
+    const videos = await this.prisma.artifact.findMany({
+      where: { projectId, kind: 'FILE', OR: [
+        { name: { endsWith: '.mp4' } }, { name: { endsWith: '.mov' } },
+        { name: { endsWith: '.webm' } }, { name: { endsWith: '.wav' } },
+        { name: { endsWith: '.m4a' } }, { name: { endsWith: '.aac' } },
+        { name: { endsWith: '.ogg' } },
+      ] },
+      orderBy: { createdAt: 'desc' }, take: 1000,
+    });
+    const seen = new Set<string>();
+    return [...artifacts, ...videos].sort((a,b) => +b.createdAt - +a.createdAt)
+      .filter(a => {
+        const key = a.name + ':' + a.sha256;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map(a => {
+        const n = a.name.toLowerCase();
+        const tipo = /\.(mp4|mov|webm)$/.test(n) ? 'video'
+          : /trilha|instrumental|m[uú]sica|soundtrack/.test(n) ? 'trilha'
+          : /locu[cç][aã]o|narr[aã]c[aã]o|voz|fala|tts/.test(n) ? 'locucao' : 'audio';
+        return { id: a.id, nome: a.name, tipo: tipo as 'video' | 'locucao' | 'trilha' | 'audio',
+          bytes: a.sizeBytes, trabalhoId: a.jobId, criadoEm: a.createdAt,
+          referencia: 'artefato/' + a.id + '/' + a.name.split('/').pop() };
+      });
+  }
+
+  async read(projectId: string, artifactId: string): Promise<{ artifact: Artifact; content: Buffer }> {
+    const { artifact, abs } = await this.location(projectId, artifactId);
     return { artifact, content: fs.readFileSync(abs) };
   }
 

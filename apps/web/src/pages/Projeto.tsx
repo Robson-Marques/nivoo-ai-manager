@@ -1223,10 +1223,11 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   );
 }
 
-type AbaPainel = 'memoria' | 'arquivos' | 'git' | 'ajustes';
+type AbaPainel = 'memoria' | 'arquivos' | 'midia' | 'git' | 'ajustes';
 const ABAS_PAINEL: Array<{ chave: AbaPainel; titulo: string }> = [
   { chave: 'memoria', titulo: 'Memória' },
   { chave: 'arquivos', titulo: 'Arquivos' },
+  { chave: 'midia', titulo: 'Mídia' },
   { chave: 'git', titulo: 'Git' },
   { chave: 'ajustes', titulo: 'Ajustes' },
 ];
@@ -1274,6 +1275,7 @@ function Painel({ projeto, versao, onProjetoMudou, aba, onAba }: { projeto: any;
       <div className="abas">
         <button className={aba === 'memoria' ? 'tab active' : 'tab'} onClick={() => setAba('memoria')}>Memória</button>
         <button className={aba === 'arquivos' ? 'tab active' : 'tab'} onClick={() => setAba('arquivos')}>Arquivos</button>
+        <button className={aba === 'midia' ? 'tab active' : 'tab'} onClick={() => setAba('midia')}>Mídia</button>
         <button className={aba === 'git' ? 'tab active' : 'tab'} onClick={() => setAba('git')}>Git</button>
         <button className={aba === 'ajustes' ? 'tab active' : 'tab'} onClick={() => setAba('ajustes')}>Ajustes</button>
       </div>
@@ -1300,6 +1302,7 @@ function Painel({ projeto, versao, onProjetoMudou, aba, onAba }: { projeto: any;
           <MemoriaInterna projetoId={projetoId} versao={versao} />
         </div>
       )}
+      {aba === 'midia' && <CatalogoMidiaProjeto projetoId={projetoId} versao={versao} />}
       {aba === 'arquivos' && (
         <div className="lista">
           {arquivos && arquivos.length === 0 && <p className="muted small">A pasta do projeto ainda está vazia. Peça na conversa para a IA criar algo.</p>}
@@ -1607,6 +1610,73 @@ export function VideoDoProjeto({ projetoId, caminho }: { projetoId: string; cami
           baixar {caminho}
         </a>
       )}
+    </div>
+  );
+}
+
+type MidiaCatalogada = {
+  id: string; nome: string; tipo: 'video' | 'locucao' | 'trilha' | 'audio';
+  bytes: number; trabalhoId: string | null; criadoEm: string; referencia: string;
+};
+
+/** Visão única dos arquivos aproveitáveis de TODOS os trabalhos, não dos PNGs de QA. */
+function CatalogoMidiaProjeto({ projetoId, versao }: { projetoId: string; versao: number }) {
+  const [itens, setItens] = useState<MidiaCatalogada[]>([]);
+  const [erro, setErro] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [baixando, setBaixando] = useState<string | null>(null);
+  const [aberto, setAberto] = useState<MidiaCatalogada | null>(null);
+  const recarregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      setItens(await api<MidiaCatalogada[]>(`/projects/${projetoId}/media-catalog`));
+      setErro(null);
+    } catch (e: any) {
+      setErro(String(e?.message ?? 'Não foi possível consultar as mídias'));
+    } finally { setCarregando(false); }
+  }, [projetoId]);
+  useEffect(() => { void recarregar(); }, [recarregar, versao]);
+  const grupos: Array<{ tipo: MidiaCatalogada['tipo']; titulo: string }> = [
+    { tipo: 'video', titulo: 'Vídeos' },
+    { tipo: 'locucao', titulo: 'Locuções' },
+    { tipo: 'trilha', titulo: 'Trilhas musicais' },
+    { tipo: 'audio', titulo: 'Outros áudios' },
+  ];
+  return (
+    <div className="lista" style={{ padding: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <strong>Biblioteca de mídia</strong>
+        <button type="button" className="secondary small" onClick={() => void recarregar()} disabled={carregando}>
+          {carregando ? 'Atualizando…' : 'Atualizar'}
+        </button>
+      </div>
+      <p className="muted small">Todos os vídeos e áudios dos trabalhos anteriores. Arquivos de conferência não aparecem aqui. Nada será apagado.</p>
+      {erro && <p className="error" role="alert">{erro}</p>}
+      {!carregando && itens.length === 0 && <p className="muted small">Nenhuma mídia registrada no catálogo. A mídia física ainda pode estar na aba de edição do projeto.</p>}
+      {grupos.map(({ tipo, titulo }) => {
+        const grupo = itens.filter(x => x.tipo === tipo);
+        if (!grupo.length) return null;
+        return <section key={tipo} style={{ marginTop: 12 }}>
+          <strong>{titulo} ({grupo.length})</strong>
+          <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+            {grupo.map(r => <div key={r.id} className="arquivo-chip resultado" style={{ padding: 10, display: 'grid', gap: 6, overflowWrap: 'anywhere' }}>
+              <strong className="small">{r.nome.split('/').pop()}</strong>
+              <span className="muted small">{(r.bytes / 1024 / 1024).toFixed(2)} MB · trabalho {r.trabalhoId?.slice(0, 8) ?? 'não identificado'}</span>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button className="secondary small" type="button" onClick={() => setAberto(r)}>Ouvir / assistir</button>
+                <button type="button" className="small" disabled={baixando === r.id} onClick={async () => {
+                  setBaixando(r.id); setErro(null);
+                  try { await baixarResultadoDoTrabalho(projetoId, r); }
+                  catch (e: any) { setErro(String(e?.message ?? e)); }
+                  finally { setBaixando(null); }
+                }}>{baixando === r.id ? 'Preparando…' : 'Baixar'}</button>
+                <button type="button" className="secondary small" onClick={() => void copiarTexto(r.referencia)}>Copiar referência</button>
+              </div>
+            </div>)}
+          </div>
+        </section>;
+      })}
+      {aberto && <ResultadoAberto projetoId={projetoId} r={aberto} onFechar={() => setAberto(null)} />}
     </div>
   );
 }

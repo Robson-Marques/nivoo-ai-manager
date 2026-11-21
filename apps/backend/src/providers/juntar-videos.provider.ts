@@ -72,6 +72,23 @@ export class JuntarVideosProvider implements AiProvider {
    * só porque foi gerado por último ou porque o pedido disse "aprovado".
    */
   private async resolverEntrada(req: ExecutionRequest, rel: string): Promise<string> {
+    // IDs do catálogo são contratos imutáveis: não procurar nomes semelhantes.
+    const exato = /^artefato\/([0-9a-f]{8}-[0-9a-f-]{27,})\/([^/]+)$/i.exec(rel);
+    if (exato) {
+      const job = await this.prisma.job.findUnique({ where: { id: req.jobId }, select: { projectId: true } });
+      if (!job) throw new Error('Trabalho não localizado ao resolver artefato');
+      const a = await this.prisma.artifact.findFirst({
+        where: { id: exato[1], projectId: job.projectId, kind: 'FILE' },
+        select: { name: true, storagePath: true },
+      });
+      if (!a || path.posix.basename(a.name) !== exato[2])
+        throw new Error(`Mídia do catálogo não encontrada ou identificador inválido: ${rel}`);
+      const file = resolveInside(appConfig().artifactsRoot, a.storagePath);
+      if (!fs.existsSync(file) || !fs.statSync(file).size)
+        throw new Error(`Arquivo do catálogo indisponível: ${a.name}`);
+      req.onLog(`Mídia selecionada pelo ID do catálogo: ${a.name}`);
+      return file;
+    }
     const local = this.resolver(req, rel);
     if (fs.existsSync(local) && fs.statSync(local).isFile() && fs.statSync(local).size > 0) return local;
 
