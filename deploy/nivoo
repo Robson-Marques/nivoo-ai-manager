@@ -213,7 +213,28 @@ EOF
       echo "código sem .git: substitua os arquivos em $APP_DIR pela nova versão e rode 'nivoo update' de novo" >&2
     fi
     nivoo backup
-    (umask 022; bash "$APP_DIR/deploy/install-debian.sh")
+    # Atualização com diagnóstico persistente, sem esconder stderr ou exigir
+    # que o usuário rode npm/tsc de novo para descobrir a causa.
+    log_dir=/var/log/nivoo
+    install -d -m 700 "$log_dir"
+    log_file="$log_dir/update-$(date +%Y%m%d-%H%M%S).log"
+    : > "$log_file"
+    chmod 600 "$log_file"
+    echo "Atualização: log completo em $log_file"
+    if (umask 022; bash "$APP_DIR/deploy/install-debian.sh") 2>&1 | tee -a "$log_file"; then
+      echo
+      echo "NIVOO UPDATE CONCLUÍDO COM SUCESSO"
+      echo "Log: $log_file"
+    else
+      rc=$?
+      echo >&2
+      echo "ERRO: nivoo update não concluiu (código $rc)." >&2
+      echo "Log completo: $log_file" >&2
+      echo "Últimas mensagens do erro:" >&2
+      tail -n 90 "$log_file" >&2
+      echo "A atualização foi interrompida. Corrija a causa indicada acima antes de tentar novamente." >&2
+      exit "$rc"
+    fi
     ;;
   backup)
     install -d -m 700 "$BACKUP_DIR"

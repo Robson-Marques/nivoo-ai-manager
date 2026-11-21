@@ -25,7 +25,18 @@
 #   NIVOO_INSTALL_CLIS=1   0 para não instalar Claude Code/Codex
 #   NODE_VERSION=22.22.0   versão do Node.js
 # =============================================================================
-set -euo pipefail
+set -eEuo pipefail
+# Quando o comando falha, a própria instalação informa a etapa, linha e comando.
+# O nível superior (nivoo update) registra a saída completa em log privado.
+nivoo_install_step="inicialização"
+nivoo_install_error() {
+  local rc="$1" linha="$2" cmd="$3"
+  trap - ERR
+  printf '\nERRO NA INSTALAÇÃO DO NIVOO\n' >&2
+  printf '  Etapa: %s\n  Linha: %s\n  Código de saída: %s\n  Comando: %s\n' "$nivoo_install_step" "$linha" "$rc" "$cmd" >&2
+  printf '  Consulte o log indicado pelo nivoo update; a instalação não foi concluída.\n' >&2
+}
+trap 'nivoo_install_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 # Código, dependências e interface precisam ser legíveis pelo usuário 'nivoo' (os serviços não rodam
 # como root). Quem chama (ex.: 'nivoo update', que usa umask 077 para backups) não pode impor outra.
 umask 022
@@ -46,7 +57,7 @@ DB_NAME=nivoo
 DB_USER=nivoo
 
 c_ok=$'\e[32m'; c_warn=$'\e[33m'; c_err=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
-step() { echo; echo "${c_b}==> $*${c_0}"; }
+step() { nivoo_install_step="$*"; echo; echo "${c_b}==> $*${c_0}"; }
 ok()   { echo "${c_ok}    ok${c_0} $*"; }
 warn() { echo "${c_warn}    aviso:${c_0} $*"; }
 die()  { echo "${c_err}ERRO:${c_0} $*" >&2; exit 1; }
@@ -189,7 +200,8 @@ ln -sfn "$ENV_FILE" "$APP_DIR/apps/backend/.env"
 step "6/9 Dependências e compilação (pode levar alguns minutos)"
 cd "$APP_DIR"
 npm ci --no-audit --no-fund --loglevel=error
-npm run build --silent >/dev/null
+# Não descartar stdout do build: TypeScript mostra os arquivos e linhas com erro.
+npm run build --silent
 # Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
