@@ -6,7 +6,9 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 type Quadro = '08' | '30' | '58' | '85' | 'final';
 const tempos: Record<Quadro, number> = { '08': 0.08, '30': 0.30, '58': 0.58, '85': 0.85, final: 0.99 };
-const padrao = /test\s+-s\s+['"]?(out\/[A-Za-z0-9_./-]+\/quadro-(08|30|58|85|final)\.png)['"]?/g;
+// Aceita tanto out/quadro-08.png quanto out/qualidade/quadro-08.png.
+// A versão anterior exigia subpasta e ignorava silenciosamente o plano real.
+const padrao = /test\s+-s\s+['"]?(out\/(?:[A-Za-z0-9_.-]+\/)*quadro-(08|30|58|85|final)\.png)['"]?/g;
 
 /** Detecta somente conferências que exigem quadros reais de um MP4. */
 export function quadrosRequeridos(command: string): Array<{ destino: string; momento: Quadro }> {
