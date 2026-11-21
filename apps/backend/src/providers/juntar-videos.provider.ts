@@ -361,9 +361,14 @@ export class JuntarVideosProvider implements AiProvider {
           else return { exitCode: 1, output: '', error: explicarFalhaMidia('Extensão do último quadro até a narração', e), costUsd: custo, costEstimated: !!custo };
         }
         // 4) Monta a faixa de áudio de tamanho `alvo`: música (trim/loop + fade) + áudio do vídeo + voz (com ducking).
-        const volM = o.trilha?.volume ?? 0.3;
+        // O volume selecionado deve representar o volume real da música.
+        // Antes: 0.3 * 0.35 * sidechain => trilha quase inaudível.
+        const volM = o.trilha?.volume ?? 0.65;
         const volC = o.volumeCenas ?? 1;
-        const fimFade = Math.max(0, alvo - 2.5).toFixed(2);
+        // Evitar apagar metade de uma trilha curta com fades longos.
+        const fadeIn = Math.min(0.35, Math.max(0, alvo * 0.03));
+        const fadeOut = Math.min(0.85, Math.max(0.25, alvo * 0.075));
+        const fimFade = Math.max(0, alvo - fadeOut).toFixed(3);
         const inputs: string[] = ['-i', saida];
         const filtros: string[] = [];
         const fundos: string[] = [];
@@ -374,7 +379,8 @@ export class JuntarVideosProvider implements AiProvider {
         if (musica) {
           inputs.push('-stream_loop', '-1', '-i', musica);
           const mi = inputs.filter((x) => x === '-i').length - 1;
-          filtros.push(`[${mi}:a]atrim=0:${alvo.toFixed(2)},asetpts=PTS-STARTPTS,volume=${volM},afade=t=in:d=1.5,afade=t=out:st=${fimFade}:d=2.5[mus]`);
+          // Normalizar a trilha ANTES de aplicar o volume, para arquivos de origem muito baixos.
+          filtros.push(`[${mi}:a]atrim=0:${alvo.toFixed(2)},asetpts=PTS-STARTPTS,loudnorm=I=-19:TP=-2:LRA=11,volume=${volM},afade=t=in:d=${fadeIn.toFixed(3)},afade=t=out:st=${fimFade}:d=${fadeOut.toFixed(3)}[mus]`);
           fundos.push('mus');
         }
         let fundo: string | null = null;
@@ -387,9 +393,10 @@ export class JuntarVideosProvider implements AiProvider {
         if (voz) {
           inputs.push('-i', voz);
           const vi = inputs.filter((x) => x === '-i').length - 1;
-          const volFundo = Number.isFinite(o.narracao?.volumeFundoSobVoz) ? Math.max(0, Math.min(1, Number(o.narracao!.volumeFundoSobVoz))) : 0.35;
+          // Sem segunda redução fixa. Ducking dinâmico só enquanto a voz está presente.
+          const volFundo = Number.isFinite(o.narracao?.volumeFundoSobVoz) ? Math.max(0, Math.min(1, Number(o.narracao!.volumeFundoSobVoz))) : 1;
           filtros.push(`[${vi}:a]aresample=48000,asetpts=PTS-STARTPTS,apad=whole_dur=${alvo.toFixed(2)}[narr]`);
-          if (fundo) filtros.push(`[narr]asplit=2[nv][nk];[${fundo}]volume=${volFundo}[bg];[bg][nk]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=400[bgd];[nv][bgd]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`);
+          if (fundo) filtros.push(`[narr]asplit=2[nv][nk];[${fundo}]volume=${volFundo}[bg];[bg][nk]sidechaincompress=threshold=0.08:ratio=3:attack=30:release=300[bgd];[nv][bgd]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95[a]`);
           else filtros.push(`[narr]alimiter=limit=0.95[a]`);
           rotuloFinal = 'a';
           narracaoInfo = vozInfo;
