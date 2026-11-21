@@ -113,6 +113,14 @@ function validarSaidaMotion(command: string, origem: string): string {
 }
 
 
+/**
+ * Fronteira do planejamento: IA recebe TEXTO; local-shell recebe um COMANDO.
+ * O nome da ferramenta citado em uma instrução de IA nunca é uma invocação.
+ */
+export function normalizarInstrucaoDeEtapa(texto: string, provider: string, origem: string): string {
+  return provider === 'local-shell' ? validarSaidaMotion(texto, origem) : texto;
+}
+
 export interface StepInput {
   key: string;
   title: string;
@@ -144,9 +152,12 @@ export class JobsService {
       if (key === RULE_REVIEW_STEP) throw new BadRequestException(`A etapa ${RULE_REVIEW_STEP} é criada pelo sistema`);
       const rawInstructions = reqString(s, 'instructions', 100000);
       const rawVerifyCommand = optString(s, 'verifyCommand', 5000);
-      const instructions = validarSaidaMotion(rawInstructions, `Etapa ${key} (instruções)`);
-      const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : undefined;
       const provider = optString(s, 'provider', 60);
+      // O texto de uma etapa de IA NÃO é um script: pode citar comandos,
+      // erros antigos e caminhos inválidos como parte da análise.
+      // Validar/normalizar comandos SOMENTE quando serão executados como Bash.
+      const instructions = normalizarInstrucaoDeEtapa(rawInstructions, provider ?? defaultProvider, `Etapa ${key} (instruções)`);
+      const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : undefined;
       if ((provider ?? defaultProvider) === 'local-shell') {
         const invalido = erroDeComandoLocal(instructions);
         if (invalido) throw new BadRequestException(`Etapa ${key}: ${invalido}`);
