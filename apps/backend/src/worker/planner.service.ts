@@ -347,6 +347,20 @@ export class PlannerService {
    */
   private async seguirSozinho(projectId: string, conversationId: string, messageId: string, continuacao: boolean): Promise<void> {
     if (!continuacao) return;
+    // Uma montagem de vídeo é uma entrega final, não a autorização para
+    // criar e executar outra montagem automaticamente depois do resultado.
+    const ultimaAprovacao = await this.prisma.conversationMessage.findFirst({
+      where: { conversationId, jobId: { not: null }, approvedAt: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { jobId: true },
+    });
+    if (ultimaAprovacao?.jobId) {
+      const anterior = await this.prisma.job.findUnique({
+        where: { id: ultimaAprovacao.jobId },
+        include: { steps: { select: { provider: true } } },
+      });
+      if (anterior?.status === 'CONCLUIDO' && anterior.steps.some(s => s.provider === 'juntar-videos')) return;
+    }
     // Autocorreções de trabalhos que já falharam são sempre manuais: o
     // assistente apresenta o diagnóstico, mas não dispara um novo job sem Fazer.
     const mensagem = await this.prisma.conversationMessage.findUnique({
