@@ -169,20 +169,20 @@ export class ArtifactStoreService {
     bytes: number; trabalhoId: string | null; criadoEm: Date; referencia: string;
   }>> {
     const artifacts = await this.prisma.artifact.findMany({
-      where: { projectId, kind: 'FILE', name: { endsWith: '.mp3' } },
-      orderBy: { createdAt: 'desc' }, take: 1000,
-    });
-    const videos = await this.prisma.artifact.findMany({
       where: { projectId, kind: 'FILE', OR: [
-        { name: { endsWith: '.mp4' } }, { name: { endsWith: '.mov' } },
-        { name: { endsWith: '.webm' } }, { name: { endsWith: '.wav' } },
-        { name: { endsWith: '.m4a' } }, { name: { endsWith: '.aac' } },
-        { name: { endsWith: '.ogg' } },
+        { name: { endsWith: '.mp4', mode: 'insensitive' } },
+        { name: { endsWith: '.mov', mode: 'insensitive' } },
+        { name: { endsWith: '.webm', mode: 'insensitive' } },
+        { name: { endsWith: '.mp3', mode: 'insensitive' } },
+        { name: { endsWith: '.wav', mode: 'insensitive' } },
+        { name: { endsWith: '.m4a', mode: 'insensitive' } },
+        { name: { endsWith: '.aac', mode: 'insensitive' } },
+        { name: { endsWith: '.ogg', mode: 'insensitive' } },
       ] },
-      orderBy: { createdAt: 'desc' }, take: 1000,
+      orderBy: { createdAt: 'desc' }, take: 2000,
     });
     const seen = new Set<string>();
-    return [...artifacts, ...videos].sort((a,b) => +b.createdAt - +a.createdAt)
+    return artifacts
       .filter(a => {
         const key = a.name + ':' + a.sha256;
         if (seen.has(key)) return false;

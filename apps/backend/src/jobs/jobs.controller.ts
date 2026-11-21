@@ -176,14 +176,14 @@ export class JobsController {
   }
 
   @Get('artifacts/:aid')
-  async download(@Param('pid', ParseUUIDPipe) pid: string, @Param('aid', ParseUUIDPipe) aid: string, @Res() res: Response) {
+  async download(@Param('pid', ParseUUIDPipe) pid: string, @Param('aid', ParseUUIDPipe) aid: string, @Query('download') baixar: string | undefined, @Res() res: Response) {
     const { artifact, abs } = await this.artifacts.location(pid, aid);
     res.setHeader('Content-Type', artifact.mimeType);
     res.setHeader('X-Content-SHA256', artifact.sha256);
     // Conteúdo gerado por agentes: nunca executa scripts no contexto da aplicação.
     res.setHeader('Content-Security-Policy', 'sandbox; default-src \'none\'; img-src data:; style-src \'unsafe-inline\'');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(artifact.name.split('/').pop() ?? 'artefato')}"`);
+    res.setHeader('Content-Disposition', `${baixar === '1' ? 'attachment' : 'inline'}; filename="${encodeURIComponent(artifact.name.split('/').pop() ?? 'artefato')}"`);
     // Express envia em streaming com suporte a HTTP Range, sem carregar MP4 na RAM.
     res.sendFile(abs, { acceptRanges: true }, (err) => {
       if (err && !res.headersSent) res.status(500).end('Falha ao enviar o arquivo');

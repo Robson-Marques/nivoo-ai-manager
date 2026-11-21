@@ -1695,15 +1695,13 @@ function tipoDeResultado(r: ResultadoVisivel): { nome: string; icone: string; im
 }
 
 async function baixarResultadoDoTrabalho(projetoId: string, resultado: ResultadoVisivel): Promise<void> {
-  const url = await urlDoArquivo(`/projects/${projetoId}/artifacts/${resultado.id}`);
-  if (!url) throw new Error('Não foi possível obter o arquivo. Verifique se ele ainda está disponível.');
+  // Streaming direto do servidor, sem transformar um MP4 inteiro em Blob no navegador.
   const a = document.createElement('a');
-  a.href = url;
+  a.href = urlAutenticada(`/projects/${projetoId}/artifacts/${resultado.id}?download=1`);
   a.download = String(resultado.nome).split('/').pop() ?? 'resultado';
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 /** Só os arquivos de entrega ficam destacados; logs e quadros de inspeção continuam acessíveis. */
