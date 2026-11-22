@@ -14,6 +14,7 @@ import { maybeProductionMedia } from './standalone-projects';
 import { inspectRenderedVideo } from '../video/video-render-inspection';
 import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender } from './render-status-store';
 import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLease, recoverDeadStudioRenderLease } from './render-lease';
+import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -620,21 +621,23 @@ export class VideoStudioService {
       entry.result={...entry.result,stage,progress};
       saveStudioRenderStatus(media,p.id,entry.result);
     };
-    const ff=(args:string[])=>new Promise<void>((resolve,reject)=>{
-      if(entry.result.state==='cancelled') return reject(new Error('cancelado'));
-      const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',...args],{stdio:['ignore','ignore','pipe']});
-      entry.process=child;let err='';
-      child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1800);});
-      child.on('error',reject);
-      child.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-500))));
-    });
-    const probe=(file:string)=> {
-      const r=spawnSync('ffprobe',['-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',file],{encoding:'utf8'});
-      if(r.status!==0) throw new Error('Falha ffprobe: '+String(r.stderr).slice(-300));
-      const j=JSON.parse(r.stdout);return {v:j.streams.find((s:any)=>s.codec_type==='video'),audio:j.streams.some((s:any)=>s.codec_type==='audio'),duration:Number(j.format.duration)};
+    const track=(child: ChildProcess)=>{ entry.process=child; };
+    const cancelled=()=>entry.result.state==='cancelled';
+    const ff=async(args:string[])=>{
+      try {
+        await runStudioMediaCommand('ffmpeg',
+          ['-nostdin','-hide_banner','-loglevel','error','-y',...args],
+          {timeoutMs:1_200_000,maxOutputBytes:256_000,onSpawn:track,isCancelled:cancelled});
+      } finally { entry.process=undefined; }
+    };
+    const probe=async(file:string)=>{
+      try {
+        const result=await probeStudioMedia(file,{onSpawn:track,isCancelled:cancelled});
+        return {v:result.video,audio:result.audio,duration:result.duration};
+      } finally { entry.process=undefined; }
     };
     try {
-      const first=probe(this.src(media,p.clips[0].source));
+      const first=await probe(this.src(media,p.clips[0].source));
       if(!first.v) throw new Error('Primeiro arquivo não é vídeo');
       const W=first.v.width%2?first.v.width-1:first.v.width, H=first.v.height%2?first.v.height-1:first.v.height;
       if(!W||!H) throw new Error('Resolução inválida');
@@ -643,7 +646,7 @@ export class VideoStudioService {
       for(const [i,c] of p.clips.entries()) {
         report('clips',Math.round(5+50*i/p.clips.length));
         const source=this.src(media,c.source);
-        const info=probe(source);
+        const info=await probe(source);
         if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
         if(c.end>info.duration+.05) throw new Error('Corte excede duração de '+c.source);
         const duration=c.end-c.start;
