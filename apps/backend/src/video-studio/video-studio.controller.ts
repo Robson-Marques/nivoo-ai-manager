@@ -79,8 +79,9 @@ export class VideoStudioController {
   }
 
   @Post(':id/render')
-  render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
-    return this.studio.render(pid,id);
+  render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string,
+    @Body() body?: {engine?:'ffmpeg'|'remotion'}) {
+    return this.studio.render(pid,id,body?.engine??'ffmpeg');
   }
 
   @Get(':id/render')

@@ -16,6 +16,9 @@ import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender
 import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLease, recoverDeadStudioRenderLease } from './render-lease';
 import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process';
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
+import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
+import { UNVERIFIED_REMOTION_FEATURES } from '../video/video-render-parity';
+import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -53,7 +56,7 @@ const assTime = (s: number) => {
   return h + ':' + String(m).padStart(2,'0') + ':' + String(secs).padStart(2,'0') + '.' + String(cs%100).padStart(2,'0');
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
-const status = new Map<string, { result: Status; process?: ChildProcess; media: string }>();
+const status = new Map<string, { result: Status; process?: ChildProcess; abort?: AbortController; media: string }>();
 const claimEditLease=(media:string,id:string,runId:string)=>{
   const previous=readStudioRenderLease(media,id);
   if(previous) recoverDeadStudioRenderLease(media,id);
@@ -559,7 +562,9 @@ export class VideoStudioService {
     }catch(e){generated.forEach(f=>fs.rmSync(f,{force:true}));throw e}
   }
 
-  async render(pid:string,id:string) {
+  async render(pid:string,id:string,engine:'ffmpeg'|'remotion'='ffmpeg') {
+    if(engine!=='ffmpeg'&&engine!=='remotion')throw new BadRequestException('Motor de exportação inválido');
+    if(engine==='remotion'&&!remotionBundlePath())throw new BadRequestException('Bundle Remotion não provisionado; execute nivoo update');
     const {media} = await this.dir(pid);
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
@@ -575,7 +580,7 @@ export class VideoStudioService {
       saveStudioRenderStatus(media,id,result);
       status.set(key,{result,media});
       setImmediate(()=>{
-        void this.execute(media,p,key).catch(e=>{
+        void (engine==='remotion'?this.executeRemotion(media,p,key,pid):this.execute(media,p,key)).catch(e=>{
           const current=status.get(key);
           if(current?.result.state==='running' && current.result.runId===runId) {
             current.result={...current.result,state:'failed',error:String(e?.message??e).slice(0,600)};
@@ -619,10 +624,76 @@ export class VideoStudioService {
     if (entry?.result.runId===active.runId && entry.result.state==='running') {
       entry.result={...entry.result,state:'cancelled'};
       saveStudioRenderStatus(media,id,entry.result);
+      entry.abort?.abort();
       entry.process?.kill('SIGTERM');
       return entry.result;
     }
     return {...active, cancellationRequested:true};
+  }
+  private async executeRemotion(media:string,p:StudioProject,key:string,pid:string) {
+    const entry=status.get(key)!;
+    const runId=entry.result.runId;
+    const controller=new AbortController();
+    entry.abort=controller;
+    const cancelled=()=>entry.result.state==='cancelled' ||
+      isStudioRenderCancellationRequested(media,p.id,runId);
+    const poll=setInterval(()=>{
+      try {if(cancelled())controller.abort();}
+      catch {controller.abort();}
+    },250);
+    poll.unref?.();
+    const report=(stage:NonNullable<Status['stage']>,progress:number)=>{
+      if(cancelled())throw new Error('Renderização cancelada');
+      entry.result={...entry.result,stage,progress};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    };
+    try {
+      report('validating',2);
+      const bundle=remotionBundlePath();
+      if(!bundle)throw new Error('Remotion bundle indisponível');
+      const first=this.src(media,p.clips[0].source);
+      const probe=await probeStudioMedia(first,{isCancelled:cancelled});
+      if(!probe.video)throw new Error('Primeiro arquivo não é vídeo');
+      const width=probe.video.width-(probe.video.width%2);
+      const height=probe.video.height-(probe.video.height%2);
+      if(!width||!height)throw new Error('Resolução inválida');
+      // All source references were authorized by validate(). The job stages
+      // project-relative media under an isolated private bundle.
+      report('compositing',8);
+      const output=path.join(media,'saida','studio-'+p.id+'-'+runId+'.mp4');
+      fs.mkdirSync(path.dirname(output),{recursive:true});
+      const rendered=await renderStudioEditWithRemotion({
+        edit:p,projectId:pid,width,height,
+        workspaceRoot:path.dirname(media),
+        workDirectory:path.join(media,'studio','remotion-jobs'),
+        trustedBundleDirectory:bundle,outputFile:output,
+        supportedFeatures:UNVERIFIED_REMOTION_FEATURES,
+      },controller.signal);
+      if(cancelled()){
+        fs.rmSync(rendered.outputFile,{force:true});
+        return;
+      }
+      report('inspecting',95);
+      const warnings:string[]=[];
+      if(rendered.blackFrameCount>0)warnings.push('Possíveis trechos pretos detectados');
+      if(rendered.hasAudio&&rendered.audioPeakDbfs!==undefined&&rendered.audioPeakDbfs< -60)
+        warnings.push('Áudio muito baixo ou silencioso');
+      entry.result={...entry.result,state:'done',progress:100,
+        output:'midia/saida/'+path.basename(rendered.outputFile),
+        inspection:{durationMs:rendered.durationMs,blackFrameCount:rendered.blackFrameCount,
+          hasAudio:rendered.hasAudio,
+          ...(rendered.audioPeakDbfs!==undefined?{audioPeakDbfs:rendered.audioPeakDbfs}:{}),
+          warnings}};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    } finally {
+      clearInterval(poll);
+      entry.abort=undefined;
+      if(cancelled()&&entry.result.state==='running'){
+        entry.result={...entry.result,state:'cancelled'};
+        saveStudioRenderStatus(media,p.id,entry.result);
+      }
+      clearStudioRenderCancellation(media,p.id,runId);
+    }
   }
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));

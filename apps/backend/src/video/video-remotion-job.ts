@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, lstat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { VideoComposition } from './video-composition';
@@ -27,6 +27,16 @@ export async function runPreparedRemotionJob(input:{
   const work=assertWorkspacePath(root,resolve(input.workDirectory));
   if(work===root)throw new Error('Remotion work directory must be private');
   if(signal?.aborted)throw new Error('Remotion job cancelled');
+  // Do not follow a symlink supplied through the work directory.
+  try {
+    const info=await lstat(work);
+    if(!info.isDirectory()||info.isSymbolicLink())throw new Error('Unsafe Remotion work directory');
+  } catch(error) {
+    if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+    await mkdir(work,{recursive:true,mode:0o700});
+    const info=await lstat(work);
+    if(!info.isDirectory()||info.isSymbolicLink())throw new Error('Unsafe Remotion work directory');
+  }
   const job=await mkdtemp(join(work,'remotion-'+randomUUID()+'-'));
   try {
     const bundle=await provisionPrivateRemotionBundle({
