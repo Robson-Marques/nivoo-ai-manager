@@ -46,6 +46,7 @@ export function VideoStudio() {
   const captionsPollBusy=useRef(false);
   const aiPollBusy=useRef(false);
   const zonesPollBusy=useRef(false);
+  const actionsInFlight=useRef(new Set<string>());
   const player=useRef<HTMLVideoElement>(null);
   const canvasRef=useRef<HTMLDivElement>(null);
   const dragState=useRef<{kind:'caption'|'image'|'zone';id:string;initialX:number;initialY:number;px:number;py:number}|null>(null);
@@ -119,7 +120,7 @@ export function VideoStudio() {
   },[project?.id,pid,aligning.state]);
   const gerarLegendas=async()=>{
     if(!project)return;
-    if(aligning.state==='running')return;
+    if(aligning.state==='running'||actionsInFlight.current.has('captions'))return;
     if(dirty)return setError('Para gerar legendas, clique em Salvar primeiro.');
     if(!project.clips.length)return setError('Adicione um vídeo à linha do tempo antes de gerar legendas.');
     const direct=project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length);
@@ -128,10 +129,12 @@ export function VideoStudio() {
     }
     const texto=window.prompt('Cole o roteiro exato, se existir. Se não houver, deixe vazio para transcrever a fala do vídeo.','');
     if(texto===null)return;
+    actionsInFlight.current.add('captions');
     try{
       const r=await api<{state:string}>(edits+'/'+project.id+'/captions/auto','POST',{script:texto});
       setAligning(r);setNotice('Alinhamento local iniciado.');
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('captions')}
   };
   useEffect(()=>{
     if(!project||aiDraft.state!=='running')return;
@@ -163,10 +166,13 @@ export function VideoStudio() {
   },[pid,project?.id,zoneDraft.state]);
   const detectZones=async()=>{
     if(!project||dirty)return setError('Salve primeiro o projeto antes de analisar rostos e textos.');
+    if(zoneDraft.state==='running'||actionsInFlight.current.has('zones'))return;
+    actionsInFlight.current.add('zones');
     try{
       setZoneDraft(await api<ZonesResult>(edits+'/'+project.id+'/zones/detect','POST',{}));
       setError('');
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('zones')}
   };
   const applyZones=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aplicar as regiões.');
@@ -177,21 +183,26 @@ export function VideoStudio() {
   };
   const planAi=async()=>{
     if(!project)return;
-    if(aiDraft.state==='running')return;
+    if(aiDraft.state==='running'||actionsInFlight.current.has('ai-plan'))return;
     if(dirty)return setError('Para criar o design com IA, clique em Salvar primeiro.');
     if(!project.clips.length)return setError('Adicione pelo menos um vídeo à timeline.');
     if(!project.captions.length)return setError('Para criar o design com IA, primeiro gere as legendas pela narração. Se precisar, exporte a montagem antes.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
     if(brief===null)return;
+    actionsInFlight.current.add('ai-plan');
     try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan','POST',{brief}));setError('');}
     catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('ai-plan')}
   };
   const applyAi=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aceitar a proposta.');
+    if(actionsInFlight.current.has('ai-apply'))return;
+    actionsInFlight.current.add('ai-apply');
     try{
       const p=await api<Studio>(edits+'/'+project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
       setProject(p);setAiDraft({state:'idle'});setNotice('Composição sugerida aplicada à timeline. Você pode ajustar cada elemento.');setSelected(null);
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('ai-apply')}
   };
   const removeAiDraft=async(index:number)=>{
     if(!project)return;
@@ -515,9 +526,12 @@ export function VideoStudio() {
   const exportar=async()=>{
     if(!project)return;
     if(dirty)return setError('Salve a edição antes de exportar.');
+    if(running.state==='running'||actionsInFlight.current.has('render'))return;
+    actionsInFlight.current.add('render');
     setError('');
     try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{}))}
     catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('render')}
   };
   const upload=async(files:FileList|null)=>{
     if(!files)return;
