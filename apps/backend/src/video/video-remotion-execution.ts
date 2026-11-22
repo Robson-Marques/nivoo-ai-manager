@@ -42,9 +42,16 @@ export async function executeVerifiedRemotionRender(
   const propsFile = assertWorkspacePath(input.workspaceRoot, resolve(input.propsFile));
   if (!propsFile.endsWith('.json')) throw new Error('Invalid Remotion props output');
   await mkdir(dirname(propsFile), { recursive: true });
-  // Only a worker-owned, unique props path is acceptable. Never overwrite a
-  // previous job's props, preventing stale or cross-revision rendering.
-  await writeFile(propsFile, JSON.stringify(props), { flag: 'wx', mode: 0o600 });
+  // Retry-safe: reuse only byte-identical props. A stale revision or altered
+  // payload must fail closed instead of silently rendering old instructions.
+  const serialized = JSON.stringify(props);
+  try {
+    await writeFile(propsFile, serialized, { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    const existing = await readFile(propsFile, 'utf8');
+    if (existing !== serialized) throw new Error('Stale or conflicting Remotion props file');
+  }
   const stored = JSON.parse(await readFile(propsFile, 'utf8')) as RemotionProps;
   if (stored.compositionId !== input.composition.id || stored.revision !== input.composition.revision) {
     throw new Error('Remotion props revision mismatch');
