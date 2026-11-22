@@ -180,19 +180,30 @@ export class VideoStudioService {
   async save(pid:string,id:string,body:any) {
     const {media,studio} = await this.dir(pid);
     const f=this.file(studio,id);
-    if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
-    if (body.id !== id) throw new BadRequestException('ID não confere');
-    if (readStudioRenderLease(media,id)) throw new ConflictException('Aguarde o término da renderização antes de salvar a edição');
-    const actual=JSON.parse(fs.readFileSync(f,'utf8'));
-    if (actual.updatedAt !== body.updatedAt) throw new ConflictException('Esta edição foi alterada em outra sessão. Recarregue.');
-    const p=this.validate(body,media);p.updatedAt=new Date().toISOString();
-    const temp=f+'.tmp-'+process.pid;
-    fs.writeFileSync(temp,JSON.stringify(p,null,2));
-    fs.renameSync(temp,f);
-    // The previous MP4 belongs to an older edit revision, not the newly saved timeline.
-    status.delete(pid+':'+id);
-    fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
-    return p;
+    // Saving and rendering compete for the SAME exclusive lock. A read-only
+    // check followed by a write would allow a concurrent render to slip in.
+    const runId=randomUUID();
+    try { acquireStudioRenderLease(media,id,runId); }
+    catch { throw new ConflictException('Aguarde o término da renderização antes de salvar a edição'); }
+    try {
+      if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
+      if (!body || body.id !== id) throw new BadRequestException('ID não confere');
+      const actual=JSON.parse(fs.readFileSync(f,'utf8'));
+      if (actual.updatedAt !== body.updatedAt) throw new ConflictException('Esta edição foi alterada em outra sessão. Recarregue.');
+      const p=this.validate(body,media);
+      p.updatedAt=new Date().toISOString();
+      const temp=f+'.tmp-'+randomUUID();
+      try {
+        fs.writeFileSync(temp,JSON.stringify(p,null,2),{flag:'wx',mode:0o600});
+        fs.renameSync(temp,f);
+      } finally { fs.rmSync(temp,{force:true}); }
+      // A saved edit invalidates every prior MP4 status for that revision.
+      status.delete(pid+':'+id);
+      fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      return p;
+    } finally {
+      releaseStudioRenderLease(media,id,runId);
+    }
   }
   async remove(pid:string,id:string) {
     const {studio}=await this.dir(pid);
