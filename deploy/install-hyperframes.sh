@@ -7,7 +7,7 @@ VERSION=0.9.80
 PREFIX=/opt/nivoo/hyperframes
 install -d -m 755 "$PREFIX"
 command -v npm >/dev/null 2>&1 || { echo "npm ausente" >&2; exit 1; }
-if [ ! -f "$PREFIX/package.json" ] || ! grep -Fq "\"hyperframes\": \"$VERSION\"" "$PREFIX/package.json"; then
+if [ ! -f "$PREFIX/package.json" ] || ! grep -Fq "\"hyperframes\":\"$VERSION\"" "$PREFIX/package.json"; then
   printf '{"name":"nivoo-hyperframes-runtime","private":true,"version":"1.0.0","dependencies":{"hyperframes":"%s"}}\n' "$VERSION" > "$PREFIX/package.json"
   rm -f "$PREFIX/package-lock.json"
 fi

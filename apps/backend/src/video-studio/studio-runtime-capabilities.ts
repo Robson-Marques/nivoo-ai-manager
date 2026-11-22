@@ -21,9 +21,9 @@ export type StudioRuntimeCapability = {
   detail: string;
 };
 
-function executable(bin: string, args: string[], timeout = 4000): Promise<boolean> {
+function executable(bin: string, args: string[], timeout = 4000, env?: NodeJS.ProcessEnv): Promise<boolean> {
   return new Promise(resolve => {
-    execFile(bin, args, { timeout, maxBuffer: 1 << 20, windowsHide: true },
+    execFile(bin, args, { timeout, maxBuffer: 1 << 20, windowsHide: true, ...(env ? {env} : {}) },
       error => resolve(!error)); // 1 MB: 2 KB estourava em CLIs verbosas (ex.: remotion versions) e dava falso-negativo
   });
 }
@@ -47,7 +47,10 @@ export function inspectStudioRuntime(): Promise<StudioRuntimeCapability[]> {
     const [ffmpeg, ffprobe, whisper, whisperx, remotion, hyperframes] = await Promise.all([
       executable('ffmpeg', ['-version']), executable('ffprobe', ['-version']),
       pythonModule('faster_whisper'), pythonModule('whisperx'),
-      executable('remotion', ['--help']), executable('hyperframes', ['--help']),
+      executable('remotion', ['--help']), executable('hyperframes', ['--help'], 4000, {
+        ...process.env,HYPERFRAMES_NO_UPDATE_CHECK:'1',
+        HYPERFRAMES_SKIP_SKILLS:'1',HYPERFRAMES_NO_TELEMETRY:'1',
+      }),
     ]);
     const result: StudioRuntimeCapability[] = [
       { id: 'ffmpeg', state: ffmpeg ? 'ready' : 'unavailable', detail: ffmpeg ? 'Exportação FFmpeg instalada' : 'FFmpeg ausente no servidor' },
