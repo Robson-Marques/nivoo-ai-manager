@@ -186,6 +186,9 @@ export class VideoStudioService {
     const temp=f+'.tmp-'+process.pid;
     fs.writeFileSync(temp,JSON.stringify(p,null,2));
     fs.renameSync(temp,f);
+    // The previous MP4 belongs to an older edit revision, not the newly saved timeline.
+    status.delete(pid+':'+id);
+    fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
     return p;
   }
   async remove(pid:string,id:string) {
