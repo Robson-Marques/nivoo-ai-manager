@@ -27,7 +27,7 @@ describe('durable video production execution', () => {
     await expect(runVideoProduction(plan, store, first, undefined, root)).rejects.toThrow('render unavailable');
     expect((await store.load(plan)).checkpoints.map(x => x.stage)).toEqual(['inspect-media', 'compose']);
     const second = await runVideoProduction(plan, new VideoProductionCheckpointStore(root),
-      async stage => { called.push(stage); return { artifactId: stage.replace(/-/g, '_'), verified: true }; }, undefined, root);
+      async stage => { called.push(stage); return { artifactId: stage.replace(/-/g, '_'), verified: true }; }, undefined, root, async () => true);
     expect(second.executed).toEqual(['render', 'quality-review']);
     expect(called).toEqual(['inspect-media', 'compose', 'render', 'render', 'quality-review']);
   });
@@ -38,6 +38,13 @@ describe('durable video production execution', () => {
       artifactId: 'invalid', verified: false,
     }), undefined, root)).rejects.toThrow('Unverified');
     expect((await store.load(plan)).checkpoints).toHaveLength(0);
+  });
+
+  it('refuses to skip a checkpoint whose artifact was deleted', async () => {
+    const store = new VideoProductionCheckpointStore(root);
+    await store.completeStage(plan, 'inspect-media', 'inspection', true);
+    await expect(runVideoProduction(plan, store, async () => ({ artifactId: 'x', verified: true }),
+      undefined, root, async () => false)).rejects.toThrow('missing or stale');
   });
 
   it('rejects duplicate stage completion', async () => {
