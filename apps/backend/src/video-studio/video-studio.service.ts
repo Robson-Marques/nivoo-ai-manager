@@ -719,7 +719,7 @@ export class VideoStudioService {
       if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
       entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output),
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
-          hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:measured.audioPeakDbfs}:{}),
+          hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),
           warnings}};
       saveStudioRenderStatus(media,p.id,entry.result);
     } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
