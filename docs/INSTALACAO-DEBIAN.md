@@ -244,3 +244,10 @@ O fluxo real do Studio passou a usar um executor assíncrono de `ffmpeg` e `ffpr
 **Limite conhecido:** o botão Cancelar atua no processo da instância que iniciou o render. Se outra instância da API receber o pedido, ela devolve um conflito explícito em vez de afirmar que cancelou. A coordenação de cancelamento entre processos ainda depende de integração com o worker/fila durável. O mecanismo de renderização operacional continua sendo FFmpeg; Remotion e HyperFrames não foram liberados nem instalados por este ajuste.
 
 Os workflows do GitHub Actions permanecem sob administração do operador. Para evitar execuções automáticas, os arquivos `.github/workflows/ci.yml` e `.github/workflows/studio-fast.yml` devem ser ajustados na branch principal para disparo manual; esta rodada não altera esses workflows.
+
+
+### Cancelamento entre processos da API (PR #6)
+
+O cancelamento do render FFmpeg usa um marcador atômico por `editId` e `runId` na pasta `studio` do projeto. A instância que recebe `POST .../cancel` verifica o bloqueio ativo e registra a solicitação, mesmo quando o processo FFmpeg pertence a outra instância da API. A instância proprietária verifica o marcador durante a execução e encerra o processo filho. `GET .../render` apresenta `cancellationRequested: true` até o estado definitivo; a interface diferencia **Cancelamento solicitado** de **Cancelado**. O marcador é limpo no encerramento da execução e não afeta renders posteriores.
+
+A execução dos comandos FFmpeg/FFprobe usa timeout, limites de logs e verificação periódica de cancelamento. Uma execução interrompida não pode ser marcada como MP4 pronto, e arquivos parciais são removidos. Foram adicionados testes para persistência entre leitores, isolamento por execução, marcador adulterado e cancelamento de codificação ativa. **Esses testes foram escritos, não executados nesta rodada**, conforme a orientação de não disparar CI. O fluxo operacional segue sendo FFmpeg; Remotion/HyperFrames ainda exigem integração e homologação.
