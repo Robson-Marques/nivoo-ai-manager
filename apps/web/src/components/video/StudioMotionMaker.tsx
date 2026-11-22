@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, urlAutenticada } from '../../api';
 import './StudioMotionMaker.css';
+import { StudioOfficialCatalog } from './StudioOfficialCatalog';
 
 type Preset={id:string;label:string;description:string;category:'title'|'light'|'transition';durationSeconds:number;origin:string;version:number};
 type State={state:'idle'|'running'|'done'|'failed'|'cancelled';output?:string;error?:string;durationMs?:number;warnings?:string[]};
@@ -87,6 +88,7 @@ export function StudioMotionMaker(props:{
       <button onClick={()=>props.onAdd(state.output!)}>+ Inserir na timeline</button>
       {state.warnings?.map(w=><small key={w}>{w}</small>)}
     </div>}
+    <StudioOfficialCatalog edits={props.edits}/>
     <small>Modelos locais. Blocos externos ainda exigem revisão antes de executar.</small>
   </div>;
 }
