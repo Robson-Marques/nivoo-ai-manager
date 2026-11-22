@@ -719,7 +719,8 @@ export class VideoStudioService {
       if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
       const warnings:string[] = [];
       if(measured.blackFrameCount! > 0) warnings.push('Possíveis trechos pretos detectados');
-      if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
+      if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
+      else if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
       if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
       entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output),
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
