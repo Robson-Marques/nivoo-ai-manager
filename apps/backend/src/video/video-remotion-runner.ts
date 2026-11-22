@@ -45,7 +45,8 @@ export async function renderRemotionComposition(
     throw new Error('Remotion props must be a JSON object');
   }
   const payload=parsed as Record<string,unknown>;
-  if (!Number.isInteger(payload.fps) || !Number.isInteger(payload.durationInFrames) ||
+  if (typeof payload.fps !== 'number' || !Number.isInteger(payload.fps) ||
+      typeof payload.durationInFrames !== 'number' || !Number.isInteger(payload.durationInFrames) ||
       !Array.isArray(payload.layers) || payload.layers.length > 500) {
     throw new Error('Invalid Remotion render metadata');
   }

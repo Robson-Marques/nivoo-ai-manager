@@ -1,6 +1,6 @@
 import { copyFile, lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { basename, extname, join, relative, resolve, isAbsolute } from 'node:path';
+import { extname, join, relative, resolve, isAbsolute } from 'node:path';
 import { assertWorkspacePath } from './video-tool-adapters';
 import type { ResolvedMedia } from './video-remotion-props';
 
@@ -27,15 +27,17 @@ export async function stageRemotionMedia(input: {
   };
   await checkSegments(target);
   if(!Array.isArray(input.sources)||input.sources.length>500)throw new Error('Invalid Remotion media set');
-  const assets=join(target,'assets');
-  await checkSegments(assets);
-  await mkdir(assets,{recursive:true,mode:0o700});
-  const result:ResolvedMedia[]=[];
   const ids=new Set<string>();
   for(const item of input.sources){
     if(!item || !/^[a-zA-Z0-9_-]{1,256}$/.test(item.mediaId)||ids.has(item.mediaId))
       throw new Error('Invalid or duplicate Remotion media ID');
     ids.add(item.mediaId);
+  }
+  const assets=join(target,'assets');
+  await checkSegments(assets);
+  await mkdir(assets,{recursive:true,mode:0o700});
+  const result:ResolvedMedia[]=[];
+  for(const item of input.sources){
     if(typeof item.relativePath!=='string'||!item.relativePath||
       isAbsolute(item.relativePath)||item.relativePath.split(/[\\/]/).includes('..'))
       throw new Error('Remotion media must be a workspace-relative path');
