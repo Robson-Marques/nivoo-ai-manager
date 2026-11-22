@@ -1,5 +1,5 @@
-import { VideoComposition } from '../../src/video/video-composition';
-import { applyTimelineEdit } from '../../src/video/video-timeline-edits';
+import { VideoComposition } from '../src/video/video-composition';
+import { applyTimelineEdit } from '../src/video/video-timeline-edits';
 
 describe('atomic video timeline edits', () => {
   const base: VideoComposition = {
