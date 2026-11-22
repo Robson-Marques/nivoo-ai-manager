@@ -47,6 +47,21 @@ describe('Remotion runner boundaries', () => {
       .rejects.toThrow('bounded');
   });
 
+  it('rejects arbitrary media paths before invoking CLI', async () => {
+    await writeFile(props,JSON.stringify({
+      fps:30,durationInFrames:30,
+      layers:[{type:'video',src:'/etc/passwd'}],
+    }));
+    await expect(renderRemotionComposition(root,bundle,'Video',props,output))
+      .rejects.toThrow('staged');
+  });
+
+  it('rejects missing render metadata before invoking CLI', async () => {
+    await writeFile(props,'{}');
+    await expect(renderRemotionComposition(root,bundle,'Video',props,output))
+      .rejects.toThrow('metadata');
+  });
+
   it('rejects invalid output extensions', async () => {
     await expect(renderRemotionComposition(root, bundle, 'Video', props, join(root, 'out.js')))
       .rejects.toThrow('output file');

@@ -17,3 +17,7 @@ The renderer currently accepts Remotion-served asset URLs only. Existing project
 resolution and bundle static-file provisioning must be connected before the API can
 route a user export here. The fixed composition ID resolves a CLI mismatch, but does
 not validate the output or enable the experimental renderer.
+
+## Renderer contract hardening
+
+The composition now resolves **only** `/assets/<safe-filename>` via Remotion `staticFile()`; arbitrary URLs, absolute disk paths and network hosts are not accepted. The CLI runner checks this contract before executing Chromium. Video and audio trims use the actual composition FPS, and layer ordering is deterministic for identical z-index values. A trusted asset staging mechanism is still required to copy project-owned media into the Remotion bundle's static asset directory before rendering; **do not enable production rendering before that exists**.

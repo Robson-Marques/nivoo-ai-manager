@@ -44,6 +44,18 @@ export async function renderRemotionComposition(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Remotion props must be a JSON object');
   }
+  const payload=parsed as Record<string,unknown>;
+  if (!Number.isInteger(payload.fps) || !Number.isInteger(payload.durationInFrames) ||
+      !Array.isArray(payload.layers) || payload.layers.length > 500) {
+    throw new Error('Invalid Remotion render metadata');
+  }
+  for (const layer of payload.layers as Array<Record<string,unknown>>) {
+    if (!layer || typeof layer !== 'object') throw new Error('Invalid Remotion layer');
+    if (layer.type !== 'text' && (typeof layer.src !== 'string' ||
+        !/^\\/assets\\/[a-zA-Z0-9_-]+\\.[a-zA-Z0-9]+$/.test(layer.src))) {
+      throw new Error('Remotion media must be staged in trusted bundle assets');
+    }
+  }
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.
   const result = await runVideoTool('remotion', [
