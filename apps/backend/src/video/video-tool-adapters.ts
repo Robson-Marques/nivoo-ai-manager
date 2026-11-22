@@ -3,7 +3,7 @@
  * A caller must enforce project permissions, quota, worker leases and artifact ownership.
  */
 import { spawn } from 'node:child_process';
-import { mkdir, realpath, stat } from 'node:fs/promises';
+import { mkdir, realpath, stat, lstat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 
 export type VideoTool = 'remotion' | 'hyperframes' | 'whisper' | 'yt-dlp';
@@ -71,7 +71,8 @@ export async function runVideoTool(
 export async function probeVideoTools(cwd: string): Promise<Record<VideoTool, ToolResult | { error: string }>> {
   const entries: [VideoTool, string, string[]][] = [
     ['remotion', 'remotion', ['--version']],
-    ['hyperframes', 'hyperframes', ['--version']],
+    // HyperFrames is an authoring framework, not a guaranteed global CLI.
+    // Its integration requires a project-specific adapter and must not be probed as a binary.
     ['whisper', 'whisper', ['--help']],
     ['yt-dlp', 'yt-dlp', ['--version']],
   ];
@@ -79,7 +80,10 @@ export async function probeVideoTools(cwd: string): Promise<Record<VideoTool, To
     try { return [name, await runVideoTool(bin, args, cwd, 10_000)] as const; }
     catch (e) { return [name, { error: e instanceof Error ? e.message : String(e) }] as const; }
   }));
-  return Object.fromEntries(output) as Record<VideoTool, ToolResult | { error: string }>;
+  return {
+    ...Object.fromEntries(output),
+    hyperframes: { error: 'Project adapter not configured (HyperFrames is not a system CLI)' },
+  } as Record<VideoTool, ToolResult | { error: string }>;
 }
 
 export async function importAuthorizedVideo(url: string, root: string, relativeOutputDir: string): Promise<ToolResult> {
@@ -108,8 +112,19 @@ export async function transcribeWithWhisper(
   if (!(await stat(input)).isFile()) throw new Error('Transcription input must be a file');
   if (!/^[a-z]{2,3}$/.test(language)) throw new Error('Invalid transcription language');
   const target = assertWorkspacePath(root, outputDir);
+  // Check every pre-existing path segment to prevent symlink traversal.
+  const relativeTarget = relative(root, target);
+  let cursor = root;
+  for (const segment of relativeTarget.split(/[\\/]/).filter(Boolean)) {
+    cursor = resolve(cursor, segment);
+    try {
+      if ((await lstat(cursor)).isSymbolicLink()) throw new Error('Output path contains a symlink');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
   await mkdir(target, { recursive: true });
-  if (await realpath(target) !== target) throw new Error('Output directory must not be a symlink');
+  assertWorkspacePath(root, await realpath(target));
   return runVideoTool('whisper', [
     input, '--language', language, '--output_dir', target,
     '--output_format', 'srt', '--verbose', 'False',
