@@ -21,11 +21,20 @@ describe('existing Studio edit bridge', () => {
     expect(result.layers.find(x => x.id === 'clip-2')).toMatchObject({ startMs: 3000, durationMs: 2000 });
     expect(result.layers.find(x => x.id === 'caption-1')).toMatchObject({ startMs: 1000, durationMs: 1000, fontSize: 42, color: '#ffffff', transform: { x: 15, y: 80, width: 100, height: 20 } });
     expect(result.layers.find(x => x.id === 'asset-1')).toMatchObject({ transform: { x: 10, y: 20, width: 30, height: 40 } });
-    expect(result.layers.find(x => x.id === 'voice-1')).toMatchObject({ sourceOffsetMs: 1200 });
+    expect(result.layers.find(x => x.id === 'voice-1')).toMatchObject({ startMs: 1200, sourceOffsetMs: 0 });
     expect(result.layers.find(x => x.id === 'caption-1')).toMatchObject({ animation: 'karaoke', words: [{ text: 'Olá', startMs: 1000, endMs: 1500 }] });
     expect(result.protectedZones).toMatchObject([{ id: 'face-1', width: 20, height: 20, durationMs: 5000 }]);
     expect(result.layers.find(x => x.id === 'studio-soundtrack')).toMatchObject({ type: 'audio', volume: 0.2 });
     expect(edit.clips[0].start).toBe(2);
+  });
+
+  it('keeps source trim distinct from timeline position for audio', () => {
+    const result = studioEditToComposition({ ...edit,
+      audioTracks: [{ id: 'voice-1', source: 'media/voice.mp3', start: 2, end: 4, offset: 1, volume: 1 }],
+    });
+    expect(result.layers.find(x => x.id === 'voice-1')).toMatchObject({
+      startMs: 1000, sourceOffsetMs: 2000, durationMs: 2000,
+    });
   });
 
   it('rejects inconsistent source trim and duration', () => {
