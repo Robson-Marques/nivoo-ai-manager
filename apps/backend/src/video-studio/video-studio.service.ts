@@ -11,6 +11,7 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
 import { maybeProductionMedia } from './standalone-projects';
+import { inspectRenderedVideo } from '../video/video-render-inspection';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -32,7 +33,8 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string;
+  inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
 const studioPython = () => process.env.NIVOO_STUDIO_PYTHON?.trim() || 'python3';
@@ -657,7 +659,31 @@ export class VideoStudioService {
         '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
       if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
       if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
-      entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output)};
+      // Conferência técnica do MP4 real, antes de anunciar a exportação como concluída.
+      // Falhas de inspeção não são tratadas como sucesso. A revisão visual continua separada.
+      let measured: Awaited<ReturnType<typeof inspectRenderedVideo>>;
+      try {
+        measured = await inspectRenderedVideo(media, output);
+        const expectedMs = Math.round(current * 1000);
+        if (measured.durationMs === undefined ||
+            Math.abs(measured.durationMs - expectedMs) > Math.max(1000, expectedMs * 0.02) ||
+            measured.blackFrameCount === undefined || measured.hasAudio === undefined ||
+            (measured.hasAudio && measured.audioPeakDbfs === undefined)) {
+          throw new Error('MP4 exportado não passou na inspeção técnica');
+        }
+      } catch (error) {
+        fs.rmSync(output, {force:true});
+        throw error;
+      }
+      if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
+      const warnings:string[] = [];
+      if(measured.blackFrameCount! > 0) warnings.push('Possíveis trechos pretos detectados');
+      if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
+      if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
+      entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output),
+        inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
+          hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:measured.audioPeakDbfs}:{}),
+          warnings}};
     } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
   }
 }
