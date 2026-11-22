@@ -82,7 +82,7 @@ export function VideoStudio() {
     return s;
   };
   useEffect(()=>{
-    setProject(null);setDirty(false);setPlayhead(0);setSelected(null);
+    setProject(null);setRunning({state:'idle'});setDirty(false);setPlayhead(0);setSelected(null);
     refresh().then(async editions=>{
       if(!standalone||!editions.length)return;
       const latest=[...editions].sort((a:any,b:any)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
