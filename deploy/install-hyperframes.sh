@@ -16,10 +16,10 @@ fi
 chown -R nivoo:nivoo "$PREFIX"
 (
   cd "$PREFIX"
-  [ -f package-lock.json ] || runuser -u nivoo -- env HOME=/var/lib/nivoo PATH="$PATH" npm install --package-lock-only --ignore-scripts --no-audit --no-fund --loglevel=error
-  [ -x node_modules/.bin/hyperframes ] || runuser -u nivoo -- env HOME=/var/lib/nivoo PATH="$PATH" npm ci --no-audit --no-fund --loglevel=error
+  [ -f package-lock.json ] || runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" npm install --package-lock-only --ignore-scripts --no-audit --no-fund --loglevel=error
+  [ -x node_modules/.bin/hyperframes ] || runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" npm ci --no-audit --no-fund --loglevel=error
 )
 [ -x "$PREFIX/node_modules/.bin/hyperframes" ] || { echo "CLI HyperFrames ausente" >&2; exit 1; }
 ln -sfn "$PREFIX/node_modules/.bin/hyperframes" /usr/local/bin/hyperframes
-runuser -u nivoo -- env HOME=/var/lib/nivoo PATH="$PATH" HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_SKIP_SKILLS=1 HYPERFRAMES_NO_TELEMETRY=1 hyperframes browser ensure
+runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" HYPERFRAMES_NO_UPDATE_CHECK=1 HYPERFRAMES_SKIP_SKILLS=1 HYPERFRAMES_NO_TELEMETRY=1 hyperframes browser ensure
 echo "HyperFrames $VERSION instalado; modelos externos continuam bloqueados até revisão"
