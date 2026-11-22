@@ -6,6 +6,13 @@ export type ProductionStageResult = {
   artifactId: string;
   verified: boolean;
 };
+export type ProductionCheckpointVerifier = (
+  stage: VideoProductionStage,
+  artifactId: string,
+  plan: VideoProductionPlan,
+  signal?: AbortSignal,
+) => Promise<boolean>;
+
 export type ProductionStageExecutor = (
   stage: VideoProductionStage,
   plan: VideoProductionPlan,
@@ -24,12 +31,22 @@ export async function runVideoProduction(
   execute: ProductionStageExecutor,
   signal?: AbortSignal,
   workspaceRoot?: string,
+  verifyCheckpoint?: ProductionCheckpointVerifier,
 ): Promise<{ completed: boolean; executed: VideoProductionStage[] }> {
   validateVideoProductionPlan(plan);
   if (!workspaceRoot) throw new Error('Production workspace lock root required');
   return withVideoProductionLock(workspaceRoot, plan, async () => {
   const manifest = await store.load(plan);
   const remaining = pendingProductionStages(plan, manifest.checkpoints);
+  if (manifest.checkpoints.length && !verifyCheckpoint) {
+    throw new Error('Checkpoint verification required before resuming production');
+  }
+  for (const checkpoint of manifest.checkpoints) {
+    if (signal?.aborted) throw new Error('Video production cancelled');
+    if (!await verifyCheckpoint!(checkpoint.stage, checkpoint.artifactId, plan, signal)) {
+      throw new Error('Persisted production artifact missing or stale: ' + checkpoint.stage);
+    }
+  }
   const executed: VideoProductionStage[] = [];
   for (const stage of remaining) {
     if (signal?.aborted) throw new Error('Video production cancelled');
