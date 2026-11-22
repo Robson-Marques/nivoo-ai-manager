@@ -3,12 +3,19 @@ import * as path from 'node:path';
 import { assertWorkspacePath, runVideoTool } from '../video/video-tool-adapters';
 import { inspectRenderedVideo } from '../video/video-render-inspection';
 
-export type MotionPreset = 'kinetic-title'|'neon-title'|'brush-reveal';
-export const MOTION_PRESETS: ReadonlyArray<{id:MotionPreset;label:string;description:string}> = [
-  {id:'kinetic-title',label:'Título cinético',description:'Entrada rápida de tipografia'},
-  {id:'neon-title',label:'LED / Neon',description:'Brilho luminoso pulsante'},
-  {id:'brush-reveal',label:'Pincelada',description:'Destaque amarelo atrás do título'},
-];
+export type MotionPreset = 'kinetic-title'|'neon-title'|'brush-reveal'|'zoom-impact'|'slide-reveal'|'soft-fade';
+export type MotionPresetInfo = {
+  id:MotionPreset;label:string;description:string;category:'title'|'light'|'transition';
+  durationSeconds:3.2;origin:'nivoo-reviewed';version:1;
+};
+export const MOTION_PRESETS: ReadonlyArray<MotionPresetInfo> = Object.freeze([
+  {id:'kinetic-title',label:'Título cinético',description:'Entrada rápida de tipografia',category:'title',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+  {id:'neon-title',label:'LED / Neon',description:'Brilho luminoso pulsante',category:'light',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+  {id:'brush-reveal',label:'Pincelada',description:'Destaque amarelo atrás do título',category:'transition',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+  {id:'zoom-impact',label:'Zoom de impacto',description:'Título cresce com entrada de impacto',category:'title',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+  {id:'slide-reveal',label:'Revelação lateral',description:'Texto entra pela lateral com máscara',category:'transition',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+  {id:'soft-fade',label:'Fade elegante',description:'Entrada e saída suaves com leve movimento',category:'transition',durationSeconds:3.2,origin:'nivoo-reviewed',version:1},
+]);
 const escapeHtml=(text:string)=>text.replace(/&/g,'&amp;').replace(/</g,'&lt;')
   .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 export function validateMotionRequest(body:unknown):{preset:MotionPreset;title:string}{
@@ -26,6 +33,9 @@ export function trustedMotionHtml(preset:MotionPreset,title:string):string{
     'kinetic-title':'@keyframes enter{0%{opacity:0;transform:translateY(110px) scale(.86)}30%{opacity:1;transform:translateY(0) scale(1)}85%{opacity:1}100%{opacity:0}} #title{animation:enter 3.2s ease-in-out both}',
     'neon-title':'@keyframes enter{0%{opacity:0;filter:blur(18px)}25%{opacity:1;filter:blur(0)}55%{text-shadow:0 0 6px #fff,0 0 27px #33ddff,0 0 85px #33ddff}85%{opacity:1}100%{opacity:0}} #title{color:#eaffff;animation:enter 3.2s ease both}',
     'brush-reveal':'@keyframes paint{0%{transform:scaleX(0)}35%,100%{transform:scaleX(1)}} @keyframes words{0%,12%{opacity:0;transform:translateY(25px)}42%,85%{opacity:1;transform:translateY(0)}100%{opacity:0}} #title{position:relative;animation:words 3.2s ease both} #title:before{content:"";position:absolute;z-index:-1;left:-5%;top:49%;width:110%;height:48%;background:#ffd83c;transform-origin:left;animation:paint 3.2s ease both}',
+    'zoom-impact':'@keyframes enter{0%{opacity:0;transform:scale(2.1);filter:blur(15px)}28%{opacity:1;transform:scale(.95);filter:blur(0)}42%,85%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}} #title{animation:enter 3.2s cubic-bezier(.2,.8,.2,1) both}',
+    'slide-reveal':'@keyframes enter{0%{opacity:0;clip-path:inset(0 100% 0 0);transform:translateX(-50px)}35%,85%{opacity:1;clip-path:inset(0 0 0 0);transform:translateX(0)}100%{opacity:0}} #title{animation:enter 3.2s ease both}',
+    'soft-fade':'@keyframes enter{0%{opacity:0;transform:translateY(30px)}30%,80%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-12px)}} #title{animation:enter 3.2s ease-in-out both}',
   };
   return [
     '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
