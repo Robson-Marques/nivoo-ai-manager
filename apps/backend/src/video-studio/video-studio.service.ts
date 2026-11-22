@@ -563,7 +563,7 @@ export class VideoStudioService {
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
     const runId=randomUUID();
-    try { acquireStudioRenderLease(media,id,runId); }
+    try { claimEditLease(media,id,runId); }
     catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
     try {
       // Read the timeline AFTER acquiring the lock. Otherwise a concurrent
@@ -596,7 +596,8 @@ export class VideoStudioService {
     const {media}=await this.dir(pid);
     const entry=status.get(pid+':'+id);
     const stored=loadStudioRenderStatus(media,id);
-    if(entry && (!stored || entry.result.runId===stored.runId)) return entry.result;
+    if(entry && !stored) return entry.result;
+    if(entry && stored && entry.result.runId===stored.runId && entry.result.state==='running') return entry.result;
     if (!stored) return {state:'idle'};
     const recovered=interruptedStudioRender(stored);
     if (recovered!==stored) saveStudioRenderStatus(media,id,recovered);
