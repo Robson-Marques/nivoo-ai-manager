@@ -49,6 +49,18 @@ if [ -f "$REMOTION_DIR/package.json" ]; then
   if [ -f "$REMOTION_DIR/dist/index.html" ] && [ -x "$REMOTION_DIR/node_modules/.bin/remotion" ]; then
     # Deixa o binário 'remotion' no PATH do sistema (o worker roda como 'nivoo').
     ln -sfn "$REMOTION_DIR/node_modules/.bin/remotion" /usr/local/bin/remotion
+    # Remotion requires its own pinned Chrome Headless Shell. Provision it as
+    # the same Unix user that runs the worker so rendering cannot suddenly
+    # download a browser (or fail to write root-owned caches) on first export.
+    if ! id nivoo >/dev/null 2>&1; then
+      echo 'ERRO: usuário de serviço nivoo não encontrado' >&2
+      exit 1
+    fi
+    echo '==> Remotion: preparando Chrome Headless Shell para o usuário nivoo'
+    if ! runuser -u nivoo -- "$REMOTION_DIR/node_modules/.bin/remotion" browser ensure --log error; then
+      echo 'ERRO: Chrome Headless Shell do Remotion não foi provisionado' >&2
+      exit 1
+    fi
     # Registra o caminho do bundle para o backend (diagnóstico e render o leem por esta variável).
     if [ -f /etc/nivoo/nivoo.env ]; then
       sed -i '/^NIVOO_REMOTION_BUNDLE=/d' /etc/nivoo/nivoo.env
