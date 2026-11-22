@@ -13,3 +13,19 @@ O comando `hyperframes add` importa HTML/JS editável e dependências transitiva
 Fonte de comando oficial: https://github.com/heygen-com/hyperframes/blob/main/skills/hyperframes-registry/SKILL.md
 
 Nenhuma alteração na main ou instalação atual é feita por este PR.
+
+## Próxima etapa implementada: prévias oficiais e fila de curadoria
+
+A consulta retorna `preview.video` e `preview.poster` somente quando a URL corresponde exatamente ao CDN oficial `static.heygen.ai`, em `/hyperframes-oss/docs/images/catalog/(blocks|components)/`, com extensão MP4/PNG. Não há script nem HTML incorporado de terceiros. O usuário inicia o carregamento do vídeo da prévia ao clicar em **Ver prévia original**.
+
+Ao clicar **Solicitar curadoria**, o backend executa novamente a busca `catalog --query --json` e confirma que o identificador aparece no resultado oficial. A solicitação é persistida em `midia/studio/hyperframes-review/<nome>.json`, com `state: needs-review`, `executable: false`, data, nome, tipo e origem. A API de leitura permite reabrir o editor e recuperar a fila; solicitações repetidas não duplicam registros.
+
+APIs em ambos os prefixos do Studio:
+- `GET /motion/reviews` lista as solicitações do projeto.
+- `POST /motion/reviews` aceita somente `{query,name}`, sem corpo HTML, fonte, caminho, variável de execução nem flag `approved`.
+
+**Critério de segurança:** nenhuma rota transforma `needs-review` em aprovado. Uma curadoria completa exige inspeção do arquivo `registry-item.json`, suas dependências transitivas, lista de arquivos baixados, verificação de integridade e isolamento comprovado antes de qualquer execução. O vídeo oficial é uma prévia de referência, não evidência de que o código já esteja seguro para renderizar no servidor.
+
+## Validação
+
+Os testes `video-hyperframes-curation.spec.ts` cobrem sanitização de URLs, isolamento de projeto, deduplicação, persistência e rejeição de registros manipulados. A execução dos testes, build e smoke test real ainda depende de CI/ambiente com dependências; não deve ser reportada como aprovada sem evidência.
