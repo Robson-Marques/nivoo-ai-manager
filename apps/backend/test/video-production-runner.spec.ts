@@ -24,10 +24,10 @@ describe('durable video production execution', () => {
       if (stage === 'render') throw new Error('render unavailable');
       return { artifactId: stage.replace(/-/g, '_'), verified: true };
     };
-    await expect(runVideoProduction(plan, store, first)).rejects.toThrow('render unavailable');
+    await expect(runVideoProduction(plan, store, first, undefined, root)).rejects.toThrow('render unavailable');
     expect((await store.load(plan)).checkpoints.map(x => x.stage)).toEqual(['inspect-media', 'compose']);
     const second = await runVideoProduction(plan, new VideoProductionCheckpointStore(root),
-      async stage => { called.push(stage); return { artifactId: stage.replace(/-/g, '_'), verified: true }; });
+      async stage => { called.push(stage); return { artifactId: stage.replace(/-/g, '_'), verified: true }; }, undefined, root);
     expect(second.executed).toEqual(['render', 'quality-review']);
     expect(called).toEqual(['inspect-media', 'compose', 'render', 'render', 'quality-review']);
   });
@@ -36,7 +36,7 @@ describe('durable video production execution', () => {
     const store = new VideoProductionCheckpointStore(root);
     await expect(runVideoProduction(plan, store, async () => ({
       artifactId: 'invalid', verified: false,
-    }))).rejects.toThrow('Unverified');
+    }), undefined, root)).rejects.toThrow('Unverified');
     expect((await store.load(plan)).checkpoints).toHaveLength(0);
   });
 
