@@ -1,4 +1,4 @@
-import { lstat, realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat, readFile } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
 import { assertWorkspacePath, runVideoTool, ToolResult } from './video-tool-adapters';
 
@@ -34,7 +34,16 @@ export async function renderRemotionComposition(
     }
   }
   if (!(await stat(bundle)).isDirectory()) throw new Error('Remotion bundle must be a directory');
-  if (!(await stat(props)).isFile() || !(await stat(props)).size) throw new Error('Remotion props must be a file');
+  const propsInfo = await stat(props);
+  if (!propsInfo.isFile() || propsInfo.size < 2 || propsInfo.size > 1_000_000) {
+    throw new Error('Remotion props must be a bounded JSON file');
+  }
+  let parsed: unknown;
+  try { parsed = JSON.parse(await readFile(props, 'utf8')); }
+  catch { throw new Error('Invalid Remotion props JSON'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Remotion props must be a JSON object');
+  }
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.
   return runVideoTool('remotion', [
