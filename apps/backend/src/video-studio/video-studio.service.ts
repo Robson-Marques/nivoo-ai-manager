@@ -206,14 +206,18 @@ export class VideoStudioService {
     }
   }
   async remove(pid:string,id:string) {
-    const {studio}=await this.dir(pid);
+    const {media,studio}=await this.dir(pid);
     const f=this.file(studio,id);
-    if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
-    if (status.get(pid+':'+id)?.result.state==='running' || readStudioRenderLease((await this.dir(pid)).media,id)) throw new ConflictException('Cancele a exportação antes de excluir a edição');
-    fs.rmSync(f);
-    fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
-    status.delete(pid+':'+id);
-    return {ok:true};
+    const runId=randomUUID();
+    try { acquireStudioRenderLease(media,id,runId); }
+    catch { throw new ConflictException('Aguarde o término da renderização antes de excluir a edição'); }
+    try {
+      if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
+      fs.rmSync(f);
+      fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      status.delete(pid+':'+id);
+      return {ok:true};
+    } finally { releaseStudioRenderLease(media,id,runId); }
   }
   captionsStatus(pid:string,id:string) { return transcriptions.get(pid+':'+id) ?? {state:'idle'}; }
 
