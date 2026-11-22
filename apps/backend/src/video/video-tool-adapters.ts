@@ -3,7 +3,7 @@
  * A caller must enforce project permissions, quota, worker leases and artifact ownership.
  */
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, realpath, stat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 
 export type VideoTool = 'remotion' | 'hyperframes' | 'whisper' | 'yt-dlp';
@@ -83,11 +83,35 @@ export async function probeVideoTools(cwd: string): Promise<Record<VideoTool, To
 }
 
 export async function importAuthorizedVideo(url: string, root: string, relativeOutputDir: string): Promise<ToolResult> {
-  const output = assertWorkspacePath(root, resolve(root, relativeOutputDir));
-  return runVideoTool('yt-dlp', [
-    '--ignore-config', '--no-playlist', '--no-progress', '--no-overwrites',
-    '--restrict-filenames', '--max-filesize', '500M',
-    '--socket-timeout', '15', '--retries', '2',
-    '--output', '%(id)s.%(ext)s', validateMediaUrl(url),
-  ], output, 300_000);
+  validateMediaUrl(url);
+  assertWorkspacePath(root, resolve(root, relativeOutputDir));
+  // yt-dlp follows redirects and may fetch additional media URLs on other hosts.
+  // An initial URL allowlist is NOT sufficient SSRF protection. Do not enable
+  // until the worker runs in an egress-restricted network sandbox.
+  throw new Error('Media URL import disabled until network egress isolation is configured');
+}
+
+/**
+ * Transcribe a local media file with the optional Whisper CLI.
+ * The worker is responsible for assigning an isolated output directory.
+ * Symlinks are resolved before verifying workspace containment.
+ */
+export async function transcribeWithWhisper(
+  workspaceRoot: string,
+  inputFile: string,
+  outputDir: string,
+  language = 'pt',
+): Promise<ToolResult> {
+  const root = await realpath(workspaceRoot);
+  const input = await realpath(inputFile);
+  assertWorkspacePath(root, input);
+  if (!(await stat(input)).isFile()) throw new Error('Transcription input must be a file');
+  if (!/^[a-z]{2,3}$/.test(language)) throw new Error('Invalid transcription language');
+  const target = assertWorkspacePath(root, outputDir);
+  await mkdir(target, { recursive: true });
+  if (await realpath(target) !== target) throw new Error('Output directory must not be a symlink');
+  return runVideoTool('whisper', [
+    input, '--language', language, '--output_dir', target,
+    '--output_format', 'srt', '--verbose', 'False',
+  ], target, 900_000);
 }
