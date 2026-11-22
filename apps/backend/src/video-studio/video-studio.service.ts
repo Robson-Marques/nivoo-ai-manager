@@ -20,6 +20,7 @@ import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-wor
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
 import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, trustedMotionHtml, type MotionPreset } from './hyperframes-motion';
 import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
+import { listHyperFramesReviewRequests, requestHyperFramesReview } from './hyperframes-curation';
 import { readStudioMotionState, saveStudioMotionState, type StudioMotionState } from './studio-motion-status';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
@@ -585,6 +586,27 @@ export class VideoStudioService {
   async motionPresets(pid:string) {
     await this.dir(pid);
     return MOTION_PRESETS;
+  }
+  async motionReviewList(pid:string) {
+    const {media}=await this.dir(pid);
+    return listHyperFramesReviewRequests(media);
+  }
+  async motionReviewRequest(pid:string,body:unknown) {
+    const {media}=await this.dir(pid);
+    if(!body||typeof body!=='object'||Array.isArray(body))
+      throw new BadRequestException('Pedido de revisão inválido');
+    const input=body as Record<string,unknown>;
+    if(typeof input.name!=='string'||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(input.name))
+      throw new BadRequestException('Nome do bloco inválido');
+    let query:string;
+    try{query=validateCatalogSearch(input.query);}
+    catch(error){throw new BadRequestException(error instanceof Error?error.message:'Busca inválida');}
+    // Reconfirm provider metadata: never trust title, type or preview URLs
+    // submitted by the browser as evidence of a real registry item.
+    const found=await searchOfficialHyperFramesCatalog(query);
+    const item=found.items.find(item=>item.name===input.name);
+    if(!item)throw new BadRequestException('Bloco não encontrado no resultado oficial da pesquisa');
+    return requestHyperFramesReview(media,item);
   }
   async motionCatalog(pid:string,query:unknown){
     await this.dir(pid);

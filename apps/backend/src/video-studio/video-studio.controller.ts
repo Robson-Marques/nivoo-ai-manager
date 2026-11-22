@@ -78,6 +78,15 @@ export class VideoStudioController {
     return this.studio.captionsStatus(pid,id);
   }
 
+  @Get('motion/reviews')
+  motionReviews(@Param('pid', ParseUUIDPipe) pid:string){
+    return this.studio.motionReviewList(pid);
+  }
+  @Post('motion/reviews')
+  motionReviewRequest(@Param('pid', ParseUUIDPipe) pid:string,@Body() body:unknown){
+    return this.studio.motionReviewRequest(pid,body);
+  }
+
   @Get('motion/catalog')
   motionCatalog(@Param('pid', ParseUUIDPipe) pid:string,@Query('query') query:string){
     return this.studio.motionCatalog(pid,query);
