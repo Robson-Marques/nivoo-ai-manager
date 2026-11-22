@@ -36,7 +36,6 @@ export async function executeRemotionProduction(
       input.plan.stages.length !== 2 ||
       input.plan.stages[0] !== 'render' ||
       input.plan.stages[1] !== 'quality-review' ||
-      input.plan.projectId !== input.composition.id ||
       input.plan.revision !== input.composition.revision) {
     throw new Error('Unsupported production plan for Remotion execution');
   }
