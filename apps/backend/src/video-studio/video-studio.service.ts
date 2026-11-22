@@ -768,6 +768,7 @@ export class VideoStudioService {
       if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
       else if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
       if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
+      if(cancelled()) { fs.rmSync(output,{force:true}); return; }
       entry.result={...entry.result,state:'done',progress:100,output:'midia/saida/'+path.basename(output),
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
           hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),
