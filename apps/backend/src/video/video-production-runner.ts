@@ -1,5 +1,6 @@
 import { VideoProductionPlan, VideoProductionStage, pendingProductionStages, validateVideoProductionPlan } from './video-production-plan';
 import { VideoProductionCheckpointStore } from './video-production-checkpoint-store';
+import { withVideoProductionLock } from './video-production-lock';
 
 export type ProductionStageResult = {
   artifactId: string;
@@ -13,8 +14,8 @@ export type ProductionStageExecutor = (
 
 /**
  * Resume a project from its first unfinished stage.
- * The caller MUST hold an exclusive cross-process project lock throughout
- * the run. Stage executors must be idempotent and independently verify
+ * Acquires an exclusive cross-process production lock before loading checkpoints.
+ * Stage executors must be idempotent and independently verify
  * artifacts; this function does not invoke any AI, CLI or network itself.
  */
 export async function runVideoProduction(
@@ -22,8 +23,11 @@ export async function runVideoProduction(
   store: VideoProductionCheckpointStore,
   execute: ProductionStageExecutor,
   signal?: AbortSignal,
+  workspaceRoot?: string,
 ): Promise<{ completed: boolean; executed: VideoProductionStage[] }> {
   validateVideoProductionPlan(plan);
+  if (!workspaceRoot) throw new Error('Production workspace lock root required');
+  return withVideoProductionLock(workspaceRoot, plan, async () => {
   const manifest = await store.load(plan);
   const remaining = pendingProductionStages(plan, manifest.checkpoints);
   const executed: VideoProductionStage[] = [];
@@ -38,4 +42,5 @@ export async function runVideoProduction(
     executed.push(stage);
   }
   return { completed: true, executed };
+  });
 }
