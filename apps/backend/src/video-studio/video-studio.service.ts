@@ -57,7 +57,7 @@ const assTime = (s: number) => {
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess; abort?: AbortController; media: string }>();
-const claimEditLease=(media:string,id:string,runId:string)=>{
+const claimEditLease=(media:string,id:string,runId:ReturnType<typeof randomUUID>)=>{
   const previous=readStudioRenderLease(media,id);
   if(previous) recoverDeadStudioRenderLease(media,id);
   return acquireStudioRenderLease(media,id,runId);
@@ -237,7 +237,7 @@ export class VideoStudioService {
     const done=await this.state(pid,id);
     const currentProject=await this.get(pid,id);
     const direct=currentProject.clips.length===1&&!currentProject.soundtrack&&!(currentProject.audioTracks?.length);
-    if(!direct&&(done?.state!=='done'||!done.output))
+    if(!direct&&(done?.state!=='done'||!('output' in done)||!done.output))
       throw new BadRequestException('Para vídeos com múltiplas cenas ou faixas, exporte a montagem antes de alinhar a narração');
     if(script!==undefined&&(typeof script!=='string'||script.length>10000))
       throw new BadRequestException('Roteiro inválido');
@@ -664,7 +664,7 @@ export class VideoStudioService {
       fs.mkdirSync(path.dirname(output),{recursive:true});
       const rendered=await renderStudioEditWithRemotion({
         edit:p,projectId:pid,width,height,
-        workspaceRoot:path.dirname(media),
+        workspaceRoot:media,
         workDirectory:path.join(media,'studio','remotion-jobs'),
         trustedBundleDirectory:bundle,outputFile:output,
         supportedFeatures:UNVERIFIED_REMOTION_FEATURES,

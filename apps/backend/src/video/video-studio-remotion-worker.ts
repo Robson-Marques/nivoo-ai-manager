@@ -25,11 +25,16 @@ export async function renderStudioEditWithRemotion(input:{
     edit:input.edit,projectId:input.projectId,
     width:input.width,height:input.height,
   });
+  // Studio paths are midia/entrada/... while workspaceRoot points at the
+  // project media directory itself. Remove only the trusted prefix.
+  const ownedMedia=media.map(item=>({
+    ...item,assetUrl:item.assetUrl.replace(/^\/midia\//,'/'),
+  }));
   return runPreparedRemotionJob({
     workspaceRoot:input.workspaceRoot,
     trustedBundleDirectory:input.trustedBundleDirectory,
     workDirectory:input.workDirectory,
-    composition,projectId:input.projectId,projectMedia:media,
+    composition,projectId:input.projectId,projectMedia:ownedMedia,
     outputFile:input.outputFile,
     supportedFeatures:input.supportedFeatures,
   },signal);

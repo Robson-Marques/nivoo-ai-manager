@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, link, unlink } from 'node:fs/promises';
 import { dirname, resolve, relative, basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { VideoComposition } from './video-composition';
@@ -96,7 +96,9 @@ export async function executeVerifiedRemotionRender(
     if(signal?.aborted)throw new Error('Remotion render cancelled');
     try {await lstat(output);throw new Error('Remotion output already exists');}
     catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
-    await rename(partial,output);
+    // Publish without replacing an existing artifact from another worker.
+    await link(partial,output);
+    await unlink(partial);
     return {
       outputFile: output,
       durationMs: inspected.durationMs,
