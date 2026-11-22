@@ -4,18 +4,20 @@ import { VideoComposition, VideoLayer, validateComposition } from './video-compo
  * Read-only projection of the existing VideoStudio v1 edit format.
  * This does not change the persisted Studio format or its export pipeline.
  * Clip start/end are source trim points; duration is timeline length.
- * WARNING: the portable composition model still lacks karaoke word timings,
- * protected zones, and several animation modes. This is NOT a lossless export.
+ * This bridge retains edit metadata for planning. Renderer parity with the
+ * existing Studio pipeline must be verified before production export.
  */
 export type StudioEditV1 = {
   version: 1;
   id: string;
   updatedAt: string;
   clips: Array<{ id: string; source: string; start: number; end: number; duration: number; volume?: number }>;
-  captions: Array<{ id: string; text: string; start: number; end: number; animation?: string; x?: number; y?: number; fontSize?: number; color?: string }>;
+  captions: Array<{ id: string; text: string; start: number; end: number; animation?: string; x?: number; y?: number; fontSize?: number; color?: string; words?: Array<{ text: string; start: number; end: number }> }>;
   assets: Array<{ id: string; source: string; start: number; end: number; x?: number; y?: number; w?: number; h?: number }>;
   audioTracks?: Array<{ id: string; source: string; start: number; end: number; offset?: number; volume: number }>;
   soundtrack?: { source: string; volume: number } | null;
+  protectedZones?: Array<{ id: string; label: string; start: number; end: number; x: number; y: number; w: number; h: number }>;
+
 };
 
 export function studioEditToComposition(
@@ -52,7 +54,12 @@ export function studioEditToComposition(
     layers.push({ id: caption.id, type: 'text', text: caption.text,
       startMs: ms(caption.start), durationMs: ms(caption.end) - ms(caption.start),
       zIndex: 900, animation: caption.animation === 'fade' ? 'fade' :
-        caption.animation === 'slide' ? 'slide' : 'none',
+        caption.animation === 'slide' ? 'slide' :
+        ['pop', 'rise', 'enter-left', 'enter-right', 'karaoke'].includes(caption.animation ?? '') ?
+          caption.animation as 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke' : 'none',
+      ...(caption.words ? { words: caption.words.map(word => ({
+        text: word.text, startMs: ms(word.start), endMs: ms(word.end),
+      })) } : {}),
       ...(caption.x !== undefined && caption.y !== undefined ? {
         transform: { x: caption.x, y: caption.y, width: 100, height: 20 },
       } : {}),
@@ -81,6 +88,11 @@ export function studioEditToComposition(
   const composition: VideoComposition = {
     schemaVersion: 1, id: edit.id, revision: edit.updatedAt,
     width, height, fps, durationMs, layers,
+    protectedZones: (edit.protectedZones ?? []).map(zone => ({
+      id: zone.id, label: zone.label, startMs: ms(zone.start),
+      durationMs: ms(zone.end) - ms(zone.start),
+      x: zone.x, y: zone.y, width: zone.w, height: zone.h,
+    })),
   };
   validateComposition(composition);
   return composition;
