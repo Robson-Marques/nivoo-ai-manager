@@ -52,6 +52,11 @@ const assTime = (s: number) => {
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
 const status = new Map<string, { result: Status; process?: ChildProcess; media: string }>();
+const claimEditLease=(media:string,id:string,runId:string)=>{
+  const previous=readStudioRenderLease(media,id);
+  if(previous) recoverDeadStudioRenderLease(media,id);
+  return acquireStudioRenderLease(media,id,runId);
+};
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
@@ -183,7 +188,7 @@ export class VideoStudioService {
     // Saving and rendering compete for the SAME exclusive lock. A read-only
     // check followed by a write would allow a concurrent render to slip in.
     const runId=randomUUID();
-    try { acquireStudioRenderLease(media,id,runId); }
+    try { claimEditLease(media,id,runId); }
     catch { throw new ConflictException('Aguarde o término da renderização antes de salvar a edição'); }
     try {
       if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
@@ -556,11 +561,6 @@ export class VideoStudioService {
     const {media} = await this.dir(pid);
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    const priorLock=readStudioRenderLease(media,id);
-    if (priorLock) {
-      try { recoverDeadStudioRenderLease(media,id); }
-      catch { throw new ConflictException('Bloqueio de renderização em recuperação; tente novamente'); }
-    }
     const runId=randomUUID();
     try { acquireStudioRenderLease(media,id,runId); }
     catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
