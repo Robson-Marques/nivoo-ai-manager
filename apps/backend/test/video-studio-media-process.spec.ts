@@ -36,7 +36,21 @@ const hasFfmpeg = spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status === 0
     })).rejects.toThrow('cancelada');
   });
 
-  it('rejects invalid resource bounds', async () => {
+  it('enforces bounded output from a noisy command', async () => {
+    await expect(runStudioMediaCommand('ffmpeg',['-hide_banner','-filters'],{
+      timeoutMs:30_000,maxOutputBytes:512,
+    })).rejects.toThrow('limite de saída');
+  });
+
+  it('times out a long-running encode rather than leaving a child forever', async () => {
+    await expect(runStudioMediaCommand('ffmpeg',[
+      '-nostdin','-hide_banner','-loglevel','error','-re',
+      '-f','lavfi','-i','color=c=black:s=16x16:r=30',
+      '-t','15','-f','null','-',
+    ],{timeoutMs:1000})).rejects.toThrow('tempo limite');
+  });
+
+    it('rejects invalid resource bounds', async () => {
     await expect(runStudioMediaCommand('ffprobe',['-version'],{timeoutMs:0})).rejects.toThrow('timeout');
   });
 });
