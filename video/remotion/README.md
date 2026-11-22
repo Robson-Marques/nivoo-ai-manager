@@ -12,3 +12,8 @@ after a trusted local npm install, then use `npm ci` and `npm run bundle`.
 Do not run unpinned npm installs in the production update. The existing Studio
 FFmpeg renderer remains the default until this bundle and the rendering path
 are independently validated. Do not expose user-controlled source or scripts.
+
+The renderer currently accepts Remotion-served asset URLs only. Existing project media
+resolution and bundle static-file provisioning must be connected before the API can
+route a user export here. The fixed composition ID resolves a CLI mismatch, but does
+not validate the output or enable the experimental renderer.

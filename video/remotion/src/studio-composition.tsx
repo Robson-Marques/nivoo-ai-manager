@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig } from 'remotion';
 
 type Transform={x:number;y:number;width:number;height:number};
 type Word={text:string;startMs:number;endMs:number};
@@ -41,6 +41,7 @@ const Caption:React.FC<{layer:Layer}> = ({layer})=>{
   </div>;
 };
 export const StudioComposition:React.FC<StudioProps>=({layers})=>{
+  const {fps}=useVideoConfig();
   return <AbsoluteFill style={{backgroundColor:'#000000',overflow:'hidden'}}>
     {[...layers].sort((a,b)=>a.zIndex-b.zIndex).map(layer=>{
       const start=Math.max(0,Math.floor(layer.fromFrame));
@@ -48,7 +49,7 @@ export const StudioComposition:React.FC<StudioProps>=({layers})=>{
       const offset=(layer.sourceOffsetMs??0)/1000;
       return <Sequence key={layer.id} from={start} durationInFrames={length}>
         {layer.type==='video'&&layer.src&&<div style={layerStyle(layer.transform)}>
-          <OffthreadVideo src={layer.src} startFrom={Math.round(offset*30)}
+          <OffthreadVideo src={layer.src} startFrom={Math.round(offset*fps)}
             volume={layer.volume??1} style={{width:'100%',height:'100%',objectFit:'contain'}} />
         </div>}
         {layer.type==='image'&&layer.src&&<Img src={layer.src}
