@@ -13,7 +13,10 @@ describe('Nivoo HyperFrames motion integration',()=>{
   it('escapes input without accepting browser code or remote assets',()=>{
     const html=trustedMotionHtml('brush-reveal','</div><script>alert("x")</script>');
     expect(html).toContain('&lt;script&gt;');
-    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<script>alert("x")');
+    expect(html).toContain('window.__timelines["nivoo-motion"]');
+    expect(html).toContain('gsap.timeline({paused:true})');
+    expect(html).toContain('<script src="gsap.min.js"></script>');
     expect(html).not.toContain('https://');
     expect(html).toContain('data-composition-id="nivoo-motion"');
     expect(html).toContain('data-duration="3.2"');

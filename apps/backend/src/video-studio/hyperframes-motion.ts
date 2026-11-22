@@ -29,24 +29,35 @@ export function validateMotionRequest(body:unknown):{preset:MotionPreset;title:s
 }
 export function trustedMotionHtml(preset:MotionPreset,title:string):string{
   const value=validateMotionRequest({preset,title});
-  const animation:Record<MotionPreset,string>={
-    'kinetic-title':'@keyframes enter{0%{opacity:0;transform:translateY(110px) scale(.86)}30%{opacity:1;transform:translateY(0) scale(1)}85%{opacity:1}100%{opacity:0}} #title{animation:enter 3.2s ease-in-out both}',
-    'neon-title':'@keyframes enter{0%{opacity:0;filter:blur(18px)}25%{opacity:1;filter:blur(0)}55%{text-shadow:0 0 6px #fff,0 0 27px #33ddff,0 0 85px #33ddff}85%{opacity:1}100%{opacity:0}} #title{color:#eaffff;animation:enter 3.2s ease both}',
-    'brush-reveal':'@keyframes paint{0%{transform:scaleX(0)}35%,100%{transform:scaleX(1)}} @keyframes words{0%,12%{opacity:0;transform:translateY(25px)}42%,85%{opacity:1;transform:translateY(0)}100%{opacity:0}} #title{position:relative;animation:words 3.2s ease both} #title:before{content:"";position:absolute;z-index:-1;left:-5%;top:49%;width:110%;height:48%;background:#ffd83c;transform-origin:left;animation:paint 3.2s ease both}',
-    'zoom-impact':'@keyframes enter{0%{opacity:0;transform:scale(2.1);filter:blur(15px)}28%{opacity:1;transform:scale(.95);filter:blur(0)}42%,85%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}} #title{animation:enter 3.2s cubic-bezier(.2,.8,.2,1) both}',
-    'slide-reveal':'@keyframes enter{0%{opacity:0;clip-path:inset(0 100% 0 0);transform:translateX(-50px)}35%,85%{opacity:1;clip-path:inset(0 0 0 0);transform:translateX(0)}100%{opacity:0}} #title{animation:enter 3.2s ease both}',
-    'soft-fade':'@keyframes enter{0%{opacity:0;transform:translateY(30px)}30%,80%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-12px)}} #title{animation:enter 3.2s ease-in-out both}',
+  // GSAP drives the clock deterministically. Ordinary CSS keyframe animations
+  // are not a substitute for a paused, registered HyperFrames timeline.
+  const timelines:Record<MotionPreset,string>={
+    'kinetic-title':"tl.fromTo(title,{opacity:0,y:110,scale:.86},{opacity:1,y:0,scale:1,duration:.75,ease:'power3.out'},.12);tl.to(title,{opacity:0,y:-26,duration:.38},2.77);",
+    'neon-title':"tl.fromTo(title,{opacity:0,filter:'blur(18px)'},{opacity:1,filter:'blur(0px)',duration:.62},.12);tl.to(title,{textShadow:'0 0 6px #fff,0 0 24px #33ddff,0 0 66px #33ddff',duration:.44},1.05);tl.to(title,{opacity:0,duration:.4},2.75);",
+    'brush-reveal':"tl.fromTo(brush,{scaleX:0,transformOrigin:'left center'},{scaleX:1,duration:.65,ease:'power2.out'},.12);tl.fromTo(title,{opacity:0,y:24},{opacity:1,y:0,duration:.48},.30);tl.to(title,{opacity:0,duration:.38},2.76);",
+    'zoom-impact':"tl.fromTo(title,{opacity:0,scale:2.05,filter:'blur(14px)'},{opacity:1,scale:1,filter:'blur(0px)',duration:.73,ease:'power3.out'},.12);tl.to(title,{scale:1.07,duration:1.6,ease:'none'},1);tl.to(title,{opacity:0,duration:.35},2.78);",
+    'slide-reveal':"tl.fromTo(title,{opacity:0,x:-65,clipPath:'inset(0 100% 0 0)'},{opacity:1,x:0,clipPath:'inset(0 0% 0 0)',duration:.85,ease:'power2.out'},.12);tl.to(title,{opacity:0,duration:.35},2.78);",
+    'soft-fade':"tl.fromTo(title,{opacity:0,y:32},{opacity:1,y:0,duration:.85,ease:'power2.out'},.18);tl.to(title,{y:-9,duration:1.25,ease:'none'},1.13);tl.to(title,{opacity:0,duration:.5},2.70);",
   };
   return [
     '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
     '<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}',
     'body{background:#0a1224;color:#fff;font-family:Arial,Helvetica,sans-serif}',
-    '#stage{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden}',
-    '#title{max-width:88%;font-size:64px;font-weight:900;line-height:1.06;text-align:center;letter-spacing:-1px;overflow-wrap:anywhere}',
-    animation[value.preset],'</style></head><body>',
+    '#stage{position:relative;width:540px;height:960px;overflow:hidden;background:#0a1224}',
+    '.clip{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px}',
+    '#title{position:relative;z-index:2;max-width:95%;font-size:64px;font-weight:900;line-height:1.06;text-align:center;letter-spacing:-1px;overflow-wrap:anywhere}',
+    '#brush{position:absolute;top:50%;left:10%;width:80%;height:15%;background:#ffd83c;z-index:1;transform-origin:left center}',
+    value.preset==='neon-title'?'#title{color:#eaffff}':'',
+    '</style></head><body>',
     '<main id="stage" data-composition-id="nivoo-motion" data-start="0" data-width="540" data-height="960" data-fps="24" data-duration="3.2">',
-    '<div id="title" class="clip" data-start="0" data-duration="3.2" data-track-index="0">',
-    escapeHtml(value.title),'</div></main></body></html>',
+    '<div id="scene" class="clip" data-start="0" data-duration="3.2" data-track-index="0">',
+    '<div id="brush"></div><div id="title">',escapeHtml(value.title),'</div></div></main>',
+    '<script src="gsap.min.js"></script>',
+    '<script>(function(){if(typeof gsap==="undefined")throw new Error("GSAP local ausente");',
+    'const title=document.getElementById("title");const brush=document.getElementById("brush");',
+    'const tl=gsap.timeline({paused:true});',timelines[value.preset],
+    'window.__timelines=window.__timelines||{};window.__timelines["nivoo-motion"]=tl;tl.seek(0);',
+    '})();</script></body></html>',
   ].join('');
 }
 export type MotionRenderOutput={output:string;durationMs:number;warnings:string[]};
@@ -69,6 +80,10 @@ export async function renderTrustedMotion(input:{
   const final=path.join(outputDir,name);
   const partial=path.join(outputDir,'.'+name+'.partial.mp4');
   try{
+    const gsapSource='/opt/nivoo/hyperframes/node_modules/gsap/dist/gsap.min.js';
+    const gsapInfo=fs.statSync(gsapSource);
+    if(!gsapInfo.isFile()||gsapInfo.size<10000)throw new Error('Runtime GSAP local não provisionado');
+    fs.copyFileSync(gsapSource,path.join(job,'gsap.min.js'));
     fs.writeFileSync(path.join(job,'index.html'),trustedMotionHtml(input.preset,input.title),{flag:'wx',mode:0o600});
     if(signal?.aborted)throw new Error('Prévia cancelada');
     const result=await runVideoTool('hyperframes',[
