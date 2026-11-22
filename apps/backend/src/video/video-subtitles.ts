@@ -11,7 +11,9 @@ function parseTimestamp(input: string): number {
   if (!match) throw new Error('Invalid SRT timestamp');
   const [, hours, minutes, seconds, millis] = match;
   if (Number(minutes) >= 60 || Number(seconds) >= 60) throw new Error('Invalid SRT timestamp');
-  return ((Number(hours) * 60 + Number(minutes)) * 60 + Number(seconds)) * 1000 + Number(millis);
+  const value = ((Number(hours) * 60 + Number(minutes)) * 60 + Number(seconds)) * 1000 + Number(millis);
+  if (!Number.isSafeInteger(value)) throw new Error('Invalid SRT timestamp');
+  return value;
 }
 
 export function parseWhisperSrt(srt: string, maxDurationMs = 3_600_000): SubtitleCue[] {
@@ -22,7 +24,7 @@ export function parseWhisperSrt(srt: string, maxDurationMs = 3_600_000): Subtitl
   const cues: SubtitleCue[] = [];
   for (const block of blocks) {
     const lines = block.split('\n');
-    if (lines.length < 3 || !/^\d+$/.test(lines[0].trim())) throw new Error('Invalid SRT cue index');
+    if (lines.length < 3 || !/^[1-9]\d{0,8}$/.test(lines[0].trim())) throw new Error('Invalid SRT cue index');
     const match = /^(\d{2,}:\d{2}:\d{2}[,.]\d{3})\s+-->\s+(\d{2,}:\d{2}:\d{2}[,.]\d{3})$/.exec(lines[1].trim());
     if (!match) throw new Error('Invalid SRT cue timing');
     const startMs = parseTimestamp(match[1]);
