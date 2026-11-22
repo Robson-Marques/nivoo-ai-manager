@@ -41,3 +41,8 @@
 .studio-catalog-results li strong,.studio-catalog-results li small{display:block}
 .studio-catalog-results li strong{font-size:12px}
 .studio-catalog-results li p{margin:4px 0;font-size:11px;color:#c3d1df}
+
+.studio-catalog-preview{display:flex;flex-direction:column;gap:5px;margin:8px 0}
+.studio-catalog-preview video{width:100%;max-height:220px;object-fit:contain;background:#050b16;border-radius:6px}
+.studio-catalog-preview button{font-size:11px}
+.studio-catalog-results li>button{width:100%;margin-top:6px}
