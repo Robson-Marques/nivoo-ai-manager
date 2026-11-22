@@ -1,11 +1,17 @@
 name: Studio quick build
 on:
+  workflow_dispatch:
   push:
     branches: ['feature/video-design-timeline-v1']
   pull_request:
     paths:
       - 'apps/backend/src/video-studio/**'
+      - 'apps/backend/src/video/**'
+      - 'apps/backend/test/*hyperframes*.spec.ts'
+      - 'apps/backend/test/studio-motion-status.spec.ts'
       - 'apps/web/src/pages/VideoStudio*'
+      - 'apps/web/src/components/video/**'
+      - 'deploy/install-hyperframes.sh'
       - 'apps/web/src/main.tsx'
       - 'apps/web/src/Layout.tsx'
 jobs:
@@ -22,6 +28,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - run: npm ci
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
+      - run: bash -n deploy/install-hyperframes.sh deploy/install-video-toolchain.sh deploy/install-debian.sh
       - run: npm run build -w apps/backend
       - run: npm run build -w apps/web
       - run: node apps/backend/test/studio-smoke.cjs

@@ -21,7 +21,7 @@ export function describeVideoToolCapabilities(edit: StudioEditV1): VideoToolCapa
     },
     {
       id: 'hyperframes', label: 'HyperFrames', status: 'experimental',
-      reason: 'CLI isolada disponível no adaptador; falta fluxo de projeto e preview no Studio',
+      reason: 'Prévia de motion com modelos autorizados integrada ao Studio; catálogo externo e skills dos agentes ainda não conectados',
     },
     {
       id: 'whisper', label: 'Whisper', status: hasClips ? 'experimental' : 'blocked',

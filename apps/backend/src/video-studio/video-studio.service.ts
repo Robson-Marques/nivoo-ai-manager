@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawn, spawnSync, ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, listarVideos } from '../projects/midia';
@@ -18,6 +18,10 @@ import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process'
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
+import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, trustedMotionHtml, type MotionPreset } from './hyperframes-motion';
+import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
+import { listHyperFramesReviewRequests, requestHyperFramesReview } from './hyperframes-curation';
+import { readStudioMotionState, saveStudioMotionState, type StudioMotionState } from './studio-motion-status';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
@@ -62,9 +66,12 @@ const claimEditLease=(media:string,id:string,runId:ReturnType<typeof randomUUID>
   if(previous) recoverDeadStudioRenderLease(media,id);
   return acquireStudioRenderLease(media,id,runId);
 };
+type MotionState = StudioMotionState;
+const motionJobs = new Map<string,{result:MotionState;abort:AbortController}>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
-type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+type MotionSuggestion={preset:MotionPreset;title:string};
+type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];motionSuggestions?:MotionSuggestion[];explanation?:string};
 const aiStates=new Map<string,AiState>();
 type ZoneState={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 const zoneStates=new Map<string,ZoneState>();
@@ -225,6 +232,8 @@ export class VideoStudioService {
       if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
       fs.rmSync(f);
       fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      fs.rmSync(path.join(studio,id+'.motion-status.json'),{force:true});
+      motionJobs.delete(pid+':'+id);
       status.delete(pid+':'+id);
       return {ok:true};
     } finally { releaseStudioRenderLease(media,id,runId); }
@@ -443,6 +452,7 @@ export class VideoStudioService {
         speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end,words:v.words??[]})),
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
+        availableMotionPresets:MOTION_PRESETS.map(({id,label,description})=>({id,label,description})),
         sampledFrames:snapshots.length,
         shotTimes:p.clips.length>1?'frames extraídos de múltiplas cenas':'frames extraídos do vídeo',
         instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
@@ -452,10 +462,12 @@ export class VideoStudioService {
           instructions:[
             'Você é o diretor de arte de pós-produção do Nivoo Studio.',
             'Analise a narração com seus tempos e proponha um plano de inserções visuais.',
-            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"explanation":"..."}',
+            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"motionSuggestions":[{"preset":"neon-title","title":"TEXTO NARRADO"}],"explanation":"..."}',
             'Para legendas dinâmicas, escolha style=impact|fade|slide|rise|enter-left|enter-right e distribua os destaques por posições diferentes somente se houver área livre; mantenha ênfase e legibilidade.',
             'Para gráfico original local use kind=graphic com text, subtitle, variant=spreadsheet|clock|progress|warning|money|check|generic e x,y,w,h. A renderização cria um cartão visual PNG sem API paga.',
             'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
+            'Quando a fala pedir motion design, sugira até 3 motionSuggestions usando somente o id de availableMotionPresets e título fiel ao roteiro. O Studio só renderiza após a escolha do usuário.',
+            'Nunca sugira identificadores de blocos externos do catálogo HyperFrames como executáveis; esses itens ainda precisam de curadoria e isolamento.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
             'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
             'Crie entradas de texto e figuras somente onde a fala pedir apoio; varie tamanho e posição de acordo com a composição. Não exagere na quantidade de overlays.',
@@ -469,7 +481,7 @@ export class VideoStudioService {
           onLog:()=>undefined,options:{maxTurns:1,images:snapshots}
         });
         if(result.exitCode!==0)throw new Error(result.error||'Falha ao consultar o agente de IA');
-        const raw=parseAiJson(result.output) as {elements?:unknown;explanation?:unknown};
+        const raw=parseAiJson(result.output) as {elements?:unknown;motionSuggestions?:unknown;explanation?:unknown};
         if(!raw || !Array.isArray(raw.elements))throw new Error('JSON da IA sem elements[]');
         const valid:AiElement[]=[];
         const rejected:string[]=[];
@@ -499,8 +511,17 @@ export class VideoStudioService {
           if(!placed){rejected.push(`${e.kind} ${e.start.toFixed(2)}s: sem espaço seguro`);continue;}
           valid.push(placed);
         }
-        if(!valid.length)throw new Error('A IA não propôs elementos válidos e seguros');
-        aiStates.set(key,{state:'draft',elements:valid,explanation:(String(raw.explanation??'').slice(0,800)+(rejected.length?' | '+rejected.length+' elemento(s) omitido(s) por segurança.':''))});
+        const motions:MotionSuggestion[]=[];
+        if(Array.isArray(raw.motionSuggestions)){
+          for(const candidate of raw.motionSuggestions.slice(0,3)){
+            try{
+              const motion=validateMotionRequest(candidate);
+              if(!motions.some(v=>v.preset===motion.preset&&v.title===motion.title))motions.push(motion);
+            }catch{ /* Referências não autorizadas não geram renderização */ }
+          }
+        }
+        if(!valid.length&&!motions.length)throw new Error('A IA não propôs elementos válidos e seguros');
+        aiStates.set(key,{state:'draft',elements:valid,motionSuggestions:motions,explanation:(String(raw.explanation??'').slice(0,800)+(rejected.length?' | '+rejected.length+' elemento(s) omitido(s) por segurança.':''))});
       }catch(e:any){
         aiStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
       }finally{snapshots.forEach(f=>fs.rmSync(f,{force:true}));}
@@ -560,6 +581,112 @@ export class VideoStudioService {
     aiStates.delete(key);
     return saved;
     }catch(e){generated.forEach(f=>fs.rmSync(f,{force:true}));throw e}
+  }
+
+  async motionPresets(pid:string) {
+    await this.dir(pid);
+    return MOTION_PRESETS;
+  }
+  async motionReviewList(pid:string) {
+    const {media}=await this.dir(pid);
+    return listHyperFramesReviewRequests(media);
+  }
+  async motionReviewRequest(pid:string,body:unknown) {
+    const {media}=await this.dir(pid);
+    if(!body||typeof body!=='object'||Array.isArray(body))
+      throw new BadRequestException('Pedido de revisão inválido');
+    const input=body as Record<string,unknown>;
+    if(typeof input.name!=='string'||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(input.name))
+      throw new BadRequestException('Nome do bloco inválido');
+    let query:string;
+    try{query=validateCatalogSearch(input.query);}
+    catch(error){throw new BadRequestException(error instanceof Error?error.message:'Busca inválida');}
+    // Reconfirm provider metadata: never trust title, type or preview URLs
+    // submitted by the browser as evidence of a real registry item.
+    const found=await searchOfficialHyperFramesCatalog(query);
+    const item=found.items.find(item=>item.name===input.name);
+    if(!item)throw new BadRequestException('Bloco não encontrado no resultado oficial da pesquisa');
+    return requestHyperFramesReview(media,item);
+  }
+  async motionCatalog(pid:string,query:unknown){
+    await this.dir(pid);
+    let text:string;
+    try {text=validateCatalogSearch(query);}
+    catch(error){throw new BadRequestException(error instanceof Error?error.message:'Busca inválida');}
+    return searchOfficialHyperFramesCatalog(text);
+  }
+  async motionStart(pid:string,id:string,body:unknown):Promise<MotionState> {
+    const {media}=await this.dir(pid);
+    this.validate(await this.get(pid,id),media);
+    let request:ReturnType<typeof validateMotionRequest>;
+    try {request=validateMotionRequest(body);}
+    catch(e){throw new BadRequestException(e instanceof Error?e.message:'Pedido inválido');}
+    const key=pid+':'+id;
+    const fingerprint=createHash('sha256').update(trustedMotionHtml(request.preset,request.title)).digest('hex');
+    // Only a live job may report running. A completed result must be
+    // revalidated against the real output file, not trusted from RAM.
+    if(motionJobs.get(key)?.result.state==='running')
+      throw new ConflictException('A prévia de motion já está em execução');
+    const previous=readStudioMotionState(media,id);
+    // Same source + preset + text = same reviewed output. Do not render twice
+    // after reloading the editor or restarting the API.
+    if(previous?.state==='done'&&previous.preset===request.preset&&previous.title===request.title&&previous.fingerprint===fingerprint)
+      return previous;
+
+    const runId=randomUUID();
+    try {claimEditLease(media,id,runId);}
+    catch {throw new ConflictException('Existe outra produção utilizando esta edição');}
+    const abort=new AbortController();
+    const entry:{result:MotionState;abort:AbortController}={
+      result:{state:'running',runId,started:new Date().toISOString(),
+        preset:request.preset,title:request.title,fingerprint},abort,
+    };
+    try {saveStudioMotionState(media,id,entry.result);}
+    catch(error){releaseStudioRenderLease(media,id,runId);throw error;}
+    motionJobs.set(key,entry);
+    setImmediate(()=>{
+      void renderTrustedMotion({media,editId:id,runId,...request},abort.signal).then(result=>{
+        if(entry.result.state==='cancelled'){
+          const candidate=arquivoDaMidia(media,result.output);
+          if(candidate)fs.rmSync(candidate,{force:true});
+          return;
+        }
+        entry.result={...entry.result,state:'done',output:result.output,
+          durationMs:result.durationMs,warnings:result.warnings};
+        saveStudioMotionState(media,id,entry.result);
+      }).catch(error=>{
+        if(entry.result.state!=='cancelled'){
+          entry.result={...entry.result,state:'failed',
+            error:String(error instanceof Error?error.message:error).slice(0,500)};
+          saveStudioMotionState(media,id,entry.result);
+        }
+      }).finally(()=>{
+        try{releaseStudioRenderLease(media,id,runId);}
+        catch(error){console.error('Falha ao liberar produção HyperFrames',error);}
+        // The durable state is the source of truth; do not leak completed
+        // job objects across hundreds of Studio edits.
+        if(motionJobs.get(key)===entry)motionJobs.delete(key);
+      });
+    });
+    return entry.result;
+  }
+  async motionStatus(pid:string,id:string){
+    const {media}=await this.dir(pid);
+    await this.get(pid,id);
+    const active=motionJobs.get(pid+':'+id)?.result;
+    if(active?.state==='running')return active;
+    return readStudioMotionState(media,id)??active??{state:'idle'};
+  }
+  async motionCancel(pid:string,id:string){
+    const {media}=await this.dir(pid);
+    await this.get(pid,id);
+    const job=motionJobs.get(pid+':'+id);
+    if(!job||job.result.state!=='running')
+      return job?.result??readStudioMotionState(media,id)??{state:'idle'};
+    job.result={...job.result,state:'cancelled'};
+    saveStudioMotionState(media,id,job.result);
+    job.abort.abort();
+    return job.result;
   }
 
   async render(pid:string,id:string,engine:'ffmpeg'|'remotion'='ffmpeg') {

@@ -1,6 +1,6 @@
 # Integração dos motores de vídeo — implementação incremental
 
-Status: **especificação técnica inicial; ferramentas ainda não instaladas nem conectadas à interface**.
+Status: **integração parcial implementada**. FFmpeg, Remotion e Whisper têm caminhos próprios. HyperFrames ganha geração de prévia em modelos locais nesta branch (ver VIDEO-HYPERFRAMES-STUDIO.md). A importação remota por yt-dlp continua bloqueada.
 
 ## Contrato
 - Preservar a timeline, mídia, Kokoro, Gemini e renderização existentes.
@@ -38,5 +38,8 @@ Painel único **Vídeo** com abas compactas: Mídia, Animações, Áudio/Legenda
 - Falha é exibida com causa e ação de recuperação, sem loop infinito.
 - Exportação de MP4 com áudio sincronizado e legenda quando solicitada.
 
-## Próxima etapa de código
-Mapear serviços e rotas de vídeo atuais; implementar adapters no backend, fila e persistência; em seguida conectar componentes React e adicionar testes de regressão. Nenhum deploy automático.
+## Pendências reais
+- Conectar os blocos do catálogo externo HyperFrames com origem comprovada, isolamento e regras de preview antes de publicar. As skills externas não são instaladas automaticamente no ambiente do agente.
+- Resolver importação autorizada via yt-dlp sem SSRF; nunca habilitar download de URLs arbitrárias.
+- Homologar renderizações reais pós-update e revisar a integração de mídia e o fluxo de aprovações.
+- Integrar progressivamente formatos de animação avançados (incluindo 3D), sem substituir os modelos locais por código arbitrário. Nenhum deploy automático.

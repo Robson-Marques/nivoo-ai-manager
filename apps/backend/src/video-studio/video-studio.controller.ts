@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { VideoStudioService } from './video-studio.service';
 import { inspectStudioRuntime } from './studio-runtime-capabilities';
 
@@ -76,6 +76,37 @@ export class VideoStudioController {
   @Get(':id/captions/auto')
   captionStatus(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
     return this.studio.captionsStatus(pid,id);
+  }
+
+  @Get('motion/reviews')
+  motionReviews(@Param('pid', ParseUUIDPipe) pid:string){
+    return this.studio.motionReviewList(pid);
+  }
+  @Post('motion/reviews')
+  motionReviewRequest(@Param('pid', ParseUUIDPipe) pid:string,@Body() body:unknown){
+    return this.studio.motionReviewRequest(pid,body);
+  }
+
+  @Get('motion/catalog')
+  motionCatalog(@Param('pid', ParseUUIDPipe) pid:string,@Query('query') query:string){
+    return this.studio.motionCatalog(pid,query);
+  }
+
+  @Get('motion/presets')
+  motionPresets(@Param('pid', ParseUUIDPipe) pid:string) {
+    return this.studio.motionPresets(pid);
+  }
+  @Post(':id/motion')
+  motionStart(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string,@Body() body:unknown) {
+    return this.studio.motionStart(pid,id,body);
+  }
+  @Get(':id/motion')
+  motionStatus(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string) {
+    return this.studio.motionStatus(pid,id);
+  }
+  @Post(':id/motion/cancel')
+  motionCancel(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string) {
+    return this.studio.motionCancel(pid,id);
   }
 
   @Post(':id/render')

@@ -1,0 +1,48 @@
+.studio-motion{border:1px solid #40516a;border-radius:8px;padding:9px;margin:12px 0;background:#101a2a;display:flex;flex-direction:column;gap:6px}
+.studio-motion h4{margin:0;font-size:12px}
+.studio-motion p,.studio-motion small{margin:0;color:#b8c9de;font-size:11px;line-height:1.35}
+.studio-motion select,.studio-motion input{width:100%;min-width:0;padding:6px;color:#f3f6fa;border:1px solid #40516a;border-radius:5px;background:#17243a}
+.studio-motion button{padding:6px;font-size:12px}
+.studio-motion-result{display:flex;flex-direction:column;gap:7px}
+.studio-motion-result video{width:100%;max-height:210px;object-fit:contain;background:#000;border-radius:5px}
+.studio-motion .studio-motion-error{color:#ffc7c7}
+
+.studio-motion-example{position:relative;min-height:92px;border:1px solid #40516a;border-radius:6px;background:#081225;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:14px}
+.studio-motion-example .studio-motion-preview-text{font-size:16px;font-weight:900;line-height:1.1;text-align:center;color:#fff;overflow-wrap:anywhere;max-width:88%}
+.studio-motion-example button{position:absolute;right:3px;top:3px;border:0;background:rgba(13,25,43,.75);padding:1px 5px;font-size:11px}
+.studio-motion-kinetic-title{animation:studio-hf-kinetic 1.5s ease-in-out both}
+.studio-motion-neon-title{animation:studio-hf-neon 1.5s ease both}
+.studio-motion-brush-reveal{position:relative;isolation:isolate;animation:studio-hf-brush-words 1.5s ease both}
+.studio-motion-brush-reveal:before{content:"";position:absolute;z-index:-1;left:-5%;top:55%;width:110%;height:45%;background:#ffd83c;transform-origin:left;animation:studio-hf-brush 1.5s ease both}
+@keyframes studio-hf-kinetic{0%{opacity:0;transform:translateY(45px) scale(.86)}30%,85%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes studio-hf-neon{0%{opacity:0;filter:blur(8px)}25%{opacity:1;filter:blur(0)}55%,85%{text-shadow:0 0 3px #fff,0 0 10px #33ddff,0 0 22px #33ddff}100%{opacity:0}}
+@keyframes studio-hf-brush{0%{transform:scaleX(0)}35%,100%{transform:scaleX(1)}}
+@keyframes studio-hf-brush-words{0%,12%{opacity:0;transform:translateY(15px)}42%,85%{opacity:1;transform:none}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.studio-motion-preview-text,.studio-motion-preview-text:before{animation:none!important}}
+
+.studio-motion-zoom-impact{animation:studio-hf-zoom 1.5s cubic-bezier(.2,.8,.2,1) both}
+.studio-motion-slide-reveal{animation:studio-hf-slide 1.5s ease both}
+.studio-motion-soft-fade{animation:studio-hf-fade 1.5s ease-in-out both}
+@keyframes studio-hf-zoom{0%{opacity:0;transform:scale(2);filter:blur(8px)}28%{opacity:1;transform:scale(.95);filter:blur(0)}42%,85%{opacity:1;transform:scale(1)}100%{opacity:0}}
+@keyframes studio-hf-slide{0%{opacity:0;clip-path:inset(0 100% 0 0);transform:translateX(-35px)}35%,85%{opacity:1;clip-path:inset(0 0 0 0);transform:none}100%{opacity:0}}
+@keyframes studio-hf-fade{0%{opacity:0;transform:translateY(20px)}30%,80%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-8px)}}
+
+.studio-official-catalog{border-top:1px solid #40516a;padding-top:10px;margin-top:8px}
+.studio-official-catalog summary{font-size:12px;cursor:pointer}
+.studio-official-catalog summary small{display:inline}
+.studio-official-catalog>p{margin:8px 0}
+.studio-official-catalog form{display:flex;gap:5px;margin:8px 0}
+.studio-official-catalog form input{flex:1;width:60%;min-width:0}
+.studio-official-catalog form button{white-space:nowrap}
+.studio-catalog-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.studio-catalog-chips button{font-size:11px;padding:4px 7px}
+.studio-catalog-results{list-style:none;padding:0;margin:9px 0;display:flex;flex-direction:column;gap:5px;max-height:270px;overflow:auto}
+.studio-catalog-results li{padding:7px;border:1px solid #3c4a60;border-radius:5px}
+.studio-catalog-results li strong,.studio-catalog-results li small{display:block}
+.studio-catalog-results li strong{font-size:12px}
+.studio-catalog-results li p{margin:4px 0;font-size:11px;color:#c3d1df}
+
+.studio-catalog-preview{display:flex;flex-direction:column;gap:5px;margin:8px 0}
+.studio-catalog-preview video{width:100%;max-height:220px;object-fit:contain;background:#050b16;border-radius:6px}
+.studio-catalog-preview button{font-size:11px}
+.studio-catalog-results li>button{width:100%;margin-top:6px}
