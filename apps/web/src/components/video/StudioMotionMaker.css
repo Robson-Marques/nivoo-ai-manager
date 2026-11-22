@@ -1,0 +1,8 @@
+.studio-motion{border:1px solid #40516a;border-radius:8px;padding:9px;margin:12px 0;background:#101a2a;display:flex;flex-direction:column;gap:6px}
+.studio-motion h4{margin:0;font-size:12px}
+.studio-motion p,.studio-motion small{margin:0;color:#b8c9de;font-size:11px;line-height:1.35}
+.studio-motion select,.studio-motion input{width:100%;min-width:0;padding:6px;color:#f3f6fa;border:1px solid #40516a;border-radius:5px;background:#17243a}
+.studio-motion button{padding:6px;font-size:12px}
+.studio-motion-result{display:flex;flex-direction:column;gap:7px}
+.studio-motion-result video{width:100%;max-height:210px;object-fit:contain;background:#000;border-radius:5px}
+.studio-motion .studio-motion-error{color:#ffc7c7}

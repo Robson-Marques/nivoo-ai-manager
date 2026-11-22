@@ -3,6 +3,7 @@ import { Link, useParams, useLocation } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
 import { StudioEffectPreview } from '../components/video/StudioEffectPreview';
+import { StudioMotionMaker } from '../components/video/StudioMotionMaker';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
@@ -669,6 +670,9 @@ export function VideoStudio() {
             {m.pasta==='entrada'&&<button className="studio-media-delete" disabled={busy} title={'Excluir '+m.nome+' do projeto'} aria-label={'Excluir vídeo '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
           </div>)}
           <h4>Imagens</h4>{mediaImage.map(m=><button title={m.nome} key={m.caminho} onClick={()=>addImage(m)}>＋ {m.nome}</button>)}
+          <StudioMotionMaker edits={edits} mediaBase={base} editId={project.id}
+            ready={runtime.some(tool=>tool.id==='hyperframes'&&tool.state==='ready')}
+            onAdd={source=>append({caminho:source,nome:'Motion HyperFrames',bytes:0,pasta:'saida'})}/>
           {standalone&&<div className="studio-narration">
             <h4>🎙 Criar narração com Kokoro</h4>
             <textarea aria-label="Roteiro da narração" placeholder="Cole ou escreva o texto que será narrado…" value={script} onChange={e=>setScript(e.target.value)} rows={4} maxLength={5000}/>
