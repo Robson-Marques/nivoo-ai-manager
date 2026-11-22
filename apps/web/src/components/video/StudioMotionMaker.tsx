@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, urlAutenticada } from '../../api';
 import './StudioMotionMaker.css';
 
-type Preset={id:string;label:string;description:string};
+type Preset={id:string;label:string;description:string;category:'title'|'light'|'transition';durationSeconds:number;origin:string;version:number};
 type State={state:'idle'|'running'|'done'|'failed'|'cancelled';output?:string;error?:string;durationMs?:number;warnings?:string[]};
 
 export function StudioMotionMaker(props:{
@@ -11,6 +11,7 @@ export function StudioMotionMaker(props:{
 }) {
   const [presets,setPresets]=useState<Preset[]>([]);
   const [preset,setPreset]=useState('kinetic-title');
+  const [category,setCategory]=useState<'all'|'title'|'light'|'transition'>('all');
   const [title,setTitle]=useState('');
   const [replay,setReplay]=useState(0);
   const [state,setState]=useState<State>({state:'idle'});
@@ -48,11 +49,23 @@ export function StudioMotionMaker(props:{
   return <div className="studio-motion" aria-label="Biblioteca de motion design">
     <h4>✦ Motion design · HyperFrames</h4>
     <p>Gere uma prévia curta e insira o vídeo na timeline.</p>
+    <select aria-label="Categoria de efeito" value={category} onChange={e=>{
+      const next=e.target.value as typeof category;
+      setCategory(next);
+      const first=presets.find(p=>next==='all'||p.category===next);
+      if(first)setPreset(first.id);
+      setReplay(n=>n+1);
+    }}>
+      <option value="all">Todos os efeitos</option>
+      <option value="title">Títulos</option>
+      <option value="light">Luz e neon</option>
+      <option value="transition">Revelações e transições</option>
+    </select>
     <select aria-label="Animação HyperFrames" value={preset} onChange={e=>{setPreset(e.target.value);setReplay(n=>n+1)}}>
-      {(presets.length?presets:[{id:'kinetic-title',label:'Título cinético',description:''}]).map(p=>
+      {(presets.filter(p=>category==='all'||p.category===category)).map(p=>
         <option key={p.id} value={p.id}>{p.label}</option>)}
     </select>
-    {presets.find(p=>p.id===preset)?.description&&<small>{presets.find(p=>p.id===preset)?.description}</small>}
+    {presets.find(p=>p.id===preset)?.description&&<small>{presets.find(p=>p.id===preset)?.description} · Modelo revisado v{presets.find(p=>p.id===preset)?.version}</small>}
     <input aria-label="Texto do motion" placeholder="Texto da animação" maxLength={100}
       value={title} onChange={e=>setTitle(e.target.value)}/>
     <div className="studio-motion-example" aria-label="Simulação local do efeito, sem renderização">

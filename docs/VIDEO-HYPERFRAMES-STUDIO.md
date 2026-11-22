@@ -5,7 +5,7 @@ Os dois tipos de edição (produção independente e projeto) expõem o módulo 
 ## Entrega desta branch
 
 - CLI HyperFrames oficial em versão top-level fixa 0.9.80, opcional e instalada fora do checkout Git; browser do usuário nivoo provisionado.
-- Três modelos autorados pelo backend: título cinético, neon/LED e pincelada. O navegador não pode enviar HTML nem JavaScript arbitrário.
+- Seis modelos autorados pelo backend: título cinético, neon/LED, pincelada, zoom de impacto, revelação lateral e fade elegante. Catálogo com categoria, origem local revisada e versão. O navegador não pode enviar HTML nem JavaScript arbitrário.
 - Job assíncrono por edição, consulta de estado, cancelamento, lock compartilhado com a exportação e controle de ownership.
 - MP4 de 3,2 segundos inspecionado por FFmpeg/FFprobe antes da publicação na pasta de saída. A interface permite reproduzir e inserir na timeline.
 - Falha da instalação opcional não impede FFmpeg/Remotion existentes.

@@ -4,7 +4,8 @@ import * as os from 'node:os';
 
 describe('Nivoo HyperFrames motion integration',()=>{
   it('exposes only trusted motion presets',()=>{
-    expect(MOTION_PRESETS.map(p=>p.id)).toEqual(['kinetic-title','neon-title','brush-reveal']);
+    expect(MOTION_PRESETS.map(p=>p.id)).toEqual(['kinetic-title','neon-title','brush-reveal','zoom-impact','slide-reveal','soft-fade']);
+    expect(MOTION_PRESETS.every(p=>p.origin==='nivoo-reviewed'&&p.version===1&&p.durationSeconds===3.2)).toBe(true);
     expect(()=>validateMotionRequest({preset:'../../secret',title:'olá'})).toThrow('desconhecido');
     expect(()=>validateMotionRequest({preset:'neon-title',title:'x'.repeat(101)})).toThrow('inválido');
     expect(()=>validateMotionRequest({preset:'neon-title',title:'olá\nmundo'})).toThrow('inválido');
