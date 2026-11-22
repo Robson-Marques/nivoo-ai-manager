@@ -21,7 +21,8 @@ export function assertWorkspacePath(root: string, target: string): string {
 }
 
 export function validateMediaUrl(input: string): string {
-  const url = new URL(input);
+  let url: URL;
+  try { url = new URL(input); } catch { throw new Error('Invalid media URL'); }
   if (url.protocol !== 'https:' || url.username || url.password || url.port) {
     throw new Error('Only HTTPS media URLs without credentials or custom ports are supported');
   }
@@ -31,6 +32,7 @@ export function validateMediaUrl(input: string): string {
   if (!hosts.some(h => host === h || host.endsWith('.' + h))) {
     throw new Error('Media host not allowed');
   }
+  if (!['', '443'].includes(url.port)) throw new Error('Unexpected media URL port');
   return url.toString();
 }
 
@@ -39,30 +41,38 @@ export async function runVideoTool(
   args: readonly string[],
   cwd: string,
   timeoutMs = 120_000,
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1000 || timeoutMs > 3_600_000) {
     throw new Error('Invalid timeout');
   }
+  if (signal?.aborted) throw new Error('Video tool aborted');
   await mkdir(cwd, { recursive: true });
+  if (signal?.aborted) throw new Error('Video tool aborted');
   return new Promise((resolveResult, reject) => {
     const child = spawn(executable, [...args], {
       cwd, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, NO_COLOR: '1' },
     });
     let stdout = '', stderr = '', settled = false;
+    const abort = () => { child.kill('SIGKILL'); if (!settled) { settled = true; reject(new Error('Video tool aborted')); } };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     const append = (prev: string, chunk: Buffer) => (prev + chunk.toString('utf8')).slice(-MAX_LOG);
     child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
     child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
-      if (!settled) { settled = true; reject(new Error('Video tool timeout')); }
+      if (!settled) { settled = true; signal?.removeEventListener('abort', abort); reject(new Error('Video tool timeout')); }
     }, timeoutMs);
     child.on('error', err => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (!settled) { settled = true; reject(err); }
     });
     child.on('close', code => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (!settled) { settled = true; resolveResult({ exitCode: code ?? -1, stdout, stderr }); }
     });
   });
@@ -104,6 +114,7 @@ export async function transcribeWithWhisper(
   inputFile: string,
   outputDir: string,
   language = 'pt',
+  signal?: AbortSignal,
 ): Promise<ToolResult> {
   const root = await realpath(workspaceRoot);
   const input = await realpath(inputFile);
@@ -127,5 +138,5 @@ export async function transcribeWithWhisper(
   return runVideoTool('whisper', [
     input, '--language', language, '--output_dir', target,
     '--output_format', 'srt', '--verbose', 'False',
-  ], target, 900_000);
+  ], target, 900_000, signal);
 }
