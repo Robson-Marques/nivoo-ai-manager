@@ -31,6 +31,12 @@ describe('Studio motion job durability',()=>{
     fs.unlinkSync(path.join(media,'saida',path.basename(output)));
     expect(readStudioMotionState(media,id)?.state).toBe('failed');
   });
+  it('rejects a published result when the output directory is redirected',()=>{
+    const output='midia/saida/motion-'+id+'-'+runId+'.mp4';
+    fs.symlinkSync(os.tmpdir(),path.join(media,'saida'));
+    saveStudioMotionState(media,id,{...initial(),state:'done',output,durationMs:3200});
+    expect(()=>readStudioMotionState(media,id)).toThrow('não confiável');
+  });
   it('refuses publication paths outside the project',()=>{
     expect(()=>saveStudioMotionState(media,id,{...initial(),state:'done',
       output:'../../etc/passwd'})).toThrow('Saída de motion inválida');

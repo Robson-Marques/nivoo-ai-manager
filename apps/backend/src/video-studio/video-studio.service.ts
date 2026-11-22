@@ -623,9 +623,11 @@ export class VideoStudioService {
     catch(e){throw new BadRequestException(e instanceof Error?e.message:'Pedido inválido');}
     const key=pid+':'+id;
     const fingerprint=createHash('sha256').update(trustedMotionHtml(request.preset,request.title)).digest('hex');
-    const previous=motionJobs.get(key)?.result??readStudioMotionState(media,id);
-    if(previous?.state==='running')
+    // Only a live job may report running. A completed result must be
+    // revalidated against the real output file, not trusted from RAM.
+    if(motionJobs.get(key)?.result.state==='running')
       throw new ConflictException('A prévia de motion já está em execução');
+    const previous=readStudioMotionState(media,id);
     // Same source + preset + text = same reviewed output. Do not render twice
     // after reloading the editor or restarting the API.
     if(previous?.state==='done'&&previous.preset===request.preset&&previous.title===request.title&&previous.fingerprint===fingerprint)
@@ -661,6 +663,9 @@ export class VideoStudioService {
       }).finally(()=>{
         try{releaseStudioRenderLease(media,id,runId);}
         catch(error){console.error('Falha ao liberar produção HyperFrames',error);}
+        // The durable state is the source of truth; do not leak completed
+        // job objects across hundreds of Studio edits.
+        if(motionJobs.get(key)===entry)motionJobs.delete(key);
       });
     });
     return entry.result;
@@ -668,7 +673,9 @@ export class VideoStudioService {
   async motionStatus(pid:string,id:string){
     const {media}=await this.dir(pid);
     await this.get(pid,id);
-    return motionJobs.get(pid+':'+id)?.result??readStudioMotionState(media,id)??{state:'idle'};
+    const active=motionJobs.get(pid+':'+id)?.result;
+    if(active?.state==='running')return active;
+    return readStudioMotionState(media,id)??active??{state:'idle'};
   }
   async motionCancel(pid:string,id:string){
     const {media}=await this.dir(pid);

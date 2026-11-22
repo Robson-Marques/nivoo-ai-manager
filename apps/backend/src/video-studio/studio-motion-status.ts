@@ -49,7 +49,12 @@ export function readStudioMotionState(media:string,id:string):StudioMotionState|
   if(s.state==='running')return {...s,state:'failed',error:'Prévia interrompida pelo reinício do serviço. Você pode gerar novamente.'};
   if(s.state==='done'){
     if(!validOutput(s.output,id))throw new Error('Caminho do vídeo de motion inválido');
-    const actual=path.join(media,s.output!.replace(/^midia\//,''));
+    // Reject a symlinked output directory as well as symlinked files.
+    const root=fs.realpathSync(media);
+    const outDir=path.join(root,'saida');
+    if(fs.lstatSync(outDir).isSymbolicLink()||fs.realpathSync(outDir)!==outDir)
+      throw new Error('Diretório de saída de motion não confiável');
+    const actual=path.join(outDir,path.basename(s.output!));
     try{
       const meta=fs.lstatSync(actual);
       if(!meta.isFile()||meta.isSymbolicLink()||meta.size<1024)
