@@ -29,3 +29,7 @@ O backend agora oferece `stageRemotionMedia`: recebe apenas caminhos relativos d
 ### Connected execution path
 
 `executeVerifiedRemotionRender` now resolves project-owned media, stages them in the private bundle, creates props from staged URLs and invokes the CLI. `renderRemotionComposition` verifies that every referenced staged asset exists before invoking Chromium. The bundle is **required to be unique per job**: shared bundles must never be modified by render jobs. A trusted worker must provision the bundle and verify the engine before enabling this path. The existing Studio export route remains on FFmpeg.
+
+### Per-job bundle provisioning
+
+The backend provides `provisionPrivateRemotionBundle`, which copies an operator-provisioned trusted bundle into a new, private workspace job directory. It refuses existing target directories and symlinked job paths. A caller must allocate a fresh job directory and run this before `executeVerifiedRemotionRender`. The CLI and trusted bundle installation are not yet wired into `nivoo update`; the FFmpeg export remains the only production route.
