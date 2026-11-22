@@ -9,12 +9,13 @@ import { FramePlan, toFramePlan } from './video-frame-plan';
 export type ResolvedMedia = { mediaId: string; assetUrl: string };
 export type RemotionLayer =
   | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; transform?: { x: number; y: number; width: number; height: number } }
-  | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter'; fromFrame: number; durationInFrames: number; zIndex: number; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string };
+  | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; fromFrame: number; durationInFrames: number; zIndex: number; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string };
 
 export type RemotionProps = Pick<FramePlan, 'width' | 'height' | 'fps' | 'durationInFrames'> & {
   compositionId: string;
   revision: string;
   layers: RemotionLayer[];
+  protectedZones?: VideoComposition['protectedZones'];
 };
 
 export function buildRemotionProps(
@@ -38,6 +39,7 @@ export function buildRemotionProps(
     const base = { id: layer.id, fromFrame: layer.fromFrame, durationInFrames: layer.durationInFrames, zIndex: layer.zIndex };
     if (layer.type === 'text') {
       return { ...base, type: 'text', text: layer.text, animation: layer.animation ?? 'none',
+        ...(layer.words ? { words: layer.words } : {}),
         ...(layer.transform ? { transform: layer.transform } : {}),
         ...(layer.fontSize !== undefined ? { fontSize: layer.fontSize } : {}),
         ...(layer.color ? { color: layer.color } : {}),
@@ -57,5 +59,6 @@ export function buildRemotionProps(
     compositionId: plan.compositionId, revision: plan.revision,
     width: plan.width, height: plan.height, fps: plan.fps,
     durationInFrames: plan.durationInFrames, layers,
+    ...(composition.protectedZones ? { protectedZones: composition.protectedZones } : {}),
   };
 }
