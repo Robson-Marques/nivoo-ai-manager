@@ -215,7 +215,7 @@ export class VideoStudioService {
     const {media,studio}=await this.dir(pid);
     const f=this.file(studio,id);
     const runId=randomUUID();
-    try { acquireStudioRenderLease(media,id,runId); }
+    try { claimEditLease(media,id,runId); }
     catch { throw new ConflictException('Aguarde o término da renderização antes de excluir a edição'); }
     try {
       if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
@@ -595,8 +595,8 @@ export class VideoStudioService {
   async state(pid:string,id:string) {
     const {media}=await this.dir(pid);
     const entry=status.get(pid+':'+id);
-    if(entry) return entry.result;
     const stored=loadStudioRenderStatus(media,id);
+    if(entry && (!stored || entry.result.runId===stored.runId)) return entry.result;
     if (!stored) return {state:'idle'};
     const recovered=interruptedStudioRender(stored);
     if (recovered!==stored) saveStudioRenderStatus(media,id,recovered);
@@ -616,6 +616,7 @@ export class VideoStudioService {
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
     const entry=status.get(key)!;
+    let outputInProgress: string | undefined;
     const report=(stage: NonNullable<Status['stage']>,progress:number)=>{
       if(entry.result.state!=='running') throw new Error('Renderização cancelada');
       entry.result={...entry.result,stage,progress};
@@ -726,7 +727,8 @@ export class VideoStudioService {
         v=`[v${i}]`;
       }
       filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
-      const output=path.join(media,'saida','studio-'+p.id+'-'+Date.now()+'.mp4');
+      const output=path.join(media,'saida','studio-'+p.id+'-'+entry.result.runId+'.mp4');
+      outputInProgress=output;
       fs.mkdirSync(path.dirname(output),{recursive:true});
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
         '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
@@ -760,6 +762,11 @@ export class VideoStudioService {
           hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),
           warnings}};
       saveStudioRenderStatus(media,p.id,entry.result);
-    } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
+      outputInProgress=undefined;
+    } finally {
+      entry.process=undefined;
+      if(outputInProgress) fs.rmSync(outputInProgress,{force:true});
+      fs.rmSync(tmp,{recursive:true,force:true});
+    }
   }
 }
