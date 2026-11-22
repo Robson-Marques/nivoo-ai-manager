@@ -15,7 +15,7 @@ export async function provisionPrivateRemotionBundle(input:{
   const source=await realpath(input.trustedBundleDirectory);
   if(!(await stat(source)).isDirectory())throw new Error('Trusted Remotion bundle missing');
   const target=assertWorkspacePath(root,resolve(input.jobDirectory));
-  if(target===root||target===source)throw new Error('Remotion job bundle must be private');
+  if(target===root||target===source||source.startsWith(target+'/')||target.startsWith(source+'/'))throw new Error('Remotion job bundle must be private and disjoint');
   let cursor=root;
   for(const part of relative(root,target).split(/[\\/]/).filter(Boolean)){
     cursor=join(cursor,part);

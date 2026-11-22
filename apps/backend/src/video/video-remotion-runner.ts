@@ -20,7 +20,7 @@ export async function renderRemotionComposition(
   const bundle = assertWorkspacePath(root, resolve(bundleDirectory));
   const props = assertWorkspacePath(root, resolve(propsFile));
   const output = assertWorkspacePath(root, resolve(outputFile));
-  if (!output.endsWith('.mp4') || (basename(output).startsWith('.') && !basename(output).endsWith('.partial.mp4'))) throw new Error('Invalid Remotion output file');
+  if (!output.endsWith('.mp4') || (basename(output).startsWith('.') && !/^\.[a-zA-Z0-9._-]+\.partial\.mp4$/.test(basename(output)))) throw new Error('Invalid Remotion output file');
   for (const candidate of [bundle, props, output]) {
     if (candidate === root) throw new Error('Remotion path cannot be workspace root');
     let cursor = root;
@@ -45,8 +45,8 @@ export async function renderRemotionComposition(
     throw new Error('Remotion props must be a JSON object');
   }
   const payload=parsed as Record<string,unknown>;
-  if (typeof payload.fps !== 'number' || !Number.isInteger(payload.fps) ||
-      typeof payload.durationInFrames !== 'number' || !Number.isInteger(payload.durationInFrames) ||
+  if (typeof payload.fps !== 'number' || !Number.isInteger(payload.fps) || payload.fps < 1 || payload.fps > 120 ||
+      typeof payload.durationInFrames !== 'number' || !Number.isInteger(payload.durationInFrames) || payload.durationInFrames < 1 || payload.durationInFrames > 432000 ||
       !Array.isArray(payload.layers) || payload.layers.length > 500) {
     throw new Error('Invalid Remotion render metadata');
   }
@@ -62,6 +62,7 @@ export async function renderRemotionComposition(
       if(!(await stat(asset)).isFile()) throw new Error('Staged Remotion asset missing');
     }
   }
+  if(signal?.aborted) throw new Error('Remotion render cancelled');
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.
   const result = await runVideoTool('remotion', [

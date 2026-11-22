@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, rename } from 'node:fs/promises';
 import { dirname, resolve, relative, basename, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { VideoComposition } from './video-composition';
 import { buildRemotionProps, RemotionProps } from './video-remotion-props';
 import { ProjectMediaRecord, resolveCompositionMedia } from './video-project-media';
@@ -83,7 +84,7 @@ export async function executeVerifiedRemotionRender(
   }
   const output=assertWorkspacePath(root,resolve(input.outputFile));
   if(!output.endsWith('.mp4')||basename(output).startsWith('.'))throw new Error('Invalid Remotion output');
-  const partial=join(dirname(output),'.'+basename(output)+'.partial.mp4');
+  const partial=join(dirname(output),'.'+basename(output)+'.'+randomUUID()+'.partial.mp4');
   // Do not publish a partially rendered or uninspected MP4.
   try {
     await renderRemotionComposition(root,bundle,input.composition.id,propsFile,partial,signal);

@@ -37,3 +37,7 @@ The backend provides `provisionPrivateRemotionBundle`, which copies an operator-
 ### Atomic Remotion output
 
 The execution adapter now renders to a hidden per-output partial MP4, runs independent inspection on that partial, and only then renames it to the public output name. Failed or cancelled jobs remove the partial file. The runner permits this private partial filename. The trusted bundle copy fails closed on symlinks rather than silently omitting executable assets. Asset staging uses exclusive copy semantics to reject collisions.
+
+### Last-mile hardening
+
+Render partials now carry a per-attempt UUID to avoid collision between interrupted jobs; duration/FPS bounds are enforced before invoking the CLI, and trusted bundle copying refuses source/target directory nesting. The backend adapter is **not** yet wired to the legacy Studio edit schema or production update; the production FFmpeg renderer remains enabled. This is an integration boundary, not proof of end-to-end export.
