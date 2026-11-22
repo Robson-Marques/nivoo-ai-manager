@@ -95,7 +95,7 @@ export async function searchOfficialHyperFramesCatalog(query:unknown):Promise<Hy
     HOME:'/var/lib/nivoo',LANG:'C.UTF-8',
     HYPERFRAMES_NO_TELEMETRY:'1',HYPERFRAMES_NO_UPDATE_CHECK:'1',
     HYPERFRAMES_SKIP_SKILLS:'1',DO_NOT_TRACK:'1',
-  });
+  },128*1024);
   if(result.exitCode!==0)throw new Error('Falha ao consultar catálogo HyperFrames: '+result.stderr.slice(-240));
   if(result.stdoutTruncated)throw new Error('Catálogo excedeu o limite: refine a busca em inglês');
   return parseHyperFramesCatalog(result.stdout,normalized);
