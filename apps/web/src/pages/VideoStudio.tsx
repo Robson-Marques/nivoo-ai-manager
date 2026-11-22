@@ -16,6 +16,7 @@ type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:A
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 type RuntimeCapability = {id:string;state:'ready'|'unavailable'|'blocked';detail:string};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;
+  stage?:'preparing'|'clips'|'audio'|'compositing'|'inspecting';progress?:number;
   inspection?:{durationMs:number;blackFrameCount:number;hasAudio:boolean;audioPeakDbfs?:number;warnings:string[]} };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
@@ -641,7 +642,15 @@ export function VideoStudio() {
     </section>}
     {aligning.state==='failed'&&<p className="studio-error">Legendas automáticas: {aligning.error}</p>}
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
-    {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
+    {running.state==='running'&&<div className="studio-render-progress" role="status" aria-live="polite">
+      <div><strong>{({
+        preparing:'Preparando arquivos',clips:'Montando as cenas',audio:'Mixando áudio',
+        compositing:'Aplicando legendas e efeitos',inspecting:'Inspecionando o MP4',
+      } as const)[running.stage||'preparing']}</strong>
+      <span>{typeof running.progress==='number'?running.progress+'%':'Em andamento'}</span></div>
+      <progress value={running.progress??0} max={100} aria-label="Progresso da exportação"/>
+      <small>Etapas reais da produção; percentual aproximado, não representa o tempo restante.</small>
+    </div>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='cancelled'&&<p className="studio-notice">Exportação cancelada.</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
