@@ -31,7 +31,7 @@ function pidAlive(pid: number): boolean {
 }
 
 /** Acquire an exclusive filesystem lease before scheduling FFmpeg. */
-export function acquireStudioRenderLease(media: string, editId: string, runId = randomUUID()): StudioRenderLease {
+export function acquireStudioRenderLease(media: string, editId: string, runId: string = randomUUID()): StudioRenderLease {
   const dir = lockDir(media, editId);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   const lease: StudioRenderLease = { runId, ownerPid: process.pid, createdAt: new Date().toISOString() };

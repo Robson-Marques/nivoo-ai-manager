@@ -254,7 +254,7 @@ export class VideoStudioService {
             {timeout:120000,encoding:'utf8'});
           if(prep.status!==0)throw new Error('Não foi possível extrair a narração: '+String(prep.stderr).slice(-250));
           input=cropped;
-        }else input=this.src(media,done!.output!);
+        }else input=this.src(media,(done as Status).output!); // caminho não-direto: o guard acima já garantiu done.state==='done' && done.output
         const alignment=path.join(temp,'aligned.json');
         const cmd=path.resolve(__dirname,'../../bin/nivoo-alinhar-narracao');
         const args=[cmd,'--video',input,'--saida',alignment];
