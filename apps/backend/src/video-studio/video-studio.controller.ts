@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { VideoStudioService } from './video-studio.service';
 import { inspectStudioRuntime } from './studio-runtime-capabilities';
 
@@ -76,6 +76,11 @@ export class VideoStudioController {
   @Get(':id/captions/auto')
   captionStatus(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
     return this.studio.captionsStatus(pid,id);
+  }
+
+  @Get('motion/catalog')
+  motionCatalog(@Param('pid', ParseUUIDPipe) pid:string,@Query('query') query:string){
+    return this.studio.motionCatalog(pid,query);
   }
 
   @Get('motion/presets')

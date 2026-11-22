@@ -60,7 +60,7 @@ export function parseHyperFramesCatalog(raw:string,query:string):HyperFramesCata
 
 export function validateCatalogSearch(query:unknown):string {
   if(typeof query!=='string')throw new Error('Informe uma busca em inglês para o catálogo');
-  const normalized=query.trim().replace(/\\s+/g,' ');
+  const normalized=query.trim().replace(/\s+/g,' ');
   if(normalized.length<2||normalized.length>90||
     !/^[a-zA-Z0-9 ]{2,90}$/.test(normalized))
     throw new Error('Busca inválida. Use 2 a 90 caracteres em inglês, sem códigos ou símbolos');

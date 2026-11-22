@@ -19,6 +19,7 @@ import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, c
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
 import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion } from './hyperframes-motion';
+import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
@@ -568,6 +569,13 @@ export class VideoStudioService {
   async motionPresets(pid:string) {
     await this.dir(pid);
     return MOTION_PRESETS;
+  }
+  async motionCatalog(pid:string,query:unknown){
+    await this.dir(pid);
+    let text:string;
+    try {text=validateCatalogSearch(query);}
+    catch(error){throw new BadRequestException(error instanceof Error?error.message:'Busca inválida');}
+    return searchOfficialHyperFramesCatalog(text);
   }
   async motionStart(pid:string,id:string,body:unknown):Promise<MotionState> {
     const {media}=await this.dir(pid);
