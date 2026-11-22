@@ -7,6 +7,7 @@ export type VideoReviewRequest = {
   outputFile: string;
   expectedDurationMs: number;
   requireCaptions: boolean;
+  requireAudio?: boolean;
   captionCount: number;
   /** Only set true after an independent visual/content review. */
   contentReviewApproved: boolean;
@@ -45,7 +46,7 @@ export async function reviewRenderedVideo(
     ...measured,
     captionCount: request.captionCount,
     reviewComplete: request.contentReviewApproved,
-  }, request.expectedDurationMs, request.requireCaptions);
+  }, request.expectedDurationMs, request.requireCaptions, request.requireAudio ?? false);
   return {
     passed: assessment.passed,
     findings: assessment.findings,
