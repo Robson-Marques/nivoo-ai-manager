@@ -13,6 +13,7 @@ type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Capti
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
+type RuntimeCapability = {id:string;state:'ready'|'unavailable'|'blocked';detail:string};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;
   inspection?:{durationMs:number;blackFrameCount:number;hasAudio:boolean;audioPeakDbfs?:number;warnings:string[]} };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
@@ -32,6 +33,8 @@ export function VideoStudio() {
   const [tab,setTab]=useState<'clips'|'captions'|'assets'|'audio'|'protected'>('clips');
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
+  const [runtime,setRuntime]=useState<RuntimeCapability[]>([]);
+  const [showRuntime,setShowRuntime]=useState(false);
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
   const [zoneDraft,setZoneDraft]=useState<ZonesResult>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
@@ -81,6 +84,13 @@ export function VideoStudio() {
     setList(s);setMedia(m.videos);
     return s;
   };
+  useEffect(()=>{
+    let active=true;
+    api<RuntimeCapability[]>(edits+'/runtime/capabilities')
+      .then(data=>{if(active)setRuntime(data)})
+      .catch(()=>{if(active)setRuntime([])});
+    return()=>{active=false};
+  },[edits]);
   useEffect(()=>{
     setProject(null);setRunning({state:'idle'});setDirty(false);setPlayhead(0);setSelected(null);
     refresh().then(async editions=>{
@@ -617,11 +627,17 @@ export function VideoStudio() {
       <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
         {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button onClick={cancelarExportacao}>Cancelar exportação</button>}</>}
+        <button onClick={()=>setShowRuntime(value=>!value)} aria-expanded={showRuntime}>Ferramentas {showRuntime?'−':'+'}</button>
         <button onClick={newProject}>+ Nova edição</button>
       </div>
     </header>
     {error&&<p className="studio-error" role="alert">{error}</p>}
     {notice&&<p className="studio-notice">{notice}</p>}
+    {showRuntime&&<section className="studio-notice" aria-label="Ferramentas de vídeo instaladas">
+      <strong>Ferramentas do servidor</strong>
+      {runtime.length===0?<p>Diagnóstico indisponível. Não significa que as ferramentas estão instaladas.</p>:
+        <ul>{runtime.map(tool=><li key={tool.id}><strong>{tool.id}</strong>: {tool.state==='ready'?'Disponível':tool.state==='blocked'?'Bloqueado':'Ausente'} — {tool.detail}</li>)}</ul>}
+    </section>}
     {aligning.state==='failed'&&<p className="studio-error">Legendas automáticas: {aligning.error}</p>}
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
     {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
