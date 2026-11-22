@@ -226,3 +226,12 @@ O `nivoo update` executa `deploy/install-studio-python.sh` e `deploy/install-vid
 No editor Studio, o botão **Ferramentas** consulta `GET /projects/:pid/studio/runtime/capabilities` (ou `GET /studio/projects/:pid/edits/runtime/capabilities`). A inspeção é assíncrona, limitada por timeout e armazenada por 60 segundos para evitar múltiplas sondagens caras. Os motores Remotion e HyperFrames continuam **bloqueados para exportação**, mesmo se houver uma CLI instalada: a presença de um executável não comprova compatibilidade do bundle, renderização nem paridade visual. A importação `yt-dlp` também permanece desabilitada por segurança. Não interprete o painel como homologação desses motores.
 
 A exportação FFmpeg do Studio já usa bloqueio de edição por diretório exclusivo e registra o estado em disco. O reinício de serviço pode interromper o trabalho atual; ele não retoma o FFmpeg no meio da codificação. O usuário pode iniciar uma nova exportação após o bloqueio do processo encerrado ser recuperado. Não faça merge nem `nivoo update` de produção antes da revisão final do PR e autorização.
+
+
+### Editor: prévia de animações e progresso de exportação
+
+O painel de propriedades de **legendas** e **imagens de apoio** oferece uma galeria compacta de prévias animadas. O botão **Repetir** reinicia a demonstração sem enviar requisições ao servidor. A seleção altera o mesmo campo `animation` já persistido pela edição; não cria um segundo formato de projeto. Karaoke só é selecionável quando há palavras alinhadas. A demonstração CSS é orientativa, não substitui a revisão do MP4 real.
+
+A exportação FFmpeg publica `stage` e `progress` no estado persistente: preparação, montagem de cenas, mixagem de áudio, composição de legendas/efeitos e inspeção final. O editor apresenta o estágio atual e uma barra aproximada; **não é uma previsão do tempo restante**. As operações de salvar, excluir e renderizar a mesma edição agora disputam o mesmo bloqueio exclusivo em disco; a timeline é lida sob esse bloqueio para não exportar uma revisão obsoleta. Reinícios interrompem a codificação atual e exigem uma nova exportação.
+
+Os novos componentes e alterações desta etapa não foram homologados no servidor. Não acione GitHub CI automaticamente: a validação deve ser combinada com o operador antes do merge/tag/deploy.
