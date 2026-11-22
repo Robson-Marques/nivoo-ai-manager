@@ -78,6 +78,23 @@ export class StandaloneStudioEditorController {
     return this.studio.captionsStatus(pid,id);
   }
 
+  @Get('motion/presets')
+  motionPresets(@Param('pid', ParseUUIDPipe) pid:string) {
+    return this.studio.motionPresets(pid);
+  }
+  @Post(':id/motion')
+  motionStart(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string,@Body() body:unknown) {
+    return this.studio.motionStart(pid,id,body);
+  }
+  @Get(':id/motion')
+  motionStatus(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string) {
+    return this.studio.motionStatus(pid,id);
+  }
+  @Post(':id/motion/cancel')
+  motionCancel(@Param('pid', ParseUUIDPipe) pid:string,@Param('id') id:string) {
+    return this.studio.motionCancel(pid,id);
+  }
+
   @Post(':id/render')
   render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string,
     @Body() body?: {engine?:'ffmpeg'|'remotion'}) {

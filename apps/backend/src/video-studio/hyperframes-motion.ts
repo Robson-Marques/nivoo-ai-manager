@@ -65,7 +65,7 @@ export async function renderTrustedMotion(input:{
       'render','--output',partial,'--format','mp4','--quality','draft',
       '--workers','1','--strict','--refuse-outside-files','--quiet',
     ],job,240_000,signal,{
-      PATH:process.env.PATH??'/usr/local/bin:/usr/bin:/bin',
+      PATH:'/usr/local/bin:/opt/nivoo/node/bin:'+(process.env.PATH??'/usr/bin:/bin'),
       HOME:process.env.HOME??'/var/lib/nivoo',
       LANG:process.env.LANG??'C.UTF-8',
       HYPERFRAMES_NO_UPDATE_CHECK:'1',HYPERFRAMES_SKIP_SKILLS:'1',

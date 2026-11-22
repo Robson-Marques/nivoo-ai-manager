@@ -18,6 +18,7 @@ import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process'
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
+import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion } from './hyperframes-motion';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
@@ -62,6 +63,8 @@ const claimEditLease=(media:string,id:string,runId:ReturnType<typeof randomUUID>
   if(previous) recoverDeadStudioRenderLease(media,id);
   return acquireStudioRenderLease(media,id,runId);
 };
+type MotionState = {state:'running'|'done'|'failed'|'cancelled';runId:string;started:string;error?:string;output?:string;durationMs?:number;warnings?:string[]};
+const motionJobs = new Map<string,{result:MotionState;abort:AbortController}>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
@@ -560,6 +563,60 @@ export class VideoStudioService {
     aiStates.delete(key);
     return saved;
     }catch(e){generated.forEach(f=>fs.rmSync(f,{force:true}));throw e}
+  }
+
+  async motionPresets(pid:string) {
+    await this.dir(pid);
+    return MOTION_PRESETS;
+  }
+  async motionStart(pid:string,id:string,body:unknown):Promise<MotionState> {
+    const {media}=await this.dir(pid);
+    this.validate(await this.get(pid,id),media);
+    let request:ReturnType<typeof validateMotionRequest>;
+    try {request=validateMotionRequest(body);}
+    catch(e){throw new BadRequestException(e instanceof Error?e.message:'Pedido inválido');}
+    const key=pid+':'+id;
+    if(motionJobs.get(key)?.result.state==='running')
+      throw new ConflictException('A prévia de motion já está em execução');
+    const runId=randomUUID();
+    try {claimEditLease(media,id,runId);}
+    catch {throw new ConflictException('Existe outra produção utilizando esta edição');}
+    const abort=new AbortController();
+    const entry:{result:MotionState;abort:AbortController}={
+      result:{state:'running',runId,started:new Date().toISOString()},abort,
+    };
+    motionJobs.set(key,entry);
+    setImmediate(()=>{
+      void renderTrustedMotion({media,editId:id,runId,...request},abort.signal).then(result=>{
+        if(entry.result.state==='cancelled'){
+          const candidate=arquivoDaMidia(media,result.output);
+          if(candidate)fs.rmSync(candidate,{force:true});
+          return;
+        }
+        entry.result={...entry.result,state:'done',output:result.output,
+          durationMs:result.durationMs,warnings:result.warnings};
+      }).catch(error=>{
+        if(entry.result.state!=='cancelled')
+          entry.result={...entry.result,state:'failed',
+            error:String(error instanceof Error?error.message:error).slice(0,500)};
+      }).finally(()=>{
+        try{releaseStudioRenderLease(media,id,runId);}
+        catch(error){console.error('Falha ao liberar produção HyperFrames',error);}
+      });
+    });
+    return entry.result;
+  }
+  async motionStatus(pid:string,id:string) {
+    await this.get(pid,id);
+    return motionJobs.get(pid+':'+id)?.result??{state:'idle'};
+  }
+  async motionCancel(pid:string,id:string) {
+    await this.get(pid,id);
+    const job=motionJobs.get(pid+':'+id);
+    if(!job || job.result.state!=='running')return job?.result??{state:'idle'};
+    job.result={...job.result,state:'cancelled'};
+    job.abort.abort();
+    return job.result;
   }
 
   async render(pid:string,id:string,engine:'ffmpeg'|'remotion'='ffmpeg') {

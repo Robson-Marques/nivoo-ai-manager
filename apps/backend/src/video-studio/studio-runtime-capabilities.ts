@@ -55,7 +55,8 @@ export function inspectStudioRuntime(): Promise<StudioRuntimeCapability[]> {
       { id: 'faster-whisper', state: whisper ? 'ready' : 'unavailable', detail: whisper ? 'Transcrição Python instalada' : 'Instale pelo nivoo update' },
       { id: 'whisperx', state: whisperx ? 'ready' : 'unavailable', detail: whisperx ? 'Alinhamento de palavras instalado' : 'Alinhamento avançado não instalado' },
       { id: 'remotion', ...remotionCapability(remotion) },
-      { id: 'hyperframes', state: 'blocked', detail: hyperframes ? 'CLI detectada; projeto e prévia não validados' : 'CLI e fluxo de prévia não provisionados' },
+      { id: 'hyperframes', state: hyperframes ? 'ready' : 'unavailable',
+        detail: hyperframes ? 'CLI detectada; geração de motion disponível para teste; confirme o navegador no primeiro render' : 'CLI ausente: a próxima atualização instala o HyperFrames' },
       { id: 'kokoro', state: 'blocked', detail: 'Serviço de voz não verificado neste diagnóstico; utilize a geração de locução do Studio' },
       { id: 'yt-dlp', state: 'blocked', detail: 'Importação remota desativada até isolamento de rede' },
     ];

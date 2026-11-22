@@ -42,6 +42,7 @@ export async function runVideoTool(
   cwd: string,
   timeoutMs = 120_000,
   signal?: AbortSignal,
+  isolatedEnv?: NodeJS.ProcessEnv,
 ): Promise<ToolResult> {
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1000 || timeoutMs > 3_600_000) {
     throw new Error('Invalid timeout');
@@ -52,7 +53,7 @@ export async function runVideoTool(
   return new Promise((resolveResult, reject) => {
     const child = spawn(executable, [...args], {
       cwd, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NO_COLOR: '1' },
+      env: { ...(isolatedEnv ?? process.env), NO_COLOR: '1' },
     });
     let stdout = '', stderr = '', settled = false;
     let stdoutBytes = 0, stderrBytes = 0;
