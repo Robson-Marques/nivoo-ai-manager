@@ -181,6 +181,7 @@ export class VideoStudioService {
     const f=this.file(studio,id);
     if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
     if (body.id !== id) throw new BadRequestException('ID não confere');
+    if (readStudioRenderLease(media,id)) throw new ConflictException('Aguarde o término da renderização antes de salvar a edição');
     const actual=JSON.parse(fs.readFileSync(f,'utf8'));
     if (actual.updatedAt !== body.updatedAt) throw new ConflictException('Esta edição foi alterada em outra sessão. Recarregue.');
     const p=this.validate(body,media);p.updatedAt=new Date().toISOString();
