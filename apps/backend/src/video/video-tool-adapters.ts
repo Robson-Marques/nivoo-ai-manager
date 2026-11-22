@@ -71,8 +71,8 @@ export async function runVideoTool(
 export async function probeVideoTools(cwd: string): Promise<Record<VideoTool, ToolResult | { error: string }>> {
   const entries: [VideoTool, string, string[]][] = [
     ['remotion', 'remotion', ['--version']],
-    // HyperFrames is an authoring framework, not a guaranteed global CLI.
-    // Its integration requires a project-specific adapter and must not be probed as a binary.
+    // HyperFrames publishes a CLI; use a preinstalled binary, never npx (which may download code).
+    ['hyperframes', 'hyperframes', ['--help']],
     ['whisper', 'whisper', ['--help']],
     ['yt-dlp', 'yt-dlp', ['--version']],
   ];
@@ -82,7 +82,6 @@ export async function probeVideoTools(cwd: string): Promise<Record<VideoTool, To
   }));
   return {
     ...Object.fromEntries(output),
-    hyperframes: { error: 'Project adapter not configured (HyperFrames is not a system CLI)' },
   } as Record<VideoTool, ToolResult | { error: string }>;
 }
 
