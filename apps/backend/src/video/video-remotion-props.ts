@@ -8,8 +8,8 @@ import { FramePlan, toFramePlan } from './video-frame-plan';
  */
 export type ResolvedMedia = { mediaId: string; assetUrl: string };
 export type RemotionLayer =
-  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number }
-  | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter'; fromFrame: number; durationInFrames: number; zIndex: number };
+  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; transform?: { x: number; y: number; width: number; height: number } }
+  | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter'; fromFrame: number; durationInFrames: number; zIndex: number; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string };
 
 export type RemotionProps = Pick<FramePlan, 'width' | 'height' | 'fps' | 'durationInFrames'> & {
   compositionId: string;
@@ -37,12 +37,21 @@ export function buildRemotionProps(
   const layers: RemotionLayer[] = plan.layers.map(layer => {
     const base = { id: layer.id, fromFrame: layer.fromFrame, durationInFrames: layer.durationInFrames, zIndex: layer.zIndex };
     if (layer.type === 'text') {
-      return { ...base, type: 'text', text: layer.text, animation: layer.animation ?? 'none' };
+      return { ...base, type: 'text', text: layer.text, animation: layer.animation ?? 'none',
+        ...(layer.transform ? { transform: layer.transform } : {}),
+        ...(layer.fontSize !== undefined ? { fontSize: layer.fontSize } : {}),
+        ...(layer.color ? { color: layer.color } : {}),
+      };
     }
     const src = assets.get(layer.mediaId);
     if (!src) throw new Error('Unresolved project media: ' + layer.mediaId);
-    if (layer.type === 'audio') return { ...base, type: 'audio', src, volume: layer.volume };
-    return { ...base, type: layer.type, src };
+    if (layer.type === 'audio') return { ...base, type: 'audio', src, volume: layer.volume,
+      ...(layer.sourceOffsetMs !== undefined ? { sourceOffsetMs: layer.sourceOffsetMs } : {}) };
+    return { ...base, type: layer.type, src,
+      ...(layer.sourceOffsetMs !== undefined ? { sourceOffsetMs: layer.sourceOffsetMs } : {}),
+      ...(layer.volume !== undefined ? { volume: layer.volume } : {}),
+      ...(layer.transform ? { transform: layer.transform } : {}),
+    };
   });
   return {
     compositionId: plan.compositionId, revision: plan.revision,
