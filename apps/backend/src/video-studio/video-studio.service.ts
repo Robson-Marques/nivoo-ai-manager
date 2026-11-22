@@ -20,6 +20,7 @@ import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-wor
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
 import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, type MotionPreset } from './hyperframes-motion';
 import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
+import { readStudioMotionState, saveStudioMotionState, type StudioMotionState } from './studio-motion-status';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
@@ -64,7 +65,7 @@ const claimEditLease=(media:string,id:string,runId:ReturnType<typeof randomUUID>
   if(previous) recoverDeadStudioRenderLease(media,id);
   return acquireStudioRenderLease(media,id,runId);
 };
-type MotionState = {state:'running'|'done'|'failed'|'cancelled';runId:string;started:string;error?:string;output?:string;durationMs?:number;warnings?:string[]};
+type MotionState = StudioMotionState;
 const motionJobs = new Map<string,{result:MotionState;abort:AbortController}>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
@@ -230,6 +231,8 @@ export class VideoStudioService {
       if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
       fs.rmSync(f);
       fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      fs.rmSync(path.join(studio,id+'.motion-status.json'),{force:true});
+      motionJobs.delete(pid+':'+id);
       status.delete(pid+':'+id);
       return {ok:true};
     } finally { releaseStudioRenderLease(media,id,runId); }
@@ -597,15 +600,24 @@ export class VideoStudioService {
     try {request=validateMotionRequest(body);}
     catch(e){throw new BadRequestException(e instanceof Error?e.message:'Pedido inválido');}
     const key=pid+':'+id;
-    if(motionJobs.get(key)?.result.state==='running')
+    const previous=motionJobs.get(key)?.result??readStudioMotionState(media,id);
+    if(previous?.state==='running')
       throw new ConflictException('A prévia de motion já está em execução');
+    // Same source + preset + text = same reviewed output. Do not render twice
+    // after reloading the editor or restarting the API.
+    if(previous?.state==='done'&&previous.preset===request.preset&&previous.title===request.title)
+      return previous;
+
     const runId=randomUUID();
     try {claimEditLease(media,id,runId);}
     catch {throw new ConflictException('Existe outra produção utilizando esta edição');}
     const abort=new AbortController();
     const entry:{result:MotionState;abort:AbortController}={
-      result:{state:'running',runId,started:new Date().toISOString()},abort,
+      result:{state:'running',runId,started:new Date().toISOString(),
+        preset:request.preset,title:request.title},abort,
     };
+    try {saveStudioMotionState(media,id,entry.result);}
+    catch(error){releaseStudioRenderLease(media,id,runId);throw error;}
     motionJobs.set(key,entry);
     setImmediate(()=>{
       void renderTrustedMotion({media,editId:id,runId,...request},abort.signal).then(result=>{
@@ -616,10 +628,13 @@ export class VideoStudioService {
         }
         entry.result={...entry.result,state:'done',output:result.output,
           durationMs:result.durationMs,warnings:result.warnings};
+        saveStudioMotionState(media,id,entry.result);
       }).catch(error=>{
-        if(entry.result.state!=='cancelled')
+        if(entry.result.state!=='cancelled'){
           entry.result={...entry.result,state:'failed',
             error:String(error instanceof Error?error.message:error).slice(0,500)};
+          saveStudioMotionState(media,id,entry.result);
+        }
       }).finally(()=>{
         try{releaseStudioRenderLease(media,id,runId);}
         catch(error){console.error('Falha ao liberar produção HyperFrames',error);}
@@ -627,15 +642,19 @@ export class VideoStudioService {
     });
     return entry.result;
   }
-  async motionStatus(pid:string,id:string) {
+  async motionStatus(pid:string,id:string){
+    const {media}=await this.dir(pid);
     await this.get(pid,id);
-    return motionJobs.get(pid+':'+id)?.result??{state:'idle'};
+    return motionJobs.get(pid+':'+id)?.result??readStudioMotionState(media,id)??{state:'idle'};
   }
-  async motionCancel(pid:string,id:string) {
+  async motionCancel(pid:string,id:string){
+    const {media}=await this.dir(pid);
     await this.get(pid,id);
     const job=motionJobs.get(pid+':'+id);
-    if(!job || job.result.state!=='running')return job?.result??{state:'idle'};
+    if(!job||job.result.state!=='running')
+      return job?.result??readStudioMotionState(media,id)??{state:'idle'};
     job.result={...job.result,state:'cancelled'};
+    saveStudioMotionState(media,id,job.result);
     job.abort.abort();
     return job.result;
   }
