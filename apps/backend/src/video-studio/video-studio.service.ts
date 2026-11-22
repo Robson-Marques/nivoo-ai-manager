@@ -36,6 +36,7 @@ export type StudioProject = {
   updatedAt: string;
 };
 type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string; ownerPid: number;
+  stage?: 'preparing'|'clips'|'audio'|'compositing'|'inspecting'; progress?: number;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
@@ -552,7 +553,7 @@ export class VideoStudioService {
     const runId=randomUUID();
     try { acquireStudioRenderLease(media,id,runId); }
     catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
-    const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid};
+    const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid,stage:'preparing',progress:0};
     try {
       saveStudioRenderStatus(media,id,result);
       status.set(key,{result,media});
@@ -596,6 +597,11 @@ export class VideoStudioService {
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
     const entry=status.get(key)!;
+    const report=(stage: NonNullable<Status['stage']>,progress:number)=>{
+      if(entry.result.state!=='running') throw new Error('Renderização cancelada');
+      entry.result={...entry.result,stage,progress};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    };
     const ff=(args:string[])=>new Promise<void>((resolve,reject)=>{
       if(entry.result.state==='cancelled') return reject(new Error('cancelado'));
       const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',...args],{stdio:['ignore','ignore','pipe']});
@@ -617,6 +623,7 @@ export class VideoStudioService {
       let current=0;
       const segments:string[]=[];
       for(const [i,c] of p.clips.entries()) {
+        report('clips',Math.round(5+50*i/p.clips.length));
         const source=this.src(media,c.source);
         const info=probe(source);
         if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
@@ -631,11 +638,13 @@ export class VideoStudioService {
           '-af',`volume=${c.volume??1}`,
           '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
         segments.push(file); current+=duration;
+        report('clips',Math.round(5+50*(i+1)/p.clips.length));
       }
       const concat=path.join(tmp,'concat.txt');
       fs.writeFileSync(concat,segments.map(x=>`file '${x}'`).join('\n'));
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
+      report('audio',60);
       let audioBase=joined;
       if(p.soundtrack||(p.audioTracks?.length??0)>0) {
         const mix=path.join(tmp,'mix.mp4');
@@ -661,6 +670,7 @@ export class VideoStudioService {
           '-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),mix]);
         audioBase=mix;
       }
+      report('compositing',75);
       const ass=path.join(tmp,'captions.ass');
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
       const lines=p.captions.map(c=>{
@@ -703,6 +713,7 @@ export class VideoStudioService {
       if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
       // Conferência técnica do MP4 real, antes de anunciar a exportação como concluída.
       // Falhas de inspeção não são tratadas como sucesso. A revisão visual continua separada.
+      report('inspecting',92);
       let measured: Awaited<ReturnType<typeof inspectRenderedVideo>>;
       try {
         measured = await inspectRenderedVideo(media, output);
@@ -723,7 +734,7 @@ export class VideoStudioService {
       if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
       else if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
       if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
-      entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output),
+      entry.result={...entry.result,state:'done',progress:100,output:'midia/saida/'+path.basename(output),
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
           hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),
           warnings}};
