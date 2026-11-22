@@ -11,7 +11,8 @@ export function applySubtitleCues(
   cues: readonly SubtitleCue[],
 ): VideoComposition {
   validateComposition(composition);
-  if (!Array.isArray(cues) || cues.length > 5000) throw new Error('Invalid subtitle cues');
+  const available = 500 - composition.layers.filter(layer => !layer.id.startsWith('subtitle-')).length;
+  if (!Array.isArray(cues) || cues.length > available) throw new Error('Too many captions for composition');
   const retained = composition.layers.filter(layer => !layer.id.startsWith('subtitle-'));
   const added: VideoLayer[] = cues.map(cue => {
     if (!cue || !/^subtitle-\d+$/.test(cue.id) || typeof cue.text !== 'string' ||
