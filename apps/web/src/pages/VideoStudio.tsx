@@ -13,7 +13,8 @@ type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Capti
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
-type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
+type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;
+  inspection?:{durationMs:number;blackFrameCount:number;hasAudio:boolean;audioPeakDbfs?:number;warnings:string[]} };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
@@ -96,7 +97,7 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>(edits+'/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
+    setProject(p);setRunning({state:'idle'});setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
@@ -610,6 +611,7 @@ export function VideoStudio() {
     {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
+    {running.state==='done'&&running.inspection&&<div className="studio-notice" role="status">MP4 inspecionado: {(running.inspection.durationMs/1000).toFixed(1)}s · {running.inspection.hasAudio?'com áudio':'sem áudio'} · {running.inspection.blackFrameCount} trecho(s) preto(s) detectado(s).{running.inspection.warnings.length>0&&<span> Atenção: {running.inspection.warnings.join('; ')}.</span>} Revisão visual ainda necessária.</div>}
     {!project?<div className="studio-start"><h3>Suas edições</h3>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}<button onClick={newProject}>Criar primeira edição</button></div>:
     <>
       <div className="studio-workspace">
