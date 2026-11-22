@@ -77,9 +77,9 @@ export function studioEditToComposition(
   }
   for (const audio of edit.audioTracks ?? []) {
     layers.push({ id: audio.id, type: 'audio', mediaId: audio.source,
-      startMs: ms(audio.start), durationMs: ms(audio.end) - ms(audio.start),
+      startMs: ms(audio.offset ?? 0), durationMs: ms(audio.end) - ms(audio.start),
       zIndex: 0, volume: audio.volume,
-      sourceOffsetMs: ms(audio.offset ?? 0) });
+      sourceOffsetMs: ms(audio.start) });
   }
   if (edit.soundtrack) {
     layers.push({ id: 'studio-soundtrack', type: 'audio', mediaId: edit.soundtrack.source,
