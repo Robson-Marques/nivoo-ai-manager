@@ -20,10 +20,10 @@ describe('Remotion pre-update capability contract',()=>{
       id:'face',label:'Rosto',start:0,end:1,x:0,y:0,w:.2,h:.2,
     }]}),IMPLEMENTED_REMOTION_FEATURES)).toThrow('protected-zones');
   });
-  it('rejects animated image overlays until the renderer implements them',()=>{
-    expect(()=>convert({...base,assets:[{
+  it('supports image animation in the code contract',()=>{
+    expect(()=>assertRendererParity(convert({...base,assets:[{
       id:'image',source:'midia/entrada/image.png',start:0,end:1,
       x:0,y:0,w:.3,h:.3,animation:'fade',
-    }]})).toThrow('animated Studio image');
+    }]}),IMPLEMENTED_REMOTION_FEATURES)).not.toThrow();
   });
 });

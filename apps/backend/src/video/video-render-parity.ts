@@ -6,7 +6,7 @@ import { VideoComposition, validateComposition } from './video-composition';
  */
 export type RenderFeature =
   | 'source-offset' | 'clip-volume' | 'audio-offset' | 'layer-transform'
-  | 'text-style' | 'karaoke' | 'caption-animation' | 'protected-zones' | 'audio-loop';
+  | 'text-style' | 'karaoke' | 'caption-animation' | 'image-animation' | 'protected-zones' | 'audio-loop';
 
 export type RenderFeatureSupport = Readonly<Record<RenderFeature, boolean>>;
 
@@ -18,6 +18,7 @@ export const UNVERIFIED_REMOTION_FEATURES: RenderFeatureSupport = {
   'text-style': false,
   karaoke: false,
   'caption-animation': false,
+  'image-animation': false,
   'protected-zones': false,
   'audio-loop': false,
 };
@@ -37,6 +38,7 @@ export const IMPLEMENTED_REMOTION_FEATURES: RenderFeatureSupport = {
   'text-style': true,
   karaoke: true,
   'caption-animation': true,
+  'image-animation': true,
   'protected-zones': false,
   'audio-loop': true,
 };
@@ -50,6 +52,7 @@ export function requiredRenderFeatures(composition: VideoComposition): RenderFea
       if ((layer.sourceOffsetMs ?? 0) > 0) features.add('source-offset');
       if (layer.type === 'video' && layer.volume !== undefined && layer.volume !== 1) features.add('clip-volume');
       if (layer.transform) features.add('layer-transform');
+      if (layer.type === 'image' && layer.animation && layer.animation !== 'none') features.add('image-animation');
     } else if (layer.type === 'audio') {
       if ((layer.sourceOffsetMs ?? 0) > 0) features.add('audio-offset');
       if (layer.loop) features.add('audio-loop');

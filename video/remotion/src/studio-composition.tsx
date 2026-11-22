@@ -48,6 +48,22 @@ const Caption:React.FC<{layer:Layer}> = ({layer})=>{
     }}>{word.text}{i<words.length-1?' ':''}</span>):text}</span>
   </div>;
 };
+/** Studio FFmpeg uses a short opacity entrance for images by default,
+ * with optional horizontal slide. Keep the motion inside the clip sequence. */
+const ImageOverlay:React.FC<{layer:Layer;src:string}> = ({layer,src})=>{
+  const frame=useCurrentFrame();
+  const {fps,width}=useVideoConfig();
+  const animation=layer.animation??'none';
+  const durationSeconds=layer.durationInFrames/fps;
+  const introSeconds=Math.min(.24,Math.max(.06,durationSeconds/5));
+  const progress=clamp(frame/Math.max(1,Math.round(fps*introSeconds)));
+  const offset=animation==='slide'?(progress-1)*Math.min(width*.1,75):0;
+  return <Img src={src} style={{
+    ...layerStyle(layer.transform),objectFit:'contain',
+    opacity:animation==='none'?1:progress,
+    transform:animation==='slide'?`translateX(${offset}px)`:undefined,
+  }}/>;
+};
 export const StudioComposition:React.FC<StudioProps>=({layers})=>{
   const {fps}=useVideoConfig();
   return <AbsoluteFill style={{backgroundColor:'#000000',overflow:'hidden'}}>
@@ -61,8 +77,7 @@ export const StudioComposition:React.FC<StudioProps>=({layers})=>{
           <OffthreadVideo src={src} startFrom={trim}
             volume={layer.volume??1} style={{width:'100%',height:'100%',objectFit:'contain'}} />
         </div>}
-        {layer.type==='image'&&src&&<Img src={src}
-          style={{...layerStyle(layer.transform),objectFit:'contain'}} />}
+        {layer.type==='image'&&src&&<ImageOverlay layer={layer} src={src}/>}
         {layer.type==='audio'&&src&&<Audio src={src} startFrom={trim} loop={layer.loop===true}
           volume={layer.volume??1}/>}
         {layer.type==='text'&&<Caption layer={layer}/>}

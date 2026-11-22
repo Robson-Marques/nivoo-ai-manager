@@ -3,7 +3,7 @@
  * Keeps editing state independent of the preview/render engine.
  */
 export type VideoLayer =
-  | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number; sourceOffsetMs?: number; volume?: number; transform?: { x: number; y: number; width: number; height: number } }
+  | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number; sourceOffsetMs?: number; volume?: number; animation?: 'none' | 'fade' | 'slide'; transform?: { x: number; y: number; width: number; height: number } }
   | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string }
   | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number; sourceOffsetMs?: number; loop?: boolean };
 

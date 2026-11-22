@@ -51,12 +51,9 @@ export function studioToRemotionComposition(input:{
     cursor+=clip.duration;
   });
   for(const [i,asset] of (edit.assets??[]).entries()){
-    // Image entrance animations are not represented in the portable contract.
-    // Never export a visually different result without telling the editor.
-    if(asset.animation && asset.animation!=='none')
-      throw new Error('Remotion does not yet support animated Studio image overlays');
     layers.push({id:'asset_'+i,type:'image',mediaId:register(asset.source),
       ...bounded(asset.start,asset.end),zIndex:20,
+      animation:asset.animation??'fade',
       transform:transform(asset.x,asset.y,asset.w,asset.h)});
   }
   for(const [i,caption] of (edit.captions??[]).entries()){

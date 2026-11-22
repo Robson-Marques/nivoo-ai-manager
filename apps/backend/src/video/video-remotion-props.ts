@@ -8,7 +8,7 @@ import { FramePlan, toFramePlan } from './video-frame-plan';
  */
 export type ResolvedMedia = { mediaId: string; assetUrl: string };
 export type RemotionLayer =
-  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; loop?: boolean; transform?: { x: number; y: number; width: number; height: number } }
+  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; loop?: boolean; animation?: 'none' | 'fade' | 'slide'; transform?: { x: number; y: number; width: number; height: number } }
   | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; fromFrame: number; durationInFrames: number; zIndex: number; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string };
 
 export type RemotionProps = Pick<FramePlan, 'width' | 'height' | 'fps' | 'durationInFrames'> & {
@@ -53,6 +53,7 @@ export function buildRemotionProps(
     return { ...base, type: layer.type, src,
       ...(layer.sourceOffsetMs !== undefined ? { sourceOffsetMs: layer.sourceOffsetMs } : {}),
       ...(layer.volume !== undefined ? { volume: layer.volume } : {}),
+      ...(layer.animation ? { animation: layer.animation } : {}),
       ...(layer.transform ? { transform: layer.transform } : {}),
     };
   });
