@@ -8,9 +8,9 @@ export function remotionBundlePath(): string | undefined {
   return b && existsSync(join(b, 'index.html')) ? b : undefined;
 }
 
-/** Remotion só fica "ready" quando a CLI responde E o bundle está provisionado (render validado de ponta a ponta). */
+/** A presença da CLI e do bundle não comprova renderização nem paridade. */
 function remotionCapability(cliOk: boolean): { state: StudioRuntimeCapability['state']; detail: string } {
-  if (cliOk && remotionBundlePath()) return { state: 'ready', detail: 'Bundle provisionado e CLI pronta (motor de render Remotion)' };
+  if (cliOk && remotionBundlePath()) return { state: 'blocked', detail: 'CLI e bundle provisionados; exportação Remotion ainda aguarda integração e homologação' };
   if (cliOk) return { state: 'blocked', detail: 'CLI detectada; bundle não provisionado (rode nivoo update)' };
   return { state: 'blocked', detail: 'Bundle e CLI não provisionados; exportação bloqueada' };
 }

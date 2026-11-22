@@ -49,3 +49,7 @@ Render partials now carry a per-attempt UUID to avoid collision between interrup
 ### Trusted Studio worker adapter
 
 `renderStudioEditWithRemotion` connects the saved Studio edit format to the private Remotion job orchestration. It performs the pure conversion, passes authorized project media references and delegates to the isolated bundle, staging, CLI and MP4 inspection chain. It deliberately does not alter the existing HTTP render endpoint: that endpoint must continue using FFmpeg until the trusted production installer provisions Remotion and a verified feature support map. A user-provided capabilities map must never enable rendering.
+
+### Provisionamento versus exportação validada
+
+O instalador exige `package-lock.json` e executa somente `npm ci` para dependências do Remotion. A existência de CLI e bundle **não** implica paridade, renderização validada ou habilitação da exportação. O diagnóstico permanece `blocked` até que o Studio esteja ligado ao executor e um MP4 seja homologado. A exportação FFmpeg existente continua ativa.

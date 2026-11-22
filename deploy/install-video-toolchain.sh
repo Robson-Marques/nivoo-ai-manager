@@ -38,11 +38,11 @@ if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
   echo "==> Remotion: instalando dependências fixadas e gerando o bundle"
   (
     cd "$REMOTION_DIR"
-    if [ -f package-lock.json ]; then
-      npm ci --no-audit --no-fund --loglevel=error
-    else
-      npm install --no-audit --no-fund --loglevel=error
+    if [ ! -f package-lock.json ]; then
+      echo "ERRO: package-lock.json obrigatório para instalar Remotion de forma reproduzível" >&2
+      exit 1
     fi
+    npm ci --no-audit --no-fund --loglevel=error
     npm run bundle >/dev/null
   )
   if [ -f "$REMOTION_DIR/dist/index.html" ]; then
@@ -53,7 +53,7 @@ if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
       sed -i '/^NIVOO_REMOTION_BUNDLE=/d' /etc/nivoo/nivoo.env
       echo "NIVOO_REMOTION_BUNDLE=$REMOTION_DIR/dist" >> /etc/nivoo/nivoo.env
     fi
-    echo "  Remotion: bundle gerado e CLI em /usr/local/bin/remotion (motor de render pronto)"
+    echo "  Remotion: bundle gerado e CLI instalada (paridade visual e exportação Studio ainda exigem homologação)"
   else
     echo "ERRO: bundle do Remotion não foi gerado (dist/index.html ausente)" >&2
     exit 1
