@@ -628,7 +628,7 @@ export function VideoStudio() {
     <header className="studio-head">
       <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
-        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button onClick={cancelarExportacao}>Cancelar exportação</button>}</>}
+        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button disabled={Boolean(running.cancellationRequested)} onClick={cancelarExportacao}>{running.cancellationRequested?'Cancelamento solicitado':'Cancelar exportação'}</button>}</>}
         <button onClick={()=>setShowRuntime(value=>!value)} aria-expanded={showRuntime}>Ferramentas {showRuntime?'−':'+'}</button>
         <button onClick={newProject}>+ Nova edição</button>
       </div>
@@ -649,7 +649,7 @@ export function VideoStudio() {
       } as const)[running.stage||'preparing']}</strong>
       <span>{typeof running.progress==='number'?running.progress+'%':'Em andamento'}</span></div>
       <progress value={running.progress??0} max={100} aria-label="Progresso da exportação"/>
-      <small>Etapas reais da produção; percentual aproximado, não representa o tempo restante.</small>
+      <small>{running.cancellationRequested?'Solicitação enviada ao processo de renderização. Aguardando confirmação.':'Etapas reais da produção; percentual aproximado, não representa o tempo restante.'}</small>
     </div>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='cancelled'&&<p className="studio-notice">Exportação cancelada.</p>}
