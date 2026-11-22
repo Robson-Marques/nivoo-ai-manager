@@ -24,9 +24,9 @@ describe('Remotion export readiness', () => {
         words: [{ text: 'Olá', start: 0, end: 0.5 }] }],
       protectedZones: [{ id: 'zone', label: 'Logo', start: 0, end: 2, x: 0, y: 0, w: 20, h: 20 }],
     }, media);
-    expect(status.blockers.join(' ')).toMatch(/Karaoke/);
-    expect(status.blockers.join(' ')).toMatch(/Protected zones/);
-    expect(status.blockers.join(' ')).toMatch(/Source trimming/);
+    expect(status.blockers.join(' ')).toMatch(/karaoke/);
+    expect(status.blockers.join(' ')).toMatch(/protected-zones/);
+    expect(status.blockers.join(' ')).toMatch(/source-offset/);
   });
 
   it('does not return props when project media is unresolved', () => {
