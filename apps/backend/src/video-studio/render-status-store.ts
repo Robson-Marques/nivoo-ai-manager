@@ -7,6 +7,8 @@ export type StudioRenderStatus = {
   started: string;
   runId: string;
   ownerPid: number;
+  stage?: 'preparing'|'clips'|'audio'|'compositing'|'inspecting';
+  progress?: number;
   error?: string;
   output?: string;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] };
