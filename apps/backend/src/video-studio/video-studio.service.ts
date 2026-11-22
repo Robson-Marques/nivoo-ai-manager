@@ -15,6 +15,7 @@ import { inspectRenderedVideo } from '../video/video-render-inspection';
 import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender } from './render-status-store';
 import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLease, recoverDeadStudioRenderLease } from './render-lease';
 import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process';
+import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -605,28 +606,35 @@ export class VideoStudioService {
   }
   async cancel(pid:string,id:string) {
     const {media}=await this.dir(pid);
-    const entry=status.get(pid+':'+id);
-    if(entry?.result.state==='running') {
+    const key=pid+':'+id;
+    const entry=status.get(key);
+    const persisted=loadStudioRenderStatus(media,id);
+    const active=entry?.result.state==='running' ? entry.result : persisted;
+    if (!active || active.state!=='running') return this.state(pid,id);
+    // A cancellation marker is specific to the runId: it cannot accidentally
+    // terminate a newer export of the same edit.
+    const owner=readStudioRenderLease(media,id);
+    if (!owner || owner.runId!==active.runId) return this.state(pid,id);
+    requestStudioRenderCancellation(media,id,active.runId);
+    if (entry?.result.runId===active.runId && entry.result.state==='running') {
       entry.result={...entry.result,state:'cancelled'};
       saveStudioRenderStatus(media,id,entry.result);
       entry.process?.kill('SIGTERM');
       return entry.result;
     }
-    const stored=loadStudioRenderStatus(media,id);
-    if(stored?.state==='running') throw new ConflictException('Exportação pertence a outro processo. O cancelamento remoto ainda não está disponível.');
-    return this.state(pid,id);
+    return {...active, cancellationRequested:true};
   }
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
     const entry=status.get(key)!;
     let outputInProgress: string | undefined;
+    const cancelled=()=>entry.result.state==='cancelled' || isStudioRenderCancellationRequested(media,p.id,entry.result.runId);
     const report=(stage: NonNullable<Status['stage']>,progress:number)=>{
-      if(entry.result.state!=='running') throw new Error('Renderização cancelada');
+      if(cancelled()) throw new Error('Renderização cancelada');
       entry.result={...entry.result,stage,progress};
       saveStudioRenderStatus(media,p.id,entry.result);
     };
     const track=(child: ChildProcess)=>{ entry.process=child; };
-    const cancelled=()=>entry.result.state==='cancelled';
     const ff=async(args:string[])=>{
       try {
         await runStudioMediaCommand('ffmpeg',
@@ -735,7 +743,7 @@ export class VideoStudioService {
       fs.mkdirSync(path.dirname(output),{recursive:true});
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
         '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
-      if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
+      if(cancelled()) {fs.rmSync(output,{force:true});return;}
       if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
       // Conferência técnica do MP4 real, antes de anunciar a exportação como concluída.
       // Falhas de inspeção não são tratadas como sucesso. A revisão visual continua separada.
@@ -754,7 +762,7 @@ export class VideoStudioService {
         fs.rmSync(output, {force:true});
         throw error;
       }
-      if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
+      if(cancelled()) {fs.rmSync(output,{force:true});return;}
       const warnings:string[] = [];
       if(measured.blackFrameCount! > 0) warnings.push('Possíveis trechos pretos detectados');
       if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
@@ -768,8 +776,13 @@ export class VideoStudioService {
       outputInProgress=undefined;
     } finally {
       entry.process=undefined;
+      if(cancelled() && entry.result.state==='running') {
+        entry.result={...entry.result,state:'cancelled'};
+        saveStudioRenderStatus(media,p.id,entry.result);
+      }
       if(outputInProgress) fs.rmSync(outputInProgress,{force:true});
       fs.rmSync(tmp,{recursive:true,force:true});
+      clearStudioRenderCancellation(media,p.id,entry.result.runId);
     }
   }
 }
