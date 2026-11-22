@@ -743,8 +743,8 @@ export class VideoStudioService {
         const expectedMs = Math.round(current * 1000);
         if (measured.durationMs === undefined ||
             Math.abs(measured.durationMs - expectedMs) > Math.max(1000, expectedMs * 0.02) ||
-            measured.blackFrameCount === undefined || measured.hasAudio === undefined ||
-            (measured.hasAudio && measured.audioPeakDbfs === undefined)) {
+            measured.blackFrameCount === undefined || measured.hasAudio !== true ||
+            measured.audioPeakDbfs === undefined) {
           throw new Error('MP4 exportado não passou na inspeção técnica');
         }
       } catch (error) {
