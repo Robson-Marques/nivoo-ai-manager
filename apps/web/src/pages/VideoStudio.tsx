@@ -43,6 +43,9 @@ export function VideoStudio() {
   const [notice,setNotice]=useState('');
   const [progress,setProgress]=useState(0);
   const inputRef=useRef<HTMLInputElement>(null);
+  const captionsPollBusy=useRef(false);
+  const aiPollBusy=useRef(false);
+  const zonesPollBusy=useRef(false);
   const player=useRef<HTMLVideoElement>(null);
   const canvasRef=useRef<HTMLDivElement>(null);
   const dragState=useRef<{kind:'caption'|'image'|'zone';id:string;initialX:number;initialY:number;px:number;py:number}|null>(null);
@@ -96,17 +99,23 @@ export function VideoStudio() {
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
+    let activePoll=true;
     const timer=setInterval(async()=>{
+      if(captionsPollBusy.current)return;
+      captionsPollBusy.current=true;
       try {
         const st=await api<{state:string;error?:string;captions?:number}>(edits+'/'+project.id+'/captions/auto');
+        if(!activePoll)return;
         setAligning(st);
         if(st.state==='done'){
           const fresh=await api<Studio>(edits+'/'+project.id);
+          if(!activePoll)return;
           setProject(fresh);setDirty(false);setNotice(st.captions+' legendas adicionadas.');
         }
-      }catch(e:any){setError(e.message)}
+      }catch(e:any){if(activePoll)setError(e.message)}
+      finally{captionsPollBusy.current=false}
     },2000);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[project?.id,pid,aligning.state]);
   const gerarLegendas=async()=>{
     if(!project)return;
@@ -126,19 +135,31 @@ export function VideoStudio() {
   };
   useEffect(()=>{
     if(!project||aiDraft.state!=='running')return;
+    let activePoll=true;
     const timer=setInterval(async()=>{
-      try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan'));}
-      catch(e:any){setAiDraft({state:'failed',error:e.message})}
+      if(aiPollBusy.current)return;
+      aiPollBusy.current=true;
+      try{
+        const result=await api<AiResult>(edits+'/'+project.id+'/ai/plan');
+        if(activePoll)setAiDraft(result);
+      }catch(e:any){if(activePoll)setAiDraft({state:'failed',error:e.message})}
+      finally{aiPollBusy.current=false}
     },1800);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[pid,project?.id,aiDraft.state]);
   useEffect(()=>{
     if(!project || zoneDraft.state!=='running')return;
-    const timer=setInterval(()=>{
-      api<ZonesResult>(edits+'/'+project.id+'/zones/detect')
-        .then(setZoneDraft).catch(e=>setZoneDraft({state:'failed',error:String(e.message||e)}));
+    let activePoll=true;
+    const timer=setInterval(async()=>{
+      if(zonesPollBusy.current)return;
+      zonesPollBusy.current=true;
+      try{
+        const result=await api<ZonesResult>(edits+'/'+project.id+'/zones/detect');
+        if(activePoll)setZoneDraft(result);
+      }catch(e:any){if(activePoll)setZoneDraft({state:'failed',error:String(e.message||e)})}
+      finally{zonesPollBusy.current=false}
     },1800);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[pid,project?.id,zoneDraft.state]);
   const detectZones=async()=>{
     if(!project||dirty)return setError('Salve primeiro o projeto antes de analisar rostos e textos.');
