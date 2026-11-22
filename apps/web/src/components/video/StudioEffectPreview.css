@@ -1,0 +1,25 @@
+.studio-effect-picker{border:1px solid #40516a;border-radius:8px;padding:9px;background:#0f1725}
+.studio-effect-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:12px}
+.studio-effect-head button{font-size:11px;padding:3px 7px}
+.studio-effect-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.studio-effect-picker .studio-effect-option{display:flex;flex-direction:column;gap:5px;padding:5px;background:#19263a;border:1px solid #40516a;border-radius:6px;min-width:0}
+.studio-effect-picker .studio-effect-option.selected{border-color:#50c8bb;box-shadow:inset 0 0 0 1px #50c8bb}
+.studio-effect-stage{height:46px;width:100%;background:#080e19;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.studio-effect-sample{color:#f8fafc;font-weight:800;letter-spacing:.04em;font-size:14px;display:block}
+.studio-effect-name{font-size:11px;text-align:center;color:#dce6f2;white-space:normal}
+.studio-effect-picker small{display:block;color:#a5b6cd;line-height:1.35;margin-top:7px}
+.studio-effect-fade{animation:studio-effect-fade .7s ease both}
+.studio-effect-pop{animation:studio-effect-pop .7s ease both}
+.studio-effect-slide{animation:studio-effect-slide .7s ease both}
+.studio-effect-rise{animation:studio-effect-rise .7s ease both}
+.studio-effect-enter-left{animation:studio-effect-left .7s ease both}
+.studio-effect-enter-right{animation:studio-effect-right .7s ease both}
+.studio-effect-karaoke{animation:studio-effect-karaoke .9s steps(2,end) both}
+@keyframes studio-effect-fade{from{opacity:0}to{opacity:1}}
+@keyframes studio-effect-pop{from{transform:scale(.25);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes studio-effect-slide{from{transform:translateY(-26px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes studio-effect-rise{from{transform:translateY(26px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes studio-effect-left{from{transform:translateX(-70px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes studio-effect-right{from{transform:translateX(70px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes studio-effect-karaoke{from{color:#cbd5e1}to{color:#facc15;text-shadow:0 0 8px #facc15}}
+@media(prefers-reduced-motion:reduce){.studio-effect-sample{animation:none!important}}
