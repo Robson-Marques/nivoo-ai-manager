@@ -37,6 +37,7 @@ export function runStudioMediaCommand(
     };
     let forceKill: ReturnType<typeof setTimeout> | undefined;
     const failProcess = () => {
+      if (forceKill || settled) return;
       terminate();
       forceKill = setTimeout(() => {
         if (child.exitCode === null) child.kill('SIGKILL');
