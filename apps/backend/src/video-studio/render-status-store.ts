@@ -6,6 +6,7 @@ export type StudioRenderStatus = {
   state: 'running'|'done'|'failed'|'cancelled';
   started: string;
   runId: string;
+  ownerPid: number;
   error?: string;
   output?: string;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] };
@@ -23,7 +24,7 @@ export function loadStudioRenderStatus(media: string, editId: string): StudioRen
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
   const parsed = JSON.parse(raw) as StudioRenderStatus;
   if (!parsed || !['running','done','failed','cancelled'].includes(parsed.state) ||
-      typeof parsed.started !== 'string' || typeof parsed.runId !== 'string' ||
+      typeof parsed.started !== 'string' || !Number.isSafeInteger(parsed.ownerPid) || parsed.ownerPid < 1 || typeof parsed.runId !== 'string' ||
       !/^[a-f\d-]{36}$/i.test(parsed.runId)) throw new Error('Invalid persisted Studio render state');
   return parsed;
 }
@@ -44,6 +45,10 @@ export function saveStudioRenderStatus(media: string, editId: string, value: Stu
  * The output remains on disk for diagnosis; a fresh render must be explicit.
  */
 export function interruptedStudioRender(value: StudioRenderStatus): StudioRenderStatus {
+  if (value.state === 'running') {
+    try { process.kill(value.ownerPid, 0); return value; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'EPERM') return value; }
+  }
   return value.state === 'running'
     ? { ...value, state: 'failed', error: 'Renderização interrompida pelo reinício do serviço. Inicie uma nova exportação.' }
     : value;
