@@ -18,7 +18,7 @@ import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process'
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
-import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion } from './hyperframes-motion';
+import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, type MotionPreset } from './hyperframes-motion';
 import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
@@ -68,7 +68,8 @@ type MotionState = {state:'running'|'done'|'failed'|'cancelled';runId:string;sta
 const motionJobs = new Map<string,{result:MotionState;abort:AbortController}>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
-type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+type MotionSuggestion={preset:MotionPreset;title:string};
+type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];motionSuggestions?:MotionSuggestion[];explanation?:string};
 const aiStates=new Map<string,AiState>();
 type ZoneState={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 const zoneStates=new Map<string,ZoneState>();
@@ -447,6 +448,7 @@ export class VideoStudioService {
         speech:p.captions.slice(0,500).map(v=>({text:v.text,start:v.start,end:v.end,words:v.words??[]})),
         protectedZones:p.protectedZones??[],
         availableImages:imageDetails,
+        availableMotionPresets:MOTION_PRESETS.map(({id,label,description})=>({id,label,description})),
         sampledFrames:snapshots.length,
         shotTimes:p.clips.length>1?'frames extraídos de múltiplas cenas':'frames extraídos do vídeo',
         instructions:brief?.trim()||'Crie uma composição visual dinâmica e profissional, sem excesso de efeitos.'
@@ -456,10 +458,12 @@ export class VideoStudioService {
           instructions:[
             'Você é o diretor de arte de pós-produção do Nivoo Studio.',
             'Analise a narração com seus tempos e proponha um plano de inserções visuais.',
-            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"explanation":"..."}',
+            'Responda SOMENTE um JSON: {"elements":[{"kind":"caption","text":"...","start":0.0,"end":1.5,"x":0.5,"y":0.5,"style":"impact"},{"kind":"image","asset":"midia/entrada/...png","start":0,"end":2,"x":0.6,"y":0.3,"w":0.3,"h":0.2},{"kind":"graphic","text":"CORRIJA PLANILHAS","subtitle":"Menos retrabalho","variant":"spreadsheet","start":3,"end":5,"x":0.54,"y":0.25,"w":0.4,"h":0.22}],"motionSuggestions":[{"preset":"neon-title","title":"TEXTO NARRADO"}],"explanation":"..."}',
             'Para legendas dinâmicas, escolha style=impact|fade|slide|rise|enter-left|enter-right e distribua os destaques por posições diferentes somente se houver área livre; mantenha ênfase e legibilidade.',
             'Para gráfico original local use kind=graphic com text, subtitle, variant=spreadsheet|clock|progress|warning|money|check|generic e x,y,w,h. A renderização cria um cartão visual PNG sem API paga.',
             'Use somente imagens de availableImages quando kind=image. Não invente imagens, logos, URLs ou fatos.',
+            'Quando a fala pedir motion design, sugira até 3 motionSuggestions usando somente o id de availableMotionPresets e título fiel ao roteiro. O Studio só renderiza após a escolha do usuário.',
+            'Nunca sugira identificadores de blocos externos do catálogo HyperFrames como executáveis; esses itens ainda precisam de curadoria e isolamento.',
             'Para qualquer texto, use frases narradas ou palavras fiéis ao roteiro; não faça alegações adicionais.',
             'Não sobreponha as áreas protectedZones. Use coordenadas de 0 a 1.',
             'Crie entradas de texto e figuras somente onde a fala pedir apoio; varie tamanho e posição de acordo com a composição. Não exagere na quantidade de overlays.',
@@ -473,7 +477,7 @@ export class VideoStudioService {
           onLog:()=>undefined,options:{maxTurns:1,images:snapshots}
         });
         if(result.exitCode!==0)throw new Error(result.error||'Falha ao consultar o agente de IA');
-        const raw=parseAiJson(result.output) as {elements?:unknown;explanation?:unknown};
+        const raw=parseAiJson(result.output) as {elements?:unknown;motionSuggestions?:unknown;explanation?:unknown};
         if(!raw || !Array.isArray(raw.elements))throw new Error('JSON da IA sem elements[]');
         const valid:AiElement[]=[];
         const rejected:string[]=[];
@@ -503,8 +507,17 @@ export class VideoStudioService {
           if(!placed){rejected.push(`${e.kind} ${e.start.toFixed(2)}s: sem espaço seguro`);continue;}
           valid.push(placed);
         }
-        if(!valid.length)throw new Error('A IA não propôs elementos válidos e seguros');
-        aiStates.set(key,{state:'draft',elements:valid,explanation:(String(raw.explanation??'').slice(0,800)+(rejected.length?' | '+rejected.length+' elemento(s) omitido(s) por segurança.':''))});
+        const motions:MotionSuggestion[]=[];
+        if(Array.isArray(raw.motionSuggestions)){
+          for(const candidate of raw.motionSuggestions.slice(0,3)){
+            try{
+              const motion=validateMotionRequest(candidate);
+              if(!motions.some(v=>v.preset===motion.preset&&v.title===motion.title))motions.push(motion);
+            }catch{ /* Referências não autorizadas não geram renderização */ }
+          }
+        }
+        if(!valid.length&&!motions.length)throw new Error('A IA não propôs elementos válidos e seguros');
+        aiStates.set(key,{state:'draft',elements:valid,motionSuggestions:motions,explanation:(String(raw.explanation??'').slice(0,800)+(rejected.length?' | '+rejected.length+' elemento(s) omitido(s) por segurança.':''))});
       }catch(e:any){
         aiStates.set(key,{state:'failed',error:String(e?.message??e).slice(0,600)});
       }finally{snapshots.forEach(f=>fs.rmSync(f,{force:true}));}
