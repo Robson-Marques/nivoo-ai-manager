@@ -543,6 +543,13 @@ export function VideoStudio() {
     catch(e:any){setError(e.message)}
     finally{actionsInFlight.current.delete('render')}
   };
+  const cancelarExportacao=async()=>{
+    if(!project || running.state!=='running' || actionsInFlight.current.has('cancel-render'))return;
+    actionsInFlight.current.add('cancel-render');
+    try { setRunning(await api<Render>(edits+'/'+project.id+'/cancel','POST',{})); }
+    catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('cancel-render')}
+  };
   const upload=async(files:FileList|null)=>{
     if(!files)return;
     setBusy(true);setError('');
@@ -609,7 +616,7 @@ export function VideoStudio() {
     <header className="studio-head">
       <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
-        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button></>}
+        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button onClick={cancelarExportacao}>Cancelar exportação</button>}</>}
         <button onClick={newProject}>+ Nova edição</button>
       </div>
     </header>
@@ -619,6 +626,7 @@ export function VideoStudio() {
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
     {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
+    {running.state==='cancelled'&&<p className="studio-notice">Exportação cancelada.</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
     {running.state==='done'&&running.inspection&&<div className="studio-notice" role="status">MP4 inspecionado: {(running.inspection.durationMs/1000).toFixed(1)}s · {running.inspection.hasAudio?'com áudio':'sem áudio'} · {running.inspection.blackFrameCount} trecho(s) preto(s) detectado(s).{running.inspection.warnings.length>0&&<span> Atenção: {running.inspection.warnings.join('; ')}.</span>} Revisão visual ainda necessária.</div>}
     {!project?<div className="studio-start"><h3>Suas edições</h3>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}<button onClick={newProject}>Criar primeira edição</button></div>:
