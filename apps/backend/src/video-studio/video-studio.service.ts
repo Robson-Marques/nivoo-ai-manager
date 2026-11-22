@@ -34,7 +34,7 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string;
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string; ownerPid: number;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
@@ -192,7 +192,10 @@ export class VideoStudioService {
     const {studio}=await this.dir(pid);
     const f=this.file(studio,id);
     if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
+    if (status.get(pid+':'+id)?.result.state==='running') throw new ConflictException('Cancele a exportação antes de excluir a edição');
     fs.rmSync(f);
+    fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+    status.delete(pid+':'+id);
     return {ok:true};
   }
   captionsStatus(pid:string,id:string) { return transcriptions.get(pid+':'+id) ?? {state:'idle'}; }
@@ -538,9 +541,11 @@ export class VideoStudioService {
     // second render for the same edit without explicit recovery.
     const persisted=loadStudioRenderStatus(media,id);
     if (persisted?.state==='running' && !existing) {
-      throw new ConflictException('Renderização anterior interrompida ou ativa em outro worker; verifique o estado antes de reiniciar');
+      const recovered=interruptedStudioRender(persisted);
+      if (recovered.state==='running') throw new ConflictException('Renderização ativa em outro processo');
+      saveStudioRenderStatus(media,id,recovered);
     }
-    const result:Status={state:'running',started:new Date().toISOString(),runId:randomUUID()};
+    const result:Status={state:'running',started:new Date().toISOString(),runId:randomUUID(),ownerPid:process.pid};
     saveStudioRenderStatus(media,id,result);
     status.set(key,{result,media});
     setImmediate(()=>this.execute(media,p,key).catch(e=>{
