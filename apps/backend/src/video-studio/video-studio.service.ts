@@ -192,7 +192,7 @@ export class VideoStudioService {
     const {studio}=await this.dir(pid);
     const f=this.file(studio,id);
     if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
-    if (status.get(pid+':'+id)?.result.state==='running') throw new ConflictException('Cancele a exportação antes de excluir a edição');
+    if (status.get(pid+':'+id)?.result.state==='running' || readStudioRenderLease((await this.dir(pid)).media,id)) throw new ConflictException('Cancele a exportação antes de excluir a edição');
     fs.rmSync(f);
     fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
     status.delete(pid+':'+id);
@@ -537,24 +537,31 @@ export class VideoStudioService {
     if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    // Fail closed on a running record left by another process. Never start a
-    // second render for the same edit without explicit recovery.
-    const persisted=loadStudioRenderStatus(media,id);
-    if (persisted?.state==='running' && !existing) {
-      const recovered=interruptedStudioRender(persisted);
-      if (recovered.state==='running') throw new ConflictException('Renderização ativa em outro processo');
-      saveStudioRenderStatus(media,id,recovered);
+    // A directory creation is the cross-process atomic gate. Never trust the
+    // in-memory map or a persisted JSON check alone for concurrency.
+    const priorLock=readStudioRenderLease(media,id);
+    if (priorLock) {
+      try { recoverDeadStudioRenderLease(media,id); }
+      catch { throw new ConflictException('Bloqueio de renderização em recuperação; tente novamente'); }
     }
-    const result:Status={state:'running',started:new Date().toISOString(),runId:randomUUID(),ownerPid:process.pid};
-    saveStudioRenderStatus(media,id,result);
-    status.set(key,{result,media});
-    setImmediate(()=>this.execute(media,p,key).catch(e=>{
-      const current=status.get(key);
-      if(current?.result.state==='running' && current.result.runId===result.runId) {
-        current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
-        saveStudioRenderStatus(media,id,current.result);
-      }
-    }));
+    const runId=randomUUID();
+    try { acquireStudioRenderLease(media,id,runId); }
+    catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
+    const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid};
+    try {
+      saveStudioRenderStatus(media,id,result);
+      status.set(key,{result,media});
+      setImmediate(()=>this.execute(media,p,key).catch(e=>{
+        const current=status.get(key);
+        if(current?.result.state==='running' && current.result.runId===result.runId) {
+          current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
+          saveStudioRenderStatus(media,id,current.result);
+        }
+      }).finally(()=>releaseStudioRenderLease(media,id,runId)));
+    } catch (error) {
+      releaseStudioRenderLease(media,id,runId);
+      throw error;
+    }
     return result;
   }
   async state(pid:string,id:string) {
