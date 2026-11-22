@@ -1,4 +1,4 @@
-import { activeLayersAt, validateComposition, VideoComposition } from '../../src/video/video-composition';
+import { activeLayersAt, validateComposition, VideoComposition } from '../src/video/video-composition';
 
 describe('video composition manifest', () => {
   const composition: VideoComposition = {
