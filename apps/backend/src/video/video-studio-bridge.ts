@@ -4,18 +4,17 @@ import { VideoComposition, VideoLayer, validateComposition } from './video-compo
  * Read-only projection of the existing VideoStudio v1 edit format.
  * This does not change the persisted Studio format or its export pipeline.
  * Clip start/end are source trim points; duration is timeline length.
- * WARNING: the portable composition model does not yet encode source offsets,
- * caption positions, image transforms or audio offsets. This projection is
- * suitable for planning/inspection only, NOT a lossless render or export.
+ * WARNING: the portable composition model still lacks karaoke word timings,
+ * protected zones, and several animation modes. This is NOT a lossless export.
  */
 export type StudioEditV1 = {
   version: 1;
   id: string;
   updatedAt: string;
   clips: Array<{ id: string; source: string; start: number; end: number; duration: number; volume?: number }>;
-  captions: Array<{ id: string; text: string; start: number; end: number; animation?: string }>;
-  assets: Array<{ id: string; source: string; start: number; end: number }>;
-  audioTracks?: Array<{ id: string; source: string; start: number; end: number; volume: number }>;
+  captions: Array<{ id: string; text: string; start: number; end: number; animation?: string; x?: number; y?: number; fontSize?: number; color?: string }>;
+  assets: Array<{ id: string; source: string; start: number; end: number; x?: number; y?: number; w?: number; h?: number }>;
+  audioTracks?: Array<{ id: string; source: string; start: number; end: number; offset?: number; volume: number }>;
   soundtrack?: { source: string; volume: number } | null;
 };
 
@@ -45,23 +44,35 @@ export function studioEditToComposition(
       throw new Error('Invalid Studio clip trim');
     }
     layers.push({ id: clip.id, type: 'video', mediaId: clip.source,
-      startMs: cursor, durationMs: duration, zIndex: 0 });
+      startMs: cursor, durationMs: duration, zIndex: 0,
+      sourceOffsetMs: ms(clip.start), volume: clip.volume ?? 1 });
     cursor += duration;
   }
   for (const caption of edit.captions) {
     layers.push({ id: caption.id, type: 'text', text: caption.text,
       startMs: ms(caption.start), durationMs: ms(caption.end) - ms(caption.start),
       zIndex: 900, animation: caption.animation === 'fade' ? 'fade' :
-        caption.animation === 'slide' ? 'slide' : 'none' });
+        caption.animation === 'slide' ? 'slide' : 'none',
+      ...(caption.x !== undefined && caption.y !== undefined ? {
+        transform: { x: caption.x, y: caption.y, width: 100, height: 20 },
+      } : {}),
+      ...(caption.fontSize !== undefined ? { fontSize: caption.fontSize } : {}),
+      ...(caption.color !== undefined ? { color: caption.color } : {}),
+    });
   }
   for (const asset of edit.assets) {
     layers.push({ id: asset.id, type: 'image', mediaId: asset.source,
-      startMs: ms(asset.start), durationMs: ms(asset.end) - ms(asset.start), zIndex: 200 });
+      startMs: ms(asset.start), durationMs: ms(asset.end) - ms(asset.start), zIndex: 200,
+      ...(asset.x !== undefined && asset.y !== undefined && asset.w !== undefined && asset.h !== undefined ? {
+        transform: { x: asset.x, y: asset.y, width: asset.w, height: asset.h },
+      } : {}),
+    });
   }
   for (const audio of edit.audioTracks ?? []) {
     layers.push({ id: audio.id, type: 'audio', mediaId: audio.source,
       startMs: ms(audio.start), durationMs: ms(audio.end) - ms(audio.start),
-      zIndex: 0, volume: audio.volume });
+      zIndex: 0, volume: audio.volume,
+      sourceOffsetMs: ms(audio.offset ?? 0) });
   }
   if (edit.soundtrack) {
     layers.push({ id: 'studio-soundtrack', type: 'audio', mediaId: edit.soundtrack.source,
