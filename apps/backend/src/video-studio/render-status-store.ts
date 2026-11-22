@@ -27,7 +27,9 @@ export function loadStudioRenderStatus(media: string, editId: string): StudioRen
   const parsed = JSON.parse(raw) as StudioRenderStatus;
   if (!parsed || !['running','done','failed','cancelled'].includes(parsed.state) ||
       typeof parsed.started !== 'string' || !Number.isSafeInteger(parsed.ownerPid) || parsed.ownerPid < 1 || typeof parsed.runId !== 'string' ||
-      !/^[a-f\d-]{36}$/i.test(parsed.runId)) throw new Error('Invalid persisted Studio render state');
+      !/^[a-f\d-]{36}$/i.test(parsed.runId) ||
+      (parsed.stage !== undefined && !['preparing','clips','audio','compositing','inspecting'].includes(parsed.stage)) ||
+      (parsed.progress !== undefined && (!Number.isFinite(parsed.progress) || parsed.progress < 0 || parsed.progress > 100))) throw new Error('Invalid persisted Studio render state');
   return parsed;
 }
 
