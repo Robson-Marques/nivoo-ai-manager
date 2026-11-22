@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, link, unlink } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, link } from 'node:fs/promises';
 import { dirname, resolve, relative, basename, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { VideoComposition } from './video-composition';

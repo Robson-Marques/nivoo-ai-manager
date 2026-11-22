@@ -34,7 +34,8 @@ echo '  FFmpeg: libx264, subtitles, blackdetect e volumedetect disponíveis'
 # Nada de versão flutuante: usa só o que está travado no git.
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTION_DIR="$APP_DIR/video/remotion"
-if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
+if [ -f "$REMOTION_DIR/package.json" ]; then
+  command -v npm >/dev/null 2>&1 || { echo 'ERRO: npm indisponível para provisionar Remotion' >&2; exit 1; }
   echo "==> Remotion: instalando dependências fixadas e gerando o bundle"
   (
     cd "$REMOTION_DIR"
@@ -45,7 +46,7 @@ if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
     npm ci --no-audit --no-fund --loglevel=error
     npm run bundle >/dev/null
   )
-  if [ -f "$REMOTION_DIR/dist/index.html" ]; then
+  if [ -f "$REMOTION_DIR/dist/index.html" ] && [ -x "$REMOTION_DIR/node_modules/.bin/remotion" ]; then
     # Deixa o binário 'remotion' no PATH do sistema (o worker roda como 'nivoo').
     ln -sfn "$REMOTION_DIR/node_modules/.bin/remotion" /usr/local/bin/remotion
     # Registra o caminho do bundle para o backend (diagnóstico e render o leem por esta variável).
@@ -59,7 +60,8 @@ if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
     exit 1
   fi
 else
-  echo "  Remotion: código não encontrado em video/remotion; motor de render permanecerá bloqueado"
+  echo 'ERRO: código Remotion não encontrado em video/remotion' >&2
+  exit 1
 fi
 # HyperFrames: CLI externa opcional (não provisionada automaticamente).
 if command -v hyperframes >/dev/null 2>&1; then
