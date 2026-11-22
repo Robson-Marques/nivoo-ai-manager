@@ -1,5 +1,5 @@
-import { mkdir, rmdir, lstat, realpath, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { mkdir, rmdir, lstat, realpath, writeFile, readFile, unlink } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { assertWorkspacePath } from './video-tool-adapters';
 import { VideoProductionPlan } from './video-production-plan';
@@ -30,15 +30,22 @@ export async function withVideoProductionLock<T>(
     }
     throw error;
   }
+  const owner = { pid: process.pid, createdAt: new Date().toISOString(), token: randomUUID() };
+  const acquired = await lstat(lock);
   try {
-    const owner = { pid: process.pid, createdAt: new Date().toISOString(), token: randomUUID() };
     await writeFile(join(lock, 'owner.json'), JSON.stringify(owner), { flag: 'wx', mode: 0o600 });
     return await work();
   } finally {
-    // Only remove a lock if it is still the exact directory we acquired.
-    // Never recursively delete a directory that another process could replace.
-    const { unlink } = await import('node:fs/promises');
-    await unlink(join(lock, 'owner.json')).catch(() => undefined);
-    await rmdir(lock).catch(() => undefined);
+    // Do not remove a replacement lock after operator recovery.
+    const current = await lstat(lock).catch(() => undefined);
+    if (current && current.dev === acquired.dev && current.ino === acquired.ino) {
+      const raw = await readFile(join(lock, 'owner.json'), 'utf8').catch(() => '');
+      let token = '';
+      try { token = (JSON.parse(raw) as { token?: string }).token ?? ''; } catch { /* preserve unknown owner */ }
+      if (token === owner.token) {
+        await unlink(join(lock, 'owner.json'));
+        await rmdir(lock);
+      }
+    }
   }
 }
