@@ -52,10 +52,11 @@ export function approveWhisperCaptionDraft(composition: VideoComposition, draft:
   if (draft.compositionId !== composition.id || draft.revision !== composition.revision) {
     throw new Error('Caption draft is stale');
   }
-  if (draft.warnings.some(warning => warning.startsWith('Too many captions'))) {
-    throw new Error('Caption draft exceeds composition layer budget');
+  const checked = buildCaptionDraft(composition, draft.cues);
+  if (checked.warnings.length || draft.warnings.length) {
+    throw new Error('Caption draft requires review or exceeds composition layer budget');
   }
-  return applySubtitleCues(composition, draft.cues);
+  return applySubtitleCues(composition, checked.cues);
 }
 
 /** Compatibility for server callers that explicitly opt into immediate application. */
