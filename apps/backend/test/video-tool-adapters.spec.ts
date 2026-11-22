@@ -1,4 +1,4 @@
-import { assertWorkspacePath, validateMediaUrl, importAuthorizedVideo, transcribeWithWhisper } from '../src/video/video-tool-adapters';
+import { assertWorkspacePath, validateMediaUrl, importAuthorizedVideo, transcribeWithWhisper, runVideoTool } from '../src/video/video-tool-adapters';
 
 describe('video tool adapters boundaries', () => {
   it('allows paths inside workspace', () => {
@@ -38,5 +38,21 @@ describe('optional video adapters', () => {
     await expect(transcribeWithWhisper(
       '/tmp', '/tmp/nivoo-missing-transcription-media.mp4', '/tmp/nivoo-transcript',
     )).rejects.toThrow();
+  });
+});
+
+describe('video tool process cancellation', () => {
+  it('rejects an already-aborted task before spawning', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(runVideoTool('node', ['--version'], '/tmp', 1000, controller.signal))
+      .rejects.toThrow('aborted');
+  });
+
+  it('aborts a running subprocess', async () => {
+    const controller = new AbortController();
+    const running = runVideoTool(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], '/tmp', 5000, controller.signal);
+    controller.abort();
+    await expect(running).rejects.toThrow('aborted');
   });
 });
