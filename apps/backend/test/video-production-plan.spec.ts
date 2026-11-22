@@ -28,6 +28,7 @@ describe('checkpointed video production planning', () => {
   it('enforces cost limits and approval thresholds', () => {
     expect(() => assertProductionSpend(plan, 2000, 600, true)).toThrow('budget');
     expect(() => assertProductionSpend(plan, 0, 600, false)).toThrow('approval');
-    expect(() => assertProductionSpend(plan, 500, 400, false)).not.toThrow();
+    // Aprovação é pelo gasto ACUMULADO (ver video-production-safety.spec): 300+100=400 < 500, não exige OK.
+    expect(() => assertProductionSpend(plan, 300, 100, false)).not.toThrow();
   });
 });

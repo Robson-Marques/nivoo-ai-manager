@@ -88,9 +88,8 @@ export function assertProductionSpend(
   const total = spentCents + proposedCents;
   if (!Number.isSafeInteger(total)) throw new Error('Invalid production spend total');
   if (total > plan.budgetCents) throw new Error('Video production budget exceeded');
-  // Aprovação é sobre o custo PROPOSTO desta ação (não o acumulado): um gasto novo acima do limite pede OK.
-  // O orçamento (acima) é que olha o total gasto+proposto.
-  if (proposedCents > plan.requiresApprovalAboveCents && !approved) {
+  // Fail-closed: quando o gasto ACUMULADO (gasto+proposto) cruza o limite, exige aprovação do usuário.
+  if (total > plan.requiresApprovalAboveCents && !approved) {
     throw new Error('Video production expense requires approval');
   }
 }
