@@ -38,7 +38,7 @@ export type StudioProject = {
   updatedAt: string;
 };
 type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string; ownerPid: number;
-  stage?: 'preparing'|'clips'|'audio'|'compositing'|'inspecting'; progress?: number;
+  stage?: 'preparing'|'validating'|'clips'|'audio'|'compositing'|'inspecting'; progress?: number;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
@@ -653,16 +653,38 @@ export class VideoStudioService {
       if(!first.v) throw new Error('Primeiro arquivo não é vídeo');
       const W=first.v.width%2?first.v.width-1:first.v.width, H=first.v.height%2?first.v.height-1:first.v.height;
       if(!W||!H) throw new Error('Resolução inválida');
+      // Validate all inputs before encoding, avoiding expensive late failures.
+      report('validating',3);
+      const clipInfo = new Map<string, Awaited<ReturnType<typeof probe>>>();
+      for (const clip of p.clips) {
+        const source=this.src(media,clip.source);
+        let info=clipInfo.get(source);
+        if (!info) { info=await probe(source); clipInfo.set(source,info); }
+        if (!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo: '+clip.source);
+        if (clip.end>info.duration+.05) throw new Error('Corte excede duração de '+clip.source);
+        if (Math.abs((clip.end-clip.start)-clip.duration)>.1) throw new Error('Duração incoerente em '+clip.id);
+      }
+      const audioInfo = new Map<string, Awaited<ReturnType<typeof probe>>>();
+      for (const track of p.audioTracks??[]) {
+        const source=this.src(media,track.source);
+        let info=audioInfo.get(source);
+        if (!info) { info=await probe(source); audioInfo.set(source,info); }
+        if (!info.audio || track.end>info.duration+.05)
+          throw new Error('Faixa de áudio inválida: '+track.source);
+      }
+      if (p.soundtrack) {
+        const source=this.src(media,p.soundtrack.source);
+        const info=audioInfo.get(source)??await probe(source);
+        if (!info.audio) throw new Error('Trilha sonora não contém áudio: '+p.soundtrack.source);
+        audioInfo.set(source,info);
+      }
       let current=0;
       const segments:string[]=[];
       for(const [i,c] of p.clips.entries()) {
         report('clips',Math.round(5+50*i/p.clips.length));
         const source=this.src(media,c.source);
-        const info=await probe(source);
-        if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
-        if(c.end>info.duration+.05) throw new Error('Corte excede duração de '+c.source);
+        const info=clipInfo.get(source)!;
         const duration=c.end-c.start;
-        if(Math.abs(duration-c.duration)>.1) throw new Error('Duração incoerente em '+c.id);
         const file=path.join(tmp,'part-'+i+'.mp4');
         const input=info.audio?['-i',source]:['-i',source,'-f','lavfi','-t',String(duration),'-i','anullsrc=r=48000:cl=stereo'];
         await ff(['-ss',String(c.start),...input,'-t',String(duration),
@@ -691,8 +713,7 @@ export class VideoStudioService {
         }
         for(const [i,a] of (p.audioTracks??[]).entries()){
           const source=this.src(media,a.source);
-          const info=probe(source);
-          if(!info.audio||a.end>info.duration+.05)throw new Error('Faixa de áudio inválida: '+a.source);
+          const info=audioInfo.get(source)!;
           inputs.push('-i',source);
           const ms=Math.round(a.offset*1000);
           f.push(`[${stream}:a]atrim=start=${a.start}:end=${a.end},asetpts=PTS-STARTPTS,volume=${a.volume},adelay=${ms}:all=1[track${i}]`);
@@ -739,18 +760,20 @@ export class VideoStudioService {
       }
       filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
       const output=path.join(media,'saida','studio-'+p.id+'-'+entry.result.runId+'.mp4');
-      outputInProgress=output;
+      // Stage the MP4 privately; only inspected output receives the public name.
+      const partial=path.join(media,'saida','.studio-'+p.id+'-'+entry.result.runId+'.partial.mp4');
+      outputInProgress=partial;
       fs.mkdirSync(path.dirname(output),{recursive:true});
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
-        '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
-      if(cancelled()) {fs.rmSync(output,{force:true});return;}
-      if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
+        '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',partial]);
+      if(cancelled()) return;
+      if(!fs.existsSync(partial)||!fs.statSync(partial).size) throw new Error('Exportação vazia');
       // Conferência técnica do MP4 real, antes de anunciar a exportação como concluída.
       // Falhas de inspeção não são tratadas como sucesso. A revisão visual continua separada.
       report('inspecting',92);
       let measured: Awaited<ReturnType<typeof inspectRenderedVideo>>;
       try {
-        measured = await inspectRenderedVideo(media, output);
+        measured = await inspectRenderedVideo(media, partial);
         const expectedMs = Math.round(current * 1000);
         if (measured.durationMs === undefined ||
             Math.abs(measured.durationMs - expectedMs) > Math.max(1000, expectedMs * 0.02) ||
@@ -759,16 +782,17 @@ export class VideoStudioService {
           throw new Error('MP4 exportado não passou na inspeção técnica');
         }
       } catch (error) {
-        fs.rmSync(output, {force:true});
         throw error;
       }
-      if(cancelled()) {fs.rmSync(output,{force:true});return;}
+      if(cancelled()) return;
       const warnings:string[] = [];
       if(measured.blackFrameCount! > 0) warnings.push('Possíveis trechos pretos detectados');
       if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
       else if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
       if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
-      if(cancelled()) { fs.rmSync(output,{force:true}); return; }
+      if(cancelled()) return;
+      fs.renameSync(partial,output);
+      outputInProgress=output;
       entry.result={...entry.result,state:'done',progress:100,output:'midia/saida/'+path.basename(output),
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
           hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),

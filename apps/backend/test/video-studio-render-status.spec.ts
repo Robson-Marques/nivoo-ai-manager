@@ -35,9 +35,9 @@ describe('Studio durable render status', () => {
   });
 
   it('persists stage progress and survives a second reader', () => {
-    const active = { ...record('running'), stage: 'clips' as const, progress: 35 };
+    const active = { ...record('running'), stage: 'validating' as const, progress: 3 };
     saveStudioRenderStatus(root, editId, active);
-    expect(loadStudioRenderStatus(root, editId)).toMatchObject({stage:'clips',progress:35});
+    expect(loadStudioRenderStatus(root, editId)).toMatchObject({stage:'validating',progress:3});
     saveStudioRenderStatus(root, editId, {...active,stage:'inspecting',progress:92});
     expect(loadStudioRenderStatus(root, editId)).toMatchObject({stage:'inspecting',progress:92});
   });

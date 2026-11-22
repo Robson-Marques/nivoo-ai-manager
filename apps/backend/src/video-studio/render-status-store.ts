@@ -7,7 +7,7 @@ export type StudioRenderStatus = {
   started: string;
   runId: string;
   ownerPid: number;
-  stage?: 'preparing'|'clips'|'audio'|'compositing'|'inspecting';
+  stage?: 'preparing'|'validating'|'clips'|'audio'|'compositing'|'inspecting';
   progress?: number;
   error?: string;
   output?: string;
@@ -30,7 +30,7 @@ export function loadStudioRenderStatus(media: string, editId: string): StudioRen
   if (!parsed || !['running','done','failed','cancelled'].includes(parsed.state) ||
       typeof parsed.started !== 'string' || !Number.isSafeInteger(parsed.ownerPid) || parsed.ownerPid < 1 || typeof parsed.runId !== 'string' ||
       !/^[a-f\d-]{36}$/i.test(parsed.runId) ||
-      (parsed.stage !== undefined && !['preparing','clips','audio','compositing','inspecting'].includes(parsed.stage)) ||
+      (parsed.stage !== undefined && !['preparing','validating','clips','audio','compositing','inspecting'].includes(parsed.stage)) ||
       (parsed.progress !== undefined && (!Number.isFinite(parsed.progress) || parsed.progress < 0 || parsed.progress > 100))) throw new Error('Invalid persisted Studio render state');
   return parsed;
 }

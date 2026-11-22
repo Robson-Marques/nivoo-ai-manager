@@ -50,7 +50,7 @@ const hasFfmpeg = spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status === 0
     ],{timeoutMs:1000})).rejects.toThrow('tempo limite');
   });
 
-    it('interrupts a running encode after the cancellation flag changes', async () => {
+  it('interrupts a running encode after the cancellation flag changes', async () => {
     let cancelled=false;
     const started=Date.now();
     const job=runStudioMediaCommand('ffmpeg',[
@@ -63,7 +63,7 @@ const hasFfmpeg = spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status === 0
     expect(Date.now()-started).toBeLessThan(10_000);
   });
 
-    it('rejects invalid resource bounds', async () => {
+  it('rejects invalid resource bounds', async () => {
     await expect(runStudioMediaCommand('ffprobe',['-version'],{timeoutMs:0})).rejects.toThrow('timeout');
   });
 });
