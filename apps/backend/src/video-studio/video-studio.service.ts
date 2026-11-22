@@ -12,6 +12,7 @@ import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
 import { maybeProductionMedia } from './standalone-projects';
 import { inspectRenderedVideo } from '../video/video-render-inspection';
+import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender } from './render-status-store';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -33,7 +34,7 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string;
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string;
   inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
@@ -48,7 +49,7 @@ const assTime = (s: number) => {
   return h + ':' + String(m).padStart(2,'0') + ':' + String(secs).padStart(2,'0') + '.' + String(cs%100).padStart(2,'0');
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
-const status = new Map<string, { result: Status; process?: ChildProcess }>();
+const status = new Map<string, { result: Status; process?: ChildProcess; media: string }>();
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
@@ -533,23 +534,44 @@ export class VideoStudioService {
     if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    const result:Status={state:'running',started:new Date().toISOString()};
-    status.set(key,{result});
-    // Executar após devolver resposta HTTP. O processo é externo e não bloqueia o event loop.
+    // Fail closed on a running record left by another process. Never start a
+    // second render for the same edit without explicit recovery.
+    const persisted=loadStudioRenderStatus(media,id);
+    if (persisted?.state==='running' && !existing) {
+      throw new ConflictException('Renderização anterior interrompida ou ativa em outro worker; verifique o estado antes de reiniciar');
+    }
+    const result:Status={state:'running',started:new Date().toISOString(),runId:randomUUID()};
+    saveStudioRenderStatus(media,id,result);
+    status.set(key,{result,media});
     setImmediate(()=>this.execute(media,p,key).catch(e=>{
       const current=status.get(key);
-      if(current?.result.state==='running') current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
+      if(current?.result.state==='running' && current.result.runId===result.runId) {
+        current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
+        saveStudioRenderStatus(media,id,current.result);
+      }
     }));
     return result;
   }
-  state(pid:string,id:string) { return status.get(pid+':'+id)?.result ?? {state:'idle'}; }
-  cancel(pid:string,id:string) {
+  async state(pid:string,id:string) {
+    const {media}=await this.dir(pid);
+    const entry=status.get(pid+':'+id);
+    if(entry) return entry.result;
+    const stored=loadStudioRenderStatus(media,id);
+    if (!stored) return {state:'idle'};
+    const recovered=interruptedStudioRender(stored);
+    if (recovered!==stored) saveStudioRenderStatus(media,id,recovered);
+    return recovered;
+  }
+  async cancel(pid:string,id:string) {
+    const {media}=await this.dir(pid);
     const entry=status.get(pid+':'+id);
     if(entry?.result.state==='running') {
       entry.result={...entry.result,state:'cancelled'};
+      saveStudioRenderStatus(media,id,entry.result);
       entry.process?.kill('SIGTERM');
+      return entry.result;
     }
-    return entry?.result??{state:'idle'};
+    return this.state(pid,id);
   }
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
@@ -684,6 +706,7 @@ export class VideoStudioService {
         inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
           hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:measured.audioPeakDbfs}:{}),
           warnings}};
+      saveStudioRenderStatus(media,p.id,entry.result);
     } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
   }
 }
