@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, realpath, lstat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, realpath, lstat, stat } from 'node:fs/promises';
 import { dirname, resolve, relative } from 'node:path';
 import { VideoComposition } from './video-composition';
 import { buildRemotionProps, RemotionProps } from './video-remotion-props';
@@ -7,6 +7,7 @@ import { assertRendererParity, RenderFeatureSupport } from './video-render-parit
 import { renderRemotionComposition } from './video-remotion-runner';
 import { inspectRenderedVideo } from './video-render-inspection';
 import { assertWorkspacePath } from './video-tool-adapters';
+import { stageRemotionMedia } from './video-remotion-media-stage';
 
 export type VerifiedRemotionRender = {
   outputFile: string;
@@ -40,8 +41,19 @@ export async function executeVerifiedRemotionRender(
   // Only the trusted worker integration may supply verified feature support.
   assertRendererParity(input.composition, input.supportedFeatures);
   const resolved = resolveCompositionMedia(input.composition, input.projectId, input.projectMedia);
-  const props: RemotionProps = buildRemotionProps(input.composition, resolved);
   const root = await realpath(input.workspaceRoot);
+  const bundle=assertWorkspacePath(root,resolve(input.bundleDirectory));
+  if(bundle===root) throw new Error('Bundle must be a private directory');
+  // The trusted worker must supply a prebuilt, per-job bundle. Never mutate a
+  // shared Remotion build or accept a browser-supplied bundle directory.
+  if(!(await stat(bundle)).isDirectory()) throw new Error('Remotion bundle missing');
+  const stageSources=resolved.map(item=>({
+    mediaId:item.mediaId,relativePath:item.assetUrl.slice(1),
+  }));
+  const staged=await stageRemotionMedia({
+    workspaceRoot:root,publicDirectory:bundle,sources:stageSources,
+  });
+  const props: RemotionProps = buildRemotionProps(input.composition, staged);
   const propsFile = assertWorkspacePath(root, resolve(input.propsFile));
   if (!propsFile.endsWith('.json')) throw new Error('Invalid Remotion props output');
   const relativeProps = relative(root, propsFile);

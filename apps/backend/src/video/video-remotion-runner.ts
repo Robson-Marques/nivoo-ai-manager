@@ -56,6 +56,11 @@ export async function renderRemotionComposition(
         !/^\/assets\/[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(layer.src))) {
       throw new Error('Remotion media must be staged in trusted bundle assets');
     }
+    if(layer.type!=='text'){
+      const src=layer.src as string;
+      const asset=assertWorkspacePath(root,resolve(bundle,src.slice(1)));
+      if(!(await stat(asset)).isFile()) throw new Error('Staged Remotion asset missing');
+    }
   }
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.

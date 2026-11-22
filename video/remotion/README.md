@@ -20,8 +20,12 @@ not validate the output or enable the experimental renderer.
 
 ## Renderer contract hardening
 
-The composition now resolves **only** `/assets/<safe-filename>` via Remotion `staticFile()`; arbitrary URLs, absolute disk paths and network hosts are not accepted. The CLI runner checks this contract before executing Chromium. Video and audio trims use the actual composition FPS, and layer ordering is deterministic for identical z-index values. A trusted asset staging mechanism is still required to copy project-owned media into the Remotion bundle's static asset directory before rendering; **do not enable production rendering before that exists**.
+The composition now resolves **only** `/assets/<safe-filename>` via Remotion `staticFile()`; arbitrary URLs, absolute disk paths and network hosts are not accepted. The CLI runner checks this contract before executing Chromium. Video and audio trims use the actual composition FPS, and layer ordering is deterministic for identical z-index values. The trusted backend now stages project-owned media inside a **private per-job bundle** before invoking the renderer. The worker must still create/copy the trusted bundle for each job and install the pinned CLI. **Do not enable production rendering before that exists and visual parity is validated.**
 
 ## Staging seguro de mídia Remotion (rodada de integração)
 
 O backend agora oferece `stageRemotionMedia`: recebe apenas caminhos relativos dentro de um workspace autorizado, verifica symlinks, tipos e tamanho, copia as mídias para uma pasta `public/assets` isolada e gera URLs `/assets/<hash>.<ext>` aceitas pela composição. O processo deve ocorrer **antes do bundle** Remotion, em diretório privado e exclusivo por execução. O staging não está exposto diretamente ao navegador e não altera o exportador FFmpeg atual. A conexão do staging ao provisionamento do bundle e ao job de exportação ainda é necessária; a função não habilita Remotion automaticamente. Não executar CI nesta etapa.
+
+### Connected execution path
+
+`executeVerifiedRemotionRender` now resolves project-owned media, stages them in the private bundle, creates props from staged URLs and invokes the CLI. `renderRemotionComposition` verifies that every referenced staged asset exists before invoking Chromium. The bundle is **required to be unique per job**: shared bundles must never be modified by render jobs. A trusted worker must provision the bundle and verify the engine before enabling this path. The existing Studio export route remains on FFmpeg.
