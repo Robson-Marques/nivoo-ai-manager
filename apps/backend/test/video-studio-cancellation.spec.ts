@@ -38,6 +38,14 @@ describe('durable Studio render cancellation',()=>{
     expect(()=>isStudioRenderCancellationRequested(root,editId,runId)).toThrow('Invalid Studio cancellation marker');
   });
 
+  it('rejects symlinked cancellation directories',()=>{
+    const external=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-cancel-outside-'));
+    try {
+      fs.symlinkSync(external,path.join(root,'studio'));
+      expect(()=>requestStudioRenderCancellation(root,editId,runId)).toThrow('Unsafe cancellation directory');
+    } finally {fs.rmSync(external,{recursive:true,force:true});}
+  });
+
   it('rejects path traversal in identifiers',()=>{
     expect(()=>requestStudioRenderCancellation(root,'../bad',runId)).toThrow();
     expect(()=>requestStudioRenderCancellation(root,editId,'../bad')).toThrow();

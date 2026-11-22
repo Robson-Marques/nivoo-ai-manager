@@ -256,3 +256,8 @@ A execução dos comandos FFmpeg/FFprobe usa timeout, limites de logs e verifica
 ### Validação antecipada e publicação atômica do MP4
 
 Antes de codificar os segmentos, a exportação FFmpeg verifica todos os vídeos, cortes, faixas de áudio e trilha sonora com `ffprobe`, reutilizando os metadados de fontes repetidas. A interface mostra **Verificando mídias** antes da montagem. O arquivo final é codificado com nome oculto `.partial.mp4`, inspecionado e somente então renomeado para o nome público. Se o processo falhar ou for cancelado, o arquivo parcial é excluído. A inspeção técnica não equivale a uma homologação visual; é necessário conferir legendas, efeitos e áudio no MP4 produzido.
+
+
+### Inspeção longa e cancelamento durante a revisão
+
+A inspeção técnica de MP4 agora aceita até quatro horas, em conformidade com o limite de duração do Studio, e dimensiona o tempo de análise de quadros pretos e volume de áudio de acordo com a duração real (até uma hora por comando). O pedido de cancelamento é propagado via `AbortSignal` também para a inspeção, evitando que a API espere o término da leitura completa do vídeo depois que o usuário solicitou cancelar. O marcador persistente de cancelamento rejeita diretórios simbólicos. Os testes de cancelamento FFmpeg e de segurança foram ampliados; a homologação real permanece pendente.

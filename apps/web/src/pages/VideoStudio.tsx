@@ -645,7 +645,7 @@ export function VideoStudio() {
     {running.state==='running'&&<div className="studio-render-progress" role="status" aria-live="polite">
       <div><strong>{({
         preparing:'Preparando arquivos',validating:'Verificando mídias',clips:'Montando as cenas',audio:'Mixando áudio',
-        compositing:'Aplicando legendas e efeitos',inspecting:'Inspecionando o MP4',
+        compositing:'Aplicando legendas e efeitos',inspecting:'Verificando vídeo e áudio do MP4',
       } as const)[running.stage||'preparing']}</strong>
       <span>{typeof running.progress==='number'?running.progress+'%':'Em andamento'}</span></div>
       <progress value={running.progress??0} max={100} aria-label="Progresso da exportação"/>

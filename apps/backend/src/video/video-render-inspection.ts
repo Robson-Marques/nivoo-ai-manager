@@ -12,7 +12,7 @@ function parseProbe(stdout: string): { durationMs: number; hasAudio: boolean } {
   try { data = JSON.parse(stdout) as ProbeData; }
   catch { throw new Error('Invalid ffprobe JSON'); }
   const duration = Number(data?.format?.duration);
-  if (!Number.isFinite(duration) || duration <= 0 || duration > 3600) {
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 14_400) {
     throw new Error('Invalid probed video duration');
   }
   if (!Array.isArray(data.streams) || !data.streams.some(s => s.codec_type === 'video')) {
@@ -69,10 +69,11 @@ export async function inspectRenderedVideo(
   if (probe.exitCode !== 0 || probe.stdoutTruncated) throw new Error('ffprobe inspection failed or output truncated');
   const { durationMs, hasAudio } = parseProbe(probe.stdout);
 
+  const analysisTimeout = Math.min(3_600_000, Math.max(180_000, durationMs * 2));
   const black = await runVideoTool('ffmpeg', [
     '-nostdin', '-hide_banner', '-i', actual,
     '-vf', 'blackdetect=d=0.15:pix_th=0.10', '-an', '-f', 'null', '-',
-  ], root, 180_000, signal);
+  ], root, analysisTimeout, signal);
   if (black.exitCode !== 0 || black.stderrTruncated) throw new Error('Black frame inspection failed or output truncated');
 
   let audioPeakDbfs: number | undefined;
@@ -80,7 +81,7 @@ export async function inspectRenderedVideo(
     const audio = await runVideoTool('ffmpeg', [
       '-nostdin', '-hide_banner', '-i', actual,
       '-vn', '-af', 'volumedetect', '-f', 'null', '-',
-    ], root, 180_000, signal);
+    ], root, analysisTimeout, signal);
     if (audio.exitCode !== 0 || audio.stderrTruncated) throw new Error('Audio inspection failed or output truncated');
     audioPeakDbfs = parseAudioPeak(audio.stderr);
   }

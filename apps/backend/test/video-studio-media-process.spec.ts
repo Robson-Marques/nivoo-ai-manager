@@ -63,6 +63,17 @@ const hasFfmpeg = spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status === 0
     expect(Date.now()-started).toBeLessThan(10_000);
   });
 
+  it('cancels an audio encoding process on a flag change', async () => {
+    let cancelled=false;
+    const work=runStudioMediaCommand('ffmpeg',[
+      '-nostdin','-hide_banner','-loglevel','error','-re',
+      '-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
+      '-t','12','-f','null','-',
+    ],{timeoutMs:30_000,isCancelled:()=>cancelled});
+    setTimeout(()=>{cancelled=true},400);
+    await expect(work).rejects.toThrow('cancelada');
+  });
+
   it('rejects invalid resource bounds', async () => {
     await expect(runStudioMediaCommand('ffprobe',['-version'],{timeoutMs:0})).rejects.toThrow('timeout');
   });

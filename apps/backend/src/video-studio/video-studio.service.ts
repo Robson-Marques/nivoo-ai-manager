@@ -628,7 +628,13 @@ export class VideoStudioService {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
     const entry=status.get(key)!;
     let outputInProgress: string | undefined;
+    const inspectionAbort = new AbortController();
     const cancelled=()=>entry.result.state==='cancelled' || isStudioRenderCancellationRequested(media,p.id,entry.result.runId);
+    const inspectionCancelPoll=setInterval(() => {
+      try { if (cancelled()) inspectionAbort.abort(); }
+      catch { inspectionAbort.abort(); }
+    },250);
+    inspectionCancelPoll.unref?.();
     const report=(stage: NonNullable<Status['stage']>,progress:number)=>{
       if(cancelled()) throw new Error('Renderização cancelada');
       entry.result={...entry.result,stage,progress};
@@ -773,7 +779,7 @@ export class VideoStudioService {
       report('inspecting',92);
       let measured: Awaited<ReturnType<typeof inspectRenderedVideo>>;
       try {
-        measured = await inspectRenderedVideo(media, partial);
+        measured = await inspectRenderedVideo(media, partial, inspectionAbort.signal);
         const expectedMs = Math.round(current * 1000);
         if (measured.durationMs === undefined ||
             Math.abs(measured.durationMs - expectedMs) > Math.max(1000, expectedMs * 0.02) ||
@@ -800,6 +806,7 @@ export class VideoStudioService {
       saveStudioRenderStatus(media,p.id,entry.result);
       outputInProgress=undefined;
     } finally {
+      clearInterval(inspectionCancelPoll);
       entry.process=undefined;
       if(cancelled() && entry.result.state==='running') {
         entry.result={...entry.result,state:'cancelled'};
