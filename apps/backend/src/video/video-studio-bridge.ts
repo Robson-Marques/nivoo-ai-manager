@@ -4,6 +4,9 @@ import { VideoComposition, VideoLayer, validateComposition } from './video-compo
  * Read-only projection of the existing VideoStudio v1 edit format.
  * This does not change the persisted Studio format or its export pipeline.
  * Clip start/end are source trim points; duration is timeline length.
+ * WARNING: the portable composition model does not yet encode source offsets,
+ * caption positions, image transforms or audio offsets. This projection is
+ * suitable for planning/inspection only, NOT a lossless render or export.
  */
 export type StudioEditV1 = {
   version: 1;
