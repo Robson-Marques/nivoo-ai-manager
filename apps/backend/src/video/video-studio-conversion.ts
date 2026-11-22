@@ -53,7 +53,7 @@ export function studioToRemotionComposition(input:{
   for(const [i,asset] of (edit.assets??[]).entries()){
     // Image entrance animations are not represented in the portable contract.
     // Never export a visually different result without telling the editor.
-    if(asset.animation && asset.animation!=='none')
+    if(asset.animation!=='none')
       throw new Error('Remotion does not yet support animated Studio image overlays');
     layers.push({id:'asset_'+i,type:'image',mediaId:register(asset.source),
       ...bounded(asset.start,asset.end),zIndex:20,

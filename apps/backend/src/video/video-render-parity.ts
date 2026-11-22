@@ -22,6 +22,25 @@ export const UNVERIFIED_REMOTION_FEATURES: RenderFeatureSupport = {
   'audio-loop': false,
 };
 
+/**
+ * Features implemented by the bundled React renderer and serialized props.
+ * This is a CODE capability profile, NOT a claim of production parity.
+ * The actual output must still pass MP4 inspection and post-update review.
+ * Protected zones are metadata only; they do not automatically reposition
+ * captions or detect faces. Keep them blocked rather than silently ignoring.
+ */
+export const IMPLEMENTED_REMOTION_FEATURES: RenderFeatureSupport = {
+  'source-offset': true,
+  'clip-volume': true,
+  'audio-offset': true,
+  'layer-transform': true,
+  'text-style': true,
+  karaoke: true,
+  'caption-animation': true,
+  'protected-zones': false,
+  'audio-loop': true,
+};
+
 export function requiredRenderFeatures(composition: VideoComposition): RenderFeature[] {
   validateComposition(composition);
   const features = new Set<RenderFeature>();

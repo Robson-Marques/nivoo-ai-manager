@@ -17,7 +17,7 @@ import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLea
 import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process';
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
-import { UNVERIFIED_REMOTION_FEATURES } from '../video/video-render-parity';
+import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
 import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
@@ -667,7 +667,7 @@ export class VideoStudioService {
         workspaceRoot:media,
         workDirectory:path.join(media,'studio','remotion-jobs'),
         trustedBundleDirectory:bundle,outputFile:output,
-        supportedFeatures:UNVERIFIED_REMOTION_FEATURES,
+        supportedFeatures:IMPLEMENTED_REMOTION_FEATURES,
       },controller.signal);
       if(cancelled()){
         fs.rmSync(rendered.outputFile,{force:true});

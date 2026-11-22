@@ -10,7 +10,7 @@ export function remotionBundlePath(): string | undefined {
 
 /** A presença da CLI e do bundle não comprova renderização nem paridade. */
 function remotionCapability(cliOk: boolean): { state: StudioRuntimeCapability['state']; detail: string } {
-  if (cliOk && remotionBundlePath()) return { state: 'blocked', detail: 'CLI e bundle provisionados; exportação Remotion ainda aguarda integração e homologação' };
+  if (cliOk && remotionBundlePath()) return { state: 'ready', detail: 'Remotion experimental disponível para teste após atualização; paridade final e MP4 exigem homologação' };
   if (cliOk) return { state: 'blocked', detail: 'CLI detectada; bundle não provisionado (rode nivoo update)' };
   return { state: 'blocked', detail: 'Bundle e CLI não provisionados; exportação bloqueada' };
 }
