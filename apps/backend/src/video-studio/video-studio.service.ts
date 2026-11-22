@@ -597,12 +597,13 @@ export class VideoStudioService {
     const {media}=await this.dir(pid);
     const entry=status.get(pid+':'+id);
     const stored=loadStudioRenderStatus(media,id);
-    if(entry && !stored) return entry.result;
-    if(entry && stored && entry.result.runId===stored.runId && entry.result.state==='running') return entry.result;
-    if (!stored) return {state:'idle'};
+    if (!stored) return entry?.result ?? {state:'idle'};
     const recovered=interruptedStudioRender(stored);
     if (recovered!==stored) saveStudioRenderStatus(media,id,recovered);
-    return recovered;
+    const current=entry?.result.runId===recovered.runId && entry.result.state==='running'
+      ? entry.result : recovered;
+    return current.state==='running' && isStudioRenderCancellationRequested(media,id,current.runId)
+      ? {...current,cancellationRequested:true} : current;
   }
   async cancel(pid:string,id:string) {
     const {media}=await this.dir(pid);
