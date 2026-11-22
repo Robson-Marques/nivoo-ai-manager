@@ -20,6 +20,16 @@ describe('production budget and audio fail-closed rules', () => {
       .toThrow('Invalid production spend total');
   });
 
+  it('rejects digital silence in required audio but permits optional silent tracks as warnings', () => {
+    const measured = { outputExists: true, durationMs: 5000, blackFrameCount: 0,
+      hasAudio: true, audioPeakDbfs: -Infinity, captionCount: 0, reviewComplete: true };
+    const required = assessVideoQuality(plan, measured, 5000, false, true);
+    expect(required.passed).toBe(false);
+    expect(required.findings).toContainEqual(expect.objectContaining({ code: 'silent-audio', severity: 'error' }));
+    const optional = assessVideoQuality(plan, measured, 5000, false, false);
+    expect(optional.passed).toBe(true);
+  });
+
   it('rejects missing audio when the production requires it', () => {
     const result = assessVideoQuality(plan, {
       outputExists: true, durationMs: 5000, blackFrameCount: 0,
