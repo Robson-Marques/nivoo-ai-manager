@@ -560,7 +560,10 @@ export class VideoStudioService {
           current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
           saveStudioRenderStatus(media,id,current.result);
         }
-      }).finally(()=>releaseStudioRenderLease(media,id,runId)));
+      }).finally(()=>{
+        try { releaseStudioRenderLease(media,id,runId); }
+        catch (error) { console.error('Falha ao liberar bloqueio de renderização', error); }
+      }));
     } catch (error) {
       releaseStudioRenderLease(media,id,runId);
       throw error;
