@@ -41,3 +41,7 @@ The execution adapter now renders to a hidden per-output partial MP4, runs indep
 ### Last-mile hardening
 
 Render partials now carry a per-attempt UUID to avoid collision between interrupted jobs; duration/FPS bounds are enforced before invoking the CLI, and trusted bundle copying refuses source/target directory nesting. The backend adapter is **not** yet wired to the legacy Studio edit schema or production update; the production FFmpeg renderer remains enabled. This is an integration boundary, not proof of end-to-end export.
+
+### Trusted worker orchestration
+
+`runPreparedRemotionJob` now allocates a per-run directory, copies the trusted bundle, stages authorized media, invokes the render adapter, inspects the MP4 and removes its temporary directory on both success and failure. It requires the caller to supply authorization, lease, quotas and verified feature support. It is intentionally **not exposed as a public route** until the legacy Studio edit model is mapped and the update installs the pinned Remotion CLI and trusted bundle.
