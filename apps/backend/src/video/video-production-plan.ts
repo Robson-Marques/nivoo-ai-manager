@@ -85,8 +85,10 @@ export function assertProductionSpend(
       !Number.isSafeInteger(proposedCents) || proposedCents < 0) {
     throw new Error('Invalid production spend');
   }
-  if (spentCents + proposedCents > plan.budgetCents) throw new Error('Video production budget exceeded');
-  if (proposedCents > plan.requiresApprovalAboveCents && !approved) {
+  const total = spentCents + proposedCents;
+  if (!Number.isSafeInteger(total)) throw new Error('Invalid production spend total');
+  if (total > plan.budgetCents) throw new Error('Video production budget exceeded');
+  if (total > plan.requiresApprovalAboveCents && !approved) {
     throw new Error('Video production expense requires approval');
   }
 }
