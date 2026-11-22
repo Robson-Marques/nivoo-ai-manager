@@ -53,7 +53,9 @@ export function assessVideoQuality(
   } else if (measured.hasAudio && measured.audioPeakDbfs === undefined) {
     add('unverified-review', 'error', 'Audio levels were not inspected');
   } else if (measured.hasAudio && measured.audioPeakDbfs !== undefined) {
-    if (!Number.isFinite(measured.audioPeakDbfs) || measured.audioPeakDbfs > 0) {
+    if (measured.audioPeakDbfs === -Infinity) {
+      add('silent-audio', requireAudio ? 'error' : 'warning', 'Audio stream contains digital silence');
+    } else if (!Number.isFinite(measured.audioPeakDbfs) || measured.audioPeakDbfs > 0) {
       add('clipped-audio', 'error', 'Invalid audio peak');
     } else if (measured.audioPeakDbfs > -0.1) {
       add('clipped-audio', 'warning', 'Audio may be clipping');
