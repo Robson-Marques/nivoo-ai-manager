@@ -2,7 +2,7 @@ import { VideoProductionPlan, validateVideoProductionPlan } from './video-produc
 
 export type VideoQualityFinding = {
   code: 'missing-file' | 'invalid-duration' | 'black-frame' | 'silent-audio' |
-    'clipped-audio' | 'missing-captions' | 'unverified-review';
+    'clipped-audio' | 'missing-audio' | 'missing-captions' | 'unverified-review';
   severity: 'error' | 'warning';
   message: string;
 };
@@ -26,6 +26,7 @@ export function assessVideoQuality(
   measured: VideoQualityMeasurements,
   expectedDurationMs: number,
   requireCaptions: boolean,
+  requireAudio = false,
 ): { passed: boolean; findings: VideoQualityFinding[] } {
   validateVideoProductionPlan(plan);
   if (!Number.isSafeInteger(expectedDurationMs) || expectedDurationMs <= 0) {
@@ -43,6 +44,9 @@ export function assessVideoQuality(
     add('unverified-review', 'error', 'Frame inspection was not completed');
   } else if (measured.blackFrameCount > 0) {
     add('black-frame', 'warning', 'Potential black frames detected');
+  }
+  if (measured.hasAudio === false && requireAudio) {
+    add('missing-audio', 'error', 'Expected audio stream is missing');
   }
   if (measured.hasAudio === undefined) {
     add('unverified-review', 'error', 'Audio inspection was not completed');
