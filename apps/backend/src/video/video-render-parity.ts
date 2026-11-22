@@ -1,0 +1,75 @@
+import { VideoComposition, validateComposition } from './video-composition';
+
+/**
+ * Compare the editing manifest with the renderer's supported feature set.
+ * A missing feature is a hard blocker, never silently dropped on export.
+ */
+export type RenderFeature =
+  | 'source-offset' | 'clip-volume' | 'audio-offset' | 'layer-transform'
+  | 'text-style' | 'karaoke' | 'caption-animation' | 'image-animation' | 'protected-zones' | 'audio-loop';
+
+export type RenderFeatureSupport = Readonly<Record<RenderFeature, boolean>>;
+
+export const UNVERIFIED_REMOTION_FEATURES: RenderFeatureSupport = {
+  'source-offset': false,
+  'clip-volume': false,
+  'audio-offset': false,
+  'layer-transform': false,
+  'text-style': false,
+  karaoke: false,
+  'caption-animation': false,
+  'image-animation': false,
+  'protected-zones': false,
+  'audio-loop': false,
+};
+
+/**
+ * Features implemented by the bundled React renderer and serialized props.
+ * This is a CODE capability profile, NOT a claim of production parity.
+ * The actual output must still pass MP4 inspection and post-update review.
+ * Protected zones are metadata only; they do not automatically reposition
+ * captions or detect faces. Keep them blocked rather than silently ignoring.
+ */
+export const IMPLEMENTED_REMOTION_FEATURES: RenderFeatureSupport = {
+  'source-offset': true,
+  'clip-volume': true,
+  'audio-offset': true,
+  'layer-transform': true,
+  'text-style': true,
+  karaoke: true,
+  'caption-animation': true,
+  'image-animation': true,
+  'protected-zones': false,
+  'audio-loop': true,
+};
+
+export function requiredRenderFeatures(composition: VideoComposition): RenderFeature[] {
+  validateComposition(composition);
+  const features = new Set<RenderFeature>();
+  if (composition.protectedZones?.length) features.add('protected-zones');
+  for (const layer of composition.layers) {
+    if (layer.type === 'video' || layer.type === 'image') {
+      if ((layer.sourceOffsetMs ?? 0) > 0) features.add('source-offset');
+      if (layer.type === 'video' && layer.volume !== undefined && layer.volume !== 1) features.add('clip-volume');
+      if (layer.transform) features.add('layer-transform');
+      if (layer.type === 'image' && layer.animation && layer.animation !== 'none') features.add('image-animation');
+    } else if (layer.type === 'audio') {
+      if ((layer.sourceOffsetMs ?? 0) > 0) features.add('audio-offset');
+      if (layer.loop) features.add('audio-loop');
+    } else if (layer.type === 'text') {
+      if (layer.transform) features.add('layer-transform');
+      if (layer.fontSize !== undefined || layer.color !== undefined) features.add('text-style');
+      if (layer.animation === 'karaoke' || layer.words?.length) features.add('karaoke');
+      if (layer.animation && layer.animation !== 'none') features.add('caption-animation');
+    }
+  }
+  return [...features].sort();
+}
+
+export function assertRendererParity(
+  composition: VideoComposition,
+  supported: RenderFeatureSupport = UNVERIFIED_REMOTION_FEATURES,
+): void {
+  const unsupported = requiredRenderFeatures(composition).filter(feature => !supported[feature]);
+  if (unsupported.length) throw new Error('Unsupported render features: ' + unsupported.join(', '));
+}

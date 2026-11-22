@@ -12,7 +12,7 @@ O que fica instalado:
 | Código | `/opt/nivoo/app` |
 | Claude Code, Codex e Gemini CLI | instalados globalmente pelo npm do Node oficial |
 | `poppler-utils` (`pdftotext`) | para transformar PDF em texto |
-| `ffmpeg` | para juntar as cenas de vídeo no vídeo completo |
+| `ffmpeg` / `ffprobe` | edição, inspeção e validação técnica dos vídeos |
 | `tesseract-ocr`, `tesseract-ocr-por` | OCR: ler PDF escaneado (só imagem) |
 | Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
 | Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |
@@ -160,6 +160,20 @@ nivoo help
 Os serviços sobem sozinhos quando o servidor reinicia. Se o worker cair, o systemd o reinicia, e os
 trabalhos em andamento são retomados do último checkpoint.
 
+## Ferramentas de vídeo na atualização
+
+O comando `nivoo update` executa `deploy/install-debian.sh`, que agora chama
+`deploy/install-video-toolchain.sh` depois de preparar o Studio Python.
+
+- **FFmpeg/FFprobe:** instalados automaticamente pelo gerenciador de pacotes do Debian, se ausentes.
+- **faster-whisper, WhisperX, OpenCV e OCR:** gerenciados pelo instalador Python isolado do Studio; WhisperX continua opcional.
+- **Remotion e HyperFrames:** o preflight detecta a presença, mas **não instala versões flutuantes**. Permanecem indisponíveis para produção até fixarmos a versão, o bundle confiável, o modo de execução e a validação de paridade.
+- **Kokoro:** permanece como serviço local separado, preservando a instalação e os dados existentes. O preflight não instala Docker ou baixa o modelo sem autorização.
+
+`nivoo check` mostra a presença dos binários de vídeo. A presença de um binário
+**não comprova que a renderização está pronta**. A liberação exige render real e revisão
+de saída. O update não deve apagar workspaces nem reinstalar modelos já disponíveis.
+
 ## Opções de instalação
 
 ```bash
@@ -203,3 +217,47 @@ O instalador cria o usuário PostgreSQL `nivoo_testes` (só cria bancos; não é
 ## Prévia dos projetos
 
 O botão "Ver o projeto" mostra o site/sistema do projeto rodando ao lado da conversa. O Nivoo serve a prévia por um portão próprio (porta `NIVOO_PREVIA_PORT`, padrão 3100, só 127.0.0.1) num endereço próprio: com domínio da Cloudflare, `nivoo dominio` cria `previa-<endereço>` no mesmo túnel (para quem já tinha domínio, o `nivoo update` cria sozinho; manualmente: `nivoo dominio previa`). Pelo túnel SSH, encaminhe também a porta 3100 (`ssh -N -L 3000:127.0.0.1:3000 -L 3100:127.0.0.1:3100 root@servidor`).
+
+
+### Diagnóstico das ferramentas de vídeo (PR #6)
+
+O `nivoo update` executa `deploy/install-studio-python.sh` e `deploy/install-video-toolchain.sh` antes do reinício dos serviços. O instalador reaproveita o ambiente Python existente (inclusive quando `/opt/nivoo/studio-venv` é um link simbólico para armazenamento externo), instala dependências essenciais ausentes e agora **interrompe a atualização** se `faster-whisper`, OpenCV, OCR, FFmpeg, `libx264`, `subtitles`, `blackdetect` ou `volumedetect` não estiverem disponíveis. WhisperX é opcional e exige espaço livre.
+
+No editor Studio, o botão **Ferramentas** consulta `GET /projects/:pid/studio/runtime/capabilities` (ou `GET /studio/projects/:pid/edits/runtime/capabilities`). A inspeção é assíncrona, limitada por timeout e armazenada por 60 segundos para evitar múltiplas sondagens caras. Os motores Remotion e HyperFrames continuam **bloqueados para exportação**, mesmo se houver uma CLI instalada: a presença de um executável não comprova compatibilidade do bundle, renderização nem paridade visual. A importação `yt-dlp` também permanece desabilitada por segurança. Não interprete o painel como homologação desses motores.
+
+A exportação FFmpeg do Studio já usa bloqueio de edição por diretório exclusivo e registra o estado em disco. O reinício de serviço pode interromper o trabalho atual; ele não retoma o FFmpeg no meio da codificação. O usuário pode iniciar uma nova exportação após o bloqueio do processo encerrado ser recuperado. Não faça merge nem `nivoo update` de produção antes da revisão final do PR e autorização.
+
+
+### Editor: prévia de animações e progresso de exportação
+
+O painel de propriedades de **legendas** e **imagens de apoio** oferece uma galeria compacta de prévias animadas. O botão **Repetir** reinicia a demonstração sem enviar requisições ao servidor. A seleção altera o mesmo campo `animation` já persistido pela edição; não cria um segundo formato de projeto. Karaoke só é selecionável quando há palavras alinhadas. A demonstração CSS é orientativa, não substitui a revisão do MP4 real.
+
+A exportação FFmpeg publica `stage` e `progress` no estado persistente: preparação, montagem de cenas, mixagem de áudio, composição de legendas/efeitos e inspeção final. O editor apresenta o estágio atual e uma barra aproximada; **não é uma previsão do tempo restante**. As operações de salvar, excluir e renderizar a mesma edição agora disputam o mesmo bloqueio exclusivo em disco; a timeline é lida sob esse bloqueio para não exportar uma revisão obsoleta. Reinícios interrompem a codificação atual e exigem uma nova exportação.
+
+Os novos componentes e alterações desta etapa não foram homologados no servidor. Não acione GitHub CI automaticamente: a validação deve ser combinada com o operador antes do merge/tag/deploy.
+
+
+### Exportação FFmpeg: limites e cancelamento (rodada seguinte)
+
+O fluxo real do Studio passou a usar um executor assíncrono de `ffmpeg` e `ffprobe`, com tempo limite por comando, limite de saída de logs e controle do processo filho para cancelamento. O `ffprobe` valida duração e resolução, em vez de bloquear o event loop do servidor durante a leitura de mídia. Os MP4s são nomeados pelo identificador único da execução; um arquivo parcial é excluído se o render falhar ou for cancelado. O fluxo exige uma trilha de áudio presente no MP4 final, inclusive quando o clipe original não tinha áudio (nesse caso, o pipeline insere áudio silencioso).
+
+**Limite conhecido:** o botão Cancelar atua no processo da instância que iniciou o render. Se outra instância da API receber o pedido, ela devolve um conflito explícito em vez de afirmar que cancelou. A coordenação de cancelamento entre processos ainda depende de integração com o worker/fila durável. O mecanismo de renderização operacional continua sendo FFmpeg; Remotion e HyperFrames não foram liberados nem instalados por este ajuste.
+
+Os workflows do GitHub Actions permanecem sob administração do operador. Para evitar execuções automáticas, os arquivos `.github/workflows/ci.yml` e `.github/workflows/studio-fast.yml` devem ser ajustados na branch principal para disparo manual; esta rodada não altera esses workflows.
+
+
+### Cancelamento entre processos da API (PR #6)
+
+O cancelamento do render FFmpeg usa um marcador atômico por `editId` e `runId` na pasta `studio` do projeto. A instância que recebe `POST .../cancel` verifica o bloqueio ativo e registra a solicitação, mesmo quando o processo FFmpeg pertence a outra instância da API. A instância proprietária verifica o marcador durante a execução e encerra o processo filho. `GET .../render` apresenta `cancellationRequested: true` até o estado definitivo; a interface diferencia **Cancelamento solicitado** de **Cancelado**. O marcador é limpo no encerramento da execução e não afeta renders posteriores.
+
+A execução dos comandos FFmpeg/FFprobe usa timeout, limites de logs e verificação periódica de cancelamento. Uma execução interrompida não pode ser marcada como MP4 pronto, e arquivos parciais são removidos. Foram adicionados testes para persistência entre leitores, isolamento por execução, marcador adulterado e cancelamento de codificação ativa. **Esses testes foram escritos, não executados nesta rodada**, conforme a orientação de não disparar CI. O fluxo operacional segue sendo FFmpeg; Remotion/HyperFrames ainda exigem integração e homologação.
+
+
+### Validação antecipada e publicação atômica do MP4
+
+Antes de codificar os segmentos, a exportação FFmpeg verifica todos os vídeos, cortes, faixas de áudio e trilha sonora com `ffprobe`, reutilizando os metadados de fontes repetidas. A interface mostra **Verificando mídias** antes da montagem. O arquivo final é codificado com nome oculto `.partial.mp4`, inspecionado e somente então renomeado para o nome público. Se o processo falhar ou for cancelado, o arquivo parcial é excluído. A inspeção técnica não equivale a uma homologação visual; é necessário conferir legendas, efeitos e áudio no MP4 produzido.
+
+
+### Inspeção longa e cancelamento durante a revisão
+
+A inspeção técnica de MP4 agora aceita até quatro horas, em conformidade com o limite de duração do Studio, e dimensiona o tempo de análise de quadros pretos e volume de áudio de acordo com a duração real (até uma hora por comando). O pedido de cancelamento é propagado via `AbortSignal` também para a inspeção, evitando que a API espere o término da leitura completa do vídeo depois que o usuário solicitou cancelar. O marcador persistente de cancelamento rejeita diretórios simbólicos. Os testes de cancelamento FFmpeg e de segurança foram ampliados; a homologação real permanece pendente.

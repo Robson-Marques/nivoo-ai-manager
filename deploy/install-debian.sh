@@ -203,6 +203,11 @@ else
   bash "$APP_DIR/deploy/install-studio-python.sh" || warn "instalação Python incompleta; consulte /var/log/nivoo-studio-python.log"
 fi
 
+# Provisionamento e diagnóstico do toolchain de vídeo no mesmo fluxo de nivoo update.
+# O script é idempotente e não baixa CLIs de renderização sem versões fixadas.
+step "Nivoo Video — dependências e capacidades"
+bash "$APP_DIR/deploy/install-video-toolchain.sh"
+
 # Navegador sem tela para as FOTOS DAS TELAS nas conferências (nivoo-fotos). A IA não navega: o sistema tira as fotos.
 NAVEGADORES=/opt/nivoo/navegadores
 install -d -m 755 "$NAVEGADORES"

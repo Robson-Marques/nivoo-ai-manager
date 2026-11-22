@@ -13,7 +13,7 @@ touch "$LOG"
 chmod 640 "$LOG"
 if [ ! -x "$VENV/bin/python" ]; then
   note "Criando Python isolado em $VENV"
-  python3 -m venv "$VENV" || { warn "falha ao criar o venv"; exit 0; }
+  python3 -m venv "$VENV" || { warn "falha ao criar o venv"; exit 1; }
 fi
 PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
@@ -28,6 +28,7 @@ else
   else
     warn "dependências essenciais incompletas: $LOG"
     tail -n 5 "$LOG" | sed "s/^/      /"
+    exit 1
   fi
 fi
 if [ "${NIVOO_STUDIO_INSTALL_WHISPERX:-1}" = 1 ]; then
@@ -60,5 +61,6 @@ if core_ready; then
   chmod 640 "$ENV_FILE"
   note "Python local ativado para a API: $PY"
 else
-  warn "Studio Python não ativado. API e worker permanecem operacionais."
+  warn "Studio Python obrigatório indisponível. Atualização interrompida antes do restart dos serviços."
+  exit 1
 fi

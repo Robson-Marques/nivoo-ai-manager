@@ -11,6 +11,14 @@ import { ProviderRegistry } from '../providers/provider-registry.service';
 import { karaokeAss, validWords, TimedWord } from './caption-timing';
 import { safeInsert } from './smart-placement';
 import { maybeProductionMedia } from './standalone-projects';
+import { inspectRenderedVideo } from '../video/video-render-inspection';
+import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender } from './render-status-store';
+import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLease, recoverDeadStudioRenderLease } from './render-lease';
+import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process';
+import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
+import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
+import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
+import { remotionBundlePath } from './studio-runtime-capabilities';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
@@ -32,7 +40,9 @@ export type StudioProject = {
   captions: StudioCaption[]; assets: StudioAsset[]; audioTracks?: StudioAudio[]; protectedZones?: ProtectedZone[];
   updatedAt: string;
 };
-type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string };
+type Status = { state: 'running'|'done'|'failed'|'cancelled'; error?: string; output?: string; started: string; runId: string; ownerPid: number;
+  stage?: 'preparing'|'validating'|'clips'|'audio'|'compositing'|'inspecting'; progress?: number;
+  inspection?: { durationMs: number; blackFrameCount: number; hasAudio: boolean; audioPeakDbfs?: number; warnings: string[] } };
 const finite = (n: unknown, min = 0, max = 100000) => typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
 // O servidor pode instalar modelos opcionais em um venv, sem alterar Python global.
 const studioPython = () => process.env.NIVOO_STUDIO_PYTHON?.trim() || 'python3';
@@ -46,7 +56,12 @@ const assTime = (s: number) => {
   return h + ':' + String(m).padStart(2,'0') + ':' + String(secs).padStart(2,'0') + '.' + String(cs%100).padStart(2,'0');
 };
 const assColor = (s: string) => '&H00' + s.slice(5,7)+s.slice(3,5)+s.slice(1,3);
-const status = new Map<string, { result: Status; process?: ChildProcess }>();
+const status = new Map<string, { result: Status; process?: ChildProcess; abort?: AbortController; media: string }>();
+const claimEditLease=(media:string,id:string,runId:ReturnType<typeof randomUUID>)=>{
+  const previous=readStudioRenderLease(media,id);
+  if(previous) recoverDeadStudioRenderLease(media,id);
+  return acquireStudioRenderLease(media,id,runId);
+};
 const transcriptions = new Map<string, {state:'running'|'done'|'failed';error?:string;captions?:number}>();
 type AiElement = {kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number;style?:'impact'|'fade'|'slide'|'rise'|'enter-left'|'enter-right'};
 type AiState = {state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
@@ -175,32 +190,54 @@ export class VideoStudioService {
   async save(pid:string,id:string,body:any) {
     const {media,studio} = await this.dir(pid);
     const f=this.file(studio,id);
-    if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
-    if (body.id !== id) throw new BadRequestException('ID não confere');
-    const actual=JSON.parse(fs.readFileSync(f,'utf8'));
-    if (actual.updatedAt !== body.updatedAt) throw new ConflictException('Esta edição foi alterada em outra sessão. Recarregue.');
-    const p=this.validate(body,media);p.updatedAt=new Date().toISOString();
-    const temp=f+'.tmp-'+process.pid;
-    fs.writeFileSync(temp,JSON.stringify(p,null,2));
-    fs.renameSync(temp,f);
-    return p;
+    // Saving and rendering compete for the SAME exclusive lock. A read-only
+    // check followed by a write would allow a concurrent render to slip in.
+    const runId=randomUUID();
+    try { claimEditLease(media,id,runId); }
+    catch { throw new ConflictException('Aguarde o término da renderização antes de salvar a edição'); }
+    try {
+      if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
+      if (!body || body.id !== id) throw new BadRequestException('ID não confere');
+      const actual=JSON.parse(fs.readFileSync(f,'utf8'));
+      if (actual.updatedAt !== body.updatedAt) throw new ConflictException('Esta edição foi alterada em outra sessão. Recarregue.');
+      const p=this.validate(body,media);
+      p.updatedAt=new Date().toISOString();
+      const temp=f+'.tmp-'+randomUUID();
+      try {
+        fs.writeFileSync(temp,JSON.stringify(p,null,2),{flag:'wx',mode:0o600});
+        fs.renameSync(temp,f);
+      } finally { fs.rmSync(temp,{force:true}); }
+      // A saved edit invalidates every prior MP4 status for that revision.
+      status.delete(pid+':'+id);
+      fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      return p;
+    } finally {
+      releaseStudioRenderLease(media,id,runId);
+    }
   }
   async remove(pid:string,id:string) {
-    const {studio}=await this.dir(pid);
+    const {media,studio}=await this.dir(pid);
     const f=this.file(studio,id);
-    if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
-    fs.rmSync(f);
-    return {ok:true};
+    const runId=randomUUID();
+    try { claimEditLease(media,id,runId); }
+    catch { throw new ConflictException('Aguarde o término da renderização antes de excluir a edição'); }
+    try {
+      if (!fs.existsSync(f)) throw new NotFoundException('Edição não encontrada');
+      fs.rmSync(f);
+      fs.rmSync(path.join(studio,id+'.render-status.json'),{force:true});
+      status.delete(pid+':'+id);
+      return {ok:true};
+    } finally { releaseStudioRenderLease(media,id,runId); }
   }
   captionsStatus(pid:string,id:string) { return transcriptions.get(pid+':'+id) ?? {state:'idle'}; }
 
   async autoCaptions(pid:string,id:string,script?:string) {
     const key=pid+':'+id;
     if(transcriptions.get(key)?.state==='running') throw new ConflictException('Transcrição já em andamento');
-    const done=status.get(key)?.result;
+    const done=await this.state(pid,id);
     const currentProject=await this.get(pid,id);
     const direct=currentProject.clips.length===1&&!currentProject.soundtrack&&!(currentProject.audioTracks?.length);
-    if(!direct&&(done?.state!=='done'||!done.output))
+    if(!direct&&(done?.state!=='done'||!('output' in done)||!done.output))
       throw new BadRequestException('Para vídeos com múltiplas cenas ou faixas, exporte a montagem antes de alinhar a narração');
     if(script!==undefined&&(typeof script!=='string'||script.length>10000))
       throw new BadRequestException('Roteiro inválido');
@@ -220,7 +257,7 @@ export class VideoStudioService {
             {timeout:120000,encoding:'utf8'});
           if(prep.status!==0)throw new Error('Não foi possível extrair a narração: '+String(prep.stderr).slice(-250));
           input=cropped;
-        }else input=this.src(media,done!.output!);
+        }else input=this.src(media,(done as Status).output!); // caminho não-direto: o guard acima já garantiu done.state==='done' && done.output
         const alignment=path.join(temp,'aligned.json');
         const cmd=path.resolve(__dirname,'../../bin/nivoo-alinhar-narracao');
         const args=[cmd,'--video',input,'--saida',alignment];
@@ -525,60 +562,207 @@ export class VideoStudioService {
     }catch(e){generated.forEach(f=>fs.rmSync(f,{force:true}));throw e}
   }
 
-  async render(pid:string,id:string) {
+  async render(pid:string,id:string,engine:'ffmpeg'|'remotion'='ffmpeg') {
+    if(engine!=='ffmpeg'&&engine!=='remotion')throw new BadRequestException('Motor de exportação inválido');
+    if(engine==='remotion'&&!remotionBundlePath())throw new BadRequestException('Bundle Remotion não provisionado; execute nivoo update');
     const {media} = await this.dir(pid);
-    const p=this.validate(await this.get(pid,id),media);
-    if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    const result:Status={state:'running',started:new Date().toISOString()};
-    status.set(key,{result});
-    // Executar após devolver resposta HTTP. O processo é externo e não bloqueia o event loop.
-    setImmediate(()=>this.execute(media,p,key).catch(e=>{
-      const current=status.get(key);
-      if(current?.result.state==='running') current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
-    }));
-    return result;
-  }
-  state(pid:string,id:string) { return status.get(pid+':'+id)?.result ?? {state:'idle'}; }
-  cancel(pid:string,id:string) {
-    const entry=status.get(pid+':'+id);
-    if(entry?.result.state==='running') {
-      entry.result={...entry.result,state:'cancelled'};
-      entry.process?.kill('SIGTERM');
+    const runId=randomUUID();
+    try { claimEditLease(media,id,runId); }
+    catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
+    try {
+      // Read the timeline AFTER acquiring the lock. Otherwise a concurrent
+      // save could finish between reading the edit and starting the render.
+      const p=this.validate(await this.get(pid,id),media);
+      if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
+      const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid,stage:'preparing',progress:0};
+      saveStudioRenderStatus(media,id,result);
+      status.set(key,{result,media});
+      setImmediate(()=>{
+        void (engine==='remotion'?this.executeRemotion(media,p,key,pid):this.execute(media,p,key)).catch(e=>{
+          const current=status.get(key);
+          if(current?.result.state==='running' && current.result.runId===runId) {
+            current.result={...current.result,state:'failed',error:String(e?.message??e).slice(0,600)};
+            try { saveStudioRenderStatus(media,id,current.result); }
+            catch (persistError) { console.error('Falha ao persistir erro de renderização',persistError); }
+          }
+        }).finally(()=>{
+          try { releaseStudioRenderLease(media,id,runId); }
+          catch (error) { console.error('Falha ao liberar bloqueio de renderização', error); }
+        });
+      });
+      return result;
+    } catch (error) {
+      releaseStudioRenderLease(media,id,runId);
+      throw error;
     }
-    return entry?.result??{state:'idle'};
+  }
+  async state(pid:string,id:string) {
+    const {media}=await this.dir(pid);
+    const entry=status.get(pid+':'+id);
+    const stored=loadStudioRenderStatus(media,id);
+    if (!stored) return entry?.result ?? {state:'idle'};
+    const recovered=interruptedStudioRender(stored);
+    if (recovered!==stored) saveStudioRenderStatus(media,id,recovered);
+    const current=entry?.result.runId===recovered.runId && entry.result.state==='running'
+      ? entry.result : recovered;
+    return current.state==='running' && isStudioRenderCancellationRequested(media,id,current.runId)
+      ? {...current,cancellationRequested:true} : current;
+  }
+  async cancel(pid:string,id:string) {
+    const {media}=await this.dir(pid);
+    const key=pid+':'+id;
+    const entry=status.get(key);
+    const active=await this.state(pid,id) as Partial<Status> & {state:string;cancellationRequested?:boolean};
+    if (!active.runId || active.state!=='running') return active;
+    // A cancellation marker is specific to the runId: it cannot accidentally
+    // terminate a newer export of the same edit.
+    const owner=readStudioRenderLease(media,id);
+    if (!owner || owner.runId!==active.runId) return this.state(pid,id);
+    requestStudioRenderCancellation(media,id,active.runId);
+    if (entry?.result.runId===active.runId && entry.result.state==='running') {
+      entry.result={...entry.result,state:'cancelled'};
+      saveStudioRenderStatus(media,id,entry.result);
+      entry.abort?.abort();
+      entry.process?.kill('SIGTERM');
+      return entry.result;
+    }
+    return {...active, cancellationRequested:true};
+  }
+  private async executeRemotion(media:string,p:StudioProject,key:string,pid:string) {
+    const entry=status.get(key)!;
+    const runId=entry.result.runId;
+    const controller=new AbortController();
+    entry.abort=controller;
+    const cancelled=()=>entry.result.state==='cancelled' ||
+      isStudioRenderCancellationRequested(media,p.id,runId);
+    const poll=setInterval(()=>{
+      try {if(cancelled())controller.abort();}
+      catch {controller.abort();}
+    },250);
+    poll.unref?.();
+    const report=(stage:NonNullable<Status['stage']>,progress:number)=>{
+      if(cancelled())throw new Error('Renderização cancelada');
+      entry.result={...entry.result,stage,progress};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    };
+    try {
+      report('validating',2);
+      const bundle=remotionBundlePath();
+      if(!bundle)throw new Error('Remotion bundle indisponível');
+      const first=this.src(media,p.clips[0].source);
+      const probe=await probeStudioMedia(first,{isCancelled:cancelled});
+      if(!probe.video)throw new Error('Primeiro arquivo não é vídeo');
+      const width=probe.video.width-(probe.video.width%2);
+      const height=probe.video.height-(probe.video.height%2);
+      if(!width||!height)throw new Error('Resolução inválida');
+      // All source references were authorized by validate(). The job stages
+      // project-relative media under an isolated private bundle.
+      report('compositing',8);
+      const output=path.join(media,'saida','studio-'+p.id+'-'+runId+'.mp4');
+      fs.mkdirSync(path.dirname(output),{recursive:true});
+      const rendered=await renderStudioEditWithRemotion({
+        edit:p,projectId:pid,width,height,
+        workspaceRoot:media,
+        workDirectory:path.join(media,'studio','remotion-jobs'),
+        trustedBundleDirectory:bundle,outputFile:output,
+        supportedFeatures:IMPLEMENTED_REMOTION_FEATURES,
+      },controller.signal);
+      if(cancelled()){
+        fs.rmSync(rendered.outputFile,{force:true});
+        return;
+      }
+      report('inspecting',95);
+      const warnings:string[]=[];
+      if(rendered.blackFrameCount>0)warnings.push('Possíveis trechos pretos detectados');
+      if(rendered.hasAudio&&rendered.audioPeakDbfs!==undefined&&rendered.audioPeakDbfs< -60)
+        warnings.push('Áudio muito baixo ou silencioso');
+      entry.result={...entry.result,state:'done',progress:100,
+        output:'midia/saida/'+path.basename(rendered.outputFile),
+        inspection:{durationMs:rendered.durationMs,blackFrameCount:rendered.blackFrameCount,
+          hasAudio:rendered.hasAudio,
+          ...(rendered.audioPeakDbfs!==undefined?{audioPeakDbfs:rendered.audioPeakDbfs}:{}),
+          warnings}};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    } finally {
+      clearInterval(poll);
+      entry.abort=undefined;
+      if(cancelled()&&entry.result.state==='running'){
+        entry.result={...entry.result,state:'cancelled'};
+        saveStudioRenderStatus(media,p.id,entry.result);
+      }
+      clearStudioRenderCancellation(media,p.id,runId);
+    }
   }
   private async execute(media:string,p:StudioProject,key:string) {
     const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-studio-'));
     const entry=status.get(key)!;
-    const ff=(args:string[])=>new Promise<void>((resolve,reject)=>{
-      if(entry.result.state==='cancelled') return reject(new Error('cancelado'));
-      const child=spawn('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',...args],{stdio:['ignore','ignore','pipe']});
-      entry.process=child;let err='';
-      child.stderr?.on('data',b=>{err=(err+String(b)).slice(-1800);});
-      child.on('error',reject);
-      child.on('close',code=>code===0?resolve():reject(new Error('FFmpeg: '+err.slice(-500))));
-    });
-    const probe=(file:string)=> {
-      const r=spawnSync('ffprobe',['-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',file],{encoding:'utf8'});
-      if(r.status!==0) throw new Error('Falha ffprobe: '+String(r.stderr).slice(-300));
-      const j=JSON.parse(r.stdout);return {v:j.streams.find((s:any)=>s.codec_type==='video'),audio:j.streams.some((s:any)=>s.codec_type==='audio'),duration:Number(j.format.duration)};
+    let outputInProgress: string | undefined;
+    const inspectionAbort = new AbortController();
+    const cancelled=()=>entry.result.state==='cancelled' || isStudioRenderCancellationRequested(media,p.id,entry.result.runId);
+    const inspectionCancelPoll=setInterval(() => {
+      try { if (cancelled()) inspectionAbort.abort(); }
+      catch { inspectionAbort.abort(); }
+    },250);
+    inspectionCancelPoll.unref?.();
+    const report=(stage: NonNullable<Status['stage']>,progress:number)=>{
+      if(cancelled()) throw new Error('Renderização cancelada');
+      entry.result={...entry.result,stage,progress};
+      saveStudioRenderStatus(media,p.id,entry.result);
+    };
+    const track=(child: ChildProcess)=>{ entry.process=child; };
+    const ff=async(args:string[])=>{
+      try {
+        await runStudioMediaCommand('ffmpeg',
+          ['-nostdin','-hide_banner','-loglevel','error','-y',...args],
+          {timeoutMs:1_200_000,maxOutputBytes:256_000,onSpawn:track,isCancelled:cancelled});
+      } finally { entry.process=undefined; }
+    };
+    const probe=async(file:string)=>{
+      try {
+        const result=await probeStudioMedia(file,{onSpawn:track,isCancelled:cancelled});
+        return {v:result.video,audio:result.audio,duration:result.duration};
+      } finally { entry.process=undefined; }
     };
     try {
-      const first=probe(this.src(media,p.clips[0].source));
+      report('validating',1);
+      const first=await probe(this.src(media,p.clips[0].source));
       if(!first.v) throw new Error('Primeiro arquivo não é vídeo');
       const W=first.v.width%2?first.v.width-1:first.v.width, H=first.v.height%2?first.v.height-1:first.v.height;
       if(!W||!H) throw new Error('Resolução inválida');
+      // Validate all inputs before encoding, avoiding expensive late failures.
+      report('validating',3);
+      const clipInfo = new Map<string, Awaited<ReturnType<typeof probe>>>();
+      for (const clip of p.clips) {
+        const source=this.src(media,clip.source);
+        let info=clipInfo.get(source);
+        if (!info) { info=await probe(source); clipInfo.set(source,info); }
+        if (!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo: '+clip.source);
+        if (clip.end>info.duration+.05) throw new Error('Corte excede duração de '+clip.source);
+        if (Math.abs((clip.end-clip.start)-clip.duration)>.1) throw new Error('Duração incoerente em '+clip.id);
+      }
+      const audioInfo = new Map<string, Awaited<ReturnType<typeof probe>>>();
+      for (const track of p.audioTracks??[]) {
+        const source=this.src(media,track.source);
+        let info=audioInfo.get(source);
+        if (!info) { info=await probe(source); audioInfo.set(source,info); }
+        if (!info.audio || track.end>info.duration+.05)
+          throw new Error('Faixa de áudio inválida: '+track.source);
+      }
+      if (p.soundtrack) {
+        const source=this.src(media,p.soundtrack.source);
+        const info=audioInfo.get(source)??await probe(source);
+        if (!info.audio) throw new Error('Trilha sonora não contém áudio: '+p.soundtrack.source);
+        audioInfo.set(source,info);
+      }
       let current=0;
       const segments:string[]=[];
       for(const [i,c] of p.clips.entries()) {
+        report('clips',Math.round(5+50*i/p.clips.length));
         const source=this.src(media,c.source);
-        const info=probe(source);
-        if(!info.v) throw new Error('A faixa contém um áudio no lugar de vídeo');
-        if(c.end>info.duration+.05) throw new Error('Corte excede duração de '+c.source);
+        const info=clipInfo.get(source)!;
         const duration=c.end-c.start;
-        if(Math.abs(duration-c.duration)>.1) throw new Error('Duração incoerente em '+c.id);
         const file=path.join(tmp,'part-'+i+'.mp4');
         const input=info.audio?['-i',source]:['-i',source,'-f','lavfi','-t',String(duration),'-i','anullsrc=r=48000:cl=stereo'];
         await ff(['-ss',String(c.start),...input,'-t',String(duration),
@@ -587,11 +771,13 @@ export class VideoStudioService {
           '-af',`volume=${c.volume??1}`,
           '-c:v','libx264','-preset','veryfast','-crf','20','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',file]);
         segments.push(file); current+=duration;
+        report('clips',Math.round(5+50*(i+1)/p.clips.length));
       }
       const concat=path.join(tmp,'concat.txt');
       fs.writeFileSync(concat,segments.map(x=>`file '${x}'`).join('\n'));
       const joined=path.join(tmp,'joined.mp4');
       await ff(['-f','concat','-safe','0','-i',concat,'-c','copy',joined]);
+      report('audio',60);
       let audioBase=joined;
       if(p.soundtrack||(p.audioTracks?.length??0)>0) {
         const mix=path.join(tmp,'mix.mp4');
@@ -605,8 +791,7 @@ export class VideoStudioService {
         }
         for(const [i,a] of (p.audioTracks??[]).entries()){
           const source=this.src(media,a.source);
-          const info=probe(source);
-          if(!info.audio||a.end>info.duration+.05)throw new Error('Faixa de áudio inválida: '+a.source);
+          const info=audioInfo.get(source)!;
           inputs.push('-i',source);
           const ms=Math.round(a.offset*1000);
           f.push(`[${stream}:a]atrim=start=${a.start}:end=${a.end},asetpts=PTS-STARTPTS,volume=${a.volume},adelay=${ms}:all=1[track${i}]`);
@@ -617,6 +802,7 @@ export class VideoStudioService {
           '-c:v','copy','-c:a','aac','-b:a','192k','-t',String(current),mix]);
         audioBase=mix;
       }
+      report('compositing',75);
       const ass=path.join(tmp,'captions.ass');
       const h='[Script Info]\nScriptType: v4.00+\nPlayResX: '+W+'\nPlayResY: '+H+'\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,7,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
       const lines=p.captions.map(c=>{
@@ -651,13 +837,56 @@ export class VideoStudioService {
         v=`[v${i}]`;
       }
       filters.push(`${v}subtitles=${ass},format=yuv420p[video]`);
-      const output=path.join(media,'saida','studio-'+p.id+'-'+Date.now()+'.mp4');
+      const output=path.join(media,'saida','studio-'+p.id+'-'+entry.result.runId+'.mp4');
+      // Stage the MP4 privately; only inspected output receives the public name.
+      const partial=path.join(media,'saida','.studio-'+p.id+'-'+entry.result.runId+'.partial.mp4');
+      outputInProgress=partial;
       fs.mkdirSync(path.dirname(output),{recursive:true});
       await ff([...args,'-filter_complex',filters.join(';'),'-map','[video]','-map','0:a:0',
-        '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',output]);
-      if(entry.result.state==='cancelled') {fs.rmSync(output,{force:true});return;}
-      if(!fs.existsSync(output)||!fs.statSync(output).size) throw new Error('Exportação vazia');
-      entry.result={...entry.result,state:'done',output:'midia/saida/'+path.basename(output)};
-    } finally {entry.process=undefined;fs.rmSync(tmp,{recursive:true,force:true});}
+        '-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-c:a','copy','-t',String(current),'-movflags','+faststart',partial]);
+      if(cancelled()) return;
+      if(!fs.existsSync(partial)||!fs.statSync(partial).size) throw new Error('Exportação vazia');
+      // Conferência técnica do MP4 real, antes de anunciar a exportação como concluída.
+      // Falhas de inspeção não são tratadas como sucesso. A revisão visual continua separada.
+      report('inspecting',92);
+      let measured: Awaited<ReturnType<typeof inspectRenderedVideo>>;
+      try {
+        measured = await inspectRenderedVideo(media, partial, inspectionAbort.signal);
+        const expectedMs = Math.round(current * 1000);
+        if (measured.durationMs === undefined ||
+            Math.abs(measured.durationMs - expectedMs) > Math.max(1000, expectedMs * 0.02) ||
+            measured.blackFrameCount === undefined || measured.hasAudio !== true ||
+            measured.audioPeakDbfs === undefined) {
+          throw new Error('MP4 exportado não passou na inspeção técnica');
+        }
+      } catch (error) {
+        throw error;
+      }
+      if(cancelled()) return;
+      const warnings:string[] = [];
+      if(measured.blackFrameCount! > 0) warnings.push('Possíveis trechos pretos detectados');
+      if(measured.hasAudio && measured.audioPeakDbfs === -Infinity) warnings.push('Faixa de áudio totalmente silenciosa');
+      else if(measured.hasAudio && measured.audioPeakDbfs! < -60) warnings.push('Áudio muito baixo ou silencioso');
+      if(measured.hasAudio && measured.audioPeakDbfs! > -0.1) warnings.push('Possível saturação de áudio');
+      if(cancelled()) return;
+      fs.renameSync(partial,output);
+      outputInProgress=output;
+      entry.result={...entry.result,state:'done',progress:100,output:'midia/saida/'+path.basename(output),
+        inspection: {durationMs:measured.durationMs!,blackFrameCount:measured.blackFrameCount!,
+          hasAudio:measured.hasAudio!,...(measured.audioPeakDbfs!==undefined?{audioPeakDbfs:Number.isFinite(measured.audioPeakDbfs)?measured.audioPeakDbfs:-120}:{}),
+          warnings}};
+      saveStudioRenderStatus(media,p.id,entry.result);
+      outputInProgress=undefined;
+    } finally {
+      clearInterval(inspectionCancelPoll);
+      entry.process=undefined;
+      if(cancelled() && entry.result.state==='running') {
+        entry.result={...entry.result,state:'cancelled'};
+        saveStudioRenderStatus(media,p.id,entry.result);
+      }
+      if(outputInProgress) fs.rmSync(outputInProgress,{force:true});
+      fs.rmSync(tmp,{recursive:true,force:true});
+      clearStudioRenderCancellation(media,p.id,entry.result.runId);
+    }
   }
 }

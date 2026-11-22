@@ -1,10 +1,14 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { VideoStudioService } from './video-studio.service';
+import { inspectStudioRuntime } from './studio-runtime-capabilities';
 
 /** Editor manual e pós-produção com projetos preservados fora do git. */
 @Controller('projects/:pid/studio')
 export class VideoStudioController {
   constructor(private readonly studio: VideoStudioService) {}
+
+  @Get('runtime/capabilities')
+  capabilities() { return inspectStudioRuntime(); }
 
   @Get()
   list(@Param('pid', ParseUUIDPipe) pid: string) { return this.studio.list(pid); }
@@ -75,8 +79,9 @@ export class VideoStudioController {
   }
 
   @Post(':id/render')
-  render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string) {
-    return this.studio.render(pid,id);
+  render(@Param('pid', ParseUUIDPipe) pid: string, @Param('id') id: string,
+    @Body() body?: {engine?:'ffmpeg'|'remotion'}) {
+    return this.studio.render(pid,id,body?.engine??'ffmpeg');
   }
 
   @Get(':id/render')

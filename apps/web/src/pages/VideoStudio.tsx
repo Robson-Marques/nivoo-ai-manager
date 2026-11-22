@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { api, enviarVideo, urlAutenticada } from '../api';
 import './VideoStudio.css';
+import { StudioEffectPreview } from '../components/video/StudioEffectPreview';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string };
 type Clip = { id:string; source:string; start:number; end:number; duration:number; volume?:number };
@@ -13,7 +14,10 @@ type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Capti
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
-type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string };
+type RuntimeCapability = {id:string;state:'ready'|'unavailable'|'blocked';detail:string};
+type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;cancellationRequested?:boolean;
+  stage?:'preparing'|'validating'|'clips'|'audio'|'compositing'|'inspecting';progress?:number;
+  inspection?:{durationMs:number;blackFrameCount:number;hasAudio:boolean;audioPeakDbfs?:number;warnings:string[]} };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
 const fmt = (s:number) => !Number.isFinite(s) ? '00:00' : String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0');
 const midiaUrl=(pid:string,p:string,standalone=false)=>urlAutenticada((standalone?'/studio/projects/':'/projects/')+pid+'/midia/content?path='+encodeURIComponent(p));
@@ -31,6 +35,9 @@ export function VideoStudio() {
   const [tab,setTab]=useState<'clips'|'captions'|'assets'|'audio'|'protected'>('clips');
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
+  const [renderEngine,setRenderEngine]=useState<'ffmpeg'|'remotion'>('ffmpeg');
+  const [runtime,setRuntime]=useState<RuntimeCapability[]>([]);
+  const [showRuntime,setShowRuntime]=useState(false);
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
   const [zoneDraft,setZoneDraft]=useState<ZonesResult>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
@@ -43,6 +50,10 @@ export function VideoStudio() {
   const [notice,setNotice]=useState('');
   const [progress,setProgress]=useState(0);
   const inputRef=useRef<HTMLInputElement>(null);
+  const captionsPollBusy=useRef(false);
+  const aiPollBusy=useRef(false);
+  const zonesPollBusy=useRef(false);
+  const actionsInFlight=useRef(new Set<string>());
   const player=useRef<HTMLVideoElement>(null);
   const canvasRef=useRef<HTMLDivElement>(null);
   const dragState=useRef<{kind:'caption'|'image'|'zone';id:string;initialX:number;initialY:number;px:number;py:number}|null>(null);
@@ -77,13 +88,29 @@ export function VideoStudio() {
     return s;
   };
   useEffect(()=>{
-    setProject(null);setDirty(false);setPlayhead(0);setSelected(null);
+    let active=true;
+    api<RuntimeCapability[]>(edits+'/runtime/capabilities')
+      .then(data=>{if(active)setRuntime(data)})
+      .catch(()=>{if(active)setRuntime([])});
+    return()=>{active=false};
+  },[edits]);
+  useEffect(()=>{
+    setProject(null);setRunning({state:'idle'});setDirty(false);setPlayhead(0);setSelected(null);
     refresh().then(async editions=>{
       if(!standalone||!editions.length)return;
       const latest=[...editions].sort((a:any,b:any)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
       setProject(await api<Studio>(edits+'/'+latest.id));
     }).catch(e=>setError(e.message));
   },[pid,standalone]);
+  useEffect(()=>{
+    if(!project) return;
+    let active=true;
+    // Recover the last export after reopening the editor or refreshing the page.
+    api<Render>(edits+'/'+project.id+'/render')
+      .then(result=>{if(active)setRunning(result)})
+      .catch(()=>{if(active)setRunning({state:'idle'})});
+    return()=>{active=false};
+  },[edits,project?.id]);
   useEffect(()=>{
     if(!project || running.state!=='running')return;
     const timer=setInterval(()=>api<Render>(edits+'/'+project.id+'/render').then(setRunning).catch(()=>undefined),1700);
@@ -92,25 +119,31 @@ export function VideoStudio() {
   const open=async(id:string)=>{
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>(edits+'/'+id);
-    setProject(p);setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
+    setProject(p);setRunning({state:'idle'});setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
   };
   useEffect(()=>{
     if(!project || aligning.state!=='running')return;
+    let activePoll=true;
     const timer=setInterval(async()=>{
+      if(captionsPollBusy.current)return;
+      captionsPollBusy.current=true;
       try {
         const st=await api<{state:string;error?:string;captions?:number}>(edits+'/'+project.id+'/captions/auto');
+        if(!activePoll)return;
         setAligning(st);
         if(st.state==='done'){
           const fresh=await api<Studio>(edits+'/'+project.id);
+          if(!activePoll)return;
           setProject(fresh);setDirty(false);setNotice(st.captions+' legendas adicionadas.');
         }
-      }catch(e:any){setError(e.message)}
+      }catch(e:any){if(activePoll)setError(e.message)}
+      finally{captionsPollBusy.current=false}
     },2000);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[project?.id,pid,aligning.state]);
   const gerarLegendas=async()=>{
     if(!project)return;
-    if(aligning.state==='running')return;
+    if(aligning.state==='running'||actionsInFlight.current.has('captions'))return;
     if(dirty)return setError('Para gerar legendas, clique em Salvar primeiro.');
     if(!project.clips.length)return setError('Adicione um vídeo à linha do tempo antes de gerar legendas.');
     const direct=project.clips.length===1&&!project.soundtrack&&!(project.audioTracks?.length);
@@ -119,33 +152,50 @@ export function VideoStudio() {
     }
     const texto=window.prompt('Cole o roteiro exato, se existir. Se não houver, deixe vazio para transcrever a fala do vídeo.','');
     if(texto===null)return;
+    actionsInFlight.current.add('captions');
     try{
       const r=await api<{state:string}>(edits+'/'+project.id+'/captions/auto','POST',{script:texto});
       setAligning(r);setNotice('Alinhamento local iniciado.');
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('captions')}
   };
   useEffect(()=>{
     if(!project||aiDraft.state!=='running')return;
+    let activePoll=true;
     const timer=setInterval(async()=>{
-      try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan'));}
-      catch(e:any){setAiDraft({state:'failed',error:e.message})}
+      if(aiPollBusy.current)return;
+      aiPollBusy.current=true;
+      try{
+        const result=await api<AiResult>(edits+'/'+project.id+'/ai/plan');
+        if(activePoll)setAiDraft(result);
+      }catch(e:any){if(activePoll)setAiDraft({state:'failed',error:e.message})}
+      finally{aiPollBusy.current=false}
     },1800);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[pid,project?.id,aiDraft.state]);
   useEffect(()=>{
     if(!project || zoneDraft.state!=='running')return;
-    const timer=setInterval(()=>{
-      api<ZonesResult>(edits+'/'+project.id+'/zones/detect')
-        .then(setZoneDraft).catch(e=>setZoneDraft({state:'failed',error:String(e.message||e)}));
+    let activePoll=true;
+    const timer=setInterval(async()=>{
+      if(zonesPollBusy.current)return;
+      zonesPollBusy.current=true;
+      try{
+        const result=await api<ZonesResult>(edits+'/'+project.id+'/zones/detect');
+        if(activePoll)setZoneDraft(result);
+      }catch(e:any){if(activePoll)setZoneDraft({state:'failed',error:String(e.message||e)})}
+      finally{zonesPollBusy.current=false}
     },1800);
-    return()=>clearInterval(timer);
+    return()=>{activePoll=false;clearInterval(timer)};
   },[pid,project?.id,zoneDraft.state]);
   const detectZones=async()=>{
     if(!project||dirty)return setError('Salve primeiro o projeto antes de analisar rostos e textos.');
+    if(zoneDraft.state==='running'||actionsInFlight.current.has('zones'))return;
+    actionsInFlight.current.add('zones');
     try{
       setZoneDraft(await api<ZonesResult>(edits+'/'+project.id+'/zones/detect','POST',{}));
       setError('');
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('zones')}
   };
   const applyZones=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aplicar as regiões.');
@@ -156,21 +206,26 @@ export function VideoStudio() {
   };
   const planAi=async()=>{
     if(!project)return;
-    if(aiDraft.state==='running')return;
+    if(aiDraft.state==='running'||actionsInFlight.current.has('ai-plan'))return;
     if(dirty)return setError('Para criar o design com IA, clique em Salvar primeiro.');
     if(!project.clips.length)return setError('Adicione pelo menos um vídeo à timeline.');
     if(!project.captions.length)return setError('Para criar o design com IA, primeiro gere as legendas pela narração. Se precisar, exporte a montagem antes.');
     const brief=window.prompt('Qual estilo de pós-produção você deseja?','Legendas dinâmicas, palavras destacadas e imagens de apoio contextuais, sem exageros.');
     if(brief===null)return;
+    actionsInFlight.current.add('ai-plan');
     try{setAiDraft(await api<AiResult>(edits+'/'+project.id+'/ai/plan','POST',{brief}));setError('');}
     catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('ai-plan')}
   };
   const applyAi=async()=>{
     if(!project||dirty)return setError('Salve o projeto antes de aceitar a proposta.');
+    if(actionsInFlight.current.has('ai-apply'))return;
+    actionsInFlight.current.add('ai-apply');
     try{
       const p=await api<Studio>(edits+'/'+project.id+'/ai/apply','POST',{updatedAt:project.updatedAt});
       setProject(p);setAiDraft({state:'idle'});setNotice('Composição sugerida aplicada à timeline. Você pode ajustar cada elemento.');setSelected(null);
     }catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('ai-apply')}
   };
   const removeAiDraft=async(index:number)=>{
     if(!project)return;
@@ -494,9 +549,19 @@ export function VideoStudio() {
   const exportar=async()=>{
     if(!project)return;
     if(dirty)return setError('Salve a edição antes de exportar.');
+    if(running.state==='running'||actionsInFlight.current.has('render'))return;
+    actionsInFlight.current.add('render');
     setError('');
-    try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{}))}
+    try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{engine:renderEngine}))}
     catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('render')}
+  };
+  const cancelarExportacao=async()=>{
+    if(!project || running.state!=='running' || running.cancellationRequested || actionsInFlight.current.has('cancel-render'))return;
+    actionsInFlight.current.add('cancel-render');
+    try { setRunning(await api<Render>(edits+'/'+project.id+'/cancel','POST',{})); }
+    catch(e:any){setError(e.message)}
+    finally{actionsInFlight.current.delete('cancel-render')}
   };
   const upload=async(files:FileList|null)=>{
     if(!files)return;
@@ -564,17 +629,34 @@ export function VideoStudio() {
     <header className="studio-head">
       <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
-        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button></>}
+        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><label className="studio-engine-choice">Motor <select aria-label="Motor de exportação" value={renderEngine} disabled={busy||running.state==='running'} onChange={e=>setRenderEngine(e.target.value as 'ffmpeg'|'remotion')}><option value="ffmpeg">FFmpeg (padrão)</option><option value="remotion">Remotion (experimental)</option></select></label><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button disabled={Boolean(running.cancellationRequested)} onClick={cancelarExportacao}>{running.cancellationRequested?'Cancelamento solicitado':'Cancelar exportação'}</button>}</>}
+        <button onClick={()=>setShowRuntime(value=>!value)} aria-expanded={showRuntime}>Ferramentas {showRuntime?'−':'+'}</button>
         <button onClick={newProject}>+ Nova edição</button>
       </div>
     </header>
     {error&&<p className="studio-error" role="alert">{error}</p>}
     {notice&&<p className="studio-notice">{notice}</p>}
+    {showRuntime&&<section className="studio-notice" aria-label="Ferramentas de vídeo instaladas">
+      <strong>Ferramentas do servidor</strong>
+      {runtime.length===0?<p>Diagnóstico indisponível. Não significa que as ferramentas estão instaladas.</p>:
+        <ul>{runtime.map(tool=><li key={tool.id}><strong>{tool.id}</strong>: {tool.state==='ready'?'Disponível':tool.state==='blocked'?'Bloqueado':'Ausente'} — {tool.detail}</li>)}</ul>}
+    </section>}
     {aligning.state==='failed'&&<p className="studio-error">Legendas automáticas: {aligning.error}</p>}
     {aligning.state==='running'&&<p className="studio-notice">Alinhando a fala com o vídeo localmente…</p>}
-    {running.state==='running'&&<p className="studio-notice">Renderização em execução. Você pode continuar usando a interface.</p>}
+    {running.state==='running'&&<div className="studio-render-progress" role="status" aria-live="polite">
+      <div><strong>{({
+        preparing:'Preparando arquivos',validating:'Verificando mídias',clips:'Montando as cenas',audio:'Mixando áudio',
+        compositing:'Aplicando legendas e efeitos',inspecting:'Verificando vídeo e áudio do MP4',
+      } as const)[running.stage||'preparing']}</strong>
+      <span>{typeof running.progress==='number'?running.progress+'%':'Em andamento'}</span></div>
+      <progress value={running.progress??0} max={100} aria-label="Progresso da exportação"/>
+      <small>{running.cancellationRequested?'Solicitação enviada ao processo de renderização. Aguardando confirmação.':'Etapas reais da produção; percentual aproximado, não representa o tempo restante.'}</small>
+    </div>}
+    {renderEngine==='remotion'&&<p className="studio-notice">Remotion experimental: recursos ainda não homologados podem bloquear a exportação. Use FFmpeg para a produção normal.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
+    {running.state==='cancelled'&&<p className="studio-notice">Exportação cancelada.</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}
+    {running.state==='done'&&running.inspection&&<div className="studio-notice" role="status">MP4 inspecionado: {(running.inspection.durationMs/1000).toFixed(1)}s · {running.inspection.hasAudio?'com áudio':'sem áudio'} · {running.inspection.blackFrameCount} trecho(s) preto(s) detectado(s).{running.inspection.warnings.length>0&&<span> Atenção: {running.inspection.warnings.join('; ')}.</span>} Revisão visual ainda necessária.</div>}
     {!project?<div className="studio-start"><h3>Suas edições</h3>{list.map(x=><button key={x.id} onClick={()=>open(x.id)}>{x.title}</button>)}<button onClick={newProject}>Criar primeira edição</button></div>:
     <>
       <div className="studio-workspace">
@@ -648,12 +730,10 @@ export function VideoStudio() {
             <label>Texto <textarea value={selectedCaption.text} onChange={e=>updateCaption('text',e.target.value)}/></label>
             {(['start','end','x','y','fontSize'] as const).map(k=><label key={k}>{k} <input type="number" step=".01" value={selectedCaption[k]??54} onChange={e=>updateCaption(k,e.target.value)}/></label>)}
             <label>Cor <input type="color" value={selectedCaption.color||'#ffffff'} onChange={e=>updateCaption('color',e.target.value)}/></label>
-            <label>Animação <select value={selectedCaption.animation||'fade'} onChange={e=>updateCaption('animation',e.target.value)}><option value="fade">Fade</option><option value="pop">Pop</option><option value="slide">Slide vertical</option><option value="rise">Subir</option><option value="enter-left">Entrar da esquerda</option><option value="enter-right">Entrar da direita</option><option value="karaoke" disabled={!selectedCaption.words?.length}>Destaque palavra a palavra</option></select></label>
+            <StudioEffectPreview kind="caption" value={selectedCaption.animation||'fade'} hasWords={Boolean(selectedCaption.words?.length)} onChange={value=>updateCaption('animation',value)}/>
             <button onClick={remove}>Remover legenda</button></>}</div>}
           {tab==='assets'&&<div className="studio-fields"><p>Escolha uma imagem da biblioteca para inserir na timeline.</p>{selectedAsset&&<>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAsset[k]} onChange={e=>updateAsset(k,e.target.value)}/></label>)}
-            <label>Animação <select value={selectedAsset.animation||'fade'} onChange={e=>updateAsset('animation',e.target.value)}>
-              <option value="fade">Fade</option><option value="slide">Slide lateral</option><option value="none">Sem animação</option>
-            </select></label><button onClick={remove}>Remover imagem</button></>}</div>}
+            <StudioEffectPreview kind="asset" value={selectedAsset.animation||'fade'} onChange={value=>updateAsset('animation',value)}/><button onClick={remove}>Remover imagem</button></>}</div>}
           {tab==='audio'&&<div className="studio-fields">{selectedAudio&&<><h4>Faixa de áudio selecionada</h4>{(['start','end','offset','volume'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedAudio[k]} onChange={e=>updateAudio(k,e.target.value)}/></label>)}<button disabled={selectedAudio.offset===0} onClick={()=>mutate(p=>({...p,audioTracks:(p.audioTracks??[]).map(a=>a.id===selected?{...a,offset:0,end:Math.min(a.end,total)}:a)}))}>Alinhar voz ao início (00:00)</button><button onClick={remove}>Remover somente esta voz</button></>}{project.soundtrack?<><p>Trilha: {mediaName(project.soundtrack.source)}</p><label>Volume da trilha <input type="range" min="0" max="2" step=".01" value={project.soundtrack.volume} onChange={e=>mutate(p=>({...p,soundtrack:p.soundtrack?{...p.soundtrack,volume:Number(e.target.value)}:null}))}/></label><button onClick={()=>mutate(p=>({...p,soundtrack:null}))}>Remover trilha</button></>:<p>Escolha um áudio da biblioteca para adicionar uma trilha.</p>}</div>}
           {tab==='protected'&&<div className="studio-fields"><button disabled={zoneDraft.state==='running'||dirty} onClick={detectZones}>Detectar rostos e textos localmente</button>{zoneDraft.state==='running'&&<p>Analisando quadros das cenas…</p>}{zoneDraft.state==='failed'&&<p className="studio-error">{zoneDraft.error}</p>}{zoneDraft.state==='draft'&&<><p>{zoneDraft.regions?.length??0} regiões sugeridas. {zoneDraft.warning}</p><button disabled={!(zoneDraft.regions?.length)} onClick={applyZones}>Aplicar regiões detectadas</button><button onClick={()=>setZoneDraft({state:'idle'})}>Descartar detecção</button></>}<button onClick={addZone}>+ Proteger uma região</button><p>Regiões marcadas ficam bloqueadas para legendas e imagens sobrepostas.</p>{(project.protectedZones??[]).map(z=><button key={z.id} onClick={()=>setSelected(z.id)}>{z.label}</button>)}{selectedZone&&<><label>Nome <input value={selectedZone.label} onChange={e=>updateZone('label',e.target.value)}/></label>{(['start','end','x','y','w','h'] as const).map(k=><label key={k}>{k}<input type="number" step=".01" value={selectedZone[k]} onChange={e=>updateZone(k,e.target.value)}/></label>)}<button onClick={remove}>Remover proteção</button></>}</div>}
           <div className="studio-ai">

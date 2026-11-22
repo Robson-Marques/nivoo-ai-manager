@@ -184,6 +184,14 @@ EOF
   check)
     echo "== serviços"; systemctl is-active nivoo-api nivoo-worker postgresql | paste -sd' ' -
     echo "== locução local"; if curl -fsS --max-time 5 http://127.0.0.1:8880/v1/audio/voices >/dev/null 2>&1; then echo "  Kokoro DISPONÍVEL"; else echo "  Kokoro não instalado/parado (opcional: nivoo kokoro instalar)"; fi
+    echo "== Nivoo Video (renderização)"
+    for bin in ffmpeg ffprobe remotion hyperframes; do
+      if command -v "$bin" >/dev/null 2>&1; then
+        echo "  $bin DETECTADO (motor sujeito a validação de compatibilidade)"
+      else
+        echo "  $bin indisponível"
+      fi
+    done
     echo "== Nivoo Studio (Python)"
     STUDIO_PY="$(sed -n 's/^NIVOO_STUDIO_PYTHON=//p' "$ENV_FILE" | tail -1)"
     if [ -n "$STUDIO_PY" ] && [ -x "$STUDIO_PY" ]; then
