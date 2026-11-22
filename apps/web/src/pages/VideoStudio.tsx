@@ -15,7 +15,7 @@ type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subt
 type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 type RuntimeCapability = {id:string;state:'ready'|'unavailable'|'blocked';detail:string};
-type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;
+type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;cancellationRequested?:boolean;
   stage?:'preparing'|'clips'|'audio'|'compositing'|'inspecting';progress?:number;
   inspection?:{durationMs:number;blackFrameCount:number;hasAudio:boolean;audioPeakDbfs?:number;warnings:string[]} };
 const num = (v:string,fallback=0) => Number.isFinite(Number(v))?Number(v):fallback;
@@ -556,7 +556,7 @@ export function VideoStudio() {
     finally{actionsInFlight.current.delete('render')}
   };
   const cancelarExportacao=async()=>{
-    if(!project || running.state!=='running' || actionsInFlight.current.has('cancel-render'))return;
+    if(!project || running.state!=='running' || running.cancellationRequested || actionsInFlight.current.has('cancel-render'))return;
     actionsInFlight.current.add('cancel-render');
     try { setRunning(await api<Render>(edits+'/'+project.id+'/cancel','POST',{})); }
     catch(e:any){setError(e.message)}
