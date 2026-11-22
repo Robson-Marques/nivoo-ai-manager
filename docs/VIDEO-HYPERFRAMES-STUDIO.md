@@ -37,3 +37,11 @@ yt-dlp permanece desativado sem isolamento de rede. Whisper/faster-whisper, Koko
 6. Conferir mensagens de erro quando a ferramenta não estiver disponível.
 
 Não homologado enquanto os testes reais no servidor não passarem. Esta branch não deve ser incorporada automaticamente à main.
+
+## Continuidade, idempotência e integração com a IA
+
+O estado de cada job de motion é salvo no projeto. Ao reabrir o editor após reiniciar a API, um MP4 concluído e ainda presente é recuperado; um processo interrompido é sinalizado como falha recuperável. A mesma combinação de edição, modelo e título devolve a prévia existente em vez de executar de novo. O cancelamento também atualiza o estado persistido.
+
+O assistente de planejamento recebe somente os seis IDs de efeito revisados. Ele pode retornar até 3 sugestões de motion no mesmo JSON da edição. A interface permite selecionar uma sugestão e preencher o criador; ela NÃO renderiza nem aplica automaticamente o efeito e não reexecuta a IA. Blocos externos do catálogo oficial ficam acessíveis apenas para descoberta e curadoria.
+
+Buscas do registro oficial são feitas por GET /motion/catalog?query=... com o comando catalog --query --json. Não há add automático. Veja VIDEO-HYPERFRAMES-CATALOGO.md.
