@@ -4,7 +4,7 @@
  */
 export type VideoLayer =
   | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number; sourceOffsetMs?: number; volume?: number; transform?: { x: number; y: number; width: number; height: number } }
-  | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter'; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string }
+  | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string }
   | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number; sourceOffsetMs?: number };
 
 export interface VideoComposition {
@@ -16,6 +16,7 @@ export interface VideoComposition {
   fps: number;
   durationMs: number;
   layers: VideoLayer[];
+  protectedZones?: Array<{ id: string; label: string; startMs: number; durationMs: number; x: number; y: number; width: number; height: number }>;
 }
 
 export function validateComposition(value: VideoComposition): void {
@@ -31,6 +32,19 @@ export function validateComposition(value: VideoComposition): void {
     throw new Error('Invalid composition timing');
   }
   if (!Array.isArray(value.layers) || value.layers.length > 500) throw new Error('Too many layers');
+  if (value.protectedZones !== undefined) {
+    if (!Array.isArray(value.protectedZones) || value.protectedZones.length > 500) throw new Error('Invalid protected zones');
+    const zoneIds = new Set<string>();
+    for (const zone of value.protectedZones) {
+      if (!zone || !name(zone.id) || zoneIds.has(zone.id) || typeof zone.label !== 'string' || zone.label.length > 256 ||
+          !Number.isSafeInteger(zone.startMs) || !Number.isSafeInteger(zone.durationMs) ||
+          zone.startMs < 0 || zone.durationMs <= 0 || zone.startMs + zone.durationMs > value.durationMs ||
+          ![zone.x, zone.y, zone.width, zone.height].every(Number.isFinite) ||
+          zone.width <= 0 || zone.height <= 0 || zone.x < 0 || zone.y < 0 ||
+          zone.x + zone.width > 100 || zone.y + zone.height > 100) throw new Error('Invalid protected zone');
+      zoneIds.add(zone.id);
+    }
+  }
   const ids = new Set<string>();
   for (const layer of value.layers) {
     if (!layer || !name(layer.id) || ids.has(layer.id)) throw new Error('Invalid or duplicate layer ID');
@@ -68,7 +82,11 @@ export function validateComposition(value: VideoComposition): void {
         break;
       case 'text':
         if (typeof layer.text !== 'string' || layer.text.length > 5000 ||
-            !['none', 'fade', 'slide', 'typewriter'].includes(layer.animation ?? 'none') ||
+            !['none', 'fade', 'slide', 'typewriter', 'pop', 'rise', 'enter-left', 'enter-right', 'karaoke'].includes(layer.animation ?? 'none') ||
+            (layer.words !== undefined && (!Array.isArray(layer.words) || layer.words.length > 2000 || layer.words.some(word =>
+              !word || typeof word.text !== 'string' || word.text.length > 256 ||
+              !Number.isSafeInteger(word.startMs) || !Number.isSafeInteger(word.endMs) ||
+              word.startMs < layer.startMs || word.endMs > layer.startMs + layer.durationMs || word.endMs <= word.startMs))) ||
             (layer.fontSize !== undefined && (!Number.isFinite(layer.fontSize) || layer.fontSize < 1 || layer.fontSize > 500)) ||
             (layer.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(layer.color))) {
           throw new Error('Invalid text layer');
