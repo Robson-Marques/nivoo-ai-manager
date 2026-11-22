@@ -3,9 +3,9 @@
  * Keeps editing state independent of the preview/render engine.
  */
 export type VideoLayer =
-  | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number }
-  | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter' }
-  | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number };
+  | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number; sourceOffsetMs?: number; volume?: number; transform?: { x: number; y: number; width: number; height: number } }
+  | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter'; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string }
+  | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number; sourceOffsetMs?: number };
 
 export interface VideoComposition {
   schemaVersion: 1;
@@ -41,10 +41,25 @@ export function validateComposition(value: VideoComposition): void {
         !Number.isInteger(layer.zIndex) || layer.zIndex < -1000 || layer.zIndex > 1000) {
       throw new Error('Invalid layer timing or stacking');
     }
+    if ('sourceOffsetMs' in layer && layer.sourceOffsetMs !== undefined &&
+        (!Number.isSafeInteger(layer.sourceOffsetMs) || layer.sourceOffsetMs < 0)) {
+      throw new Error('Invalid source offset');
+    }
+    if ('transform' in layer && layer.transform !== undefined) {
+      const t = layer.transform;
+      if (!t || ![t.x, t.y, t.width, t.height].every(Number.isFinite) ||
+          t.width <= 0 || t.height <= 0 || t.width > 10000 || t.height > 10000 ||
+          t.x < -10000 || t.y < -10000 || t.x > 10000 || t.y > 10000) {
+        throw new Error('Invalid layer transform');
+      }
+    }
     switch (layer.type) {
       case 'video':
       case 'image':
-        if (!name(layer.mediaId)) throw new Error('Invalid media reference');
+        if (!name(layer.mediaId) || (layer.volume !== undefined &&
+            (!Number.isFinite(layer.volume) || layer.volume < 0 || layer.volume > 2))) {
+          throw new Error('Invalid media layer');
+        }
         break;
       case 'audio':
         if (!name(layer.mediaId) || !Number.isFinite(layer.volume) || layer.volume < 0 || layer.volume > 2) {
@@ -53,7 +68,9 @@ export function validateComposition(value: VideoComposition): void {
         break;
       case 'text':
         if (typeof layer.text !== 'string' || layer.text.length > 5000 ||
-            !['none', 'fade', 'slide', 'typewriter'].includes(layer.animation ?? 'none')) {
+            !['none', 'fade', 'slide', 'typewriter'].includes(layer.animation ?? 'none') ||
+            (layer.fontSize !== undefined && (!Number.isFinite(layer.fontSize) || layer.fontSize < 1 || layer.fontSize > 500)) ||
+            (layer.color !== undefined && !/^#[0-9a-fA-F]{6}$/.test(layer.color))) {
           throw new Error('Invalid text layer');
         }
         break;
