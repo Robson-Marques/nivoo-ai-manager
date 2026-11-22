@@ -36,12 +36,14 @@ export async function executeVerifiedRemotionRender(
   signal?: AbortSignal,
 ): Promise<VerifiedRemotionRender> {
   if (!input || !input.supportedFeatures) throw new Error('Renderer capabilities not verified');
+  // This API must not accept capabilities claimed by a browser or job payload.
+  // Only the trusted worker integration may supply verified feature support.
   assertRendererParity(input.composition, input.supportedFeatures);
   const resolved = resolveCompositionMedia(input.composition, input.projectId, input.projectMedia);
   const props: RemotionProps = buildRemotionProps(input.composition, resolved);
-  const propsFile = assertWorkspacePath(input.workspaceRoot, resolve(input.propsFile));
-  if (!propsFile.endsWith('.json')) throw new Error('Invalid Remotion props output');
   const root = await realpath(input.workspaceRoot);
+  const propsFile = assertWorkspacePath(root, resolve(input.propsFile));
+  if (!propsFile.endsWith('.json')) throw new Error('Invalid Remotion props output');
   const relativeProps = relative(root, propsFile);
   let cursor = root;
   for (const segment of relativeProps.split(/[\\/]/).filter(Boolean)) {
