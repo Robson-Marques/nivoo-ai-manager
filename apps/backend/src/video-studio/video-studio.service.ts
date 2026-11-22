@@ -13,6 +13,7 @@ import { safeInsert } from './smart-placement';
 import { maybeProductionMedia } from './standalone-projects';
 import { inspectRenderedVideo } from '../video/video-render-inspection';
 import { loadStudioRenderStatus, saveStudioRenderStatus, interruptedStudioRender } from './render-status-store';
+import { acquireStudioRenderLease, readStudioRenderLease, releaseStudioRenderLease, recoverDeadStudioRenderLease } from './render-lease';
 
 export type StudioClip = {
   id: string; source: string; start: number; end: number; duration: number;
