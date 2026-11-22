@@ -12,6 +12,7 @@ export function StudioMotionMaker(props:{
   const [presets,setPresets]=useState<Preset[]>([]);
   const [preset,setPreset]=useState('kinetic-title');
   const [title,setTitle]=useState('');
+  const [replay,setReplay]=useState(0);
   const [state,setState]=useState<State>({state:'idle'});
   const [error,setError]=useState('');
   const endpoint=props.edits+'/'+props.editId+'/motion';
@@ -47,13 +48,20 @@ export function StudioMotionMaker(props:{
   return <div className="studio-motion" aria-label="Biblioteca de motion design">
     <h4>✦ Motion design · HyperFrames</h4>
     <p>Gere uma prévia curta e insira o vídeo na timeline.</p>
-    <select aria-label="Animação HyperFrames" value={preset} onChange={e=>setPreset(e.target.value)}>
+    <select aria-label="Animação HyperFrames" value={preset} onChange={e=>{setPreset(e.target.value);setReplay(n=>n+1)}}>
       {(presets.length?presets:[{id:'kinetic-title',label:'Título cinético',description:''}]).map(p=>
         <option key={p.id} value={p.id}>{p.label}</option>)}
     </select>
     {presets.find(p=>p.id===preset)?.description&&<small>{presets.find(p=>p.id===preset)?.description}</small>}
     <input aria-label="Texto do motion" placeholder="Texto da animação" maxLength={100}
       value={title} onChange={e=>setTitle(e.target.value)}/>
+    <div className="studio-motion-example" aria-label="Simulação local do efeito, sem renderização">
+      <span key={preset+'-'+replay} className={'studio-motion-preview-text studio-motion-'+preset}>
+        {title.trim()||'SEU TÍTULO'}
+      </span>
+      <button type="button" title="Repetir animação" aria-label="Repetir exemplo"
+        onClick={()=>setReplay(n=>n+1)}>↻</button>
+    </div>
     <button disabled={!props.ready||!presets.length||!title.trim()||state.state==='running'}
       onClick={create}>{state.state==='running'?'Renderizando prévia…':'Gerar prévia HyperFrames'}</button>
     {!props.ready&&<small>HyperFrames não disponível no servidor. Confira Ferramentas.</small>}
