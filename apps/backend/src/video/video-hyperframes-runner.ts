@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { assertWorkspacePath, runVideoTool, ToolResult } from './video-tool-adapters';
 
@@ -28,12 +28,3 @@ export async function renderHyperFramesProject(
   return runVideoTool('hyperframes', ['render'], project, 3_600_000, signal);
 }
 
-/** Prepare a new isolated output directory under an already-authorized workspace. */
-export async function prepareHyperFramesOutput(workspaceRoot: string, outputName: string): Promise<string> {
-  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(outputName)) throw new Error('Invalid output name');
-  const root = await realpath(workspaceRoot);
-  const target = assertWorkspacePath(root, resolve(root, 'hyperframes-output', outputName));
-  await mkdir(target, { recursive: true });
-  if (assertWorkspacePath(root, await realpath(target)) !== target) throw new Error('Output path is not isolated');
-  return target;
-}
