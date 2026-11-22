@@ -35,6 +35,18 @@ describe('Remotion runner boundaries', () => {
       .rejects.toThrow('composition ID');
   });
 
+  it('rejects malformed props before starting a render', async () => {
+    await writeFile(props, '{broken');
+    await expect(renderRemotionComposition(root, bundle, 'Video', props, output))
+      .rejects.toThrow('JSON');
+  });
+
+  it('rejects oversized props before starting a render', async () => {
+    await writeFile(props, '{"padding":"' + 'x'.repeat(1_000_000) + '"}');
+    await expect(renderRemotionComposition(root, bundle, 'Video', props, output))
+      .rejects.toThrow('bounded');
+  });
+
   it('rejects invalid output extensions', async () => {
     await expect(renderRemotionComposition(root, bundle, 'Video', props, join(root, 'out.js')))
       .rejects.toThrow('output file');
