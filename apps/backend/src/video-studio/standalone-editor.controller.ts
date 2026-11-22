@@ -1,10 +1,14 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { VideoStudioService } from './video-studio.service';
+import { inspectStudioRuntime } from './studio-runtime-capabilities';
 
 /** Editor para produções audiovisuais independentes. */
 @Controller('studio/projects/:pid/edits')
 export class StandaloneStudioEditorController {
   constructor(private readonly studio: VideoStudioService) {}
+
+  @Get('runtime/capabilities')
+  capabilities() { return inspectStudioRuntime(); }
 
   @Get()
   list(@Param('pid', ParseUUIDPipe) pid: string) { return this.studio.list(pid); }
