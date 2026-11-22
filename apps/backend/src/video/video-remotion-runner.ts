@@ -47,7 +47,7 @@ export async function renderRemotionComposition(
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.
   const result = await runVideoTool('remotion', [
-    'render', bundle, compositionId, output,
+    'render', bundle, 'NivooStudio', output,
     '--props', props, '--codec', 'h264',
   ], root, 3_600_000, signal);
   if (result.exitCode !== 0) throw new Error('Remotion render failed with exit ' + result.exitCode);
