@@ -34,7 +34,22 @@ describe('Studio durable render status', () => {
     expect(interruptedStudioRender(dead)).toMatchObject({ state: 'failed' });
   });
 
-  it('refuses malformed persisted state', () => {
+  it('persists stage progress and survives a second reader', () => {
+    const active = { ...record('running'), stage: 'clips' as const, progress: 35 };
+    saveStudioRenderStatus(root, editId, active);
+    expect(loadStudioRenderStatus(root, editId)).toMatchObject({stage:'clips',progress:35});
+    saveStudioRenderStatus(root, editId, {...active,stage:'inspecting',progress:92});
+    expect(loadStudioRenderStatus(root, editId)).toMatchObject({stage:'inspecting',progress:92});
+  });
+
+  it('rejects invalid persisted progress', () => {
+    const filename = path.join(root, 'studio', editId + '.render-status.json');
+    fs.mkdirSync(path.dirname(filename));
+    fs.writeFileSync(filename, JSON.stringify({...record('running'),progress:101}));
+    expect(() => loadStudioRenderStatus(root, editId)).toThrow('Invalid persisted');
+  });
+
+    it('refuses malformed persisted state', () => {
     const filename = path.join(root, 'studio', editId + '.render-status.json');
     fs.mkdirSync(path.dirname(filename));
     fs.writeFileSync(filename, '{"state":"running"}');
