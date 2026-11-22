@@ -7,7 +7,7 @@ import { mkdir, realpath, stat, lstat } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 
 export type VideoTool = 'remotion' | 'hyperframes' | 'whisper' | 'yt-dlp';
-export type ToolResult = { exitCode: number; stdout: string; stderr: string };
+export type ToolResult = { exitCode: number; stdout: string; stderr: string; stdoutTruncated: boolean; stderrTruncated: boolean };
 const MAX_LOG = 16_384;
 
 export function assertWorkspacePath(root: string, target: string): string {
@@ -55,6 +55,7 @@ export async function runVideoTool(
       env: { ...process.env, NO_COLOR: '1' },
     });
     let stdout = '', stderr = '', settled = false;
+    let stdoutBytes = 0, stderrBytes = 0;
     const abort = () => {
       child.kill('SIGKILL');
       clearTimeout(timer);
@@ -62,8 +63,8 @@ export async function runVideoTool(
       if (!settled) { settled = true; reject(new Error('Video tool aborted')); }
     };
     const append = (prev: string, chunk: Buffer) => (prev + chunk.toString('utf8')).slice(-MAX_LOG);
-    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.stdout.on('data', (chunk: Buffer) => { stdoutBytes += chunk.length; stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.length; stderr = append(stderr, chunk); });
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       if (!settled) { settled = true; signal?.removeEventListener('abort', abort); reject(new Error('Video tool timeout')); }
@@ -78,7 +79,7 @@ export async function runVideoTool(
     child.on('close', code => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
-      if (!settled) { settled = true; resolveResult({ exitCode: code ?? -1, stdout, stderr }); }
+      if (!settled) { settled = true; resolveResult({ exitCode: code ?? -1, stdout, stderr, stdoutTruncated: stdoutBytes > MAX_LOG, stderrTruncated: stderrBytes > MAX_LOG }); }
     });
   });
 }
