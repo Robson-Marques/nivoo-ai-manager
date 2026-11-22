@@ -19,6 +19,8 @@ function file(media: string, editId: string): string {
 
 export function loadStudioRenderStatus(media: string, editId: string): StudioRenderStatus | undefined {
   const filename = file(media, editId);
+  try { if (fs.lstatSync(filename).isSymbolicLink()) throw new Error('Unsafe Studio render status path'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   let raw: string;
   try { raw = fs.readFileSync(filename, 'utf8'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
@@ -33,6 +35,9 @@ export function loadStudioRenderStatus(media: string, editId: string): StudioRen
 export function saveStudioRenderStatus(media: string, editId: string, value: StudioRenderStatus): void {
   const filename = file(media, editId);
   fs.mkdirSync(path.dirname(filename), { recursive: true });
+  if (fs.lstatSync(path.dirname(filename)).isSymbolicLink()) throw new Error('Unsafe Studio status directory');
+  try { if (fs.lstatSync(filename).isSymbolicLink()) throw new Error('Unsafe Studio render status path'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const tmp = filename + '.' + randomUUID() + '.tmp';
   try {
     fs.writeFileSync(tmp, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
