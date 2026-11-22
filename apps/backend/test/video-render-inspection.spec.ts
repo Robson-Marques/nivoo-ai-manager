@@ -8,6 +8,16 @@ describe('real video inspection parsers', () => {
     }))).toEqual({ durationMs: 8250, hasAudio: true });
   });
 
+  it('accepts long-form videos up to the Studio four-hour limit', () => {
+    const probe=(seconds: string)=>JSON.stringify({
+      streams:[{codec_type:'video'},{codec_type:'audio'}],
+      format:{duration:seconds},
+    });
+    expect(videoProbeParsers.parseProbe(probe('7200')).durationMs).toBe(7_200_000);
+    expect(videoProbeParsers.parseProbe(probe('14400')).durationMs).toBe(14_400_000);
+    expect(()=>videoProbeParsers.parseProbe(probe('14401'))).toThrow('duration');
+  });
+
   it('rejects malformed media probes and missing video streams', () => {
     expect(() => videoProbeParsers.parseProbe('not json')).toThrow('ffprobe');
     expect(() => videoProbeParsers.parseProbe(JSON.stringify({

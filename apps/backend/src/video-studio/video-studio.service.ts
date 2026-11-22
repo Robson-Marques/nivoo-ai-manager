@@ -655,6 +655,7 @@ export class VideoStudioService {
       } finally { entry.process=undefined; }
     };
     try {
+      report('validating',1);
       const first=await probe(this.src(media,p.clips[0].source));
       if(!first.v) throw new Error('Primeiro arquivo não é vídeo');
       const W=first.v.width%2?first.v.width-1:first.v.width, H=first.v.height%2?first.v.height-1:first.v.height;

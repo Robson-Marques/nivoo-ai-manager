@@ -69,6 +69,7 @@ export async function inspectRenderedVideo(
   if (probe.exitCode !== 0 || probe.stdoutTruncated) throw new Error('ffprobe inspection failed or output truncated');
   const { durationMs, hasAudio } = parseProbe(probe.stdout);
 
+  // Long-form scans may take longer than the old fixed 180-second timeout.
   const analysisTimeout = Math.min(3_600_000, Math.max(180_000, durationMs * 2));
   const black = await runVideoTool('ffmpeg', [
     '-nostdin', '-hide_banner', '-i', actual,
