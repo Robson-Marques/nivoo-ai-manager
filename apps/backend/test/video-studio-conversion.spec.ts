@@ -34,10 +34,19 @@ describe('Studio to Remotion composition conversion',()=>{
     });
     expect(result.composition.protectedZones?.[0]).toMatchObject({x:10,y:10,width:20,height:20});
   });
-  it('rejects unsupported looping soundtrack instead of silently changing the export',()=>{
-    expect(()=>studioToRemotionComposition({edit:{...edit,soundtrack:{
+  it('preserves looping soundtrack across the full composition',()=>{
+    const result=studioToRemotionComposition({edit:{...edit,soundtrack:{
       source:'midia/entrada/music.mp3',volume:.4,
-    }},projectId:'p',width:1080,height:1920})).toThrow('loop');
+    }},projectId:'p',width:1080,height:1920});
+    expect(result.composition.layers.find(layer=>layer.id==='soundtrack')).toMatchObject({
+      type:'audio',startMs:0,durationMs:3000,volume:.4,loop:true,
+    });
+    expect(result.media).toHaveLength(4);
+  });
+  it('rejects invalid soundtrack volume',()=>{
+    expect(()=>studioToRemotionComposition({edit:{...edit,soundtrack:{
+      source:'midia/entrada/music.mp3',volume:Infinity,
+    }},projectId:'p',width:1080,height:1920})).toThrow('volume');
   });
   it('generates bounded media identities even for long authorized filenames',()=>{
     const name='a'.repeat(180)+'.mp4';

@@ -8,7 +8,7 @@ import { FramePlan, toFramePlan } from './video-frame-plan';
  */
 export type ResolvedMedia = { mediaId: string; assetUrl: string };
 export type RemotionLayer =
-  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; transform?: { x: number; y: number; width: number; height: number } }
+  | { id: string; type: 'video' | 'image' | 'audio'; src: string; fromFrame: number; durationInFrames: number; zIndex: number; volume?: number; sourceOffsetMs?: number; loop?: boolean; transform?: { x: number; y: number; width: number; height: number } }
   | { id: string; type: 'text'; text: string; animation: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; fromFrame: number; durationInFrames: number; zIndex: number; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string };
 
 export type RemotionProps = Pick<FramePlan, 'width' | 'height' | 'fps' | 'durationInFrames'> & {
@@ -48,6 +48,7 @@ export function buildRemotionProps(
     const src = assets.get(layer.mediaId);
     if (!src) throw new Error('Unresolved project media: ' + layer.mediaId);
     if (layer.type === 'audio') return { ...base, type: 'audio', src, volume: layer.volume,
+      ...(layer.loop ? { loop: true } : {}),
       ...(layer.sourceOffsetMs !== undefined ? { sourceOffsetMs: layer.sourceOffsetMs } : {}) };
     return { ...base, type: layer.type, src,
       ...(layer.sourceOffsetMs !== undefined ? { sourceOffsetMs: layer.sourceOffsetMs } : {}),

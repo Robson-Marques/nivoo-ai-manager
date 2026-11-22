@@ -10,7 +10,7 @@ type Word={text:string;startMs:number;endMs:number};
 type Layer={
   id:string;type:'video'|'image'|'audio'|'text';src?:string;text?:string;
   fromFrame:number;durationInFrames:number;zIndex:number;volume?:number;sourceOffsetMs?:number;
-  transform?:Transform;fontSize?:number;color?:string;animation?:string;words?:Word[];
+  transform?:Transform;fontSize?:number;color?:string;animation?:string;words?:Word[];loop?:boolean;
 };
 export type StudioProps={
   compositionId:string;revision:string;width:number;height:number;fps:number;durationInFrames:number;
@@ -63,7 +63,7 @@ export const StudioComposition:React.FC<StudioProps>=({layers})=>{
         </div>}
         {layer.type==='image'&&src&&<Img src={src}
           style={{...layerStyle(layer.transform),objectFit:'contain'}} />}
-        {layer.type==='audio'&&src&&<Audio src={src} startFrom={trim}
+        {layer.type==='audio'&&src&&<Audio src={src} startFrom={trim} loop={layer.loop===true}
           volume={layer.volume??1}/>}
         {layer.type==='text'&&<Caption layer={layer}/>}
       </Sequence>;

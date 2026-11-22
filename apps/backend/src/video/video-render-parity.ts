@@ -6,7 +6,7 @@ import { VideoComposition, validateComposition } from './video-composition';
  */
 export type RenderFeature =
   | 'source-offset' | 'clip-volume' | 'audio-offset' | 'layer-transform'
-  | 'text-style' | 'karaoke' | 'caption-animation' | 'protected-zones';
+  | 'text-style' | 'karaoke' | 'caption-animation' | 'protected-zones' | 'audio-loop';
 
 export type RenderFeatureSupport = Readonly<Record<RenderFeature, boolean>>;
 
@@ -19,6 +19,7 @@ export const UNVERIFIED_REMOTION_FEATURES: RenderFeatureSupport = {
   karaoke: false,
   'caption-animation': false,
   'protected-zones': false,
+  'audio-loop': false,
 };
 
 export function requiredRenderFeatures(composition: VideoComposition): RenderFeature[] {
@@ -32,6 +33,7 @@ export function requiredRenderFeatures(composition: VideoComposition): RenderFea
       if (layer.transform) features.add('layer-transform');
     } else if (layer.type === 'audio') {
       if ((layer.sourceOffsetMs ?? 0) > 0) features.add('audio-offset');
+      if (layer.loop) features.add('audio-loop');
     } else if (layer.type === 'text') {
       if (layer.transform) features.add('layer-transform');
       if (layer.fontSize !== undefined || layer.color !== undefined) features.add('text-style');

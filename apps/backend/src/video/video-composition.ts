@@ -5,7 +5,7 @@
 export type VideoLayer =
   | { id: string; type: 'video' | 'image'; mediaId: string; startMs: number; durationMs: number; zIndex: number; sourceOffsetMs?: number; volume?: number; transform?: { x: number; y: number; width: number; height: number } }
   | { id: string; type: 'text'; text: string; startMs: number; durationMs: number; zIndex: number; animation?: 'none' | 'fade' | 'slide' | 'typewriter' | 'pop' | 'rise' | 'enter-left' | 'enter-right' | 'karaoke'; words?: Array<{ text: string; startMs: number; endMs: number }>; transform?: { x: number; y: number; width: number; height: number }; fontSize?: number; color?: string }
-  | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number; sourceOffsetMs?: number };
+  | { id: string; type: 'audio'; mediaId: string; startMs: number; durationMs: number; zIndex: number; volume: number; sourceOffsetMs?: number; loop?: boolean };
 
 export interface VideoComposition {
   schemaVersion: 1;
@@ -76,6 +76,7 @@ export function validateComposition(value: VideoComposition): void {
         }
         break;
       case 'audio':
+        if (layer.loop !== undefined && typeof layer.loop !== 'boolean') throw new Error('Invalid audio loop');
         if (!name(layer.mediaId) || !Number.isFinite(layer.volume) || layer.volume < 0 || layer.volume > 2) {
           throw new Error('Invalid audio layer');
         }

@@ -71,9 +71,11 @@ export function studioToRemotionComposition(input:{
       sourceOffsetMs:ms(track.start),volume:track.volume});
   }
   if(edit.soundtrack) {
-    // A looping soundtrack is currently rendered by the FFmpeg export path.
-    // Remotion must not silently truncate the music when the source is shorter.
-    throw new Error('Looping Studio soundtrack requires Remotion loop parity');
+    if(!Number.isFinite(edit.soundtrack.volume)||edit.soundtrack.volume<0||edit.soundtrack.volume>2)
+      throw new Error('Invalid Studio soundtrack volume');
+    layers.push({id:'soundtrack',type:'audio',mediaId:register(edit.soundtrack.source),
+      startMs:0,durationMs,zIndex:5,sourceOffsetMs:0,
+      volume:edit.soundtrack.volume,loop:true});
   }
   const protectedZones=(edit.protectedZones??[]).map(z=>({
     id:z.id,label:z.label,startMs:ms(z.start),durationMs:ms(z.end-z.start),
