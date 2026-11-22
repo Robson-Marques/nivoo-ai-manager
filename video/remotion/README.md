@@ -45,3 +45,7 @@ Render partials now carry a per-attempt UUID to avoid collision between interrup
 ### Trusted worker orchestration
 
 `runPreparedRemotionJob` now allocates a per-run directory, copies the trusted bundle, stages authorized media, invokes the render adapter, inspects the MP4 and removes its temporary directory on both success and failure. It requires the caller to supply authorization, lease, quotas and verified feature support. It is intentionally **not exposed as a public route** until the legacy Studio edit model is mapped and the update installs the pinned Remotion CLI and trusted bundle.
+
+### Trusted Studio worker adapter
+
+`renderStudioEditWithRemotion` connects the saved Studio edit format to the private Remotion job orchestration. It performs the pure conversion, passes authorized project media references and delegates to the isolated bundle, staging, CLI and MP4 inspection chain. It deliberately does not alter the existing HTTP render endpoint: that endpoint must continue using FFmpeg until the trusted production installer provisions Remotion and a verified feature support map. A user-provided capabilities map must never enable rendering.

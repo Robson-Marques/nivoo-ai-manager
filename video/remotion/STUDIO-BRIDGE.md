@@ -13,3 +13,5 @@ edit and supply the actual output dimensions before invoking this function.
 
 The existing Studio render endpoint is unchanged and remains FFmpeg-based.
 The bridge is not a claim of visual parity or production readiness.
+
+Media IDs are now bounded SHA-256 identifiers derived from the authorized Studio media reference. They do not reveal the original source path and remain stable across repeated edits. The converter rejects nonfinite clip timing before projection.

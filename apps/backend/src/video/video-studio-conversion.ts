@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { StudioProject } from '../video-studio/video-studio.service';
 import { VideoComposition, validateComposition } from './video-composition';
 import { ProjectMediaRecord } from './video-project-media';
@@ -22,13 +23,13 @@ export function studioToRemotionComposition(input:{
   if(!Number.isFinite(total)||total<=0||total>3600)
     throw new Error('Remotion compositions currently support up to one hour');
   const durationMs=ms(total);
+  if(durationMs>3600000)throw new Error('Remotion composition duration exceeds one hour');
   const layers:VideoComposition['layers']=[];
   const media=new Map<string,ProjectMediaRecord>();
   const register=(source:string)=>{
     if(!/^midia\/(entrada|saida)\/[A-Za-z0-9_.-]+$/.test(source))
       throw new Error('Invalid Studio media source');
-    const id='studio_'+Buffer.from(source).toString('hex');
-    if(id.length>256)throw new Error('Studio media source too long');
+    const id='studio_'+createHash('sha256').update(source).digest('hex');
     if(!media.has(id))media.set(id,{id,projectId,assetUrl:'/'+source});
     return id;
   };
@@ -37,11 +38,12 @@ export function studioToRemotionComposition(input:{
   });
   let cursor=0;
   edit.clips.forEach((clip,i)=>{
+    if(!Number.isFinite(clip.start)||!Number.isFinite(clip.end)||!Number.isFinite(clip.duration))throw new Error('Invalid Studio clip timing');
     const duration=ms(clip.duration);
     if(duration<=0||Math.abs(clip.end-clip.start-clip.duration)>.1)
       throw new Error('Invalid Studio clip timing');
     layers.push({id:'clip_'+i,type:'video',mediaId:register(clip.source),
-      startMs:ms(cursor),durationMs:duration,zIndex:0,sourceOffsetMs:ms(clip.start),
+      startMs:ms(cursor),durationMs:Math.min(duration,durationMs-ms(cursor)),zIndex:0,sourceOffsetMs:ms(clip.start),
       volume:clip.volume??1});
     cursor+=clip.duration;
   });

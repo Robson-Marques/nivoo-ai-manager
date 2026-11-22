@@ -39,6 +39,14 @@ describe('Studio to Remotion composition conversion',()=>{
       source:'midia/entrada/music.mp3',volume:.4,
     }},projectId:'p',width:1080,height:1920})).toThrow('loop');
   });
+  it('generates bounded media identities even for long authorized filenames',()=>{
+    const name='a'.repeat(180)+'.mp4';
+    const result=studioToRemotionComposition({
+      edit:{...edit,clips:[{...edit.clips[0],source:'midia/entrada/'+name}]},
+      projectId:'p',width:1080,height:1920,
+    });
+    expect(result.media[0].id).toMatch(/^studio_[a-f0-9]{64}$/);
+  });
   it('rejects untrusted media source',()=>{
     expect(()=>studioToRemotionComposition({edit:{...edit,clips:[{...edit.clips[0],source:'../../etc/passwd'}]},
       projectId:'p',width:1080,height:1920})).toThrow('source');
