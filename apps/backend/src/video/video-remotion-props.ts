@@ -26,7 +26,9 @@ export function buildRemotionProps(
   const assets = new Map<string, string>();
   for (const entry of media) {
     if (!entry || typeof entry.mediaId !== 'string' || !entry.mediaId ||
-        typeof entry.assetUrl !== 'string' || !entry.assetUrl.startsWith('/')) {
+        typeof entry.assetUrl !== 'string' || !entry.assetUrl.startsWith('/') || entry.assetUrl.startsWith('//') ||
+        entry.assetUrl.includes('\\\\') || entry.assetUrl.includes('..') ||
+        /[?#\\x00-\\x1f]/.test(entry.assetUrl)) {
       throw new Error('Invalid resolved media');
     }
     if (assets.has(entry.mediaId)) throw new Error('Duplicate resolved media ID');
