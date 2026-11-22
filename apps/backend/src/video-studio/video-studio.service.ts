@@ -611,6 +611,8 @@ export class VideoStudioService {
       entry.process?.kill('SIGTERM');
       return entry.result;
     }
+    const stored=loadStudioRenderStatus(media,id);
+    if(stored?.state==='running') throw new ConflictException('Exportação pertence a outro processo. O cancelamento remoto ainda não está disponível.');
     return this.state(pid,id);
   }
   private async execute(media:string,p:StudioProject,key:string) {
