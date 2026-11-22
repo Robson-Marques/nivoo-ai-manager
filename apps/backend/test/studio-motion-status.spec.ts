@@ -41,6 +41,18 @@ describe('Studio motion job durability',()=>{
     expect(()=>saveStudioMotionState(media,id,{...initial(),state:'done',
       output:'../../etc/passwd'})).toThrow('Saída de motion inválida');
   });
+  it('does not follow a symlinked Studio state directory',()=>{
+    fs.symlinkSync(os.tmpdir(),path.join(media,'studio'));
+    expect(()=>saveStudioMotionState(media,id,initial())).toThrow('não confiável');
+  });
+  it('restores an actionable failure after output folder deletion',()=>{
+    const output='midia/saida/motion-'+id+'-'+runId+'.mp4';
+    fs.mkdirSync(path.join(media,'saida'));
+    fs.writeFileSync(path.join(media,'saida',path.basename(output)),Buffer.alloc(2048));
+    saveStudioMotionState(media,id,{...initial(),state:'done',output,durationMs:3200});
+    fs.rmSync(path.join(media,'saida'),{recursive:true});
+    expect(readStudioMotionState(media,id)).toMatchObject({state:'failed',error:'Arquivo da prévia foi removido'});
+  });
   it('does not trust a symlinked state file',()=>{
     fs.mkdirSync(path.join(media,'studio'));
     const statePath=path.join(media,'studio',id+'.motion-status.json');

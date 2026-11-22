@@ -18,7 +18,11 @@ export type StudioMotionState={
 
 function location(media:string,id:string):string{
   if(!/^[a-f\d-]{36}$/i.test(id))throw new Error('ID de edição inválido');
-  return path.join(media,'studio',id+'.motion-status.json');
+  const root=fs.realpathSync(media);
+  const studio=path.join(root,'studio');
+  if(fs.existsSync(studio)&&fs.lstatSync(studio).isSymbolicLink())
+    throw new Error('Diretório de motion não confiável');
+  return path.join(studio,id+'.motion-status.json');
 }
 function validOutput(output:unknown,id:string):output is string{
   return typeof output==='string' &&
@@ -52,8 +56,14 @@ export function readStudioMotionState(media:string,id:string):StudioMotionState|
     // Reject a symlinked output directory as well as symlinked files.
     const root=fs.realpathSync(media);
     const outDir=path.join(root,'saida');
-    if(fs.lstatSync(outDir).isSymbolicLink()||fs.realpathSync(outDir)!==outDir)
-      throw new Error('Diretório de saída de motion não confiável');
+    try {
+      if(fs.lstatSync(outDir).isSymbolicLink()||fs.realpathSync(outDir)!==outDir)
+        throw new Error('Diretório de saída de motion não confiável');
+    }catch(error) {
+      if((error as NodeJS.ErrnoException).code==='ENOENT')
+        return {...s,state:'failed',error:'Arquivo da prévia foi removido'};
+      throw error;
+    }
     const actual=path.join(outDir,path.basename(s.output!));
     try{
       const meta=fs.lstatSync(actual);

@@ -34,6 +34,17 @@ describe('Nivoo HyperFrames motion integration',()=>{
       expect(html).not.toContain('window.setInterval');
     }
   });
+  it('accepts bounded larger catalog output while keeping default tool log bounds',async()=>{
+    const code='process.stdout.write("a".repeat(25000))';
+    const bounded=await runVideoTool(process.execPath,['-e',code],os.tmpdir(),5000,
+      undefined,{PATH:process.env.PATH},128*1024);
+    expect(bounded.exitCode).toBe(0);
+    expect(bounded.stdout).toHaveLength(25000);
+    expect(bounded.stdoutTruncated).toBe(false);
+    const regular=await runVideoTool(process.execPath,['-e',code],os.tmpdir(),5000);
+    expect(regular.stdoutTruncated).toBe(true);
+    expect(regular.stdout.length).toBeLessThanOrEqual(16_384);
+  });
   it('can spawn a CLI with an isolated environment',async()=>{
     const previous=process.env.NIVOO_HF_PRIVATE_TEST;
     process.env.NIVOO_HF_PRIVATE_TEST='do-not-leak';
