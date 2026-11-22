@@ -1,4 +1,5 @@
 import { copyFile, lstat, mkdir, realpath, stat } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { extname, join, relative, resolve, isAbsolute } from 'node:path';
 import { assertWorkspacePath } from './video-tool-adapters';
@@ -54,7 +55,7 @@ export async function stageRemotionMedia(input: {
     const name=createHash('sha256').update(item.mediaId+'\0'+item.relativePath).digest('hex').slice(0,32)+extension;
     const destination=join(assets,name);
     await checkSegments(destination);
-    await copyFile(real,destination);
+    await copyFile(real,destination,fsConstants.COPYFILE_EXCL);
     result.push({mediaId:item.mediaId,assetUrl:'/assets/'+name});
   }
   return result;

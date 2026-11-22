@@ -33,3 +33,7 @@ O backend agora oferece `stageRemotionMedia`: recebe apenas caminhos relativos d
 ### Per-job bundle provisioning
 
 The backend provides `provisionPrivateRemotionBundle`, which copies an operator-provisioned trusted bundle into a new, private workspace job directory. It refuses existing target directories and symlinked job paths. A caller must allocate a fresh job directory and run this before `executeVerifiedRemotionRender`. The CLI and trusted bundle installation are not yet wired into `nivoo update`; the FFmpeg export remains the only production route.
+
+### Atomic Remotion output
+
+The execution adapter now renders to a hidden per-output partial MP4, runs independent inspection on that partial, and only then renames it to the public output name. Failed or cancelled jobs remove the partial file. The runner permits this private partial filename. The trusted bundle copy fails closed on symlinks rather than silently omitting executable assets. Asset staging uses exclusive copy semantics to reject collisions.

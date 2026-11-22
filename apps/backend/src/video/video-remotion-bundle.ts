@@ -27,7 +27,10 @@ export async function provisionPrivateRemotionBundle(input:{
   catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
   await mkdir(target,{recursive:true,mode:0o700});
   await cp(source,target,{recursive:true,force:false,errorOnExist:true,
-    filter:async(path)=>!(await lstat(path)).isSymbolicLink()});
+    filter:async(path)=>{
+      if((await lstat(path)).isSymbolicLink())throw new Error('Trusted bundle contains symlink');
+      return true;
+    }});
   if(!(await stat(join(target,'index.html'))).isFile())
     throw new Error('Trusted Remotion bundle missing index.html');
   return target;

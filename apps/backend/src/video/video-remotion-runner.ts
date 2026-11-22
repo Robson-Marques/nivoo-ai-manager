@@ -20,7 +20,7 @@ export async function renderRemotionComposition(
   const bundle = assertWorkspacePath(root, resolve(bundleDirectory));
   const props = assertWorkspacePath(root, resolve(propsFile));
   const output = assertWorkspacePath(root, resolve(outputFile));
-  if (!output.endsWith('.mp4') || basename(output).startsWith('.')) throw new Error('Invalid Remotion output file');
+  if (!output.endsWith('.mp4') || (basename(output).startsWith('.') && !basename(output).endsWith('.partial.mp4'))) throw new Error('Invalid Remotion output file');
   for (const candidate of [bundle, props, output]) {
     if (candidate === root) throw new Error('Remotion path cannot be workspace root');
     let cursor = root;

@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile, realpath, lstat, stat } from 'node:fs/promises';
-import { dirname, resolve, relative } from 'node:path';
+import { mkdir, readFile, writeFile, realpath, lstat, stat, rm, rename } from 'node:fs/promises';
+import { dirname, resolve, relative, basename, join } from 'node:path';
 import { VideoComposition } from './video-composition';
 import { buildRemotionProps, RemotionProps } from './video-remotion-props';
 import { ProjectMediaRecord, resolveCompositionMedia } from './video-project-media';
@@ -81,18 +81,30 @@ export async function executeVerifiedRemotionRender(
   if (stored.compositionId !== input.composition.id || stored.revision !== input.composition.revision) {
     throw new Error('Remotion props revision mismatch');
   }
-  await renderRemotionComposition(input.workspaceRoot, input.bundleDirectory,
-    input.composition.id, propsFile, input.outputFile, signal);
-  const inspected = await inspectRenderedVideo(input.workspaceRoot, input.outputFile, signal);
-  if (!inspected.outputExists || inspected.durationMs === undefined ||
-      inspected.hasAudio === undefined || inspected.blackFrameCount === undefined) {
-    throw new Error('Remotion output inspection incomplete');
+  const output=assertWorkspacePath(root,resolve(input.outputFile));
+  if(!output.endsWith('.mp4')||basename(output).startsWith('.'))throw new Error('Invalid Remotion output');
+  const partial=join(dirname(output),'.'+basename(output)+'.partial.mp4');
+  // Do not publish a partially rendered or uninspected MP4.
+  try {
+    await renderRemotionComposition(root,bundle,input.composition.id,propsFile,partial,signal);
+    const inspected = await inspectRenderedVideo(root,partial,signal);
+    if (!inspected.outputExists || inspected.durationMs === undefined ||
+        inspected.hasAudio === undefined || inspected.blackFrameCount === undefined) {
+      throw new Error('Remotion output inspection incomplete');
+    }
+    if(signal?.aborted)throw new Error('Remotion render cancelled');
+    try {await lstat(output);throw new Error('Remotion output already exists');}
+    catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+    await rename(partial,output);
+    return {
+      outputFile: output,
+      durationMs: inspected.durationMs,
+      hasAudio: inspected.hasAudio,
+      blackFrameCount: inspected.blackFrameCount,
+      ...(inspected.audioPeakDbfs !== undefined ? { audioPeakDbfs: inspected.audioPeakDbfs } : {}),
+    };
+  } finally {
+    await rm(partial,{force:true});
   }
-  return {
-    outputFile: input.outputFile,
-    durationMs: inspected.durationMs,
-    hasAudio: inspected.hasAudio,
-    blackFrameCount: inspected.blackFrameCount,
-    ...(inspected.audioPeakDbfs !== undefined ? { audioPeakDbfs: inspected.audioPeakDbfs } : {}),
-  };
+
 }
