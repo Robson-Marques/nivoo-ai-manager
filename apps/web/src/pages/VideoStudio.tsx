@@ -13,7 +13,7 @@ type AudioTrack = {id:string;source:string;start:number;end:number;offset:number
 type Asset = { id:string; source:string; start:number; end:number; x:number; y:number; w:number; h:number; animation?:'fade'|'slide'|'none' };
 type Studio = { version:1; id:string; title:string; clips:Clip[]; captions:Caption[]; assets:Asset[]; audioTracks?:AudioTrack[]; protectedZones?:ProtectedZone[]; soundtrack?:{source:string; volume:number}|null;updatedAt:string };
 type AiElement={kind:'caption'|'image'|'graphic';text?:string;asset?:string;subtitle?:string;variant?:string;start:number;end:number;x:number;y:number;w?:number;h?:number};
-type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];explanation?:string};
+type AiResult={state:'idle'|'running'|'draft'|'failed';error?:string;elements?:AiElement[];motionSuggestions?:Array<{preset:string;title:string}>;explanation?:string};
 type ZonesResult={state:'idle'|'running'|'draft'|'failed';error?:string;regions?:ProtectedZone[];warning?:string};
 type RuntimeCapability = {id:string;state:'ready'|'unavailable'|'blocked';detail:string};
 type Render = { state:'idle'|'running'|'done'|'failed'|'cancelled';error?:string;output?:string;cancellationRequested?:boolean;
@@ -40,6 +40,7 @@ export function VideoStudio() {
   const [runtime,setRuntime]=useState<RuntimeCapability[]>([]);
   const [showRuntime,setShowRuntime]=useState(false);
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
+  const [motionSuggestion,setMotionSuggestion]=useState<{preset:string;title:string;token:number}|null>(null);
   const [zoneDraft,setZoneDraft]=useState<ZonesResult>({state:'idle'});
   const [aligning,setAligning]=useState<{state:string;error?:string;captions?:number}>({state:'idle'});
   const [busy,setBusy]=useState(false);
@@ -96,7 +97,7 @@ export function VideoStudio() {
     return()=>{active=false};
   },[edits]);
   useEffect(()=>{
-    setProject(null);setRunning({state:'idle'});setDirty(false);setPlayhead(0);setSelected(null);
+    setProject(null);setRunning({state:'idle'});setDirty(false);setPlayhead(0);setSelected(null);setMotionSuggestion(null);
     refresh().then(async editions=>{
       if(!standalone||!editions.length)return;
       const latest=[...editions].sort((a:any,b:any)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0];
@@ -118,6 +119,7 @@ export function VideoStudio() {
     return()=>clearInterval(timer);
   },[project?.id,pid,running.state]);
   const open=async(id:string)=>{
+    setMotionSuggestion(null);
     if(dirty&&!window.confirm('Descartar alterações não salvas?')) return;
     const p=await api<Studio>(edits+'/'+id);
     setProject(p);setRunning({state:'idle'});setPlayhead(0);setSelected(null);setDirty(false);setError('');setNotice('');setAiDraft({state:'idle'});setZoneDraft({state:'idle'});undoStack.current=[];redoStack.current=[];
@@ -670,7 +672,7 @@ export function VideoStudio() {
             {m.pasta==='entrada'&&<button className="studio-media-delete" disabled={busy} title={'Excluir '+m.nome+' do projeto'} aria-label={'Excluir vídeo '+m.nome} onClick={()=>removeMedia(m)}>✕</button>}
           </div>)}
           <h4>Imagens</h4>{mediaImage.map(m=><button title={m.nome} key={m.caminho} onClick={()=>addImage(m)}>＋ {m.nome}</button>)}
-          <StudioMotionMaker edits={edits} mediaBase={base} editId={project.id}
+          <StudioMotionMaker edits={edits} mediaBase={base} editId={project.id} suggestion={motionSuggestion}
             ready={runtime.some(tool=>tool.id==='hyperframes'&&tool.state==='ready')}
             onAdd={source=>append({caminho:source,nome:'Motion HyperFrames',bytes:0,pasta:'saida'})}/>
           {standalone&&<div className="studio-narration">
@@ -751,8 +753,18 @@ export function VideoStudio() {
             {aiDraft.state==='draft'&&<div className="studio-ai-draft">
               <strong>Proposta pronta para revisão</strong>
               <p>{aiDraft.explanation}</p>
-              <p>{aiDraft.elements?.length||0} elementos propostos</p>
+              <p>{aiDraft.elements?.length||0} elementos e {aiDraft.motionSuggestions?.length||0} sugestão(ões) de motion</p>
               <ul>{aiDraft.elements?.map((el,i)=><li key={i}>{el.kind==='caption'?el.text:el.kind==='image'?el.asset:el.text||'Gráfico contextual'} ({fmt(el.start)}–{fmt(el.end)}) <button onClick={()=>removeAiDraft(i)} title="Retirar somente esta proposta">Retirar</button></li>)}</ul>
+              {Boolean(aiDraft.motionSuggestions?.length)&&<div className="studio-motion-ai-suggestions">
+                <strong>Motion design sugerido (prévia opcional)</strong>
+                {aiDraft.motionSuggestions?.map((suggestion,index)=><button type="button" key={index}
+                  onClick={()=>{
+                    setMotionSuggestion({...suggestion,token:Date.now()});
+                    document.querySelector('.studio-motion')?.scrollIntoView({behavior:'smooth',block:'nearest'});
+                  }}>
+                  Usar {suggestion.preset} — {suggestion.title}
+                </button>)}
+              </div>}
               <button disabled={!aiDraft.elements?.length} onClick={applyAi}>Aplicar à timeline</button>
               <button onClick={()=>setAiDraft({state:'idle'})}>Descartar prévia</button>
             </div>}

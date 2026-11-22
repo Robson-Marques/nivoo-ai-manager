@@ -9,6 +9,7 @@ type State={state:'idle'|'running'|'done'|'failed'|'cancelled';output?:string;er
 export function StudioMotionMaker(props:{
   edits:string;mediaBase:string;editId:string;
   ready:boolean;onAdd:(source:string)=>void;
+  suggestion?:{preset:string;title:string;token:number}|null;
 }) {
   const [presets,setPresets]=useState<Preset[]>([]);
   const [preset,setPreset]=useState('kinetic-title');
@@ -18,6 +19,14 @@ export function StudioMotionMaker(props:{
   const [state,setState]=useState<State>({state:'idle'});
   const [error,setError]=useState('');
   const endpoint=props.edits+'/'+props.editId+'/motion';
+  useEffect(()=>{
+    if(!props.suggestion)return;
+    setCategory('all');
+    setPreset(props.suggestion.preset);
+    setTitle(props.suggestion.title);
+    setReplay(n=>n+1);
+    setState({state:'idle'});
+  },[props.suggestion?.token]);
   useEffect(()=>{
     let alive=true;
     setState({state:'idle'});setError('');
