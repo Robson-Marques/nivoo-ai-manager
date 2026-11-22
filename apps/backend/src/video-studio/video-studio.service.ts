@@ -609,9 +609,8 @@ export class VideoStudioService {
     const {media}=await this.dir(pid);
     const key=pid+':'+id;
     const entry=status.get(key);
-    const persisted=loadStudioRenderStatus(media,id);
-    const active=entry?.result.state==='running' ? entry.result : persisted;
-    if (!active || active.state!=='running') return this.state(pid,id);
+    const active=await this.state(pid,id);
+    if (!('runId' in active) || active.state!=='running') return active;
     // A cancellation marker is specific to the runId: it cannot accidentally
     // terminate a newer export of the same edit.
     const owner=readStudioRenderLease(media,id);
