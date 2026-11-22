@@ -52,7 +52,7 @@ export async function renderRemotionComposition(
   for (const layer of payload.layers as Array<Record<string,unknown>>) {
     if (!layer || typeof layer !== 'object') throw new Error('Invalid Remotion layer');
     if (layer.type !== 'text' && (typeof layer.src !== 'string' ||
-        !/^\\/assets\\/[a-zA-Z0-9_-]+\\.[a-zA-Z0-9]+$/.test(layer.src))) {
+        !/^\/assets\/[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(layer.src))) {
       throw new Error('Remotion media must be staged in trusted bundle assets');
     }
   }
