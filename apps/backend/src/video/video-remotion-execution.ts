@@ -98,7 +98,9 @@ export async function executeVerifiedRemotionRender(
     catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
     // Publish without replacing an existing artifact from another worker.
     await link(partial,output);
-    await unlink(partial);
+    // The hard link is the durable publication point. Failure to remove the
+    // temporary name must not turn a successfully published MP4 into an error.
+    await rm(partial,{force:true});
     return {
       outputFile: output,
       durationMs: inspected.durationMs,
