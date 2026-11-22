@@ -1,5 +1,6 @@
 import { StudioEditV1, studioEditToComposition } from './video-studio-bridge';
 import { buildRemotionProps, RemotionProps, ResolvedMedia } from './video-remotion-props';
+import { requiredRenderFeatures, UNVERIFIED_REMOTION_FEATURES } from './video-render-parity';
 
 export type ExportReadiness = {
   ready: boolean;
@@ -17,30 +18,14 @@ export function assessRemotionExport(
   media: readonly ResolvedMedia[],
 ): ExportReadiness {
   const blockers: string[] = [];
-  if (edit.protectedZones?.length) blockers.push('Protected zones require renderer parity verification');
-  if (edit.captions.some(c => c.animation === 'karaoke' || (c.words?.length ?? 0) > 0)) {
-    blockers.push('Karaoke captions require renderer parity verification');
-  }
-  if (edit.captions.some(c => c.animation && !['none', 'fade', 'slide'].includes(c.animation))) {
-    blockers.push('Caption animation requires renderer parity verification');
-  }
-  if (edit.captions.some(c => c.x !== undefined || c.y !== undefined)) {
-    blockers.push('Caption positioning requires renderer parity verification');
-  }
-  if (edit.assets.some(a => a.x !== undefined || a.y !== undefined || a.w !== undefined || a.h !== undefined)) {
-    blockers.push('Image placement requires renderer parity verification');
-  }
-  if (edit.clips.some(c => c.start > 0 || c.volume !== undefined)) {
-    blockers.push('Source trimming and clip volume require renderer parity verification');
-  }
-  if (edit.audioTracks?.some(a => (a.offset ?? 0) > 0)) {
-    blockers.push('Audio offsets require renderer parity verification');
-  }
   // Until a real Remotion composition is bundled, no edit may be exported
   // via this experimental path, even when all edit features are supported.
   blockers.push('Remotion composition bundle and end-to-end export are not yet verified');
   try {
     const composition = studioEditToComposition(edit);
+    for (const feature of requiredRenderFeatures(composition)) {
+      if (!UNVERIFIED_REMOTION_FEATURES[feature]) blockers.push('Renderer parity not verified: ' + feature);
+    }
     const props = buildRemotionProps(composition, media);
     return { ready: false, blockers, props };
   } catch (error) {
