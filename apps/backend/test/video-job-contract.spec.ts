@@ -1,4 +1,4 @@
-import { videoJobIdempotencyKey, validateVideoJobRequest, VideoJobRequest } from '../../src/video/video-job-contract';
+import { videoJobIdempotencyKey, validateVideoJobRequest, VideoJobRequest } from '../src/video/video-job-contract';
 
 describe('video job contract', () => {
   const base: VideoJobRequest = {
