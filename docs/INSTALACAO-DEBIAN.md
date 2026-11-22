@@ -235,3 +235,12 @@ O painel de propriedades de **legendas** e **imagens de apoio** oferece uma gale
 A exportação FFmpeg publica `stage` e `progress` no estado persistente: preparação, montagem de cenas, mixagem de áudio, composição de legendas/efeitos e inspeção final. O editor apresenta o estágio atual e uma barra aproximada; **não é uma previsão do tempo restante**. As operações de salvar, excluir e renderizar a mesma edição agora disputam o mesmo bloqueio exclusivo em disco; a timeline é lida sob esse bloqueio para não exportar uma revisão obsoleta. Reinícios interrompem a codificação atual e exigem uma nova exportação.
 
 Os novos componentes e alterações desta etapa não foram homologados no servidor. Não acione GitHub CI automaticamente: a validação deve ser combinada com o operador antes do merge/tag/deploy.
+
+
+### Exportação FFmpeg: limites e cancelamento (rodada seguinte)
+
+O fluxo real do Studio passou a usar um executor assíncrono de `ffmpeg` e `ffprobe`, com tempo limite por comando, limite de saída de logs e controle do processo filho para cancelamento. O `ffprobe` valida duração e resolução, em vez de bloquear o event loop do servidor durante a leitura de mídia. Os MP4s são nomeados pelo identificador único da execução; um arquivo parcial é excluído se o render falhar ou for cancelado. O fluxo exige uma trilha de áudio presente no MP4 final, inclusive quando o clipe original não tinha áudio (nesse caso, o pipeline insere áudio silencioso).
+
+**Limite conhecido:** o botão Cancelar atua no processo da instância que iniciou o render. Se outra instância da API receber o pedido, ela devolve um conflito explícito em vez de afirmar que cancelou. A coordenação de cancelamento entre processos ainda depende de integração com o worker/fila durável. O mecanismo de renderização operacional continua sendo FFmpeg; Remotion e HyperFrames não foram liberados nem instalados por este ajuste.
+
+Os workflows do GitHub Actions permanecem sob administração do operador. Para evitar execuções automáticas, os arquivos `.github/workflows/ci.yml` e `.github/workflows/studio-fast.yml` devem ser ajustados na branch principal para disparo manual; esta rodada não altera esses workflows.
