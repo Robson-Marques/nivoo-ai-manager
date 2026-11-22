@@ -1,5 +1,5 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { mkdir, readFile, writeFile, realpath, lstat } from 'node:fs/promises';
+import { dirname, resolve, relative } from 'node:path';
 import { VideoComposition } from './video-composition';
 import { buildRemotionProps, RemotionProps } from './video-remotion-props';
 import { ProjectMediaRecord, resolveCompositionMedia } from './video-project-media';
@@ -41,6 +41,17 @@ export async function executeVerifiedRemotionRender(
   const props: RemotionProps = buildRemotionProps(input.composition, resolved);
   const propsFile = assertWorkspacePath(input.workspaceRoot, resolve(input.propsFile));
   if (!propsFile.endsWith('.json')) throw new Error('Invalid Remotion props output');
+  const root = await realpath(input.workspaceRoot);
+  const relativeProps = relative(root, propsFile);
+  let cursor = root;
+  for (const segment of relativeProps.split(/[\\/]/).filter(Boolean)) {
+    cursor = resolve(cursor, segment);
+    try {
+      if ((await lstat(cursor)).isSymbolicLink()) throw new Error('Remotion props path contains symlink');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
   await mkdir(dirname(propsFile), { recursive: true });
   // Retry-safe: reuse only byte-identical props. A stale revision or altered
   // payload must fail closed instead of silently rendering old instructions.
