@@ -50,6 +50,19 @@ const hasFfmpeg = spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status === 0
     ],{timeoutMs:1000})).rejects.toThrow('tempo limite');
   });
 
+    it('interrupts a running encode after the cancellation flag changes', async () => {
+    let cancelled=false;
+    const started=Date.now();
+    const job=runStudioMediaCommand('ffmpeg',[
+      '-nostdin','-hide_banner','-loglevel','error','-re',
+      '-f','lavfi','-i','color=c=black:s=16x16:r=30',
+      '-t','15','-f','null','-',
+    ],{timeoutMs:30_000,isCancelled:()=>cancelled});
+    setTimeout(()=>{cancelled=true},500);
+    await expect(job).rejects.toThrow('cancelada');
+    expect(Date.now()-started).toBeLessThan(10_000);
+  });
+
     it('rejects invalid resource bounds', async () => {
     await expect(runStudioMediaCommand('ffprobe',['-version'],{timeoutMs:0})).rejects.toThrow('timeout');
   });
