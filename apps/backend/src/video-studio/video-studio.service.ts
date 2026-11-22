@@ -554,12 +554,8 @@ export class VideoStudioService {
 
   async render(pid:string,id:string) {
     const {media} = await this.dir(pid);
-    const p=this.validate(await this.get(pid,id),media);
-    if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
     const key=pid+':'+id, existing=status.get(key);
     if (existing?.result.state==='running') throw new ConflictException('Esta edição já está renderizando');
-    // A directory creation is the cross-process atomic gate. Never trust the
-    // in-memory map or a persisted JSON check alone for concurrency.
     const priorLock=readStudioRenderLease(media,id);
     if (priorLock) {
       try { recoverDeadStudioRenderLease(media,id); }
@@ -568,25 +564,32 @@ export class VideoStudioService {
     const runId=randomUUID();
     try { acquireStudioRenderLease(media,id,runId); }
     catch { throw new ConflictException('Esta edição já está renderizando em outro processo'); }
-    const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid,stage:'preparing',progress:0};
     try {
+      // Read the timeline AFTER acquiring the lock. Otherwise a concurrent
+      // save could finish between reading the edit and starting the render.
+      const p=this.validate(await this.get(pid,id),media);
+      if (!p.clips.length) throw new BadRequestException('Adicione vídeos à timeline antes de exportar');
+      const result:Status={state:'running',started:new Date().toISOString(),runId,ownerPid:process.pid,stage:'preparing',progress:0};
       saveStudioRenderStatus(media,id,result);
       status.set(key,{result,media});
-      setImmediate(()=>this.execute(media,p,key).catch(e=>{
-        const current=status.get(key);
-        if(current?.result.state==='running' && current.result.runId===result.runId) {
-          current.result={...result,state:'failed',error:String(e?.message??e).slice(0,600)};
-          saveStudioRenderStatus(media,id,current.result);
-        }
-      }).finally(()=>{
-        try { releaseStudioRenderLease(media,id,runId); }
-        catch (error) { console.error('Falha ao liberar bloqueio de renderização', error); }
-      }));
+      setImmediate(()=>{
+        void this.execute(media,p,key).catch(e=>{
+          const current=status.get(key);
+          if(current?.result.state==='running' && current.result.runId===runId) {
+            current.result={...current.result,state:'failed',error:String(e?.message??e).slice(0,600)};
+            try { saveStudioRenderStatus(media,id,current.result); }
+            catch (persistError) { console.error('Falha ao persistir erro de renderização',persistError); }
+          }
+        }).finally(()=>{
+          try { releaseStudioRenderLease(media,id,runId); }
+          catch (error) { console.error('Falha ao liberar bloqueio de renderização', error); }
+        });
+      });
+      return result;
     } catch (error) {
       releaseStudioRenderLease(media,id,runId);
       throw error;
     }
-    return result;
   }
   async state(pid:string,id:string) {
     const {media}=await this.dir(pid);
