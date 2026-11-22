@@ -45,3 +45,9 @@ O estado de cada job de motion é salvo no projeto. Ao reabrir o editor após re
 O assistente de planejamento recebe somente os seis IDs de efeito revisados. Ele pode retornar até 3 sugestões de motion no mesmo JSON da edição. A interface permite selecionar uma sugestão e preencher o criador; ela NÃO renderiza nem aplica automaticamente o efeito e não reexecuta a IA. Blocos externos do catálogo oficial ficam acessíveis apenas para descoberta e curadoria.
 
 Buscas do registro oficial são feitas por GET /motion/catalog?query=... com o comando catalog --query --json. Não há add automático. Veja VIDEO-HYPERFRAMES-CATALOGO.md.
+
+## Renderização determinística (corrigida após confrontar o formato oficial)
+
+Os seis modelos são composições HTML autoradas pelo Nivoo. Cada uma registra um `gsap.timeline({paused:true})` sob a chave `window.__timelines["nivoo-motion"]`, e o relógio de 3,2 segundos é comandado pela CLI. Não dependem de animação CSS que avança com tempo real. O runtime GSAP 3.14.2 é instalado no diretório isolado do usuário nivoo e copiado para a pasta temporária do job, sem necessidade de CDN e sem carregar código de terceiros na página além desse runtime fixado.
+
+O instalador só reconstrói dependências se a CLI, o GSAP local ou os arquivos travados estiverem ausentes; a atualização da ferramenta continua independente do fluxo FFmpeg/Remotion.

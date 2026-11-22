@@ -18,7 +18,7 @@ chown -R nivoo:nivoo "$PREFIX"
 (
   cd "$PREFIX"
   [ -f package-lock.json ] || runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" npm install --package-lock-only --ignore-scripts --no-audit --no-fund --loglevel=error
-  [ -x node_modules/.bin/hyperframes ] || runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" npm ci --no-audit --no-fund --loglevel=error
+  { [ -x node_modules/.bin/hyperframes ] && [ -s node_modules/gsap/dist/gsap.min.js ]; } || runuser -u nivoo -- env -i HOME=/var/lib/nivoo PATH="$PATH" LANG="${LANG:-C.UTF-8}" npm ci --no-audit --no-fund --loglevel=error
 )
 [ -x "$PREFIX/node_modules/.bin/hyperframes" ] || { echo "CLI HyperFrames ausente" >&2; exit 1; }
 [ -s "$PREFIX/node_modules/gsap/dist/gsap.min.js" ] || { echo "Runtime GSAP ausente" >&2; exit 1; }

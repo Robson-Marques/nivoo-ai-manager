@@ -28,6 +28,10 @@ describe('Nivoo HyperFrames motion integration',()=>{
       expect(html).toContain('data-height="960"');
       expect(html).toContain('data-fps="24"');
       expect(html).toContain('data-track-index="0"');
+      expect(html).toContain('window.__timelines["nivoo-motion"]');
+      expect(html).toContain('gsap.timeline({paused:true})');
+      expect(html).not.toContain('https://');
+      expect(html).not.toContain('window.setInterval');
     }
   });
   it('can spawn a CLI with an isolated environment',async()=>{
