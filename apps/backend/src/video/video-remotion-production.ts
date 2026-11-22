@@ -6,6 +6,7 @@ import { ProjectMediaRecord } from './video-project-media';
 import { RenderFeatureSupport } from './video-render-parity';
 import { executeVerifiedRemotionRender, VerifiedRemotionRender } from './video-remotion-execution';
 import { reviewRenderedVideo, VideoReviewReport } from './video-render-review';
+import { inspectRenderedVideo } from './video-render-inspection';
 
 export type VideoProductionInput = {
   plan: VideoProductionPlan;
@@ -69,6 +70,19 @@ export async function executeRemotionProduction(
       review.findings.filter(f => f.severity === 'error').map(f => f.code).join(', '));
     return { artifactId: 'review_' + input.plan.revision.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64),
       verified: true };
-  }, signal, input.workspaceRoot);
+  }, signal, input.workspaceRoot, async (stage) => {
+    const inspected = await inspectRenderedVideo(input.workspaceRoot, input.outputFile, signal);
+    if (!inspected.outputExists || inspected.durationMs === undefined ||
+        Math.abs(inspected.durationMs - input.composition.durationMs) > Math.max(1000, input.composition.durationMs * 0.02)) return false;
+    if (stage === 'render') return true;
+    const previousReview = await reviewRenderedVideo(input.plan, {
+      workspaceRoot: input.workspaceRoot, outputFile: input.outputFile,
+      expectedDurationMs: input.composition.durationMs,
+      requireCaptions: input.requireCaptions, requireAudio: input.requireAudio,
+      captionCount: input.captionCount,
+      contentReviewApproved: input.contentReviewApproved,
+    }, signal);
+    return previousReview.passed;
+  });
   return { executed: result.executed, ...(render ? { render } : {}), ...(review ? { review } : {}) };
 }
