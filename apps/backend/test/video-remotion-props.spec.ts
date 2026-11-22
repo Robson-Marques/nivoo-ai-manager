@@ -1,5 +1,5 @@
-import { buildRemotionProps } from '../../src/video/video-remotion-props';
-import { VideoComposition } from '../../src/video/video-composition';
+import { buildRemotionProps } from '../src/video/video-remotion-props';
+import { VideoComposition } from '../src/video/video-composition';
 
 describe('Remotion composition props', () => {
   const composition: VideoComposition = {
