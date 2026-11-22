@@ -203,7 +203,7 @@ export class VideoStudioService {
   async autoCaptions(pid:string,id:string,script?:string) {
     const key=pid+':'+id;
     if(transcriptions.get(key)?.state==='running') throw new ConflictException('Transcrição já em andamento');
-    const done=status.get(key)?.result;
+    const done=await this.state(pid,id);
     const currentProject=await this.get(pid,id);
     const direct=currentProject.clips.length===1&&!currentProject.soundtrack&&!(currentProject.audioTracks?.length);
     if(!direct&&(done?.state!=='done'||!done.output))
