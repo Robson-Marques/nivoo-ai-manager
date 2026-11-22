@@ -217,3 +217,12 @@ O instalador cria o usuário PostgreSQL `nivoo_testes` (só cria bancos; não é
 ## Prévia dos projetos
 
 O botão "Ver o projeto" mostra o site/sistema do projeto rodando ao lado da conversa. O Nivoo serve a prévia por um portão próprio (porta `NIVOO_PREVIA_PORT`, padrão 3100, só 127.0.0.1) num endereço próprio: com domínio da Cloudflare, `nivoo dominio` cria `previa-<endereço>` no mesmo túnel (para quem já tinha domínio, o `nivoo update` cria sozinho; manualmente: `nivoo dominio previa`). Pelo túnel SSH, encaminhe também a porta 3100 (`ssh -N -L 3000:127.0.0.1:3000 -L 3100:127.0.0.1:3100 root@servidor`).
+
+
+### Diagnóstico das ferramentas de vídeo (PR #6)
+
+O `nivoo update` executa `deploy/install-studio-python.sh` e `deploy/install-video-toolchain.sh` antes do reinício dos serviços. O instalador reaproveita o ambiente Python existente (inclusive quando `/opt/nivoo/studio-venv` é um link simbólico para armazenamento externo), instala dependências essenciais ausentes e agora **interrompe a atualização** se `faster-whisper`, OpenCV, OCR, FFmpeg, `libx264`, `subtitles`, `blackdetect` ou `volumedetect` não estiverem disponíveis. WhisperX é opcional e exige espaço livre.
+
+No editor Studio, o botão **Ferramentas** consulta `GET /projects/:pid/studio/runtime/capabilities` (ou `GET /studio/projects/:pid/edits/runtime/capabilities`). A inspeção é assíncrona, limitada por timeout e armazenada por 60 segundos para evitar múltiplas sondagens caras. Os motores Remotion e HyperFrames continuam **bloqueados para exportação**, mesmo se houver uma CLI instalada: a presença de um executável não comprova compatibilidade do bundle, renderização nem paridade visual. A importação `yt-dlp` também permanece desabilitada por segurança. Não interprete o painel como homologação desses motores.
+
+A exportação FFmpeg do Studio já usa bloqueio de edição por diretório exclusivo e registra o estado em disco. O reinício de serviço pode interromper o trabalho atual; ele não retoma o FFmpeg no meio da codificação. O usuário pode iniciar uma nova exportação após o bloqueio do processo encerrado ser recuperado. Não faça merge nem `nivoo update` de produção antes da revisão final do PR e autorização.
