@@ -32,7 +32,7 @@ export function requiredRenderFeatures(composition: VideoComposition): RenderFea
       if (layer.transform) features.add('layer-transform');
     } else if (layer.type === 'audio') {
       if ((layer.sourceOffsetMs ?? 0) > 0) features.add('audio-offset');
-    } else {
+    } else if (layer.type === 'text') {
       if (layer.transform) features.add('layer-transform');
       if (layer.fontSize !== undefined || layer.color !== undefined) features.add('text-style');
       if (layer.animation === 'karaoke' || layer.words?.length) features.add('karaoke');
