@@ -28,8 +28,12 @@ function safePreviewAsset(value:unknown,extension:'mp4'|'png'):string|undefined{
   if(typeof value!=='string'||value.length>400)return undefined;
   let url:URL;
   try{url=new URL(value)}catch{return undefined}
-  if(url.origin!=='https://static.heygen.ai'||url.search||url.hash||
-    !new RegExp('^/hyperframes-oss/docs/images/catalog/(blocks|components)/[a-z0-9-]+\\\\.'+extension+'
+  const match=/^\/hyperframes-oss\/docs\/images\/catalog\/(blocks|components)\/[a-z0-9-]+\.(mp4|png)$/.exec(url.pathname);
+  if(url.origin!=='https://static.heygen.ai'||url.search||url.hash||!match||match[2]!==extension)
+    return undefined;
+  return url.toString();
+}
+export function parseHyperFramesCatalog(raw:string,query:string):HyperFramesCatalogSearch {
   let envelope:unknown;
   try {envelope=JSON.parse(raw);}
   catch {throw new Error('O catálogo HyperFrames não retornou JSON válido');}
