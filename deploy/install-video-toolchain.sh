@@ -17,6 +17,17 @@ command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1 ||
   { echo "ERRO: FFmpeg/FFprobe indisponíveis" >&2; exit 1; }
 ffmpeg -hide_banner -version | head -1
 ffprobe -hide_banner -version | head -1
+# Studio export requires ASS/subtitles and libx264; fail before service restart
+# instead of discovering a missing encoder during a user's render.
+if ! ffmpeg -hide_banner -encoders 2>/dev/null | grep -qE '[[:space:]]libx264[[:space:]]'; then
+  echo 'ERRO: FFmpeg sem encoder libx264' >&2; exit 1
+fi
+for filter in subtitles blackdetect volumedetect; do
+  if ! ffmpeg -hide_banner -filters 2>/dev/null | grep -qE "[[:space:]]${filter}[[:space:]]"; then
+    echo "ERRO: FFmpeg sem filtro obrigatório: $filter" >&2; exit 1
+  fi
+done
+echo '  FFmpeg: libx264, subtitles, blackdetect e volumedetect disponíveis'
 
 # Remotion/HyperFrames exigem versão fixada, bundle confiável e aprovação de
 # execução. Não instalar automaticamente uma versão flutuante do npm.
@@ -33,7 +44,8 @@ if [ -f /etc/nivoo/nivoo.env ]; then
     if runuser -u nivoo -- "$py" -c 'import faster_whisper' >/dev/null 2>&1; then
       echo "  faster-whisper: disponível no Studio Python"
     else
-      echo "  faster-whisper: ausente (ver install-studio-python.sh)"
+      echo "ERRO: faster-whisper indisponível após install-studio-python.sh" >&2
+      exit 1
     fi
   fi
 fi
