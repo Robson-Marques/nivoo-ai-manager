@@ -90,6 +90,15 @@ export function VideoStudio() {
     }).catch(e=>setError(e.message));
   },[pid,standalone]);
   useEffect(()=>{
+    if(!project) return;
+    let active=true;
+    // Recover the last export after reopening the editor or refreshing the page.
+    api<Render>(edits+'/'+project.id+'/render')
+      .then(result=>{if(active)setRunning(result)})
+      .catch(()=>{if(active)setRunning({state:'idle'})});
+    return()=>{active=false};
+  },[edits,project?.id]);
+  useEffect(()=>{
     if(!project || running.state!=='running')return;
     const timer=setInterval(()=>api<Render>(edits+'/'+project.id+'/render').then(setRunning).catch(()=>undefined),1700);
     return()=>clearInterval(timer);
