@@ -46,8 +46,14 @@ export async function renderRemotionComposition(
   }
   // No runtime npx/package downloads. The caller owns authorization, quotas,
   // isolation, and a unique output path. The CLI must already be installed.
-  return runVideoTool('remotion', [
+  const result = await runVideoTool('remotion', [
     'render', bundle, compositionId, output,
     '--props', props, '--codec', 'h264',
   ], root, 3_600_000, signal);
+  if (result.exitCode !== 0) throw new Error('Remotion render failed with exit ' + result.exitCode);
+  const actualOutput = await realpath(output);
+  if (actualOutput !== output) throw new Error('Unexpected Remotion output path');
+  const outputInfo = await stat(actualOutput);
+  if (!outputInfo.isFile() || outputInfo.size < 1024) throw new Error('Remotion output is empty or invalid');
+  return result;
 }
