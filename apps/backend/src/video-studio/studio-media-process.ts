@@ -23,12 +23,13 @@ export function runStudioMediaCommand(
       stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     });
     let stdout = '', stderr = '', bytes = 0, settled = false;
-    let timedOut = false, overflow = false;
+    let timedOut = false, overflow = false, cancelled = false;
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      clearTimeout(forceKill);
+      clearInterval(cancelPoll);
+      if (forceKill) clearTimeout(forceKill);
       if (error) reject(error); else resolve(stdout);
     };
     const terminate = () => {
@@ -43,6 +44,12 @@ export function runStudioMediaCommand(
       forceKill.unref?.();
     };
     const timer = setTimeout(() => { timedOut = true; failProcess(); }, options.timeoutMs);
+    const cancelPoll = setInterval(() => {
+      try {
+        if (options.isCancelled?.()) { cancelled=true; failProcess(); }
+      } catch { cancelled=true; failProcess(); }
+    }, 250);
+    cancelPoll.unref?.();
     const append = (chunk: Buffer, channel: 'stdout'|'stderr') => {
       bytes += chunk.length;
       if (bytes > limit) { overflow = true; failProcess(); return; }
@@ -53,7 +60,7 @@ export function runStudioMediaCommand(
     child.stderr?.on('data', (chunk: Buffer) => append(chunk, 'stderr'));
     child.once('error', error => finish(error));
     child.once('close', code => {
-      if (options.isCancelled?.()) return finish(new Error('Renderização cancelada'));
+      if (cancelled || options.isCancelled?.()) return finish(new Error('Renderização cancelada'));
       if (timedOut) return finish(new Error(executable + ' excedeu o tempo limite'));
       if (overflow) return finish(new Error(executable + ' excedeu o limite de saída'));
       if (code !== 0) return finish(new Error(executable + ': ' + stderr.slice(-800)));
