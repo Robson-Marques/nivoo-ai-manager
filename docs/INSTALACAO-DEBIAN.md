@@ -12,7 +12,7 @@ O que fica instalado:
 | Código | `/opt/nivoo/app` |
 | Claude Code, Codex e Gemini CLI | instalados globalmente pelo npm do Node oficial |
 | `poppler-utils` (`pdftotext`) | para transformar PDF em texto |
-| `ffmpeg` | para juntar as cenas de vídeo no vídeo completo |
+| `ffmpeg` / `ffprobe` | edição, inspeção e validação técnica dos vídeos |
 | `tesseract-ocr`, `tesseract-ocr-por` | OCR: ler PDF escaneado (só imagem) |
 | Node.js 22 (oficial, sha256 conferido) | `/opt/nivoo/node` |
 | Configuração e segredos (permissão 640) | `/etc/nivoo/nivoo.env` |
@@ -159,6 +159,20 @@ nivoo help
 
 Os serviços sobem sozinhos quando o servidor reinicia. Se o worker cair, o systemd o reinicia, e os
 trabalhos em andamento são retomados do último checkpoint.
+
+## Ferramentas de vídeo na atualização
+
+O comando `nivoo update` executa `deploy/install-debian.sh`, que agora chama
+`deploy/install-video-toolchain.sh` depois de preparar o Studio Python.
+
+- **FFmpeg/FFprobe:** instalados automaticamente pelo gerenciador de pacotes do Debian, se ausentes.
+- **faster-whisper, WhisperX, OpenCV e OCR:** gerenciados pelo instalador Python isolado do Studio; WhisperX continua opcional.
+- **Remotion e HyperFrames:** o preflight detecta a presença, mas **não instala versões flutuantes**. Permanecem indisponíveis para produção até fixarmos a versão, o bundle confiável, o modo de execução e a validação de paridade.
+- **Kokoro:** permanece como serviço local separado, preservando a instalação e os dados existentes. O preflight não instala Docker ou baixa o modelo sem autorização.
+
+`nivoo check` mostra a presença dos binários de vídeo. A presença de um binário
+**não comprova que a renderização está pronta**. A liberação exige render real e revisão
+de saída. O update não deve apagar workspaces nem reinstalar modelos já disponíveis.
 
 ## Opções de instalação
 
