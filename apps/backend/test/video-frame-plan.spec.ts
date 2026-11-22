@@ -1,5 +1,5 @@
-import { VideoComposition } from '../../src/video/video-composition';
-import { previewFrame, toFramePlan } from '../../src/video/video-frame-plan';
+import { VideoComposition } from '../src/video/video-composition';
+import { previewFrame, toFramePlan } from '../src/video/video-frame-plan';
 
 describe('video frame plan', () => {
   const composition: VideoComposition = {
