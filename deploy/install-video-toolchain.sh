@@ -29,15 +29,44 @@ for filter in subtitles blackdetect volumedetect; do
 done
 echo '  FFmpeg: libx264, subtitles, blackdetect e volumedetect disponíveis'
 
-# Remotion/HyperFrames exigem versão fixada, bundle confiável e aprovação de
-# execução. Não instalar automaticamente uma versão flutuante do npm.
-for tool in remotion hyperframes; do
-  if command -v "$tool" >/dev/null 2>&1; then
-    echo "  $tool: binário detectado (renderização ainda exige validação de compatibilidade)"
+# Remotion: provisiona a partir do código FIXADO no repositório (versões em
+# video/remotion/package.json + package-lock.json) — npm ci e gera o bundle.
+# Nada de versão flutuante: usa só o que está travado no git.
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REMOTION_DIR="$APP_DIR/video/remotion"
+if [ -f "$REMOTION_DIR/package.json" ] && command -v npm >/dev/null 2>&1; then
+  echo "==> Remotion: instalando dependências fixadas e gerando o bundle"
+  (
+    cd "$REMOTION_DIR"
+    if [ -f package-lock.json ]; then
+      npm ci --no-audit --no-fund --loglevel=error
+    else
+      npm install --no-audit --no-fund --loglevel=error
+    fi
+    npm run bundle >/dev/null
+  )
+  if [ -f "$REMOTION_DIR/dist/index.html" ]; then
+    # Deixa o binário 'remotion' no PATH do sistema (o worker roda como 'nivoo').
+    ln -sfn "$REMOTION_DIR/node_modules/.bin/remotion" /usr/local/bin/remotion
+    # Registra o caminho do bundle para o backend (diagnóstico e render o leem por esta variável).
+    if [ -f /etc/nivoo/nivoo.env ]; then
+      sed -i '/^NIVOO_REMOTION_BUNDLE=/d' /etc/nivoo/nivoo.env
+      echo "NIVOO_REMOTION_BUNDLE=$REMOTION_DIR/dist" >> /etc/nivoo/nivoo.env
+    fi
+    echo "  Remotion: bundle gerado e CLI em /usr/local/bin/remotion (motor de render pronto)"
   else
-    echo "  $tool: não provisionado; renderização por este motor permanecerá bloqueada"
+    echo "ERRO: bundle do Remotion não foi gerado (dist/index.html ausente)" >&2
+    exit 1
   fi
-done
+else
+  echo "  Remotion: código não encontrado em video/remotion; motor de render permanecerá bloqueado"
+fi
+# HyperFrames: CLI externa opcional (não provisionada automaticamente).
+if command -v hyperframes >/dev/null 2>&1; then
+  echo "  hyperframes: CLI detectada (opcional; paridade não validada)"
+else
+  echo "  hyperframes: não provisionado (opcional)"
+fi
 if [ -f /etc/nivoo/nivoo.env ]; then
   py="$(sed -n 's/^NIVOO_STUDIO_PYTHON=//p' /etc/nivoo/nivoo.env | tail -1)"
   if [ -n "$py" ] && [ -x "$py" ]; then
