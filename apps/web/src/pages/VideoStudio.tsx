@@ -35,6 +35,7 @@ export function VideoStudio() {
   const [tab,setTab]=useState<'clips'|'captions'|'assets'|'audio'|'protected'>('clips');
   const [playhead,setPlayhead]=useState(0);
   const [running,setRunning]=useState<Render>({state:'idle'});
+  const [renderEngine,setRenderEngine]=useState<'ffmpeg'|'remotion'>('ffmpeg');
   const [runtime,setRuntime]=useState<RuntimeCapability[]>([]);
   const [showRuntime,setShowRuntime]=useState(false);
   const [aiDraft,setAiDraft]=useState<AiResult>({state:'idle'});
@@ -551,7 +552,7 @@ export function VideoStudio() {
     if(running.state==='running'||actionsInFlight.current.has('render'))return;
     actionsInFlight.current.add('render');
     setError('');
-    try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{}))}
+    try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{engine:renderEngine}))}
     catch(e:any){setError(e.message)}
     finally{actionsInFlight.current.delete('render')}
   };
@@ -628,7 +629,7 @@ export function VideoStudio() {
     <header className="studio-head">
       <div><Link to={standalone?'/studio':'/p/'+pid}>← {standalone?'Produções':'Projeto'}</Link><h2>Nivoo Studio</h2><span>Edição não destrutiva • assistência de IA opcional</span></div>
       <div className="studio-actions">
-        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button disabled={Boolean(running.cancellationRequested)} onClick={cancelarExportacao}>{running.cancellationRequested?'Cancelamento solicitado':'Cancelar exportação'}</button>}</>}
+        {project&&<><button disabled={!undoStack.current.length} onClick={undo}>↶ Desfazer</button><button disabled={!redoStack.current.length} onClick={redo}>↷ Refazer</button><button disabled={!dirty||busy} onClick={save}>Salvar {dirty?'●':''}</button><label className="studio-engine-choice">Motor <select aria-label="Motor de exportação" value={renderEngine} disabled={busy||running.state==='running'} onChange={e=>setRenderEngine(e.target.value as 'ffmpeg'|'remotion')}><option value="ffmpeg">FFmpeg (padrão)</option><option value="remotion">Remotion (experimental)</option></select></label><button disabled={busy||running.state==='running'} onClick={exportar}>Exportar MP4</button>{running.state==='running'&&<button disabled={Boolean(running.cancellationRequested)} onClick={cancelarExportacao}>{running.cancellationRequested?'Cancelamento solicitado':'Cancelar exportação'}</button>}</>}
         <button onClick={()=>setShowRuntime(value=>!value)} aria-expanded={showRuntime}>Ferramentas {showRuntime?'−':'+'}</button>
         <button onClick={newProject}>+ Nova edição</button>
       </div>
@@ -651,6 +652,7 @@ export function VideoStudio() {
       <progress value={running.progress??0} max={100} aria-label="Progresso da exportação"/>
       <small>{running.cancellationRequested?'Solicitação enviada ao processo de renderização. Aguardando confirmação.':'Etapas reais da produção; percentual aproximado, não representa o tempo restante.'}</small>
     </div>}
+    {renderEngine==='remotion'&&<p className="studio-notice">Remotion experimental: recursos ainda não homologados podem bloquear a exportação. Use FFmpeg para a produção normal.</p>}
     {running.state==='failed'&&<p className="studio-error">Falha na exportação: {running.error}</p>}
     {running.state==='cancelled'&&<p className="studio-notice">Exportação cancelada.</p>}
     {running.state==='done'&&running.output&&<a href={midiaUrl(pid,running.output,standalone)} target="_blank" rel="noreferrer">Abrir vídeo exportado</a>}

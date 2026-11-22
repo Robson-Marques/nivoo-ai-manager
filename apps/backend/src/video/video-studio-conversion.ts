@@ -26,7 +26,7 @@ export function studioToRemotionComposition(input:{
   if(durationMs>3600000)throw new Error('Remotion composition duration exceeds one hour');
   // Nenhum layer (imagem, legenda, áudio) toca além do fim da composição: corta a duração ao que cabe (os clips já
   // fazem isso). Sem isto, um overlay/áudio com offset estoura o fim do vídeo e a validação recusa a composição.
-  const cabe=(startMs:number,durMs:number)=>Math.min(durMs,durationMs-startMs);
+  const bounded=(start:number,end:number)=>{const begin=ms(start),finish=ms(end);if(!Number.isFinite(begin)||begin<0||begin>=durationMs||!Number.isFinite(finish)||finish<=begin)throw new Error('Invalid Studio layer timing');return {startMs:begin,durationMs:Math.min(finish,durationMs)-begin};};
   const layers:VideoComposition['layers']=[];
   const media=new Map<string,ProjectMediaRecord>();
   const register=(source:string)=>{
@@ -52,14 +52,14 @@ export function studioToRemotionComposition(input:{
   });
   for(const [i,asset] of (edit.assets??[]).entries()){
     layers.push({id:'asset_'+i,type:'image',mediaId:register(asset.source),
-      startMs:ms(asset.start),durationMs:ms(asset.end-asset.start),zIndex:20,
+      ...bounded(asset.start,asset.end),zIndex:20,
       transform:transform(asset.x,asset.y,asset.w,asset.h)});
   }
   for(const [i,caption] of (edit.captions??[]).entries()){
     const x=Math.max(0,caption.x-.4),y=Math.max(0,caption.y-.065);
     const w=Math.min(.8,1-x),h=Math.min(.13,1-y);
     layers.push({id:'caption_'+i,type:'text',text:caption.text,
-      startMs:ms(caption.start),durationMs:ms(caption.end-caption.start),zIndex:30,
+      ...bounded(caption.start,caption.end),zIndex:30,
       animation:caption.animation??'none',fontSize:caption.fontSize??54,
       ...(caption.color?{color:caption.color}:{}),
       transform:transform(x,y,w,h),
@@ -70,7 +70,7 @@ export function studioToRemotionComposition(input:{
   }
   for(const [i,track] of (edit.audioTracks??[]).entries()){
     layers.push({id:'audio_'+i,type:'audio',mediaId:register(track.source),
-      startMs:ms(track.offset),durationMs:cabe(ms(track.offset),ms(track.end-track.start)),zIndex:10,
+      ...bounded(track.offset,track.offset+track.end-track.start),zIndex:10,
       sourceOffsetMs:ms(track.start),volume:track.volume});
   }
   if(edit.soundtrack) {
@@ -81,7 +81,7 @@ export function studioToRemotionComposition(input:{
       volume:edit.soundtrack.volume,loop:true});
   }
   const protectedZones=(edit.protectedZones??[]).map(z=>({
-    id:z.id,label:z.label,startMs:ms(z.start),durationMs:ms(z.end-z.start),
+    id:z.id,label:z.label,...bounded(z.start,z.end),
     x:z.x*100,y:z.y*100,width:z.w*100,height:z.h*100,
   }));
   const composition:VideoComposition={
