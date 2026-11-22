@@ -36,6 +36,8 @@ export function studioEditToComposition(
   };
   const durationMs = edit.clips.reduce((total, clip) => total + ms(clip.duration), 0);
   if (durationMs < 1 || durationMs > 3_600_000) throw new Error('Invalid Studio duration');
+  // Nenhum overlay/áudio toca além do fim da composição: corta a duração ao que cabe (os clips já são sequenciais).
+  const cabe = (startMs: number, durMs: number) => Math.min(durMs, durationMs - startMs);
   const layers: VideoLayer[] = [];
   let cursor = 0;
   for (const clip of edit.clips) {
@@ -77,7 +79,7 @@ export function studioEditToComposition(
   }
   for (const audio of edit.audioTracks ?? []) {
     layers.push({ id: audio.id, type: 'audio', mediaId: audio.source,
-      startMs: ms(audio.offset ?? 0), durationMs: ms(audio.end) - ms(audio.start),
+      startMs: ms(audio.offset ?? 0), durationMs: cabe(ms(audio.offset ?? 0), ms(audio.end) - ms(audio.start)),
       zIndex: 0, volume: audio.volume,
       sourceOffsetMs: ms(audio.start) });
   }

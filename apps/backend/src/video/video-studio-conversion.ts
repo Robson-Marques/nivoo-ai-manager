@@ -24,6 +24,9 @@ export function studioToRemotionComposition(input:{
     throw new Error('Remotion compositions currently support up to one hour');
   const durationMs=ms(total);
   if(durationMs>3600000)throw new Error('Remotion composition duration exceeds one hour');
+  // Nenhum layer (imagem, legenda, áudio) toca além do fim da composição: corta a duração ao que cabe (os clips já
+  // fazem isso). Sem isto, um overlay/áudio com offset estoura o fim do vídeo e a validação recusa a composição.
+  const cabe=(startMs:number,durMs:number)=>Math.min(durMs,durationMs-startMs);
   const layers:VideoComposition['layers']=[];
   const media=new Map<string,ProjectMediaRecord>();
   const register=(source:string)=>{
@@ -67,7 +70,7 @@ export function studioToRemotionComposition(input:{
   }
   for(const [i,track] of (edit.audioTracks??[]).entries()){
     layers.push({id:'audio_'+i,type:'audio',mediaId:register(track.source),
-      startMs:ms(track.offset),durationMs:ms(track.end-track.start),zIndex:10,
+      startMs:ms(track.offset),durationMs:cabe(ms(track.offset),ms(track.end-track.start)),zIndex:10,
       sourceOffsetMs:ms(track.start),volume:track.volume});
   }
   if(edit.soundtrack) {

@@ -13,10 +13,11 @@ export function runStudioMediaCommand(
   args: string[],
   options: StudioCommandOptions,
 ): Promise<string> {
+  // Função assíncrona: validações falham como PROMISE REJEITADA (como o cancelamento abaixo), não throw síncrono.
   if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1000 ||
-      options.timeoutMs > 3_600_000) throw new Error('Invalid media command timeout');
+      options.timeoutMs > 3_600_000) return Promise.reject(new Error('Invalid media command timeout'));
   const limit = options.maxOutputBytes ?? 256_000;
-  if (!Number.isSafeInteger(limit) || limit < 512 || limit > 2_000_000) throw new Error('Invalid media output limit');
+  if (!Number.isSafeInteger(limit) || limit < 512 || limit > 2_000_000) return Promise.reject(new Error('Invalid media output limit'));
   if (options.isCancelled?.()) return Promise.reject(new Error('Renderização cancelada'));
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, {
