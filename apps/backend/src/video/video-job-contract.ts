@@ -17,12 +17,15 @@ export type VideoJobRequest = {
 };
 
 function nonEmpty(value: string, field: string): void {
-  if (!value || value.length > 512 || /[\x00-\x1f]/.test(value)) {
+  if (typeof value !== 'string' || !value || value.length > 512 || /[\x00-\x1f]/.test(value)) {
     throw new Error('Invalid ' + field);
   }
 }
 
 export function validateVideoJobRequest(request: VideoJobRequest): void {
+  if (!request || typeof request !== 'object' || !request.operation || typeof request.operation !== 'object') {
+    throw new Error('Invalid video job request');
+  }
   nonEmpty(request.projectId, 'projectId');
   nonEmpty(request.requestedBy, 'requestedBy');
   switch (request.operation.kind) {
@@ -51,7 +54,7 @@ export function validateVideoJobRequest(request: VideoJobRequest): void {
 export function videoJobIdempotencyKey(request: VideoJobRequest): string {
   validateVideoJobRequest(request);
   const operation = request.operation;
-  const fields: string[] = [request.projectId, operation.kind];
+  const fields: string[] = ['video-job-v1', request.projectId, operation.kind];
   switch (operation.kind) {
     case 'transcribe': fields.push(operation.mediaId, operation.language); break;
     case 'preview': fields.push(operation.compositionId, operation.revision); break;
