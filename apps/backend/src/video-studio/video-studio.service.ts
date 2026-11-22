@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { spawn, spawnSync, ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { arquivoDaMidia, listarVideos } from '../projects/midia';
@@ -18,7 +18,7 @@ import { runStudioMediaCommand, probeStudioMedia } from './studio-media-process'
 import { requestStudioRenderCancellation, isStudioRenderCancellationRequested, clearStudioRenderCancellation } from './render-cancellation';
 import { renderStudioEditWithRemotion } from '../video/video-studio-remotion-worker';
 import { IMPLEMENTED_REMOTION_FEATURES } from '../video/video-render-parity';
-import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, type MotionPreset } from './hyperframes-motion';
+import { MOTION_PRESETS, validateMotionRequest, renderTrustedMotion, trustedMotionHtml, type MotionPreset } from './hyperframes-motion';
 import { searchOfficialHyperFramesCatalog, validateCatalogSearch } from './hyperframes-catalog';
 import { readStudioMotionState, saveStudioMotionState, type StudioMotionState } from './studio-motion-status';
 import { remotionBundlePath } from './studio-runtime-capabilities';
@@ -600,12 +600,13 @@ export class VideoStudioService {
     try {request=validateMotionRequest(body);}
     catch(e){throw new BadRequestException(e instanceof Error?e.message:'Pedido inválido');}
     const key=pid+':'+id;
+    const fingerprint=createHash('sha256').update(trustedMotionHtml(request.preset,request.title)).digest('hex');
     const previous=motionJobs.get(key)?.result??readStudioMotionState(media,id);
     if(previous?.state==='running')
       throw new ConflictException('A prévia de motion já está em execução');
     // Same source + preset + text = same reviewed output. Do not render twice
     // after reloading the editor or restarting the API.
-    if(previous?.state==='done'&&previous.preset===request.preset&&previous.title===request.title)
+    if(previous?.state==='done'&&previous.preset===request.preset&&previous.title===request.title&&previous.fingerprint===fingerprint)
       return previous;
 
     const runId=randomUUID();
@@ -614,7 +615,7 @@ export class VideoStudioService {
     const abort=new AbortController();
     const entry:{result:MotionState;abort:AbortController}={
       result:{state:'running',runId,started:new Date().toISOString(),
-        preset:request.preset,title:request.title},abort,
+        preset:request.preset,title:request.title,fingerprint},abort,
     };
     try {saveStudioMotionState(media,id,entry.result);}
     catch(error){releaseStudioRenderLease(media,id,runId);throw error;}

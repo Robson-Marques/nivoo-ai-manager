@@ -11,7 +11,7 @@ describe('Studio motion job durability',()=>{
   afterEach(()=>{fs.rmSync(media,{recursive:true,force:true});});
   const initial=():StudioMotionState=>({
     state:'running',runId,started:'2026-11-22T10:00:00.000Z',
-    preset:'kinetic-title',title:'Nivoo',
+    preset:'kinetic-title',title:'Nivoo',fingerprint:'a'.repeat(64),
   });
   it('stores a render status atomically with restricted permissions',()=>{
     saveStudioMotionState(media,id,initial());

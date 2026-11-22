@@ -9,6 +9,7 @@ export type StudioMotionState={
   started:string;
   preset:MotionPreset;
   title:string;
+  fingerprint:string;
   error?:string;
   output?:string;
   durationMs?:number;
@@ -40,7 +41,8 @@ export function readStudioMotionState(media:string,id:string):StudioMotionState|
   const s=value as StudioMotionState;
   if(!['running','done','failed','cancelled'].includes(s.state)||
     typeof s.runId!=='string'||!/^[a-f\d-]{36}$/i.test(s.runId)||
-    typeof s.started!=='string'||s.started.length>40){
+    typeof s.started!=='string'||s.started.length>40||
+    typeof s.fingerprint!=='string'||!/^[a-f0-9]{64}$/i.test(s.fingerprint)){
     throw new Error('Estado de motion não confiável');
   }
   validateMotionRequest({preset:s.preset,title:s.title});
@@ -64,6 +66,7 @@ export function readStudioMotionState(media:string,id:string):StudioMotionState|
 export function saveStudioMotionState(media:string,id:string,state:StudioMotionState):void{
   const file=location(media,id);
   validateMotionRequest({preset:state.preset,title:state.title});
+  if(!/^[a-f0-9]{64}$/i.test(state.fingerprint))throw new Error('Fingerprint de motion inválido');
   if(state.output && !validOutput(state.output,id))throw new Error('Saída de motion inválida');
   const folder=path.dirname(file);
   fs.mkdirSync(folder,{recursive:true,mode:0o700});
