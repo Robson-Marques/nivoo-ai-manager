@@ -1,5 +1,5 @@
 import { lstat, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { VideoComposition } from './video-composition';
 import { applySubtitleCues } from './video-caption-composition';
 import { parseWhisperSrt } from './video-subtitles';
