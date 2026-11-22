@@ -55,9 +55,12 @@ export async function runVideoTool(
       env: { ...process.env, NO_COLOR: '1' },
     });
     let stdout = '', stderr = '', settled = false;
-    const abort = () => { child.kill('SIGKILL'); if (!settled) { settled = true; reject(new Error('Video tool aborted')); } };
-    signal?.addEventListener('abort', abort, { once: true });
-    if (signal?.aborted) abort();
+    const abort = () => {
+      child.kill('SIGKILL');
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      if (!settled) { settled = true; reject(new Error('Video tool aborted')); }
+    };
     const append = (prev: string, chunk: Buffer) => (prev + chunk.toString('utf8')).slice(-MAX_LOG);
     child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
     child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
@@ -65,6 +68,8 @@ export async function runVideoTool(
       child.kill('SIGKILL');
       if (!settled) { settled = true; signal?.removeEventListener('abort', abort); reject(new Error('Video tool timeout')); }
     }, timeoutMs);
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     child.on('error', err => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abort);
