@@ -29,6 +29,7 @@ function parseBlackFrames(stderr: string): number {
 
 function parseAudioPeak(stderr: string): number {
   const matches = [...stderr.matchAll(/max_volume:\s*(-?\d+(?:\.\d+)?)\s*dB/g)];
+  if (/max_volume:\s*-inf\s*dB/.test(stderr)) return -Infinity;
   if (!matches.length) throw new Error('Audio peak measurement missing');
   const value = Number(matches[matches.length - 1][1]);
   if (!Number.isFinite(value)) throw new Error('Invalid audio peak measurement');
@@ -65,14 +66,14 @@ export async function inspectRenderedVideo(
     '-v', 'error', '-show_entries', 'format=duration:stream=codec_type',
     '-of', 'json', actual,
   ], root, 30_000, signal);
-  if (probe.exitCode !== 0) throw new Error('ffprobe inspection failed');
+  if (probe.exitCode !== 0 || probe.stdoutTruncated) throw new Error('ffprobe inspection failed or output truncated');
   const { durationMs, hasAudio } = parseProbe(probe.stdout);
 
   const black = await runVideoTool('ffmpeg', [
     '-nostdin', '-hide_banner', '-i', actual,
     '-vf', 'blackdetect=d=0.15:pix_th=0.10', '-an', '-f', 'null', '-',
   ], root, 180_000, signal);
-  if (black.exitCode !== 0) throw new Error('Black frame inspection failed');
+  if (black.exitCode !== 0 || black.stderrTruncated) throw new Error('Black frame inspection failed or output truncated');
 
   let audioPeakDbfs: number | undefined;
   if (hasAudio) {
@@ -80,7 +81,7 @@ export async function inspectRenderedVideo(
       '-nostdin', '-hide_banner', '-i', actual,
       '-vn', '-af', 'volumedetect', '-f', 'null', '-',
     ], root, 180_000, signal);
-    if (audio.exitCode !== 0) throw new Error('Audio inspection failed');
+    if (audio.exitCode !== 0 || audio.stderrTruncated) throw new Error('Audio inspection failed or output truncated');
     audioPeakDbfs = parseAudioPeak(audio.stderr);
   }
   return {
