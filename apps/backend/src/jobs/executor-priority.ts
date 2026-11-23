@@ -89,3 +89,63 @@ export function erroDeComandoLocal(instructions: string): string | null {
   return `A etapa local-shell recebeu texto em vez de comando Bash: "${first.slice(0, 150)}". ` +
     `O executor é determinístico: use uma chamada CLI real (por exemplo, nivoo-conferir-arte) ou atribua a tarefa de análise à IA; não execute "${word}" no terminal.`;
 }
+
+/**
+ * Etapas que realmente ENTREGAM MP4 motion são execução local, não sessão de
+ * chat. A IA pode escrever a composição em outra etapa, mas não fingir que
+ * executou um comando em bloco markdown e aprovar um MP4 de trabalho anterior.
+ *
+ * Converte somente quando fonte, destino, duração e resolução são explícitos;
+ * caso contrário exige plano concreto. Não adivinha a fonte pelos nomes do MP4.
+ */
+export function etapaPedeRenderizacaoMotion(step: { key?: unknown; title?: unknown; verifyCommand?: unknown; instructions?: unknown }): boolean {
+  const key = String(step.key ?? '').toLowerCase();
+  const title = String(step.title ?? '').toLowerCase();
+  const verify = String(step.verifyCommand ?? '');
+  const instr = String(step.instructions ?? '');
+  const entregaMp4 = /midia\/saida\/[A-Za-z0-9._-]+\.mp4/.test(verify) ||
+    /--saida\s+midia\/saida\/[A-Za-z0-9._-]+\.mp4/.test(instr);
+  return entregaMp4 && (/^render(?:_|-|$)/.test(key) || /\brenderiz(?:ar|a(?:ção|cao))\b/i.test(title)) &&
+    /\b(?:3d|motion|composi(?:ção|cao)|anima(?:ção|cao))\b/i.test(title + ' ' + instr);
+}
+
+export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: string, objective = ''): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    const step = item as Record<string, unknown>;
+    const provider = String(step.provider ?? defaultProvider);
+    if (!etapaPedeRenderizacaoMotion(step) || provider === 'juntar-videos' || provider === 'gemini-video') return item;
+    const instr = String(step.instructions ?? '').trim();
+    if (provider === 'local-shell') {
+      // Atribuir local-shell sem chamar o renderizador (ex.: comando true)
+      // também era capaz de aprovar MP4 anterior com test -s.
+      if (!/^nivoo-renderizar-motion\s+motion\/[A-Za-z0-9._/-]+\s+--saida\s+midia\/saida\/[A-Za-z0-9._-]+\.mp4(?:\s|$)/.test(instr)) {
+        throw new BadRequestException('Etapa motion local-shell não executa nivoo-renderizar-motion com fonte e destino explícitos. Não basta encontrar um MP4 anterior na conferência.');
+      }
+      return item;
+    }
+    const verified = String(step.verifyCommand ?? '');
+    const normalized = (instr + ' ' + objective);
+    const paths = [...normalized.matchAll(/(?:^|[\s'"(])((?:motion)\/[A-Za-z0-9._/-]+)(?=[\s'")]|$)/g)]
+      .map(m => m[1].replace(/\/index\.html$/, ''));
+    const source = [...new Set(paths)].length === 1 ? paths[0] : null;
+    const targets = [...(instr + ' ' + verified).matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)].map(m => m[0]);
+    const target = [...new Set(targets)].length === 1 ? targets[0] : null;
+    const seconds = /--segundos\s+(\d+(?:\.\d+)?)/.exec(instr)?.[1] ??
+      /(\d+(?:\.\d+)?)\s*(?:s\b|segundos?\b)/i.exec(normalized)?.[1];
+    const size = /--tamanho\s+(\d{3,5}x\d{3,5})/.exec(instr)?.[1] ??
+      /\b(\d{3,5}x\d{3,5})\b/.exec(normalized)?.[1];
+
+    if (source && target && seconds && size &&
+        !source.split('/').includes('..') && Number(seconds) > 0 && Number(seconds) <= 300) {
+      const command = `nivoo-renderizar-motion ${source} --saida ${target} --segundos ${seconds} --tamanho ${size}`;
+      return { ...step, provider: 'local-shell', instructions: command };
+    }
+    throw new BadRequestException(
+      `Etapa "${String(step.key ?? 'render')}" tenta renderizar MP4 com IA (${provider}), mas a IA não executa terminal. ` +
+      'Separe a criação da composição em uma etapa de IA e a renderização em uma etapa local-shell. ' +
+      'Informe a fonte REAL motion/<pasta> (com index.html), o --saida midia/saida/<novo-nome>.mp4, ' +
+      '--segundos e --tamanho. Não aprove um MP4 antigo com test -s.');
+  });
+}

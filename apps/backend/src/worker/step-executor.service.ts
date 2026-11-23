@@ -2,6 +2,7 @@ import { registrarErro } from '../diagnostico/erros';
 import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
+import { etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
 import { ferramentasDaIa } from '../providers/ferramentas';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
@@ -201,6 +202,16 @@ export class StepExecutorService {
     // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
+    if (providerId !== 'local-shell' && providerId !== 'gemini-video' &&
+        etapaPedeRenderizacaoMotion(step)) {
+      // Compatibilidade com planos antigos: não cobrar outra sessão de IA nem
+      // aceitar vídeo velho só porque test -s encontra um arquivo antigo.
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        'Plano inválido: etapa de renderização motion atribuída a ' + providerId +
+        '. Essa IA não executou o renderizador; MP4 previamente existente não comprova nova renderização. ' +
+        'Use uma etapa local-shell com nivoo-renderizar-motion e fonte real motion/<pasta>. ' +
+        'O vídeo e os arquivos existentes foram preservados.');
+    }
     if (providerId === 'local-shell' && /\bnivoo-(?:conferir-arte|renderizar-motion)\b/.test(step.instructions)) {
       const espaco = armazenamentoDisponivel(['/', this.workspace.projectDirs(job.project.dirKey).root, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
       if (!espaco.ok) {
