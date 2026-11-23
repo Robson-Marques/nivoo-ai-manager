@@ -64,14 +64,6 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
 // Recursos externos sem acesso continuam protegidos por três verificações.
 const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
-// Revisão visual custa tokens e pode modificar a composição em toda sessão.
-// Depois de duas revisões reprovadas, pedir decisão humana com as pendências
-// e preservar o HTML e os quadros existentes: nunca entrar em loop infinito.
-export const MAX_REVISOES_VISUAIS_AUTOMATICAS = 2;
-export function revisaoVisualEsgotada(stepKey: string, revisoesReprovadas: number): boolean {
-  return /^direcao-arte-/.test(stepKey) && revisoesReprovadas >= MAX_REVISOES_VISUAIS_AUTOMATICAS;
-}
-
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
 /** Erros que não são do trabalho da IA: não geram lição. */
@@ -243,20 +235,6 @@ export class StepExecutorService {
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
     const knowledgeDir = this.workspace.projectDirs(job.project.dirKey).knowledge;
     const outputDir = path.join(worktree, 'out');
-
-    // Antes de iniciar outro Claude: este trabalho pode já acumular revisões
-    // reprovadas de uma versão anterior do Nivoo. Bloquear sem gastar mais uma
-    // sessão (inclusive em jobs retomados após atualização do servidor).
-    if (/^direcao-arte-/.test(step.key)) {
-      const revisoes = await this.prisma.attempt.count({
-        where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
-      });
-      if (revisaoVisualEsgotada(step.key, revisoes)) {
-        const detalhe = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
-        return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
-          `Revisão visual pausada após ${revisoes} reprovações automáticas; os arquivos do vídeo estão preservados. ${(detalhe ?? 'Revise os PNGs e parecer visual antes de continuar.').slice(0, 1200)}`);
-      }
-    }
 
     const isAi = provider.kind !== 'executor';
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
@@ -853,18 +831,6 @@ export class StepExecutorService {
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
-    // Caso real: a IA corrige um zoom, a recaptura retorna, a IA encontra um
-    // novo corte e corrige outra vez. Sem teto, o QA gasta indefinidamente.
-    // O parecer negativo NÃO deve ser aprovado à força; guardar a composição
-    // e apresentar ao usuário as falhas específicas restantes.
-    if (revisaoVisualEsgotada(step.key, sessions.length)) {
-      const causa = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
-      await this.logs.log(job.id,
-        `Revisão visual interrompida após ${sessions.length} pareceres sem aprovação; composição e capturas preservadas.`,
-        { stepId: step.id, level: 'WARN', source: 'worker' });
-      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
-        `Limite de ${MAX_REVISOES_VISUAIS_AUTOMATICAS} revisões visuais automáticas sem aprovação: não repetir IA/recapturas infinitamente. ${(causa ?? 'Abra o parecer visual e confira as pendências.').slice(0, 1200)}. O trabalho está salvo; após ajuste dirigido, use Continuar.`);
-    }
     const conferenciaAtual = sessions[0]?.error ?? '';
     const conferencias = sessions
       .map((a) => a.error)
