@@ -277,11 +277,12 @@ export class NvidiaApiProvider implements AiProvider {
             if (nome === 'ler_arquivo') {
               const chaveLeitura = JSON.stringify([args.caminho, Number(args.inicio) || 0, Number(args.limite) || 18000]);
               const vezes = leiturasIguais.get(chaveLeitura) ?? 0;
-              leiturasIguais.set(chaveLeitura, vezes + 1);
               if (vezes >= 2) {
                 resultado = JSON.stringify({ aviso: 'Esta mesma parte do arquivo já foi lida duas vezes e não houve edição desde então. Não repita. Para a próxima parte, use inicio maior; para modificar, use substituir_texto ou escrever_arquivo.' });
               } else {
                 resultado = executarFerramentaNvidia(req.cwd, nome, args);
+                // Falha de leitura não conta como conteúdo já entregue.
+                leiturasIguais.set(chaveLeitura, vezes + 1);
               }
             } else {
               resultado = executarFerramentaNvidia(req.cwd, nome, args);
