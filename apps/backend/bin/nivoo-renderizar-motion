@@ -29,10 +29,15 @@ const opt = (nome, padrao) => {
   const i = args.indexOf(nome);
   return i >= 0 ? args[i + 1] : padrao;
 };
-const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo']);
+const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo','--motor']);
 const alvoBruto = args.find((a, i) => !a.startsWith('--') && !flagsWithValue.has(args[i - 1]));
 if (!alvoBruto) {
   console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
+  process.exit(2);
+}
+const motorExigido = opt('--motor', 'auto');
+if (!['auto','scene','hybrid'].includes(motorExigido)) {
+  console.error('MOTION_CONTRATO: --motor precisa ser auto, scene ou hybrid');
   process.exit(2);
 }
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
@@ -42,7 +47,8 @@ if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
   const manifest = path.join(entrada, 'scene.json');
   // Projetos novos usam cenas estruturadas pelo núcleo. Projetos HTML
   // anteriores continuam compatíveis sem migração ou alteração dos arquivos.
-  entrada = fs.existsSync(manifest) ? manifest : path.join(entrada, 'index.html');
+  entrada = motorExigido === 'scene' || (motorExigido === 'auto' && fs.existsSync(manifest))
+    ? manifest : path.join(entrada, 'index.html');
 }
 if (!fs.existsSync(entrada)) {
   console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava scene.json ou index.html)`);
@@ -86,6 +92,11 @@ function motionSceneCore() {
 }
 
 (async () => {
+  // Vínculo real com o núcleo: estrutura/asset/motor obrigatórios são testados
+  // ANTES de iniciar Chromium e antes de gerar qualquer quadro.
+  const contract = motionSceneCore().checkMotionSource(alvoBruto, motorExigido);
+  console.log('nivoo-renderizar-motion: MOTION_CORE_CONECTADO modo=' + contract.mode +
+    ', camadas=' + contract.layers + '; fonte validada antes da captura');
   const { chromium } = playwrightCore();
   const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
   let navegador;
