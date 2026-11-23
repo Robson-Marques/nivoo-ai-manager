@@ -749,6 +749,15 @@ export class StepExecutorService {
     });
     const erroAtual = (result.error ?? result.output ?? '').slice(0, 5000);
     const repeticoes = repeticoesDoMesmoErro(errosDaEtapa.map((a) => a.error), erroAtual, step.verifyCommand ?? '');
+    // Respeitar uma configuração EXPLÍCITA mais restritiva (ex.: 1 tentativa
+    // para scripts determinísticos), aplicada à mesma falha, não ao total
+    // de erros diferentes que a IA foi descobrindo e corrigindo.
+    if (erroAtual.trim() && job.maxAttemptsPerStep > 0 &&
+        job.maxAttemptsPerStep < MAX_OCORRENCIAS_MESMA_FALHA &&
+        repeticoes >= job.maxAttemptsPerStep) {
+      return this.failStep(task, workerId, job, step,
+        `limite configurado de ${job.maxAttemptsPerStep} tentativa(s) para o mesmo erro atingido`);
+    }
     if (erroAtual.trim() && repeticoes >= MAX_OCORRENCIAS_MESMA_FALHA) {
       await this.checkpoint(job.id, step, worktree, `erro idêntico repetido na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
