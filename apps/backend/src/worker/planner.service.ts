@@ -203,12 +203,12 @@ export class PlannerService {
       };
       // Registrar quando a execução pelo provedor foi SOLICITADA.
       // Se um erro de configuração ocorrer antes, startedAt permanece null.
-      const iniciouIaMs = Date.now();
-      registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs });
       await this.prisma.conversationMessage.updateMany({
         where: { id: msg.id, status: 'PENDENTE', startedAt: null },
         data: { startedAt: new Date() },
       });
+      const iniciouIaMs = Date.now();
+      registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs });
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
