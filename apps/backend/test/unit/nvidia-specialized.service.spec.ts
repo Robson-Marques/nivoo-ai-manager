@@ -50,6 +50,26 @@ describe('NVIDIA: conectores especializados de verdade por endpoint', () => {
     expect(corpo.messages[0]).toEqual({ role: 'user', content: 'Olá' });
   });
 
+  it('tradução Riva usa código de par de idiomas no system, sem ferramentas', async () => {
+    const spy = mock({ choices: [{ message: { content: 'Our pizzeria uses high-quality ingredients.' } }] });
+    const r = await service.conversa('nvidia-api', {
+      modelo: 'nvidia/riva-translate-4b-instruct-v2',
+      prompt: 'Nossa pizzaria usa ingredientes de qualidade.',
+      idiomaOrigem: 'pt-br', idiomaDestino: 'en',
+    });
+    expect(r.tipo).toBe('conversa');
+    const body = JSON.parse(String((spy.mock.calls[0][1] as RequestInit).body));
+    expect(body.messages).toEqual([
+      { role: 'system', content: 'pt-br-en' },
+      { role: 'user', content: 'Nossa pizzaria usa ingredientes de qualidade.' },
+    ]);
+    expect(body.tools).toBeUndefined();
+    await expect(service.conversa('nvidia-api', {
+      modelo: 'nvidia/riva-translate-4b-instruct-v2', prompt: 'Oi', idiomaOrigem: 'pt-br', idiomaDestino: 'pt-br',
+    })).rejects.toThrow('diferentes');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('embedding usa /v1/embeddings, query/passage e entrega vetor integral', async () => {
     const spy = mock({ data: [{ embedding: [0.2, -0.4, 0.6] }] });
     const r = await service.embedding('nvidia-api', { modelo: 'nvidia/nemotron-3.5-embed-1b', texto: 'Vencimento de cartão', inputType: 'passage' });
