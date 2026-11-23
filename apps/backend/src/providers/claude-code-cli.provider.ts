@@ -213,9 +213,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
       'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
       'Se não conseguir ler ou editar, registre o caminho e o motivo real; não tente chamar ferramenta inexistente.',
       'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
-    ].join('\\n');
+    ].join('\n');
     // Perfil do projeto como instrução de sistema: pesa mais que o texto do prompt (vai também no prompt).
-    args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\\n\\n'));
+    args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
