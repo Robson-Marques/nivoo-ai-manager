@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+'use strict';
+// Verificador local de contrato da composição. Não rende MP4 nem usa IA.
+const fs = require('node:fs');
+const path = require('node:path');
+
+function motionCore() {
+  const dirs = [
+    path.join(__dirname, 'motion-scene-core.js'),
+    path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app', 'apps/backend/bin/motion-scene-core.js'),
+  ];
+  const file=dirs.find(f=>fs.existsSync(f));
+  if(!file) throw new Error('MOTION_CONTRATO: módulo motion-scene-core.js não instalado');
+  return require(file);
+}
+function main(args=process.argv.slice(2)) {
+  const pos=args.indexOf('--modo');
+  const mode=pos>=0?args[pos+1]:'auto';
+  const source=args[0];
+  if(!source || !/^motion\/[A-Za-z0-9._/-]+$/.test(source) || source.split('/').includes('..'))
+    throw new Error('MOTION_CONTRATO: origem inválida, use motion/<pasta>');
+  const result=motionCore().checkMotionSource(source,mode);
+  console.log('NIVO_MOTION_CORE: fonte pronta; modo='+result.mode+', camadas='+result.layers+
+    (result.width ? ', '+result.width+'x'+result.height : '')+'; sem renderização ou revisão de IA');
+  return result;
+}
+if(require.main===module){
+  try{main();}catch(e){console.error(String(e.message||e));process.exitCode=4;}
+}
+module.exports={main};
