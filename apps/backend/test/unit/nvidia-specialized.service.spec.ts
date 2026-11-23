@@ -117,6 +117,25 @@ describe('NVIDIA: conectores especializados de verdade por endpoint', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it('render assíncrono usa apenas UM pedido por ID, mesmo após várias consultas', async () => {
+    const b64 = Buffer.from('um-video-curto').toString('base64');
+    let liberar!: (res: Response) => void;
+    const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise<Response>((resolve) => { liberar = resolve; }),
+    );
+    const pedido = service.iniciarVideo('nvidia-api', { prompt: 'Cena de um pôr do sol' });
+    expect(pedido.estado).toBe('executando');
+    expect(service.statusVideo('nvidia-api', pedido.id).estado).toBe('executando');
+    expect(spy).toHaveBeenCalledTimes(1);
+    liberar(new Response(JSON.stringify({ b64_video: b64 }), { status: 200 }));
+    await new Promise(resolve => setImmediate(resolve));
+    const estado = service.statusVideo('nvidia-api', pedido.id);
+    expect(estado).toMatchObject({ estado: 'concluido', resultado: { tipo: 'video', base64: b64 } });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(service.statusVideo('nvidia-api', pedido.id).estado).toBe('concluido');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('modelo desconhecido ou de outra especialidade é bloqueado sem chamadas', async () => {
     const spy = jest.spyOn(globalThis, 'fetch');
     await expect(service.embedding('nvidia-api', { modelo: 'nvidia/wan-video', texto: 'x' })).rejects.toThrow('embeddings');
