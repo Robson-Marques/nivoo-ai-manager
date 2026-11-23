@@ -90,7 +90,7 @@ export class PlannerService {
     const project = msg.conversation.project;
     const fail = async (texto: string) => {
       // Só se ainda estiver pendente: o usuário pode ter cancelado a resposta.
-      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto } });
+      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
       await this.queue.complete(task.id, workerId);
     };
 
@@ -170,6 +170,12 @@ export class PlannerService {
           .catch(() => undefined)
           .finally(() => (gravando = null));
       };
+      // Registrar quando a execução pelo provedor foi SOLICITADA.
+      // Se um erro de configuração ocorrer antes, startedAt permanece null.
+      await this.prisma.conversationMessage.updateMany({
+        where: { id: msg.id, status: 'PENDENTE', startedAt: null },
+        data: { startedAt: new Date() },
+      });
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -324,13 +330,14 @@ export class PlannerService {
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,
+          completedAt: new Date(),
         },
       });
       // Resposta cancelada pelo usuário enquanto a IA trabalhava: o custo da sessão conta mesmo assim.
       if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
       if (gravada.count && !erro && plan) {
         const alvo = planoDaEntrega
-          ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega } })).id
+          ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
           : msg.id;
         await this.seguirSozinho(project.id, msg.conversationId, alvo, parsed?.continuacao === true);
       }
