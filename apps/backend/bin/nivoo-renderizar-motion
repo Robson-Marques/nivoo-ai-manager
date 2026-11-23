@@ -103,7 +103,7 @@ function offlineRenderer() {
         throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
       await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
       await pagina.waitForFunction(() => window.__nivooSceneReady || window.__nivooSceneError,
-        { timeout: 30_000 });
+        undefined, { timeout: 30_000 });
       const error = await pagina.evaluate(() => window.__nivooSceneError);
       if (error) throw new Error('Falha ao preparar camadas da cena: ' + error);
       console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivoo');
