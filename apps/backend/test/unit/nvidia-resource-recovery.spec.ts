@@ -8,14 +8,18 @@ import { ExecutionRequest } from '../../src/providers/provider.interface';
 
 describe('Resiliência do Nivoo com a NVIDIA NIM e planos legados', () => {
   const oldKey = process.env.NVIDIA_API_KEY;
+  const oldSecrets = process.env.NIVOO_SECRETS_FILE;
   let work: string;
   beforeEach(() => {
     work = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-nvidia-rate-'));
+    process.env.NIVOO_SECRETS_FILE = path.join(work, 'segredos.json');
     process.env.NVIDIA_API_KEY = 'nvapi-chave-unitaria-nunca-real';
   });
   afterEach(() => {
     if (oldKey === undefined) delete process.env.NVIDIA_API_KEY;
     else process.env.NVIDIA_API_KEY = oldKey;
+    if (oldSecrets === undefined) delete process.env.NIVOO_SECRETS_FILE;
+    else process.env.NIVOO_SECRETS_FILE = oldSecrets;
     jest.restoreAllMocks();
     fs.rmSync(work, { recursive: true, force: true });
   });
@@ -52,6 +56,36 @@ describe('Resiliência do Nivoo com a NVIDIA NIM e planos legados', () => {
     expect(executarFerramentaNvidia(work, 'ler_arquivo', { caminho: 'apps/arquivo.js' })).toContain('foi lido o arquivo TypeScript');
     expect(() => executarFerramentaNvidia(work, 'ler_arquivo', { caminho: '/etc/passwd' })).toThrow();
     expect(() => executarFerramentaNvidia(work, 'ler_arquivo', { caminho: '.env' })).toThrow();
+  });
+
+  it('não repete indefinidamente a mesma leitura de arquivo na sessão', async () => {
+    fs.writeFileSync(path.join(work, 'arquivo.ts'), 'export const teste = true;');
+    const chamada = (id: number) => new Response(JSON.stringify({
+      choices: [{ message: { content: null, tool_calls: [{
+        id: 'read-' + id, type: 'function',
+        function: { name: 'ler_arquivo', arguments: JSON.stringify({ caminho: 'arquivo.ts' }) },
+      }] }, finish_reason: 'tool_calls' }],
+    }), { status: 200 });
+    const spy = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(chamada(1))
+      .mockResolvedValueOnce(chamada(2))
+      .mockResolvedValueOnce(chamada(3))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'Entendi. Vou editar o arquivo.' }, finish_reason: 'stop' }],
+      }), { status: 200 }));
+    const r = await new NvidiaApiProvider().execute({
+      jobId: 'job', stepId: 'step', attemptId: 'attempt',
+      cwd: work, outputDir: path.join(work, 'out'),
+      instructions: 'Analise o arquivo', context: 'Teste de repetição',
+      timeoutMs: 120_000, signal: new AbortController().signal,
+      onLog: () => undefined, options: { model: 'nvidia/nemotron-3.5-bolt-e4b' },
+    });
+    expect(r.exitCode).toBe(0);
+    const ultimaChamada = JSON.parse(String((spy.mock.calls[3][1] as RequestInit).body));
+    const toolReplies = ultimaChamada.messages.filter((m: { role: string }) => m.role === 'tool');
+    expect(toolReplies).toHaveLength(3);
+    expect(toolReplies[2].content).toContain('não houve edição');
+    expect(toolReplies[2].content).not.toContain('export const teste = true;');
   });
 
   it('HTTP 429 devolve Retry-After sem novas chamadas enquanto há cooldown', async () => {
