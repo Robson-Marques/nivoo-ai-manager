@@ -40,7 +40,25 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
       const body = isVideo
         ? { modelo: 'nvidia/cosmos3-nano', prompt: prompt.trim(), proporcao, numFrames: 25 }
         : { modelo: 'black-forest-labs/flux.1-schnell', prompt: prompt.trim(), largura: 1024, altura: 1024 };
-      const r = await api<MidiaNvidia>('/accounts/' + encodeURIComponent(conexao) + '/nvidia/' + modalidade, 'POST', body);
+      let r: MidiaNvidia;
+      if (isVideo) {
+        const iniciar = await api<{ id: string; estado: string }>(
+          '/accounts/' + encodeURIComponent(conexao) + '/nvidia/video/iniciar', 'POST', body);
+        setNotice('Geração Cosmos3 iniciada uma única vez. Consultando o pedido ' + iniciar.id + '…');
+        let pronto: MidiaNvidia | null = null;
+        for (let i = 0; i < 80; i++) {
+          await new Promise(resolve => setTimeout(resolve, 2500));
+          const estado = await api<{ estado: string; resultado?: MidiaNvidia; erro?: string }>(
+            '/accounts/' + encodeURIComponent(conexao) + '/nvidia/video/' + encodeURIComponent(iniciar.id));
+          if (estado.estado === 'falhou') throw new Error(estado.erro ?? 'A NVIDIA não concluiu o vídeo');
+          if (estado.estado === 'concluido' && estado.resultado) { pronto = estado.resultado; break; }
+        }
+        if (!pronto) throw new Error('Geração ainda em andamento. Pedido ' + iniciar.id +
+          '. Não reinicie a geração: consulte o estado na NVIDIA.');
+        r = pronto;
+      } else {
+        r = await api<MidiaNvidia>('/accounts/' + encodeURIComponent(conexao) + '/nvidia/imagem', 'POST', body);
+      }
       const mime = isVideo ? 'video/mp4' : 'image/jpeg';
       const limite = isVideo ? 60_000_000 : 8_000_000;
       if (r.tipo !== modalidade || typeof r.base64 !== 'string' || r.mime !== mime || r.base64.length > limite) {
