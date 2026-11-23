@@ -14,6 +14,7 @@ import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 import { conferenciasDasEtapas, lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
+import { assinaturasDasFalhas, MARCADOR_RECUPERACAO, MAX_OCORRENCIAS_MESMA_FALHA, recorrenciasDasFalhas } from './recovery-signature';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
@@ -97,9 +98,9 @@ export class CompletionService {
   ) {}
 
   /**
-   * Auto-correção final tem teto RÍGIDO por trabalho. Uma correção é uma nova
-   * etapa, portanto o limite de tentativas POR ETAPA não a contém. Limite
-   * global impede ciclos de revisão/correção com dezenas de etapas pagas.
+   * A recuperação não limita quantos erros DIFERENTES podem ser corrigidos.
+   * Evita loops ao interromper só após três ocorrências da MESMA falha,
+   * identificada por sua evidência, preservando limites de orçamento/tempo.
    */
   private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; status: string; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
@@ -120,9 +121,8 @@ export class CompletionService {
     if (falhas.some((f) => criterios.find((c) => c.key === f.key)?.kind === 'MANUAL_APPROVAL')) return false;
     const quem = daIa.includes(job.project.provider) ? job.project.provider : daIa[daIa.length - 1];
     const rodadas = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).length;
-    // O teto conta TODA correção no mesmo trabalho. Retomar, trocar a IA e
-    // alterar o texto da violação não zeram esse limite. Recuperar um trabalho
-    // bloqueado exige análise/decisão, e não novas correções automáticas.
+    // O número total serve apenas para nomear a próxima etapa: erros diferentes
+    // podem ser corrigidos sucessivamente, sem teto global de correções.
     // Quando o código muda, uma captura anterior não valida a nova composição.
     const vencidas = capturasMotionDesatualizadas(worktree, job.steps);
     if (vencidas.length) {
@@ -148,17 +148,19 @@ export class CompletionService {
       await this.orchestrator.scheduleReady(job.id);
       return true;
     }
-    const configurado = Number(process.env.NIVOO_CORRECOES_MAX ?? 2);
-    const maxRodadas = Number.isFinite(configurado) ? Math.min(3,Math.max(0,Math.floor(configurado))) : 2;
     const correcoesAgora = job.steps.filter((s) => s.key.startsWith('correcao-criterios-')).sort((a, b) => b.order - a.order);
-    if (maxRodadas === 0 || rodadas >= maxRodadas) {
+    // A identidade é por erro REAL (violação ou evidência de comando), não por
+    // critério nem pelo número de correções: um novo defeito abre nova oportunidade.
+    const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
+    const assinaturas = assinaturasDasFalhas(falhas, violacoesAgora);
+    const recorrencias = recorrenciasDasFalhas(job.steps, assinaturas);
+    const persistentes = recorrencias.filter((f) => f.ocorrencias >= MAX_OCORRENCIAS_MESMA_FALHA);
+    if (persistentes.length) {
       await this.logs.log(job.id,
-        `Conferência final reprovada, mas o limite global de ${maxRodadas} correção(ões) automática(s) já foi atingido (${rodadas} executadas). Não criarei outra etapa. É necessário corrigir a causa, a ferramenta ou o critério.`,
-        { source:'evaluator',level:'WARN' });
+        `Recuperação interrompida: o MESMO erro foi identificado ${MAX_OCORRENCIAS_MESMA_FALHA} vezes, mesmo após correções. ${persistentes.map((f) => f.descricao).join(' | ')}. Preservados o trabalho e os testes anteriores; não criar outra sessão em loop.`,
+        { source: 'evaluator', level: 'WARN' });
       return false;
     }
-    // A cobrança de agora: violações apontadas pela revisão + critérios automáticos que falharam.
-    const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
     // Erro de responsabilidade exclusiva da plataforma: a IA do projeto não
     // controla os endpoints, a tela ou o navegador. Não repetir sessões inúteis.
     const somentePublicacao = falhas.every(f => f.key === RULE_REVIEW_STEP) &&
@@ -200,18 +202,9 @@ export class CompletionService {
       ...violacoesAgora.map((v) => v.slice(0, 300)),
       ...falhas.filter((f) => f.key !== RULE_REVIEW_STEP).map((f) => `${f.key} — ${criterios.find((c) => c.key === f.key)?.description ?? ''}`),
     ];
-    const normal = (t: string) => t.toLowerCase().replace(/[^a-z0-9à-ú]+/g, ' ').trim();
-    const mesmaCobranca = (instr: string) => cobranca.length > 0 && cobranca.every((c) => normal(instr).includes(normal(c)));
-    // Quantas correções seguidas (da mais recente para trás) já cobraram exatamente isto.
-    let repetidas = 0;
-    for (const c of correcoesAgora) {
-      if (!mesmaCobranca(c.instructions)) break;
-      repetidas++;
-    }
-    if (repetidas >= 3) {
-      await this.logs.log(job.id, `A conferência final cobrou as MESMAS coisas depois de ${repetidas} correções seguidas (mudando a abordagem${new Set(correcoesAgora.slice(0, repetidas).map((c) => c.provider)).size > 1 ? ' e a IA' : ''}): a IA não está conseguindo resolver sozinha e girar de novo só gastaria. O trabalho espera você (responder, "Tentar de novo" ou aceitar assim mesmo).`, { source: 'evaluator', level: 'WARN' });
-      return false;
-    }
+    // Uma ocorrência anterior da MESMA assinatura pede abordagem diferente/IA
+    // reserva. Uma falha nova não herda a repetição de outra.
+    const repetidas = Math.max(0, ...recorrencias.map((f) => f.ocorrencias - 1));
     // Cobrança repetida: outra IA conectada (reservas do projeto, depois as que já trabalharam neste trabalho) tenta.
     let quemCorrige = quem;
     if (repetidas > 0) {
@@ -279,13 +272,14 @@ export class CompletionService {
           jobId: job.id, key, order: review ? review.order : base, provider: quemCorrige, dependsOn: job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.key),
           title: 'Corrigir o que a conferência final cobrou',
           instructions: [
+            `${MARCADOR_RECUPERACAO}${assinaturas.map((f) => f.hash).join(',')}`,
             'O trabalho terminou as etapas, mas a conferência final do sistema NÃO passou nestes critérios:',
             ...linhas,
             ...revisao,
             ...(repetidas > 0
               ? [
                   '',
-                  `ATENÇÃO: é a ${repetidas + 1}ª vez seguida que a conferência cobra EXATAMENTE isto — as correções anteriores NÃO resolveram.`,
+                  `ATENÇÃO: a MESMA falha concreta já apareceu ${repetidas + 1} vez(es) nesta avaliação. Não confunda com outras falhas já resolvidas.`,
                   'Não repita o que já foi tentado: veja o que mudou (git log -p nesta pasta) e o que a revisão diz que ainda falta, e',
                   'MUDE A ABORDAGEM. Se a cobrança é de evidência executada pelo sistema, a evidência precisa estar no lugar que a',
                   'conferência roda (testes do projeto ou nivoo-roteiros/) — um script solto em outra pasta não conta.',
@@ -309,7 +303,7 @@ export class CompletionService {
       if (review) await tx.step.update({ where: { id: review.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...review.dependsOn, key])], statusDetail: 'correção: conferir de novo' } });
       await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `corrigindo o que a conferência final cobrou (rodada ${correcoesAgora.length + 1}${repetidas ? ', mudando a abordagem' : ''})` } });
     });
-    await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${correcoesAgora.length + 1}${repetidas ? `; a mesma cobrança pela ${repetidas + 1}ª vez: muda a abordagem${quemCorrige !== (correcoesAgora[0]?.provider ?? quem) ? ` e passa para ${quemCorrige}` : ''}` : ''})`, { source: 'evaluator', level: 'WARN' });
+    await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${correcoesAgora.length + 1}${repetidas ? `; falha concreta repetida: mudar abordagem${quemCorrige !== (correcoesAgora[0]?.provider ?? quem) ? ` e passar para ${quemCorrige}` : ''}` : '; falha diferente das anteriores'})`, { source: 'evaluator', level: 'WARN' });
     await this.orchestrator.scheduleReady(job.id);
     return true;
   }
