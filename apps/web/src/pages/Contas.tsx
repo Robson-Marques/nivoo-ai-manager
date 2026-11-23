@@ -255,9 +255,9 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
         <>
           <div className="conexao-painel">
             <button type="button" className="secondary" onClick={() => setCatalogoNvidiaAberto(v => !v)}>
-              {catalogoNvidiaAberto ? 'Fechar catálogo NVIDIA' : 'Explorar modelos NVIDIA por especialidade'}
+              {catalogoNvidiaAberto ? 'Fechar ferramentas NVIDIA' : 'Abrir ferramentas NVIDIA'}
             </button>
-            <span className="muted small"> Programação, conversa, imagem, vídeo, voz, busca e dados, com acesso separado.</span>
+            <span className="muted small"> Execute apenas serviços com conector no Nivoo. A disponibilidade depende da sua chave.</span>
           </div>
           {catalogoNvidiaAberto && <NvidiaCatalogo conexaoId={c.id} />}
         </>
