@@ -269,7 +269,7 @@ export class JobsService {
     // renderizador e dos critérios de vídeo do plano. Revisão editorial extra
     // pode ser pedida explicitamente como outra tarefa, não forçada pelo motor.
     const motionDireto = steps.some((s) =>
-      (s.provider ?? defaultProvider) === 'local-shell' && /\\bnivoo-renderizar-motion\\b/.test(s.instructions));
+      (s.provider ?? defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
     if (aiProviders.length && body.conferencia !== false && !motionDireto) {
       const reviewer = aiProviders.includes(project.provider) ? project.provider : aiProviders[0];
       steps.push({ ...ruleReviewStep(steps.map((s) => s.key), reviewer), requiresApproval: false, providerOptions: {} });
@@ -473,7 +473,7 @@ export class JobsService {
     // Isso NÃO equivale a certificar a qualidade artística do vídeo.
     const motionLegadoBloqueado = job.blockedReason === BlockedReason.CRITERIOS_NAO_ATENDIDOS &&
       job.steps.some((s) => (s.provider ?? job.defaultProvider) === 'local-shell' &&
-        /\\bnivoo-renderizar-motion\\b/.test(s.instructions)) &&
+        /\bnivoo-renderizar-motion\b/.test(s.instructions)) &&
       job.steps.some((s) => /^direcao-arte-/.test(s.key) && s.status === 'BLOQUEADO');
     // Se o fluxo é direto, não há razão para gerar outra captura só para
     // alimentar o revisor artificial que foi dispensado.
