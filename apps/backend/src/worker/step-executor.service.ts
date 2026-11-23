@@ -22,7 +22,7 @@ import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaC
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
-import { conferenciaTecnicaDeVideo } from '../jobs/jobs.service';
+import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
