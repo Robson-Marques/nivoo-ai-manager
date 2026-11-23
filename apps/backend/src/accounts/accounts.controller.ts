@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ModelCatalogService } from '../providers/model-catalog.service';
+import { NvidiaSpecializedService } from '../providers/nvidia-specialized.service';
 import { AccountsService } from './accounts.service';
 
 /** Tela "Conexões": quantas contas quiser de Claude, ChatGPT e Gemini, pela conta ou por chave de API. */
@@ -8,6 +9,7 @@ export class AccountsController {
   constructor(
     private readonly accounts: AccountsService,
     private readonly catalog: ModelCatalogService,
+    private readonly nvidia: NvidiaSpecializedService,
   ) {}
 
   @Get()
@@ -42,6 +44,33 @@ export class AccountsController {
   @Get(':id/catalogo')
   catalogo(@Param('id') id: string) {
     return this.catalog.catalogoNvidia(id);
+  }
+
+  /** Especialidades realmente conectadas à API NVIDIA (não confundidas com o catálogo). */
+  @Get(':id/nvidia/capacidades')
+  capacidadesNvidia(@Param('id') id: string) {
+    // A conexão só é considerada NVIDIA após a validação de tipo do serviço.
+    return this.nvidia.capacidadesParaConexao(id);
+  }
+
+  @Post(':id/nvidia/conversa')
+  conversaNvidia(@Param('id') id: string, @Body() body: unknown) {
+    return this.nvidia.conversa(id, body);
+  }
+
+  @Post(':id/nvidia/embedding')
+  embeddingNvidia(@Param('id') id: string, @Body() body: unknown) {
+    return this.nvidia.embedding(id, body);
+  }
+
+  @Post(':id/nvidia/rerank')
+  rerankNvidia(@Param('id') id: string, @Body() body: unknown) {
+    return this.nvidia.rerank(id, body);
+  }
+
+  @Post(':id/nvidia/imagem')
+  imagemNvidia(@Param('id') id: string, @Body() body: unknown) {
+    return this.nvidia.imagem(id, body);
   }
 
   @Post(':id/login')
