@@ -39,7 +39,7 @@ import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
-import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
+import { capturasParaRecuperar, diagnosticoParecerVisual } from '../jobs/motion-capture-freshness';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
@@ -534,7 +534,9 @@ export class StepExecutorService {
       if (v.exitCode !== 0 && !v.aborted && !ambiente) credencialFaltando = faltaCredencial(`${v.stdout}${v.stderr}`);
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
-      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
+      const falhaDeParecer = v.exitCode !== 0 ? diagnosticoParecerVisual(worktree, verifyCommand) : null;
+      const vOut = (`${v.stdout}${v.stderr}`.trim() ||
+        (v.exitCode !== 0 ? [explicarConferencia(verifyCommand, worktree), falhaDeParecer].filter(Boolean).join(' — ') : '')).slice(-4000); // a IA precisa da causa real, não só exit 1
       // Saída inteira da conferência para a próxima sessão ler (o erro do teste costuma estar no fim de muita saída).
       try {
         fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
