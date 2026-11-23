@@ -98,3 +98,24 @@ export function recorrenciasDasFalhas(
     ocorrencias: (historico.get(falha.hash) ?? 0) + 1,
   }));
 }
+
+/** Para verificações de uma mesma etapa: erros distintos podem ser corrigidos
+ * sequencialmente; a terceira ocorrência do mesmo erro interrompe o ciclo. */
+export function assinaturaErroDaEtapa(erro: string, comando = ''): string {
+  return assinaturasDasFalhas([{
+    key: 'falha-da-etapa',
+    kind: 'COMMAND',
+    evidence: { comando, exitCode: 1, timeout: false, stdout: erro.slice(0, 5000) },
+  }])[0].hash;
+}
+
+export function repeticoesDoMesmoErro(
+  errosAnteriores: Array<string | null>,
+  erroAtual: string,
+  comando = '',
+): number {
+  const assinatura = assinaturaErroDaEtapa(erroAtual, comando);
+  return errosAnteriores.filter((erro) =>
+    typeof erro === 'string' && erro.trim() && assinaturaErroDaEtapa(erro, comando) === assinatura,
+  ).length;
+}
