@@ -165,7 +165,7 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
       ))}
       <p className="muted small" style={{ marginTop: 12 }}>
         Para escolher a IA que altera código, abra o projeto e use o seletor de modelo.
-        Modelos de vídeo e áudio exigem conectores próprios; embedding, reranking e imagem têm seus painéis de API acima.
+        Cosmos3 Nano, imagem, embeddings e reranking têm conectores no painel acima. Outros modelos de vídeo/áudio podem exigir GPU e implantação própria.
         A geração de imagem pode não estar liberada gratuitamente na sua conta.
       </p>
     </section>
