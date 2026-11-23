@@ -100,7 +100,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
       </label>
       {tipo !== 'rerank' ? (
         <label>
-          {tipo === 'embedding' ? 'Texto para vetorização' : tipo === 'imagem' ? 'Descrição da imagem' : 'Mensagem para a IA'}
+          {tipo === 'embedding' ? 'Texto para vetorização' : tipo === 'imagem' ? 'Descrição da imagem' : tipo === 'video' ? 'Descrição do vídeo' : 'Mensagem para a IA'}
           <textarea value={prompt} rows={3} onChange={e => setPrompt(e.target.value)} maxLength={15000} />
         </label>
       ) : (
