@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
 import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
+import { retryAfterHeaderMs } from './resource-rate-limit';
 
 /** NVIDIA Build: APIs hospedadas de avaliação (não requer GPU no servidor Nivoo). */
 export const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
@@ -14,6 +16,14 @@ const MAX_TURNS = 40;
 const MAX_FILE_BYTES = 320_000;
 const MAX_READ_BYTES = 1_000_000;
 const MAX_TOOL_OUTPUT = 24_000;
+const MIN_COOLDOWN_MS = 2 * 60_000;
+// Evita mandar requisições adicionais para a mesma chave durante o Retry-After.
+// Guarda somente SHA-256 da chave; o agendamento persistente fica na fila do Nivoo.
+const cooldownNvidia = new Map<string, number>();
+function idDaChave(chave: string): string { return createHash('sha256').update(chave).digest('hex'); }
+function erro429(delayMs: number): Error & { retryAfterMs: number } {
+  return Object.assign(new Error(`NVIDIA HTTP 429: Too Many Requests. Limite do provedor; reavaliar após ${Math.ceil(delayMs / 1000)}s.`), { retryAfterMs: delayMs });
+}
 
 type ChatMessage = { role: string; content: unknown; tool_calls?: any[]; tool_call_id?: string };
 type NvidiaResponse = { choices?: Array<{ message?: { content?: unknown; tool_calls?: any[] }; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
@@ -42,9 +52,10 @@ function caminhoSeguro(cwd: string, relativo: unknown): string {
   const nome = String(relativo ?? '').trim().replace(/\\/g, '/');
   if (nome === '.' || !nome) return resolveInside(cwd, '.');
   const nomeValido = caminhoDoProjeto(nome);
-  if (!nomeValido || nomeValido.split('/').some((p) =>
+  if (!nomeValido) throw new Error('Caminho inválido. Informe um caminho RELATIVO ao projeto, sem ../ nem caminhos absolutos.');
+  if (nomeValido.split('/').some((p) =>
     /^(node_modules|\.env(?:\..*)?|\.git|\.nivoo|contexto|segredos\.json|conexoes\.json)$/i.test(p))) {
-    throw new Error('Caminho proibido, externo ou inválido');
+    throw new Error('Pasta protegida. Leia/edite somente arquivos do projeto, como apps/api/src/..., scripts/... ou out/...; não use .git, .nivoo, contexto, .env ou node_modules.');
   }
   return resolveInside(cwd, nomeValido);
 }
@@ -143,6 +154,9 @@ export class NvidiaApiProvider implements AiProvider {
   private async pedir(endpoint: '/models' | '/chat/completions', data: unknown, timeoutMs: number, signal?: AbortSignal): Promise<any> {
     const chave = this.chave();
     if (!chave) throw new Error('Conecte sua chave da NVIDIA em Conexões');
+    const fingerprint = idDaChave(chave);
+    const restanteCooldown = (cooldownNvidia.get(fingerprint) ?? 0) - Date.now();
+    if (endpoint === '/chat/completions' && restanteCooldown > 0) throw erro429(restanteCooldown);
     const temporizador = AbortSignal.timeout(Math.max(1000, timeoutMs));
     const resposta = await fetch(NVIDIA_API_BASE + endpoint, {
       method: data == null ? 'GET' : 'POST',
@@ -155,6 +169,11 @@ export class NvidiaApiProvider implements AiProvider {
     let json: any;
     try { json = JSON.parse(bruto); } catch { json = {}; }
     if (!resposta.ok) {
+      if (resposta.status === 429) {
+        const delayMs = Math.max(MIN_COOLDOWN_MS, retryAfterHeaderMs(resposta.headers.get('retry-after')) ?? 0);
+        cooldownNvidia.set(fingerprint, Date.now() + delayMs);
+        throw erro429(delayMs);
+      }
       const detalhe = erroSemChave(String(json?.error?.message ?? json?.message ?? bruto).slice(0, 450), chave);
       throw new Error('NVIDIA HTTP ' + resposta.status + ': ' + detalhe);
     }
@@ -183,6 +202,11 @@ export class NvidiaApiProvider implements AiProvider {
       base.errors.push('não conectado (informe a chave NVIDIA em Conexões)');
       return base;
     }
+    const cooldownRestante = (cooldownNvidia.get(idDaChave(this.chave()!)) ?? 0) - Date.now();
+    if (cooldownRestante > 0) {
+      base.errors.push('NVIDIA HTTP 429: aguardar o limite do provedor (' + Math.ceil(cooldownRestante / 1000) + 's).');
+      return base;
+    }
     try {
       await this.pedir('/models', null, 7_000);
       base.available = true;
@@ -208,6 +232,10 @@ export class NvidiaApiProvider implements AiProvider {
         'Você é um agente de engenharia trabalhando APENAS na pasta do projeto Nivoo.',
         'Use as ferramentas de arquivo para ler e modificar o projeto. Sem terminal, sem rede ou acesso a segredos.',
         'Leia antes de alterar. Preserve as mudanças existentes e registre de forma clara o que fez.',
+        'As ferramentas aceitam SOMENTE caminhos relativos à pasta do trabalho (ex.: apps/api/src/routes/official-whatsapp.ts).',
+        'Não leia nem escreva .nivoo/, contexto/, node_modules/ ou .git/. Para notas próprias use out/notas.jsonl.',
+        'Não repita a mesma leitura sem novo início: ler_arquivo entrega até 18000 caracteres; use inicio para ler a parte seguinte.',
+        'Depois de entender o código, edite os arquivos solicitados em vez de repetir leituras sem avanço.',
         'As verificações e builds são responsabilidade do executor Nivoo, após sua sessão.',
         'Não invente resultado, arquivo criado, teste executado ou imagem que não tenha sido gravado.',
         'Quando faltar evidência, indique o impedimento sem marcar como aprovado.',
@@ -215,6 +243,7 @@ export class NvidiaApiProvider implements AiProvider {
       { role: 'user', content: buildPrompt(req) },
     ];
     let entrada = 0, saida = 0, alteracoes = 0;
+    const leiturasIguais = new Map<string, number>();
     const inicio = Date.now();
     req.onLog('NVIDIA NIM: modelo ' + model + ' (ferramentas seguras de arquivo, sem terminal)');
     try {
@@ -245,11 +274,28 @@ export class NvidiaApiProvider implements AiProvider {
           try {
             const args = JSON.parse(String(call?.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
-            resultado = executarFerramentaNvidia(req.cwd, nome, args);
-            if (nome === 'escrever_arquivo' || nome === 'substituir_texto') alteracoes++;
-            req.onLog('[NVIDIA ferramenta] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 150));
+            if (nome === 'ler_arquivo') {
+              const chaveLeitura = JSON.stringify([args.caminho, Number(args.inicio) || 0, Number(args.limite) || 18000]);
+              const vezes = leiturasIguais.get(chaveLeitura) ?? 0;
+              leiturasIguais.set(chaveLeitura, vezes + 1);
+              if (vezes >= 2) {
+                resultado = JSON.stringify({ aviso: 'Esta mesma parte do arquivo já foi lida duas vezes e não houve edição desde então. Não repita. Para a próxima parte, use inicio maior; para modificar, use substituir_texto ou escrever_arquivo.' });
+              } else {
+                resultado = executarFerramentaNvidia(req.cwd, nome, args);
+              }
+            } else {
+              resultado = executarFerramentaNvidia(req.cwd, nome, args);
+            }
+            if (nome === 'escrever_arquivo' || nome === 'substituir_texto') {
+              alteracoes++;
+              leiturasIguais.clear();
+            }
+            const pedido = String(args.caminho ?? args.pasta ?? '');
+            const nomeSeguro = /^[A-Za-z0-9._/ -]{1,150}$/.test(pedido) && !pedido.includes('..') ? pedido : '[caminho não permitido]';
+            req.onLog('[NVIDIA ferramenta] ' + nome + ': ' + nomeSeguro);
           } catch (e: any) {
-            resultado = JSON.stringify({ erro: String(e?.message ?? e).slice(0, 700) });
+            const mensagem = String(e?.message ?? e).slice(0, 500);
+            resultado = JSON.stringify({ erro: mensagem, orientacao: 'Use caminhos relativos aos arquivos do projeto. Se arquivo .js não existir, confira a versão .ts; use listar_arquivos. Não repita chamada idêntica sem corrigir o parâmetro.' });
             req.onLog('[NVIDIA ferramenta] ' + nome + ': ' + resultado.slice(0, 300), 'WARN');
           }
           messages.push({ role: 'tool', tool_call_id: String(call.id), content: resultado.slice(0, MAX_TOOL_OUTPUT) });
@@ -264,6 +310,7 @@ export class NvidiaApiProvider implements AiProvider {
       const erro = erroSemChave(String(e?.message ?? e), this.chave() ?? '');
       req.onLog('[NVIDIA erro] ' + erro, 'WARN');
       return { exitCode: 1, output: '', error: erro, resourceUnavailable: looksLikeResourceProblem(erro) || /HTTP (401|402|403|429|500|502|503|504)|fetch failed|network error|timeout/i.test(erro),
+        retryAfterMs: Number.isFinite(e?.retryAfterMs) ? Math.max(0, Number(e.retryAfterMs)) : undefined,
         inputTokens: entrada, outputTokens: saida };
     }
   }
