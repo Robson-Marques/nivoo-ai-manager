@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 type Tipo = 'conversa' | 'traducao' | 'embedding' | 'rerank' | 'imagem' | 'video';
@@ -21,7 +21,13 @@ interface Resultado {
   [key: string]: unknown;
 }
 
-/** Painel prático para exercitar as APIs disponíveis usando a conexão NVIDIA salva. */
+type EstadoAcesso = { modelo: string; estado: 'confirmado' | 'bloqueado'; descricao: string };
+function chaveDoAcesso(conexao: string, tipo: Tipo, modelo: string): string {
+  // Sem armazenar chave de API, prompt ou dados da geração no navegador.
+  return 'nivoo:nvidia:acesso:' + encodeURIComponent(conexao) + ':' + tipo + ':' + encodeURIComponent(modelo);
+}
+
+/** Apenas os serviços que possuem executor. Disponibilidade REAL só após chamada bem-sucedida. */
 export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
   const [tipo, setTipo] = useState<Tipo>('conversa');
   const [prompt, setPrompt] = useState('Explique resumidamente a função de um agente de programação.');
@@ -33,6 +39,27 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
   const [ocupado, setOcupado] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [acessos, setAcessos] = useState<Partial<Record<Tipo, EstadoAcesso>>>({});
+  useEffect(() => {
+    try {
+      const cache = localStorage.getItem(chaveDoAcesso(conexaoId, tipo, modelo));
+      const estado = cache ? JSON.parse(cache) as EstadoAcesso : undefined;
+      setAcessos(a => ({ ...a, [tipo]: estado }));
+    } catch {
+      setAcessos(a => ({ ...a, [tipo]: undefined }));
+    }
+  }, [conexaoId, tipo, modelo]);
+  const acessoAtual = acessos[tipo]?.modelo === modelo ? acessos[tipo] : undefined;
+  const bloqueado = acessoAtual?.estado === 'bloqueado';
+  const registrar = (estado: EstadoAcesso) => {
+    try { localStorage.setItem(chaveDoAcesso(conexaoId, tipo, modelo), JSON.stringify(estado)); } catch { /* armazenamento opcional */ }
+    setAcessos(a => ({ ...a, [tipo]: estado }));
+  };
+  const reverAcesso = () => {
+    try { localStorage.removeItem(chaveDoAcesso(conexaoId, tipo, modelo)); } catch { /* opcional */ }
+    setAcessos(a => ({ ...a, [tipo]: undefined }));
+    setErro(null);
+  };
   const mudarTipo = (t: Tipo) => {
     setTipo(t);
     setModelo(MODOS.find(m => m.id === t)!.modelo);
@@ -42,6 +69,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     if (t === 'traducao') setPrompt('Nossa pizzaria usa ingredientes de qualidade e massa sem óleo.');
   };
   const executar = async () => {
+    if (bloqueado || ocupado) return;
     setOcupado(true);
     setResultado(null);
     setErro(null);
@@ -68,8 +96,15 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
       } else {
         setResultado(await api<Resultado>(rota, 'POST', body));
       }
+      registrar({ modelo, estado: 'confirmado', descricao: 'Execução concluída nesta conta' });
     } catch (e: any) {
-      setErro(String(e?.message ?? e));
+      const mensagem = String(e?.message ?? e);
+      setErro(mensagem);
+      // Falhas de permissão/rota NÃO devem voltar como serviço utilizável.
+      // Não bloquear por 429 (cota temporária), timeout ou falha de rede.
+      if (/\bHTTP (402|403|404)\b/i.test(mensagem)) {
+        registrar({ modelo, estado: 'bloqueado', descricao: mensagem.slice(0, 450) });
+      }
     } finally {
       setOcupado(false);
     }
@@ -80,20 +115,45 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     ? 'data:video/mp4;base64,' + resultado.base64 : null;
   return (
     <section className="conexao-painel" aria-label="Ferramentas NVIDIA integradas">
-      <strong>Serviços NVIDIA executáveis por API</strong>
+      <strong>Ferramentas NVIDIA no Nivoo AI Manager</strong>
       <p className="muted small">
-        O Nivoo AI Manager envia a tarefa usando a sua chave NVIDIA, diretamente ao endpoint da especialidade.
-        Alguns serviços podem exigir autorização ou créditos, mesmo quando a página mostra uma opção de avaliação.
-        Os modelos apenas para download não são executados aqui. Cosmos3 Nano pode exigir permissão especial na sua organização.
+        Apenas serviços com conector implementado. Estar listado na NVIDIA não significa acesso autorizado:
+        o serviço só é confirmado após uma execução bem-sucedida nesta conta.
       </p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        {MODOS.map(m => (
+        {MODOS.filter(m => m.id !== 'imagem' && m.id !== 'video').map(m => (
           <button key={m.id} type="button" className={m.id === tipo ? '' : 'secondary'} onClick={() => mudarTipo(m.id)}>
             {m.titulo}
           </button>
         ))}
       </div>
+      <details open={tipo === 'imagem' || tipo === 'video' ? true : undefined}>
+        <summary className="muted small" style={{ cursor: 'pointer', marginTop: 10 }}>
+          Imagem e vídeo — podem exigir liberação especial da NVIDIA
+        </summary>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {MODOS.filter(m => m.id === 'imagem' || m.id === 'video').map(m => (
+            <button key={m.id} type="button" className={m.id === tipo ? '' : 'secondary'} onClick={() => mudarTipo(m.id)}>
+              {m.titulo}
+            </button>
+          ))}
+        </div>
+      </details>
       <p className="muted small">{MODOS.find(m => m.id === tipo)?.descricao}</p>
+      <p className="muted small">
+        {bloqueado ? 'Acesso negado ou endpoint não liberado para esta conta (verificação deste navegador).' :
+          acessoAtual?.estado === 'confirmado' ? 'Funcionou nesta conta em uma execução anterior.' :
+            'Ainda não testado nesta conta. A execução pode consumir créditos ou cota.'}
+      </p>
+      {bloqueado && (
+        <div className="conexao-painel error">
+          {acessoAtual?.descricao}
+          <p>Essa função não será executada novamente automaticamente.</p>
+          <button type="button" className="secondary" onClick={reverAcesso}>
+            Já liberei o acesso na NVIDIA — tentar novamente
+          </button>
+        </div>
+      )}
       <label>
         ID do modelo
         <input
@@ -139,8 +199,8 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
         </>
       )}
       <div className="row">
-        <button type="button" disabled={ocupado} onClick={() => { void executar(); }}>
-          {ocupado ? 'Consultando NVIDIA…' : 'Executar com minha chave NVIDIA'}
+        <button type="button" disabled={ocupado || bloqueado} onClick={() => { void executar(); }}>
+          {ocupado ? 'Consultando NVIDIA…' : bloqueado ? 'Acesso não habilitado' : 'Executar com minha chave NVIDIA'}
         </button>
       </div>
       {erro && <p className="error">{erro}</p>}
