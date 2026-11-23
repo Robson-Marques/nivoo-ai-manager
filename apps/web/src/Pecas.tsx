@@ -139,12 +139,13 @@ export function VerArquivo({ path, conteudo, onFechar }: { path: string; conteud
  */
 export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo = 'Modelo', mostrarAviso = false }: { projeto: any; onMudou: () => void; className?: string; ia?: string; rotulo?: string; mostrarAviso?: boolean }) {
   const ia = iaFixa ?? projeto.provider;
-  const [opcoes, setOpcoes] = useState<Array<{ id: string; nome: string }>>([]);
+  const ehNvidia = ia === 'nvidia-api' || ia.startsWith('nvidia-api--');
+  const [opcoes, setOpcoes] = useState<Array<{ id: string; nome: string; categoria?: string; descricao?: string }>>([]);
   const [aviso, setAviso] = useState<string | null>(null);
   const atual: string = (projeto.aiModels ?? {})[ia] ?? '';
   useEffect(() => {
     setOpcoes([]);
-    api<{ opcoes: Array<{ id: string; nome: string }>; aviso?: string }>(`/accounts/${ia}/models`)
+    api<{ opcoes: Array<{ id: string; nome: string; categoria?: string; descricao?: string }>; aviso?: string }>(`/accounts/${ia}/models`)
       .then((r) => {
         setOpcoes(r.opcoes);
         setAviso(r.aviso ?? null);
@@ -161,16 +162,25 @@ export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo 
     await api(`/projects/${projeto.id}`, 'PATCH', { model, ...(iaFixa ? { modeloDe: iaFixa } : {}) });
     onMudou();
   };
-  const lista = atual && !opcoes.some((o) => o.id === atual) ? [{ id: atual, nome: atual }, ...opcoes] : opcoes;
+  const lista = atual && !opcoes.some((o) => o.id === atual)
+    ? [{ id: atual, nome: ehNvidia ? atual + ' (antigo/incompatível: escolha outro)' : atual, categoria: 'Outros' }, ...opcoes]
+    : opcoes;
+  const gruposNvidia = [...new Set(lista.map(o => o.categoria ?? 'Programação e agentes'))];
   const seletor = (
     <select className={className} value={atual} onChange={(e) => salvar(e.target.value)} title={aviso ?? 'Modelo usado por esta IA neste projeto'}>
       <option value="">{ia === 'gemini-video' ? 'Modelo: automático (o melhor que a chave permite)' : 'Modelo: padrão da IA'}</option>
-      {lista.map((o) => (
-        <option key={o.id} value={o.id}>
-          Modelo: {o.nome}
-        </option>
-      ))}
-      <option value="__outro__">Outro… (digitar o nome)</option>
+      {ehNvidia
+        ? gruposNvidia.map(g => (
+            <optgroup key={g} label={g}>
+              {lista.filter(o => (o.categoria ?? 'Programação e agentes') === g).map(o => (
+                <option key={o.id} value={o.id} title={o.descricao ?? o.nome}>
+                  {o.nome}
+                </option>
+              ))}
+            </optgroup>
+          ))
+        : lista.map(o => <option key={o.id} value={o.id}>Modelo: {o.nome}</option>)}
+      {!ehNvidia && <option value="__outro__">Outro… (digitar o nome)</option>}
     </select>
   );
   if (!mostrarAviso || !aviso) return seletor;
