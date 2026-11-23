@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ehAdicional, tipoDe } from '../accounts/connections';
 import { segredoDaConexao } from '../accounts/secrets';
 import { catalogarNvidiaModelos } from './nvidia-model-catalog';
@@ -57,6 +58,16 @@ function modeloDeChatConhecido(id: string): boolean {
 
 @Injectable()
 export class NvidiaSpecializedService {
+  private readonly videos = new Map<string, {
+    conexao: string; estado: 'executando' | 'concluido' | 'falhou'; criadoEm: number;
+    resultado?: NvidiaResultado; erro?: string;
+  }>();
+  private limparVideos() {
+    const agora = Date.now();
+    for (const [id, job] of this.videos) {
+      if (agora - job.criadoEm > 30 * 60_000) this.videos.delete(id);
+    }
+  }
   private chave(conexao: string): string {
     if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Selecione uma conexão NVIDIA válida');
     const k = segredoDaConexao(ehAdicional(conexao) ? conexao : null, 'NVIDIA_API_KEY');
@@ -218,6 +229,45 @@ export class NvidiaSpecializedService {
     }
     return { tipo: 'video', modelo: model, mime: 'video/mp4', base64: media,
       fps, numFrames, proporcao, duracaoSeg: Number((numFrames / fps).toFixed(2)) };
+  }
+
+  /**
+   * A geração pode levar mais tempo do que o proxy HTTP permite manter aberto.
+   * Começamos UM pedido e consultamos o mesmo ID, sem pagar por tentativas
+   * duplicadas. Se o processo reiniciar, nenhum pedido é refeito sozinho.
+   */
+  iniciarVideo(conexao: string, input: any) {
+    this.chave(conexao);
+    texto(input?.prompt, 'prompt', 2000);
+    this.limparVideos();
+    const pendentes = [...this.videos.values()].filter(v => v.conexao === conexao && v.estado === 'executando');
+    if (pendentes.length >= 2) throw new BadRequestException('Há duas gerações NVIDIA em andamento; consulte os resultados antes de iniciar outra.');
+    const id = randomUUID();
+    this.videos.set(id, { conexao, estado: 'executando', criadoEm: Date.now() });
+    void this.video(conexao, input)
+      .then(resultado => {
+        const atual = this.videos.get(id);
+        if (atual) { atual.estado = 'concluido'; atual.resultado = resultado; }
+      })
+      .catch((e: any) => {
+        const atual = this.videos.get(id);
+        if (atual) {
+          atual.estado = 'falhou';
+          atual.erro = String(e?.message ?? e).slice(0, 900);
+        }
+      });
+    return { id, estado: 'executando', aviso: 'Geração enviada uma única vez; consulte este ID. Não inicie outra em caso de timeout.' };
+  }
+
+  statusVideo(conexao: string, id: string) {
+    if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Conexão inválida');
+    if (!/^[a-f0-9-]{36}$/.test(id)) throw new BadRequestException('ID inválido');
+    this.limparVideos();
+    const job = this.videos.get(id);
+    if (!job || job.conexao !== conexao) throw new BadRequestException(
+      'Geração não encontrada (expirou ou o servidor reiniciou). Antes de reenviar, confira o histórico NVIDIA.');
+    return { id, estado: job.estado, erro: job.erro ?? null,
+      resultado: job.estado === 'concluido' ? job.resultado : undefined };
   }
 
   /** O catálogo de capacidades é exclusivo das conexões NVIDIA. */
