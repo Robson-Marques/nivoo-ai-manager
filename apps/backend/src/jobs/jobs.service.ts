@@ -475,6 +475,15 @@ export class JobsService {
       job.steps.some((s) => (s.provider ?? job.defaultProvider) === 'local-shell' &&
         /\bnivoo-renderizar-motion\b/.test(s.instructions)) &&
       job.steps.some((s) => /^direcao-arte-/.test(s.key) && s.status === 'BLOQUEADO');
+    // A revisão final compulsória também era uma sessão EXTRA de IA.
+    // Ela só pode ser dispensada se o trabalho JÁ tiver critério técnico
+    // explícito que verifica a existência do vídeo final. Reutilizar esse
+    // critério (mesmo arquivo, sem afirmar aprovação artística).
+    const entregaFinal = job.criteria.find((c) =>
+      c.key === 'video-final' && c.kind === 'FILE_EXISTS' &&
+      typeof (c.config as { path?: unknown } | null)?.path === 'string');
+    const criterioRegraLegado = job.criteria.find((c) => c.key === RULE_REVIEW_STEP);
+    const dispensaRevisaoFinal = motionLegadoBloqueado && !!entregaFinal && !!criterioRegraLegado;
     // Se o fluxo é direto, não há razão para gerar outra captura só para
     // alimentar o revisor artificial que foi dispensado.
     const pasta = motionLegadoBloqueado ? null : await this.pastaDoTrabalho(projectId, jobId);
@@ -487,7 +496,29 @@ export class JobsService {
     );
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      if (dispensaRevisaoFinal && criterioRegraLegado && entregaFinal) {
+        // Não apagar evidências nem falsificar relatório: substituir o
+        // critério de IA que o próprio Nivoo adicionou pelo mesmo teste real
+        // de entrega do MP4 já exigido pelo trabalho.
+        await tx.acceptanceCriterion.update({
+          where: { id: criterioRegraLegado.id },
+          data: {
+            key: 'entrega-direta-sem-revisao-extra',
+            description: 'Entrega do vídeo final no caminho original; revisão adicional do sistema dispensada, sem certificação artística',
+            kind: 'FILE_EXISTS',
+            config: entregaFinal.config as Prisma.InputJsonValue,
+            status: 'PENDENTE',
+          },
+        });
+      }
       for (const s of job.steps) {
+        if (dispensaRevisaoFinal && s.key === RULE_REVIEW_STEP) {
+          await tx.step.update({ where: { id: s.id }, data: {
+            status: 'CONCLUIDO',
+            statusDetail: 'Revisão independente artificial do Nivoo dispensada na retomada; nenhuma aprovação artística presumida',
+          } });
+          continue;
+        }
         if (motionLegadoBloqueado && /^direcao-arte-/.test(s.key)) {
           // Registrar como etapa DISPENSADA, nunca como parecer conforme.
           // ExecStatus não possui estado SKIPPED: o statusDetail documenta
@@ -534,7 +565,8 @@ export class JobsService {
     });
     await this.logs.log(jobId,
       `Job retomado por ${by} a partir do último checkpoint${motionLegadoBloqueado
-        ? '; revisão visual adicional legada dispensada SEM certificar qualidade; render/montagem prosseguem'
+        ? '; revisão visual legada dispensada SEM certificar qualidade; render/montagem prosseguem' +
+          (dispensaRevisaoFinal ? '; revisor final automático dispensado (critério técnico do vídeo preservado)' : '')
         : recapturar.size ? '; recapturar ' + [...recapturar].join(', ') + ' antes de revisar' : ''}`);
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);
