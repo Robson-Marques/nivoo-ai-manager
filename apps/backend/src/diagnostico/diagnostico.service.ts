@@ -66,7 +66,11 @@ export class DiagnosticoService {
     L.push(`# Diagnóstico do trabalho "${job.title}"`, '');
     L.push(`- Gerado em: ${new Date().toISOString()} · Nivoo ${this.versao()} · servidor ${os.hostname()} · Node ${process.version}`);
     L.push(`- Projeto: ${p.name} (\`${p.id}\`) · IA do projeto: \`${p.provider}\` · modelos: ${JSON.stringify(p.aiModels)} · reserva: ${JSON.stringify(p.aiReserva ?? [])} · Git: ${p.gitUrl ? `${p.gitUrl} (${p.gitBranch}, envio automático ${p.gitAutoPush ? 'ligado' : 'desligado'})` : 'não ligado'}`);
-    L.push(`- Trabalho \`${job.id}\`: **${job.status}**${job.blockedReason ? ` · motivo: ${job.blockedReason}` : ''} · criado ${job.createdAt.toISOString()} · tempo ativo ${job.activeSeconds}s · gasto US$ ${job.costSpentUsd}`);
+    // O banco contabiliza activeSeconds quando a tentativa termina. O diagnóstico soma a tentativa ativa
+    // apenas para exibição, sem alterar o acumulado nem contar tempo de pausa.
+    const sessaoAtiva = job.status === 'EXECUTANDO' ? job.attempts.find(a => a.status === 'EXECUTANDO') : null;
+    const segundosEmAndamento = sessaoAtiva ? Math.max(0, Math.floor((Date.now() - sessaoAtiva.startedAt.getTime()) / 1000)) : 0;
+    L.push(`- Trabalho \`${job.id}\`: **${job.status}**${job.blockedReason ? ` · motivo: ${job.blockedReason}` : ''} · criado ${job.createdAt.toISOString()} · tempo ativo ${job.activeSeconds + segundosEmAndamento}s${sessaoAtiva ? ' (inclui sessão ativa)' : ''} · gasto US$ ${job.costSpentUsd}${sessaoAtiva ? ' (parcial; sessão ativa ainda não contabilizada)' : ''}`);
     L.push(`- Limites: sessões/etapa ${job.maxSessionsPerStep || 'sem limite'} · tentativas/etapa ${job.maxAttemptsPerStep} · tempo ${job.maxDurationSec || 'sem limite'}s · tempo por sessão ${job.stepTimeoutSec}s · gasto ${Number(job.maxCostUsd) || 'sem limite'}`);
     if (job.statusDetail) L.push('', '## Motivo da parada', bloco(job.statusDetail, 3000));
     L.push('', '## Objetivo', bloco(job.objectives[0]?.text, 2000));
