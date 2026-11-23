@@ -804,7 +804,14 @@ export class StepExecutorService {
         }
         await tx.step.update({
           where: { id: step.id },
-          data: { status: 'PENDENTE', statusDetail: 'aguardando novas capturas, sem refazer composição' },
+          data: {
+            status: 'PENDENTE',
+            // Dependência explícita: a revisão não pode disputar a fila com
+            // a recaptura de outro quadro do mesmo vídeo.
+            dependsOn: [...new Set([...step.dependsOn, ...vencidas])],
+            resumeFromAttempt: number,
+            statusDetail: 'aguardando novas capturas, sem refazer composição',
+          },
         });
       });
       await this.logs.log(job.id,
