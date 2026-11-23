@@ -63,6 +63,10 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
 // Recursos externos sem acesso continuam protegidos por três verificações.
 const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
+// Revisão visual custa tokens e pode modificar a composição em toda sessão.
+// Depois de duas revisões reprovadas, pedir decisão humana com as pendências
+// e preservar o HTML e os quadros existentes: nunca entrar em loop infinito.
+export const MAX_REVISOES_VISUAIS_AUTOMATICAS = 2;
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
@@ -806,6 +810,18 @@ export class StepExecutorService {
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
+    // Caso real: a IA corrige um zoom, a recaptura retorna, a IA encontra um
+    // novo corte e corrige outra vez. Sem teto, o QA gasta indefinidamente.
+    // O parecer negativo NÃO deve ser aprovado à força; guardar a composição
+    // e apresentar ao usuário as falhas específicas restantes.
+    if (/^direcao-arte-/.test(step.key) && sessions.length >= MAX_REVISOES_VISUAIS_AUTOMATICAS) {
+      const causa = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
+      await this.logs.log(job.id,
+        `Revisão visual interrompida após ${sessions.length} pareceres sem aprovação; composição e capturas preservadas.`,
+        { stepId: step.id, level: 'WARN', source: 'worker' });
+      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        `Limite de ${MAX_REVISOES_VISUAIS_AUTOMATICAS} revisões visuais automáticas sem aprovação: não repetir IA/recapturas infinitamente. ${(causa ?? 'Abra o parecer visual e confira as pendências.').slice(0, 1200)}. O trabalho está salvo; após ajuste dirigido, use Continuar.`);
+    }
     const conferenciaAtual = sessions[0]?.error ?? '';
     const conferencias = sessions
       .map((a) => a.error)
