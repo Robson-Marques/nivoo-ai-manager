@@ -205,8 +205,17 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const maxTurns = req.options?.maxTurns ?? (process.env.NIVOO_CLAUDE_MAX_TURNS ? Number(process.env.NIVOO_CLAUDE_MAX_TURNS) : undefined);
     if (maxTurns) args.push('--max-turns', String(maxTurns));
     req.onLog(`claude ${args.join(' ')} (cwd=${req.cwd})`);
+    // Instrução explícita à IA: ferramentas ocultas/desabilitadas não são alternativas válidas.
+    // O shell pertence ao executor local em OUTRA etapa, não a esta sessão restrita.
+    const toolsPolicy = [
+      'AMBIENTE NIVOO: Bash/terminal, WebFetch e WebSearch NÃO existem nesta sessão, inclusive em subagentes.',
+      'NUNCA invoque Bash, nem para head, cat, grep, testes, build ou inspecionar arquivos JS.',
+      'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
+      'Se não conseguir ler ou editar, registre o caminho e o motivo real; não tente chamar ferramenta inexistente.',
+      'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
+    ].join('\\n');
     // Perfil do projeto como instrução de sistema: pesa mais que o texto do prompt (vai também no prompt).
-    if (req.systemPrompt) args.push('--append-system-prompt', req.systemPrompt);
+    args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\\n\\n'));
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
