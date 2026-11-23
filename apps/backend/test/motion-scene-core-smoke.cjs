@@ -27,6 +27,7 @@ async function main() {
   assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],keys:[{at:10},{at:1}]}]}),/ordenados/);
 
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-motion-core-'));
+  const escape=path.join(os.tmpdir(),path.basename(root)+'-externo.png');
   try {
     fs.mkdirSync(path.join(root,'assets'),{recursive:true});
     fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(scene));
@@ -71,14 +72,13 @@ async function main() {
     win.__renderAt(20);
     assert.equal(win.__motionFim,true);
 
-    const escape=path.join(root,'outside.png');
     fs.writeFileSync(escape,Buffer.from('outside'));
     fs.symlinkSync(escape,path.join(root,'assets','external.png'));
     const bad=JSON.parse(JSON.stringify(scene));
     bad.layers[0].asset='assets/external.png';
     fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(bad));
     assert.throws(()=>loadScene(path.join(root,'scene.json')),/fora da pasta/);
-  } finally { fs.rmSync(root,{recursive:true,force:true}); }
+  } finally { fs.rmSync(root,{recursive:true,force:true});fs.rmSync(escape,{force:true}); }
   console.log('PASS motion-core: manifest, imagem sem clonagem, z seguro, pacing, keyframes, assets confinados, sintaxe navegador');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
