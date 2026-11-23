@@ -47,6 +47,7 @@ export function diagnosticoParecerVisual(worktree: string, verifyCommand: string
     const comparacoes = Array.isArray(d.comparacoes) ? d.comparacoes : [];
     const motivos = [
       ...pendencias,
+      ...(d.movimentoConforme === false ? ['movimento não aprovado: verificar orientação, efeitos e molduras nos quadros temporais'] : []),
       ...(pendencias.length === 0 && d.conforme !== true ? comparacoes
         .filter((v): v is Record<string, unknown> => !!v && typeof v === 'object')
         .map((v) => String(v.observacao ?? ''))
