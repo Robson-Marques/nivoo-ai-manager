@@ -95,9 +95,10 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   const reused = already.filter(Boolean).length;
   if (reused) onProgress({ done: reused, frames, reused, message: `reaproveitando ${reused}/${frames} quadros preservados` });
   let produced = 0;
-  // Mesmo quando os quadros JPEG estão salvos, avançar o relógio quadro a quadro
-  // preserva callbacks/timers do código JavaScript para quadros ainda não capturados.
-  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now())));
+  // A página já está pausada ANTES do primeiro goto pelo executável de
+  // renderização. Não tentar pauseAt(Date.now()) aqui: o tempo avança entre
+  // avaliar Date.now no browser e chamar pauseAt, causando "past".
+  // Avançar o relógio mesmo ao reutilizar frames preserva o estado do JS.
   for (let frame = 0; frame < frames; frame++) {
     if (frame) await page.clock.runFor(1000 / fps);
     if (already[frame]) continue;
