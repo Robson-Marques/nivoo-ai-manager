@@ -3,7 +3,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { runProcess } from '../common/exec';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { NvidiaApiProvider } from './nvidia-api.provider';
-import { catalogarNvidiaModelos, modelosNvidiaParaWorkflow } from './nvidia-model-catalog';
+import { catalogarNvidiaModelos, modelosNvidiaParaWorkflow, NVIDIA_AREAS } from './nvidia-model-catalog';
 import { ProviderRegistry } from './provider-registry.service';
 
 export interface ModelOption {
@@ -92,6 +92,7 @@ export class ModelCatalogService {
     }
     return {
       modelos: catalogarNvidiaModelos(ids),
+      areas: NVIDIA_AREAS,
       verificadoNaConta: aviso === null,
       aviso,
       origem: 'Catálogo de referência NVIDIA Build + IDs retornados pela API da conexão',
