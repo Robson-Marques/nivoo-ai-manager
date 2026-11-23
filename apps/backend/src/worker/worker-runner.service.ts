@@ -31,7 +31,7 @@ export class WorkerRunnerService {
 
   /** Erro interno repetido: a tarefa sai da fila e o trabalho/mensagem mostra o motivo (diagnóstico tem o resto). */
   private async desistirDaTarefa(task: ClaimedTask, motivo: string): Promise<void> {
-    const texto = `mesmo erro interno do Nivoo repetido 3 vezes: ${motivo.slice(0, 500)}. Execução interrompida para preservar recursos e o checkpoint; verifique o diagnóstico antes de retomar.`;
+    const texto = `mesmo erro interno do Nivoo repetido 5 vezes: ${motivo.slice(0, 500)}. Execução interrompida para preservar recursos e o checkpoint; verifique o diagnóstico antes de retomar.`;
     await this.queue.complete(task.id, this.workerId);
     if (task.jobId) {
       await this.prisma.$transaction([
@@ -177,7 +177,7 @@ export class WorkerRunnerService {
       const anterior = this.errosSeguidos.get(task.id);
       const n = anterior?.assinatura === assinatura ? anterior.total + 1 : 1;
       this.errosSeguidos.set(task.id, { assinatura, total: n });
-      if (n >= 3) {
+      if (n >= 5) {
         this.errosSeguidos.delete(task.id);
         await this.desistirDaTarefa(task, String(e?.message ?? e)).catch(() => undefined);
       } else {
