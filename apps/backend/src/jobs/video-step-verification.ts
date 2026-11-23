@@ -44,8 +44,7 @@ export function conferenciaTecnicaDeVideo(
 
   const custom = verifyCommand?.trim();
   if (!custom || /^(?:true|:)\s*;?$/.test(custom)) return tecnico;
-  // A verificação do usuário continua obrigatória, e a do vídeo complementa-a.
-  // Não acrescenta outro ffprobe se a própria conferência já inspeciona o arquivo.
-  if (/\bffprobe\b/.test(custom) && custom.includes(arquivo)) return verifyCommand;
+  // A verificação declarada pelo plano continua obrigatória, mesmo se já chamar ffprobe.
+  // O contrato mínimo de MP4, áudio, resolução e duração não pode ser contornado.
   return `(${custom}) && ${tecnico}`;
 }
