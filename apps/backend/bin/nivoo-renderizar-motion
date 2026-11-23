@@ -29,7 +29,8 @@ const opt = (nome, padrao) => {
   const i = args.indexOf(nome);
   return i >= 0 ? args[i + 1] : padrao;
 };
-const alvoBruto = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--saida' && args[i - 1] !== '--segundos' && args[i - 1] !== '--tamanho');
+const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo']);
+const alvoBruto = args.find((a, i) => !a.startsWith('--') && !flagsWithValue.has(args[i - 1]));
 if (!alvoBruto) {
   console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
   process.exit(2);
@@ -159,10 +160,28 @@ function motionSceneCore() {
         console.log('nivoo-renderizar-motion: fotos/produtos em camada segura sobre WebGL (overlays.json)');
       }
     }
-    const segundos = Math.min(300, Math.max(1,
+    const segundosFonte = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
+    let segundos = segundosFonte, pacing = null;
+    const modoRitmo = opt('--ritmo','normal');
+    if (!['normal','energetico'].includes(modoRitmo)) throw new Error('--ritmo deve ser normal ou energetico');
+    const temRitmoExplicit = ['--duracao-origem','--abertura-origem','--abertura-final'].some(f=>args.includes(f));
+    if (!declarativa && (temRitmoExplicit || modoRitmo === 'energetico')) {
+      // A composição original NÃO é modificada. Apenas a captura virtual
+      // percorre seu relógio mais rápido na abertura e no resto das cenas.
+      segundos = args.includes('--segundos') ? segundosArg : Math.max(1,Math.round(segundosFonte*.8));
+      const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
+      const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
+      const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
+      pacing = {sourceDuration,openingEnd,openingSeconds};
+      if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
+          !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
+          !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
+        throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
+      console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+    }
     const result = await renderOffline({
-      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H,
+      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
     if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
