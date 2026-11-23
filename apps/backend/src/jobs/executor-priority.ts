@@ -131,11 +131,11 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
 
     if (source && target && seconds && size &&
         !source.split('/').includes('..') && Number(seconds) > 0 && Number(seconds) <= 300) {
-      const command = `nivoo-renderizar-motion \${source} --saida \${target} --segundos \${seconds} --tamanho \${size}`;
+      const command = `nivoo-renderizar-motion ${source} --saida ${target} --segundos ${seconds} --tamanho ${size}`;
       return { ...step, provider: 'local-shell', instructions: command };
     }
     throw new BadRequestException(
-      `Etapa "\${String(step.key ?? 'render')}" tenta renderizar MP4 com IA (\${provider}), mas a IA não executa terminal. ` +
+      `Etapa "${String(step.key ?? 'render')}" tenta renderizar MP4 com IA (${provider}), mas a IA não executa terminal. ` +
       'Separe a criação da composição em uma etapa de IA e a renderização em uma etapa local-shell. ' +
       'Informe a fonte REAL motion/<pasta> (com index.html), o --saida midia/saida/<novo-nome>.mp4, ' +
       '--segundos e --tamanho. Não aprove um MP4 antigo com test -s.');
