@@ -15,7 +15,7 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
-import { normalizedOutputHash } from '../common/hash';
+import { normalizedOutputHash, sha256File } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
 import { referenciasDaConferencia, variaveisDaConferencia } from '../accounts/secrets';
 import { contextoDaOrigem } from '../projects/origem-context';
@@ -25,6 +25,7 @@ import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
 import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
+import { inspecionarVideoGerado, videoGeradoPorEtapa } from '../jobs/native-video-result';
 import { conferenciaGrepAlternativasLegada } from '../jobs/verification-legacy-grep';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -161,6 +162,38 @@ export class StepExecutorService {
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
       return 'IGNORADO';
+    }
+
+    // RECUPERAÇÃO DURÁVEL: se o mesmo job já produziu e publicou o MP4
+    // desta etapa, a conferência antiga não pode exigir outro render inteiro.
+    // Só aceita arquivo com hash idêntico ao artefato desta etapa (nunca um
+    // vídeo antigo de outro trabalho nem apenas "test -s arquivo").
+    const provedorDaEtapa = step.provider ?? job.defaultProvider;
+    const videoDestaEtapa = videoGeradoPorEtapa(provedorDaEtapa, step.instructions,
+      (step.providerOptions ?? {}) as Record<string, unknown>);
+    if (provedorDaEtapa === 'local-shell' && videoDestaEtapa) {
+      const gravado = await this.prisma.artifact.findFirst({
+        where: { projectId: job.projectId, jobId: job.id, stepId: step.id,
+          name: videoDestaEtapa, kind: 'FILE', mimeType: 'video/mp4' },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (gravado) {
+        const check = inspecionarVideoGerado(this.pastaDeMidia(job.project.dirKey),
+          videoDestaEtapa, provedorDaEtapa, step.instructions, (step.providerOptions ?? {}) as Record<string, unknown>);
+        if (check.ok && check.absolutePath && await sha256File(check.absolutePath) === gravado.sha256) {
+          await L('RECUPERAÇÃO SEM REFAZER: o MP4 desta etapa já foi gerado na tentativa anterior e seu hash corresponde ao artefato do mesmo trabalho. ' +
+            check.detail + '. Marcando render como concluído e liberando a próxima etapa; revisão visual cabe ao usuário.', 'WARN');
+          await this.prisma.step.update({
+            where: { id: step.id },
+            data: { status: 'CONCLUIDO', statusDetail: 'MP4 recuperado de tentativa anterior; sem rerenderizar' },
+          });
+          await this.queue.complete(task.id, workerId);
+          await this.orchestrator.scheduleReady(job.id);
+          return 'CONCLUIDO';
+        }
+        await L('MP4 de tentativa anterior localizado, mas não corresponde ao hash/contrato técnico registrado: ' +
+          check.detail + '. Não será aceito como render válido.', 'WARN');
+      }
     }
 
     // Corrige jobs já gravados sem dependsOn: o orquestrador só consegue
@@ -526,7 +559,13 @@ export class StepExecutorService {
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
-    const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK :
+    const saidaVideo = videoGeradoPorEtapa(providerId, step.instructions,
+      (step.providerOptions ?? {}) as Record<string, unknown>);
+    // Render e montagem já possuem executores concretos. Com saída MP4
+    // conhecida, a única conferência automática é ffprobe no caminho REAL
+    // da mídia: não rodar "test -s midia/..." no worktree nem revisão de IA.
+    const verifyCommand = saidaVideo ? undefined :
+      step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK :
       conferenciaTecnicaDeVideo(providerId, step.instructions,
         (step.providerOptions ?? {}) as Record<string, unknown>, step.verifyCommand ?? undefined);
     let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
@@ -546,6 +585,21 @@ export class StepExecutorService {
       }
     }
     let verified = !verifyCommand;
+    let falhaTecnicaDaMidia: string | null = null;
+    if (saidaVideo && result.exitCode === 0 && !result.interrupted && !result.resourceUnavailable) {
+      const check = inspecionarVideoGerado(this.pastaDeMidia(job.project.dirKey),
+        saidaVideo, providerId, step.instructions, (step.providerOptions ?? {}) as Record<string, unknown>);
+      verified = check.ok;
+      if (check.ok) {
+        await L('ARQUIVO PRONTO — conferência TÉCNICA mínima, sem análise visual nem IA: ' +
+          check.detail + '. Não é necessário renderizar novamente; será entregue para você analisar.', 'INFO', attempt.id);
+      } else {
+        falhaTecnicaDaMidia = check.detail;
+        result = { ...result, exitCode: 1, error: 'MP4 tecnicamente inválido: ' + check.detail };
+        await L('MP4 não passou na inspeção técnica mínima: ' + check.detail +
+          '. O sistema NÃO deve repetir 625 quadros automaticamente. Preservar os arquivos e explicar a falha.', 'ERROR', attempt.id);
+      }
+    }
     let faltaPrograma: string | null = null;
     let ambiente: string | null = null; // falha do servidor do Nivoo (não do projeto): nenhuma sessão resolve
     let credencialFaltando: string | null = null; // registro de pacotes privado sem token: só o usuário resolve
@@ -841,6 +895,16 @@ export class StepExecutorService {
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
+    }
+
+    // Falha técnica real de MP4 não é motivo para repetir render/montagem às
+    // cegas. Entregar diagnóstico e artefatos presentes; quem decide refazer
+    // o vídeo é o usuário, após inspecionar o resultado.
+    if (falhaTecnicaDaMidia) {
+      await this.checkpoint(job.id, step, worktree, 'MP4 com problema técnico, preservado para avaliação', { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        'A etapa produziu/esperava um vídeo, mas a inspeção técnica encontrou: ' + falhaTecnicaDaMidia +
+        '. Nenhuma nova renderização será iniciada automaticamente. Consulte o vídeo já publicado e escolha se deseja corrigir.');
     }
 
     // Se a trilha de fato não existe (ou há opções ambíguas), não repetir
