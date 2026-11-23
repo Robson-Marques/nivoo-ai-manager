@@ -39,6 +39,7 @@ import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
+import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
@@ -780,6 +781,37 @@ export class StepExecutorService {
     await this.checkpoint(job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
     });
+    // Se a direção de arte mudou HTML/JS após as capturas, a IA NÃO pode
+    // aprovar um quadro obsoleto. Voltar aos executores locais automaticamente,
+    // preservando a composição e as outras etapas concluídas.
+    const etapas = await this.prisma.step.findMany({
+      where: { jobId: job.id },
+      select: { id: true, key: true, provider: true, instructions: true, status: true },
+    });
+    const vencidas = capturasParaRecuperar(worktree, step, etapas);
+    if (vencidas.length) {
+      await this.prisma.$transaction(async (tx) => {
+        await OrchestratorService.lockJob(tx, job.id);
+        for (const key of vencidas) {
+          const captura = etapas.find((e) => e.key === key);
+          if (!captura) continue;
+          await tx.step.updateMany({
+            where: { id: captura.id, status: 'CONCLUIDO' },
+            data: { status: 'PENDENTE', statusDetail: 'fonte alterada: recaptura automática' },
+          });
+        }
+        await tx.step.update({
+          where: { id: step.id },
+          data: { status: 'PENDENTE', statusDetail: 'aguardando novas capturas, sem refazer composição' },
+        });
+      });
+      await this.logs.log(job.id,
+        `Quadros desatualizados após alteração na composição: recapturar ${vencidas.join(', ')} antes de nova revisão visual; não repetir IA sobre imagens antigas.`,
+        { stepId: step.id, source: 'worker' });
+      await this.queue.complete(task.id, workerId);
+      await this.orchestrator.scheduleReady(job.id);
+      return 'CONTINUA';
+    }
     const sessions = await this.prisma.attempt.findMany({
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
