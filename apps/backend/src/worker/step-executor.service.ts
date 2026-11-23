@@ -717,6 +717,15 @@ export class StepExecutorService {
       return 'CONCLUIDO';
     }
 
+    // Se a trilha de fato não existe (ou há opções ambíguas), não repetir
+    // ffmpeg três vezes nem bloquear como "verificação impossível".
+    // O trabalho AGUARDA a mídia, com MP4 e checkpoints intactos.
+    if (!isAi && providerId === 'juntar-videos' &&
+        /TRILHA_NAO_LOCALIZADA:|TRILHA_AMBIGUA:/.test(result.error ?? '')) {
+      return this.aguardarTrilha(task, workerId, job, step, worktree, number,
+        (result.error ?? '').slice(0, 2400));
+    }
+
     // A montagem pode falhar por REFERÊNCIA ERRADA de áudio, sem que o
     // vídeo esteja inválido. O executor agora tenta recuperar a trilha no
     // catálogo do próprio projeto (sem escolher material ambíguo). Só então
@@ -1016,6 +1025,32 @@ export class StepExecutorService {
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'BLOQUEADO';
+  }
+
+  /** Nenhum áudio real corresponde ao nome usado no plano. Aguardar
+   * entrada do usuário em vez de repetir testes ou criar novo trabalho. */
+  private async aguardarTrilha(
+    task: ClaimedTask, workerId: string, job: Job, step: Step,
+    worktree: string, number: number, detalhe: string,
+  ): Promise<StepOutcome> {
+    await this.checkpoint(job.id, step, worktree, `aguardando trilha na etapa ${step.key}`, {
+      tentativa: number, motivo: detalhe.slice(0, 1000),
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, job.id);
+      await tx.step.update({ where: { id: step.id }, data: {
+        status: 'AGUARDANDO_RECURSO', statusDetail: detalhe,
+      } });
+      await tx.job.updateMany({ where: { id: job.id, status: 'EXECUTANDO' }, data: {
+        status: 'AGUARDANDO_RECURSO', statusDetail: `etapa ${step.key}: ${detalhe}`.slice(0, 2000),
+      } });
+    });
+    await this.logs.log(job.id,
+      'Montagem aguardando o áudio correto, sem repetição automática e sem descartar o MP4 já renderizado: ' +
+      detalhe.slice(0, 1600) + ' Após disponibilizar a mídia, use Continuar neste MESMO trabalho.',
+      { stepId: step.id, level: 'WARN', source: 'worker' });
+    await this.queue.complete(task.id, workerId);
+    return 'AGUARDANDO_RECURSO';
   }
 
   /**
