@@ -96,3 +96,16 @@ O Nivoo AI Manager tem o executor para essa API:
 **Limitação de continuidade:** o estado dos pedidos assíncronos ainda fica na memória da API. Se o servidor reiniciar durante uma geração, o Nivoo não a reenviará e o ID poderá não estar mais disponível no sistema; confira o histórico da NVIDIA antes de solicitar outra geração. Para produção, seria necessário um armazenamento durável de jobs e contrato de recuperação do gateway.
 
 Referências: https://build.nvidia.com/nvidia/cosmos3-nano/modelcard e https://build.nvidia.com/nvidia/cosmos3-nano/apireference
+
+
+## Tradução Riva (Free Endpoint)
+
+A NVIDIA oferece o modelo `nvidia/riva-translate-4b-instruct-v2`, com API hospedada pela rota de Chat Completions, distinto de um agente com ferramentas. Foi integrado ao painel como **Tradução Riva**, com seleção de idioma de origem e destino e suporte inicial a português brasileiro, inglês, espanhol, francês, alemão, italiano, japonês e chinês simplificado. O motor aceita também códigos válidos de outros idiomas configurados no backend. O par de idiomas é enviado no `system` (ex.: `pt-br-en`) conforme a documentação NVIDIA; não depende de um prompt livre para descobrir qual língua usar.
+
+Fonte: https://build.nvidia.com/nvidia/riva-translate-4b-instruct-v2/apireference e https://catalog.ngc.nvidia.com/orgs/nim/nvidia/models/riva-translate-4b-instruct-v2
+
+## Estado antes de atualizar
+
+O código contém conectores para chat/agent tool-calling, chat simples, tradução Riva, embeddings, reranking, imagem FLUX.1 Schnell e vídeo Cosmos3 Nano. Estes últimos estão condicionados a permissões NVIDIA. O catálogo de 94 modelos continua distinguindo somente download, API hospedada, função e endpoint. Não configurar modelos desconhecidos como agentes automaticamente.
+
+Validação integral com a chave real só será possível após instalar no servidor, cadastrar a chave NVIDIA no Nivoo AI Manager e executar um pedido autorizado pelo usuário.
