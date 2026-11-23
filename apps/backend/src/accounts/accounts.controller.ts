@@ -38,6 +38,12 @@ export class AccountsController {
     return this.catalog.list(id);
   }
 
+  /** Todas as especialidades NVIDIA, sem confundir modelos de vídeo com agentes de código. */
+  @Get(':id/catalogo')
+  catalogo(@Param('id') id: string) {
+    return this.catalog.catalogoNvidia(id);
+  }
+
   @Post(':id/login')
   startLogin(@Param('id') id: string) {
     return this.accounts.startLogin(id);
