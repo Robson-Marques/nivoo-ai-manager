@@ -260,7 +260,10 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(comPreflightVisual(comVideoCompleto(aplicarPrioridadeDosExecutores(corrigirPlanoRenderizacaoMotion(body.steps ?? [], defaultProvider, objective), defaultProvider), defaultProvider), defaultProvider);
+    const etapasRoteadas = corrigirPlanoRenderizacaoMotion(body.steps ?? [], defaultProvider, objective);
+    const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
+    const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
+    const steps = this.parseSteps(comPreflightVisual(etapasComVideo, defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.
