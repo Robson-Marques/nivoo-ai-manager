@@ -82,12 +82,18 @@ export class NvidiaSpecializedService {
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e: any) {
+      if (url === NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano && /abort|timeout/i.test(String(e?.message ?? e))) {
+        throw new BadRequestException('A solicitação de vídeo Cosmos3 pode ter continuado na NVIDIA após o timeout. Não reenvie automaticamente; confira o histórico da sua conta NVIDIA.');
+      }
       throw new BadRequestException('NVIDIA indisponível: ' + erroSemSegredo(String(e?.message ?? e), chave));
     }
     const bruto = await resposta.text();
     if (bruto.length > maxBytes) throw new BadRequestException('Resposta NVIDIA excedeu o tamanho permitido');
     let json: any;
-    try { json = JSON.parse(bruto); } catch { throw new BadRequestException('Resposta não JSON da NVIDIA'); }
+    try { json = JSON.parse(bruto); } catch {
+      if (resposta.ok) throw new BadRequestException('Resposta não JSON da NVIDIA');
+      json = { error: { message: bruto.slice(0, 250) } };
+    }
     if (!resposta.ok) {
       const erro = erroSemSegredo(String(json?.error?.message ?? json?.detail ?? json?.message ?? 'Erro sem descrição'), chave);
       if (url === NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano && resposta.status === 404) {
