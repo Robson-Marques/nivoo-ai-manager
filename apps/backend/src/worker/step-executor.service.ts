@@ -1,5 +1,5 @@
 import { registrarErro } from '../diagnostico/erros';
-import { diagnosticoRenderDeterministico } from './deterministic-media-errors';
+import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
@@ -739,9 +739,7 @@ export class StepExecutorService {
     // Erro corrigível de script no executor local: ANTES este trecho
     // bloqueava todo o trabalho na primeira falha. O teste é determinístico,
     // mas o CÓDIGO executado pode ser corrigido por uma nova etapa de IA.
-    const diagnosticoScript = !isAi && providerId === 'local-shell'
-      ? diagnosticoRenderDeterministico((result.output ?? '') + '\n' + (result.error ?? ''))
-      : null;
+    const diagnosticoScript = (result.output ?? '') + '\n' + (result.error ?? '');
 
     // Falha nova: a IA continua. A mesma falha (inclusive intercalada por
     // outras) na terceira ocorrência impede outra sessão improdutiva.
@@ -771,10 +769,9 @@ export class StepExecutorService {
     // só volta a rodar DEPOIS de o reparo terminar. Erros NOVOS seguem
     // recebendo reparos; o MESMO erro é interrompido na terceira ocorrência.
     const codigoCorrigivel = !isAi && providerId === 'local-shell' &&
-      (diagnosticoScript || /SyntaxError|AssertionError|Cannot find module|ERR_MODULE_NOT_FOUND|Module not found|ReferenceError|TypeError|script\b[^\n]{0,120}\.cjs|\.tsx?:\d+:\d+: error/i.test((result.error ?? '') + '\n' + (result.output ?? '')));
+      falhaLocalCorrigivel(diagnosticoScript);
     if (codigoCorrigivel) {
-      return this.agendarReparoDeScript(task, workerId, job, step, worktree, number,
-        diagnosticoScript ?? erroAtual);
+      return this.agendarReparoDeScript(task, workerId, job, step, worktree, number, erroAtual);
     }
 
     await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `falha na tentativa ${number}; nova tentativa agendada` } });
