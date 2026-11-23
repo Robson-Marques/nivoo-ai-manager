@@ -76,13 +76,29 @@ function validJpeg(filename) {
   } catch { return false; }
 }
 
-function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE }) {
+/** Mapeia quadros da saída para tempo da composição original. */
+function mapMotionTime(time, outputDuration, pacing) {
+  if (!pacing) return time;
+  const src = pacing.sourceDuration;
+  const openingEnd = pacing.openingEnd, openingSeconds = pacing.openingSeconds;
+  if (!Number.isFinite(src) || src <= 0 || !Number.isFinite(outputDuration) || outputDuration <= 0)
+    throw new Error('Ritmo motion: duração de origem/saída inválida');
+  if (openingEnd === undefined && openingSeconds === undefined) return time * src / outputDuration;
+  if (!Number.isFinite(openingEnd) || !Number.isFinite(openingSeconds) ||
+      openingEnd <= 0 || openingEnd >= src || openingSeconds <= 0 || openingSeconds >= outputDuration)
+    throw new Error('Ritmo motion: duração da abertura inválida');
+  const t=Math.max(0,Math.min(time,outputDuration));
+  return t <= openingSeconds ? t*openingEnd/openingSeconds :
+    openingEnd+(t-openingSeconds)*(src-openingEnd)/(outputDuration-openingSeconds);
+}
+
+function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null }) {
   if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error('Fonte HTML da animação não encontrada para reutilizar quadros');
   const frames = Math.round(seconds * fps);
   if (!Number.isSafeInteger(frames) || frames < 1 || frames > 300 * fps) throw new Error('Duração de vídeo inválida');
   const fingerprint = sourceFingerprint(sourcePath);
   const signature = createHash('sha256')
-    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, frames, width, height, fps }))
+    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, frames, width, height, fps, pacing }))
     .digest('hex').slice(0, 24);
   const cacheDir = path.join(path.dirname(outputPath), '.nivoo-motion-cache', signature);
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -103,8 +119,8 @@ function execute(cmd, args, onProgress = () => {}) {
   });
 }
 
-async function renderMotionOffline({ page, outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, onProgress = () => {} }) {
-  const { cacheDir, frames, fingerprint } = prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps });
+async function renderMotionOffline({ page, outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, onProgress = () => {} }) {
+  const { cacheDir, frames, fingerprint } = prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps, pacing });
   const already = Array.from({ length: frames }, (_, frame) =>
     validJpeg(path.join(cacheDir, `${String(frame).padStart(6, '0')}.jpg`)));
   const reused = already.filter(Boolean).length;
@@ -115,8 +131,11 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   // renderização. Não tentar pauseAt(Date.now()) aqui: o tempo avança entre
   // avaliar Date.now no browser e chamar pauseAt, causando "past".
   // Avançar o relógio mesmo ao reutilizar frames preserva o estado do JS.
+  let previousMotionTime=0;
   for (let frame = 0; frame < frames; frame++) {
-    if (frame) await page.clock.runFor(1000 / fps);
+    const motionTime=mapMotionTime(frame/fps,seconds,pacing);
+    if (frame) await page.clock.runFor(Math.max(0,(motionTime-previousMotionTime)*1000));
+    previousMotionTime=motionTime;
     if (already[frame]) continue;
     // Overlay RGBA deve mostrar precisamente o mesmo tempo do WebGL de fundo,
     // mesmo que os assets da camada levem tempo adicional para carregar.
@@ -175,4 +194,4 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   }
 }
 
-module.exports = { FRAME_RATE, prepareMotionClock, sourceFingerprint, prepareFrameCache, renderMotionOffline };
+module.exports = { FRAME_RATE, prepareMotionClock, sourceFingerprint, mapMotionTime, prepareFrameCache, renderMotionOffline };
