@@ -200,6 +200,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
       req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
     }
     if (extra.length) args.push('--allowedTools', ...extra);
+    // Sem MCP, mostrar ao Claude SOMENTE ferramentas presentes neste executor.
+    // --disallowedTools continua como defesa em profundidade; --tools evita oferecer Bash ao modelo.
+    if (!req.mcp?.length) args.push('--tools', 'Read,Edit,Write,Glob,Grep');
     const model = req.options?.model ?? process.env.NIVOO_CLAUDE_MODEL;
     if (model) args.push('--model', model);
     const maxTurns = req.options?.maxTurns ?? (process.env.NIVOO_CLAUDE_MAX_TURNS ? Number(process.env.NIVOO_CLAUDE_MAX_TURNS) : undefined);
