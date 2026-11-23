@@ -51,17 +51,18 @@ export class ModelCatalogService {
       const hit = this.cache.get(providerId);
       if (hit && Date.now() - hit.at < CACHE_MS) return {
         opcoes: hit.opcoes,
-        aviso: 'Somente modelos com Chat Completions e ferramentas documentadas aparecem aqui. Outras categorias ficam em Conexões → Catálogo NVIDIA.',
+        aviso: 'Somente agentes de programação listados pela API desta conexão. Estar listado não garante permissão de execução.',
       };
       try {
         const modelos = await (this.registry.get(providerId) as NvidiaApiProvider).modelos();
-        const opcoes = modelosNvidiaParaWorkflow(modelos.map((m) => m.id));
+        const ids = new Set(modelos.map(m => m.id));
+        const opcoes = modelosNvidiaParaWorkflow(modelos.map(m => m.id)).filter(m => ids.has(m.id));
         this.cache.set(providerId, { at: Date.now(), opcoes });
-        return { opcoes, aviso: 'Apenas modelos de chat com function calling confirmado. A listagem na chave não garante cota. Imagem, vídeo e busca estão separados no Catálogo NVIDIA.' };
+        return { opcoes, aviso: 'Somente agentes de programação que aparecem na API desta conexão. Disponibilidade real confirmada apenas na execução.' };
       } catch (e: any) {
         return {
-          opcoes: modelosNvidiaParaWorkflow(),
-          aviso: 'Sem acesso ao catálogo da chave: modelos de agentes documentados na NVIDIA, ainda não verificados nesta conta. ' + String(e?.message ?? e).slice(0, 100),
+          opcoes: [],
+          aviso: 'Não foi possível consultar modelos na conta NVIDIA. Nenhum modelo será indicado como disponível sem verificação: ' + String(e?.message ?? e).slice(0, 100),
         };
       }
     }
