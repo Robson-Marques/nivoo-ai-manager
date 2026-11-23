@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
+import { sha256File } from '../common/hash';
 import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveInside } from '../common/path-guard';
@@ -150,7 +151,7 @@ export class JuntarVideosProvider implements AiProvider {
         if (m.pasta !== 'entrada' || !/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(m.nome)) continue;
         const abs = this.resolver(req, m.caminho);
         if (fs.existsSync(abs) && fs.statSync(abs).isFile() && fs.statSync(abs).size > 0) {
-          fontes.push({ nome: m.nome, arquivo: abs, origem: 'midia-projeto' });
+          fontes.push({ nome: m.nome, arquivo: abs, origem: 'midia-projeto', sha256: await sha256File(abs) });
         }
       }
     }
