@@ -283,4 +283,39 @@ function overlayScript(scene,binaries) {
   validateScene(scene);
   return '('+sceneRuntime.toString()+')('+safeJSON({scene,binaries,overlay:true})+');';
 }
-module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime };
+
+/**
+ * Ponte entre planejamento, validação da composição e render.
+ * O mesmo contrato é verificado após a IA produzir a fonte e ANTES de
+ * capturar qualquer quadro: não são duas decisões de formato independentes.
+ */
+function checkMotionSource(source, mode = 'auto') {
+  if (!['auto','scene','hybrid'].includes(mode)) throw new Error('MOTION_CONTRATO: modo inválido: '+mode);
+  const entry = path.resolve(source);
+  if (!fs.existsSync(entry)) throw new Error('MOTION_CONTRATO: composição não encontrada: '+source);
+  const dir = fs.statSync(entry).isDirectory() ? entry : path.dirname(entry);
+  const scenePath = path.join(dir,'scene.json'), htmlPath=path.join(dir,'index.html'), overlayPath=path.join(dir,'overlays.json');
+  const sourceMode = mode === 'auto'
+    ? fs.existsSync(scenePath) ? 'scene' : fs.existsSync(overlayPath) ? 'hybrid' : 'legacy'
+    : mode;
+  try {
+    if (sourceMode==='scene') {
+      if (!fs.existsSync(scenePath)) throw new Error('scene.json obrigatório para cenas estruturadas');
+      const {scene} = loadScene(scenePath);
+      return {mode:'scene',layers:scene.layers.length,width:scene.width,height:scene.height};
+    }
+    if (sourceMode==='hybrid') {
+      if (!fs.existsSync(htmlPath) || !fs.existsSync(overlayPath))
+        throw new Error('index.html e overlays.json são obrigatórios para composição WebGL com produtos');
+      const {scene}=loadScene(overlayPath);
+      if (!scene.layers.some(layer=>layer.type==='image'))
+        throw new Error('overlays.json deve conter pelo menos uma imagem de produto/logo');
+      return {mode:'hybrid',layers:scene.layers.length,width:scene.width,height:scene.height};
+    }
+    if (!fs.existsSync(htmlPath)) throw new Error('index.html não encontrado (legado)');
+    return {mode:'legacy',layers:0};
+  } catch (e) {
+    throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
+  }
+}
+module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource };
