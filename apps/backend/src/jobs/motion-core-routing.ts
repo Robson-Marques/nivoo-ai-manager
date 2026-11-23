@@ -46,6 +46,18 @@ function existingCheck(verify: string, source: string): string[] {
       !s.includes('nivoo-conferir-motion'));
 }
 
+/**
+ * "sem geometria 3D" e "não quero WebGL" NÃO solicitam geometria 3D.
+ * A classificação considera o briefing da pessoa, nunca a terminologia
+ * técnica que o próprio Nivo injetou na validação anterior do plano.
+ */
+export function pedeGeometria3D(texto: string): boolean {
+  const limpo = texto
+    .replace(/\b(?:sem|dispensar|dispensa|dispensando|evitar|evite|evitando)\s+(?:(?:qualquer|nenhuma?|uma?|de|geometria|malhas?|objetos?|efeitos?|visual|real|em)\s+){0,5}(?:3[\s-]*d|webgl)\b/gi, ' ')
+    .replace(/\bn[aã]o\s+(?:quero|queremos|preciso|precisamos|usar|utilizar|inclua?|incluir|faça|fazer|criar|crie|tem|ter|tenha)\s+(?:(?:de|qualquer|nenhuma?|uma?|geometria|malhas?|objetos?|efeitos?|visual|real|em)\s+){0,5}(?:3[\s-]*d|webgl)\b/gi, ' ');
+  return /\b3[\s-]*d\b|\bwebgl\b|\bextrud(?:ado|ada|idos?|idas?|ir|a(?:ç[aã]o|s))?\b/i.test(limpo);
+}
+
 function addRenderFlags(command: string, mode: MotionMode, fast: boolean): string {
   // Preserva "set -e;", nova linha e comandos adjacentes; injeta somente
   // no segmento de invocação. Idempotente em validatePlan() e create().
@@ -104,17 +116,22 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     if (!matchesSource.length && candidateIndices.length !== 1) continue;
     const ci = matchesSource[0] ?? candidateIndices[0];
     const compose = steps[ci];
+    const marker = '[NIVOO_MOTION_CORE_CONTRACT_V1]';
+    // Na segunda passagem (validatePlan→create) ignorar instruções que o
+    // próprio Nivo acrescentou, para não inferir WebGL do texto "NÃO use WebGL".
+    const original = String(compose.instructions ?? '').split('\n\n' + marker)[0];
     const text = [
-      objective, String(compose.title ?? ''), String(compose.instructions ?? ''),
-      String(render.title ?? ''),
+      objective, String(compose.title ?? ''), original, String(render.title ?? ''),
     ].join(' ');
-    const real3d = /\b3[\s-]*d\b|webgl|malhas?\s+3d|extrud/i.test(text);
+    const priorMode = String(compose.instructions ?? '').includes(marker)
+      ? /(?:^|\s)--motor\s+(scene|hybrid)(?=\s|$)/.exec(command)?.[1] as MotionMode | undefined
+      : undefined;
+    const real3d = priorMode ? priorMode === 'hybrid' : pedeGeometria3D(text);
     const hasPhotos = /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
     if (real3d && !hasPhotos) continue;
     const mode: MotionMode = real3d ? 'hybrid' : 'scene';
-    const marker = '[NIVOO_MOTION_CORE_CONTRACT_V1]';
     if (!String(compose.instructions ?? '').includes(marker)) {
       const requirements = mode === 'scene'
         ? [

@@ -45,6 +45,29 @@ function run() {
   assert.equal(convertedSimple.length,2);
   assert.equal(simple[0].instructions,'Escrever motion/anuncio/index.html com imagens de produtos','não alterar plano original');
 
+  // Exatamente o cenário que interrompeu o instalador no POCOU:
+  // a expressão "SEM geometria 3D" não pode selecionar o modo WebGL.
+  const sceneAgain=conectarMotorMotion(convertedSimple,'codex-cli',
+    'Publicidade de promoção sem geometria 3D');
+  assert.deepEqual(sceneAgain,convertedSimple,
+    'validar o plano duas vezes não pode trocar scene.json por overlays.json');
+  for (const objective2 of [
+    'Publicidade sem 3D, apenas imagens e texto',
+    'Não quero WebGL; animação de fotos de produtos',
+    'Efeito bonito sem efeito 3D, apenas neon e tipografia',
+  ]) {
+    const produced=conectarMotorMotion(simple,'codex-cli',objective2);
+    assert.match(produced[1].instructions,/--motor scene/,'briefing negativo não exige WebGL: '+objective2);
+    assert.deepEqual(conectarMotorMotion(produced,'codex-cli',objective2),produced,
+      'roteador deve permanecer idempotente: '+objective2);
+  }
+  const real=conectarMotorMotion([
+    {...simple[0],title:'Criar cena com extrusão 3D e fotos de produto'},
+    simple[1],
+  ],'codex-cli','Animação com geometria 3D real e fotografia');
+  assert.match(real[1].instructions,/--motor hybrid/,
+    'pedido explícito de malhas tridimensionais deve selecionar WebGL híbrido');
+
   const old=[render];
   assert.deepEqual(conectarMotorMotion(old,'codex-cli',objective),old,
     'renderizar composição existente não exige migrar obra do usuário');
