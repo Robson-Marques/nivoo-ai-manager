@@ -448,14 +448,15 @@ export class PlannerService {
         ...job.criteria.filter((c) => c.status !== 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}) ${c.status}: ${c.description.slice(0, 150)}${c.checks[0] ? ` — evidência: ${JSON.stringify(c.checks[0].evidence).slice(0, 300)}` : ''}`),
         `Últimas linhas do log:\n${logs.reverse().map((l) => `${l.level} ${l.source}: ${l.message.replace(/\s+/g, ' ').slice(0, 220)}`).join('\n')}`,
         '',
-        'SUA TAREFA AGORA (auto-correção): explique ao usuário, em uma frase simples, o que deu errado; e PROPONHA UM PLANO que',
-        'conserta a causa (um rascunho de trabalho novo, como qualquer plano), ajustando o que falhou.',
-        'ATENÇÃO: não marque "continuacao": true após falha/bloqueio e não inicie nova execução automática.',
-        'Apresente o diagnóstico e aguarde o usuário clicar Fazer antes de gastar tokens novamente.',
-        'Se o erro for de algo que só o usuário resolve (falta um arquivo, uma conexão, uma decisão), NÃO',
-        'proponha plano: diga o que você precisa dele.',
-        'Se este MESMO erro já apareceu numa tentativa de correção anterior (veja a conversa), NÃO repita o mesmo plano: tente',
-        'uma abordagem diferente ou, se não houver, peça ajuda ao usuário.',
+        'SUA TAREFA AGORA (retomada): explique a causa, mas NÃO proponha criar outro trabalho só para corrigir uma etapa bloqueada.',
+        'O mesmo job guarda checkpoints e etapas concluídas. Use o botão Continuar do trabalho existente DEPOIS de corrigir a causa.',
+        'Em montagem bloqueada por TRILHA_NAO_LOCALIZADA, o Nivoo já procura o nome original nos uploads e artefatos do projeto.',
+        'Se não encontrou: informe qual áudio original falta, quais candidatos constam do diagnóstico e que o usuário precisa',
+        'enviar ou identificar a trilha correta; NÃO invente um novo nome de MP3 e NÃO gere outra composição 3D.',
+        'Em erro técnico de script, o worker cria reparos na própria execução antes da terceira repetição idêntica.',
+        'Se atingiu a terceira repetição do mesmo erro, explique o impedimento específico, sem mandar fazer três tentativas idênticas.',
+        'Não marque "continuacao": true e não inicie outra execução automática após um bloqueio real sem recurso/correção.',
+        'Só proponha trabalho NOVO quando houver objetivo realmente novo; não repita composição, vídeo, testes e custos já concluídos.',
       ].join('\n');
     }
     const arquivos = job.mergedCommit ? await this.workspace.arquivosDoCommit(dirKey, job.mergedCommit) : [];
