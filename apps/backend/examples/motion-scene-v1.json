@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "width": 1080,
+  "height": 1920,
+  "duration": 12,
+  "profile": "energetic",
+  "background": "#080405",
+  "pacing": {
+    "sourceDuration": 16,
+    "openingEnd": 6,
+    "openingSeconds": 3.5
+  },
+  "layers": [
+    {
+      "id": "fundo",
+      "type": "shape",
+      "shape": "rect",
+      "x": 540,
+      "y": 960,
+      "z": -10,
+      "width": 1080,
+      "height": 1920,
+      "fill": "#120707",
+      "shadow": false
+    },
+    {
+      "id": "traco",
+      "type": "neon",
+      "x": 0,
+      "y": 0,
+      "z": 10,
+      "points": [
+        [
+          120,
+          300
+        ],
+        [
+          230,
+          260
+        ],
+        [
+          400,
+          360
+        ],
+        [
+          800,
+          350
+        ],
+        [
+          940,
+          380
+        ]
+      ],
+      "start": 0.5,
+      "end": 6,
+      "color": "#ffad24",
+      "strokeWidth": 9,
+      "glow": 22
+    },
+    {
+      "id": "titulo",
+      "type": "text",
+      "x": 540,
+      "y": 520,
+      "z": 20,
+      "width": 900,
+      "height": 190,
+      "fontSize": 146,
+      "color": "#ffefcb",
+      "text": "OFERTA ESPECIAL",
+      "keys": [
+        {
+          "at": 2,
+          "x": 540,
+          "opacity": 0,
+          "scale": 0.65
+        },
+        {
+          "at": 5.5,
+          "x": 540,
+          "opacity": 1,
+          "scale": 1,
+          "easing": "out"
+        }
+      ]
+    },
+    {
+      "id": "produto-sombra",
+      "type": "shape",
+      "shape": "ellipse",
+      "x": 540,
+      "y": 1350,
+      "z": 25,
+      "width": 560,
+      "height": 160,
+      "fill": "#4e2719",
+      "shadow": {
+        "color": "rgba(0,0,0,0.55)",
+        "blur": 28,
+        "dy": 14
+      }
+    },
+    {
+      "id": "call",
+      "type": "text",
+      "x": 540,
+      "y": 1580,
+      "z": 40,
+      "width": 900,
+      "height": 150,
+      "fontSize": 88,
+      "color": "#ffffff",
+      "text": "Peça agora",
+      "keys": [
+        {
+          "at": 10,
+          "opacity": 0,
+          "y": 1640
+        },
+        {
+          "at": 12,
+          "opacity": 1,
+          "y": 1580,
+          "easing": "out"
+        }
+      ]
+    }
+  ]
+}
