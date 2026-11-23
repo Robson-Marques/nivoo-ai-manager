@@ -212,7 +212,9 @@ EOF
     else
       echo "código sem .git: substitua os arquivos em $APP_DIR pela nova versão e rode 'nivoo update' de novo" >&2
     fi
-    nivoo backup
+    # Executar o backup do próprio checkout, não de um binário antigo.
+    # Um update interrompido pode ter atualizado o Git sem atualizar /usr/local/bin/nivoo.
+    bash "$APP_DIR/deploy/nivoo" backup
     # Atualização com diagnóstico persistente, sem esconder stderr ou exigir
     # que o usuário rode npm/tsc de novo para descobrir a causa.
     log_dir=/var/log/nivoo
@@ -242,9 +244,10 @@ EOF
     exec 9>"$BACKUP_DIR/.backup.lock"
     flock -n 9 || die "já existe outro backup do Nivoo em andamento"
 
-    # Antes de criar o novo, mantém só o último completo. Assim há espaço para o próximo mesmo quando vários
-    # backups antigos lotaram o disco. Concluído o novo, os dois mais recentes ficam preservados.
-    limpar_backups_antigos 1
+    # Banco deve responder ANTES de executar o dump. Nunca remover um
+    # backup completo para liberar espaço antes de concluir o próximo.
+    # Se PostgreSQL estiver parado, o pré-check tenta iniciar o cluster existente.
+    garantir_postgres_backup
     ts="$(date +%Y%m%d-%H%M%S)"
     db_tmp="$BACKUP_DIR/.nivoo-db-$ts.dump.tmp"
     data_tmp="$BACKUP_DIR/.nivoo-data-$ts.tar.gz.tmp"
