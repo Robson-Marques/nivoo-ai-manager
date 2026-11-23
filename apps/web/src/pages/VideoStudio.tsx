@@ -5,6 +5,7 @@ import './VideoStudio.css';
 import { StudioWaveform } from './StudioWaveform';
 import { StudioFilmstrip } from './StudioFilmstrip';
 import { StudioTransitionDemo } from './StudioTransitionDemo';
+import { NvidiaImagemStudio } from './NvidiaImagemStudio';
 
 type Media = { caminho:string; nome:string; bytes:number; pasta:string; roteiro?:boolean };
 type TransitionType=string;
@@ -1405,6 +1406,17 @@ export function VideoStudio() {
     try {setRunning(await api<Render>(edits+'/'+project.id+'/render','POST',{}))}
     catch(e:any){setError(e.message)}
   };
+  const importarImagemNvidia=async(file:File)=>{
+    setBusy(true);setError('');
+    try {
+      await enviarVideo(pid,file,setProgress,standalone);
+      await refresh();
+      setNotice('Imagem NVIDIA adicionada à biblioteca do projeto.');
+    }catch(e:any){
+      setError(e.message);
+      throw e;
+    }finally{setBusy(false);setProgress(0)}
+  };
   const upload=async(files:FileList|null)=>{
     if(!files)return;
     setBusy(true);setError('');
@@ -1602,6 +1614,7 @@ export function VideoStudio() {
         <aside className="studio-library">
           <h3>Biblioteca</h3>
           <label className="studio-upload">+ Importar mídias<input ref={inputRef} type="file" multiple hidden accept="video/*,audio/*,image/png,image/jpeg,image/webp" onChange={e=>upload(e.target.files)} /></label>
+          <NvidiaImagemStudio projetoId={pid} onImport={importarImagemNvidia} />
           {busy&&progress>0&&<small>Enviando {progress}%</small>}
           <button className="studio-section-toggle" type="button" aria-expanded={libraryOpen.videos} onClick={()=>toggleLibrary('videos')} title="Mostrar ou ocultar vídeos"><span>🎞 Vídeos <small>{mediaVideo.length}</small></span><span>{libraryOpen.videos?'▾':'▸'}</span></button>
           {libraryOpen.videos&&<div className="studio-section-contents">{mediaVideo.map(m=><div className="studio-media-row" key={m.caminho}>

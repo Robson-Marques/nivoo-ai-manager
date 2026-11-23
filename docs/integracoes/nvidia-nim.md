@@ -47,3 +47,65 @@ Os modelos desconhecidos retornados pela API permanecem classificados conservado
 O catálogo combina os IDs da chave do usuário à referência de modelos, mas a classificação detalhada de novas entradas exige confirmação das capacidades na fonte. A base curada corresponde aos 94 itens documentados em 22/11/2026.
 
 **Multimodalidade:** alguns modelos NVIDIA aceitam imagem, vídeo ou áudio de entrada, mas o adaptador de agente do Nivoo nesta etapa envia prompts de texto. Essa parte só ficará operacional quando o transporte de mídia for conectado e validado.
+
+
+## APIs de especialidade integradas (pacote único)
+
+O conector NVIDIA do Nivoo AI Manager agora possui **rotas próprias** para modelos de especialidades, além do Chat Completions usado pelo Studio Workflow:
+
+| Uso | Endpoint da NVIDIA | Implementação |
+| --- | --- | --- |
+| Chat de texto sem ferramentas | `POST https://integrate.api.nvidia.com/v1/chat/completions` | Nivoo: `POST /accounts/:id/nvidia/conversa` |
+| Embeddings para pesquisa/RAG | `POST https://integrate.api.nvidia.com/v1/embeddings` | Nivoo: `POST /accounts/:id/nvidia/embedding`, suporte inicial Nemotron 3.5 Embed 1B/8B e 3 Embed 1B |
+| Reranking de documentos | `POST https://ai.api.nvidia.com/v1/retrieval/nvidia/nemotron-3.5-rerank-8b/reranking` | Nivoo: `POST /accounts/:id/nvidia/rerank` |
+| Geração de imagem FLUX.1 Schnell | `POST https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell` | Nivoo: `POST /accounts/:id/nvidia/imagem` |
+
+A tela **Conexões > NVIDIA > Catálogo** mostra um painel para executar essas operações com a chave que já está salva. No **Nivoo Studio de Vídeo**, quando a conexão NVIDIA estiver ativa, aparece a ação **Gerar imagem com NVIDIA**, que salva o JPEG diretamente na biblioteca de mídia do projeto, sem baixar e reenviar.
+
+**Atenção:** a NVIDIA atualmente marca FLUX.1 Schnell como Downloadable; a API de referência existe, mas a conta pode recusar a chamada por créditos, autorização, termos ou cotas. Não se afirma que a geração de imagem é gratuita.
+
+**Não há integração automática dos embeddings ao mecanismo de busca de projetos** nesta etapa; a rota e o painel estão disponíveis para uso programático e avaliação. As rotas de rerank também estão operacionais como serviço, mas ainda não são acionadas automaticamente pela pesquisa dos projetos.
+
+**Não instalamos infraestrutura adicional de GPU no POCOU.** Modelos como Wan Animate, relighting, upscaling, FLUX 3 Klein e outras opções apenas para download continuam exigindo implantação própria. O catálogo os apresenta como não executáveis pela API de chat.
+
+Proteções: URL oficial fixa por especialidade, chave guardada no cofre da conexão, limites de tamanho para entrada/saída, timeouts, status de erros HTTP, não logar a chave, validação de IDs e sem comandos arbitrários pelo executor.
+
+Referências:
+- https://build.nvidia.com/nvidia/nemotron-3_5-embed-1b/apireference
+- https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-rerank-8b-infer
+- https://docs.api.nvidia.com/nim/reference/black-forest-labs-flux_1-schnell-infer
+
+
+## Prévia de vídeo NVIDIA Cosmos3 Nano (hosted)
+
+O Cosmos3 Nano é uma exceção relevante entre os modelos de vídeo: a NVIDIA publica um **Free Endpoint hospedado** em:
+
+- POST https://ai.api.nvidia.com/v1/cosmos/nvidia/cosmos3-nano
+- Modo `text2video`, 480p, formato 16:9 ou 9:16 e 25 quadros a 24 fps, com `b64_video` em MP4.
+- Saída com marcação de proveniência SynthID e restrições de segurança do modelo.
+
+O Nivoo AI Manager tem o executor para essa API:
+
+- `POST /accounts/:id/nvidia/video/iniciar` inicia **uma** geração e retorna ID imediatamente;
+- `GET /accounts/:id/nvidia/video/:pedidoId` acompanha o mesmo pedido sem novos gastos;
+- `Nivoo Studio de Vídeo → Gerar imagem/vídeo NVIDIA → Cosmos3 Nano` importa o MP4 gerado diretamente na biblioteca durável do projeto;
+- `Conexões → NVIDIA → Catálogo` permite testar vídeo e salvar o MP4.
+
+**Disponibilidade:** relatos públicos em novembro de 2026 mostram contas gratuitas recebendo HTTP 404 por falta de habilitação de `Public API Endpoints`. O código apresenta essa falha especificamente; a presença do modelo no catálogo **não comprova** que a conta pode chamá-lo. Em caso de timeout do provedor, a geração pode ter concluído remotamente; não é seguro reenviar automaticamente.
+
+**Limitação de continuidade:** o estado dos pedidos assíncronos ainda fica na memória da API. Se o servidor reiniciar durante uma geração, o Nivoo não a reenviará e o ID poderá não estar mais disponível no sistema; confira o histórico da NVIDIA antes de solicitar outra geração. Para produção, seria necessário um armazenamento durável de jobs e contrato de recuperação do gateway.
+
+Referências: https://build.nvidia.com/nvidia/cosmos3-nano/modelcard e https://build.nvidia.com/nvidia/cosmos3-nano/apireference
+
+
+## Tradução Riva (Free Endpoint)
+
+A NVIDIA oferece o modelo `nvidia/riva-translate-4b-instruct-v2`, com API hospedada pela rota de Chat Completions, distinto de um agente com ferramentas. Foi integrado ao painel como **Tradução Riva**, com seleção de idioma de origem e destino e suporte inicial a português brasileiro, inglês, espanhol, francês, alemão, italiano, japonês e chinês simplificado. O motor aceita também códigos válidos de outros idiomas configurados no backend. O par de idiomas é enviado no `system` (ex.: `pt-br-en`) conforme a documentação NVIDIA; não depende de um prompt livre para descobrir qual língua usar.
+
+Fonte: https://build.nvidia.com/nvidia/riva-translate-4b-instruct-v2/apireference e https://catalog.ngc.nvidia.com/orgs/nim/nvidia/models/riva-translate-4b-instruct-v2
+
+## Estado antes de atualizar
+
+O código contém conectores para chat/agent tool-calling, chat simples, tradução Riva, embeddings, reranking, imagem FLUX.1 Schnell e vídeo Cosmos3 Nano. Estes últimos estão condicionados a permissões NVIDIA. O catálogo de 94 modelos continua distinguindo somente download, API hospedada, função e endpoint. Não configurar modelos desconhecidos como agentes automaticamente.
+
+Validação integral com a chave real só será possível após instalar no servidor, cadastrar a chave NVIDIA no Nivoo AI Manager e executar um pedido autorizado pelo usuário.

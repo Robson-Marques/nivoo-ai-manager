@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { NvidiaFerramentas } from './NvidiaFerramentas';
 
 interface Area { id: string; nome: string; descricao: string }
 interface ModeloNvidia {
@@ -33,13 +34,21 @@ function nomeDaOferta(o: ModeloNvidia['oferta']): string {
 }
 
 function destinoNoNivoo(modelo: ModeloNvidia): string {
-  if (modelo.utilizavelNoWorkflow && modelo.id) return 'Studio Workflow: modelo de agente';
-  if (modelo.areas.includes('video')) return 'Studio de Vídeo: conector especializado pendente';
-  if (modelo.areas.includes('imagens')) return 'Design de Imagens: conector especializado pendente';
-  if (modelo.areas.includes('audio')) return 'Áudio e Transcrição: conector especializado pendente';
-  if (modelo.areas.includes('busca')) return 'Busca/RAG: conector especializado pendente';
-  if (modelo.areas.includes('dados')) return 'Dados: conector especializado pendente';
-  return 'Modelo especializado: não habilitado como agente';
+  if (modelo.utilizavelNoWorkflow && modelo.id) return 'Integrado: agente de código no Studio Workflow e conversa';
+  if (modelo.endpoint === 'chat-completions' && modelo.id) return 'Chat NVIDIA: disponível se houver suporte ao endpoint de texto';
+  if (modelo.id && ['nvidia/nemotron-3.5-embed-1b', 'nvidia/nemotron-3.5-embed-8b', 'nvidia/nemotron-3-embed-1b'].includes(modelo.id))
+    return 'Integrado: embeddings na pesquisa/RAG via API';
+  if (modelo.id === 'nvidia/nemotron-3.5-rerank-8b') return 'Integrado: reordenação de resultados na pesquisa/RAG via API';
+  if (modelo.id === 'black-forest-labs/flux.1-schnell')
+    return 'Conector de imagem implementado: painel NVIDIA e importação no Studio de Vídeo; acesso sujeito à chave';
+  if (modelo.nome === 'Cosmos3 Nano')
+    return 'API de vídeo integrada: geração de clipes via Cosmos3 no Studio de Vídeo; acesso sujeito à habilitação NVIDIA';
+  if (modelo.areas.includes('video')) return 'Studio de Vídeo: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('imagens')) return 'Design de Imagens: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('audio')) return 'Áudio e Transcrição: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('busca')) return 'Busca/RAG: endpoint específico ainda não integrado';
+  if (modelo.areas.includes('dados')) return 'Dados: endpoint específico ainda não integrado';
+  return 'Modelo especializado: endpoint próprio ainda não integrado';
 }
 
 /** Exploração por especialidade; nunca oferece modelos de vídeo no seletor de código. */
@@ -83,6 +92,7 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
 
   return (
     <section className="conexao-painel" aria-label="Catálogo NVIDIA por tipo de trabalho">
+      <NvidiaFerramentas conexaoId={conexaoId} />
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <strong>Catálogo NVIDIA por especialidade</strong>
         <button type="button" className="secondary" onClick={() => { void carregar(); }} disabled={atualizando}>
@@ -155,7 +165,8 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
       ))}
       <p className="muted small" style={{ marginTop: 12 }}>
         Para escolher a IA que altera código, abra o projeto e use o seletor de modelo.
-        Modelos de vídeo, áudio, imagem, embedding e rerank não executam a ferramenta de edição de arquivos.
+        Cosmos3 Nano, imagem, embeddings e reranking têm conectores no painel acima. Outros modelos de vídeo/áudio podem exigir GPU e implantação própria.
+        A geração de imagem pode não estar liberada gratuitamente na sua conta.
       </p>
     </section>
   );
