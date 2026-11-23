@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { capturasMotionDesatualizadas } from '../../src/jobs/completion.service';
-import { capturasParaRecuperar } from '../../src/jobs/motion-capture-freshness';
+import { capturasParaRecuperar, diagnosticoParecerVisual } from '../../src/jobs/motion-capture-freshness';
 
 describe('Evidência visual precisa corresponder à versão atual', () => {
   let dir: string;
@@ -38,6 +38,18 @@ describe('Evidência visual precisa corresponder à versão atual', () => {
     const futuro = new Date(Date.now() + 2000);
     fs.utimesSync(path.join(dir, 'out/qualidade/quadro-final/quadro.png'), futuro, futuro);
     expect(capturasParaRecuperar(dir, revisao, [step])).toEqual([]);
+  });
+
+  it('falha silenciosa do parecer registra a pendência de imagem vencida, não só exit 1', () => {
+    fs.writeFileSync(path.join(dir, 'out/qualidade/quadro-final/parecer.json'), JSON.stringify({
+      conforme: false,
+      comparacoes: [{ aspecto: 'metal', observacao: 'BLACK precisa de nova captura' }],
+      pendencias: ['recapturar quadro de 25s após corrigir reflexo metálico'],
+    }));
+    const diagnostico = diagnosticoParecerVisual(dir,
+      'python3 -c "import json;json.load(open(\'out/qualidade/quadro-final/parecer.json\'))"');
+    expect(diagnostico).toContain('conforme=false');
+    expect(diagnostico).toContain('recapturar quadro de 25s');
   });
 
   it('não reabre captura de outro tipo de etapa por uma alteração em motion', () => {
