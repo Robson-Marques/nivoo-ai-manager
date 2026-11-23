@@ -19,6 +19,16 @@ export function NvidiaImagemStudio({ onImport, projetoId }: { onImport: (f: File
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [bloqueio, setBloqueio] = useState<string | null>(null);
+  const modeloAcesso = modalidade === 'video' ? 'nvidia/cosmos3-nano' : 'black-forest-labs/flux.1-schnell';
+  const chaveAcesso = 'nivoo:nvidia:acesso:' + encodeURIComponent(conexao) + ':' + modalidade + ':' + encodeURIComponent(modeloAcesso);
+  useEffect(() => {
+    try {
+      const valor = localStorage.getItem(chaveAcesso);
+      const estado = valor ? JSON.parse(valor) : null;
+      setBloqueio(estado?.estado === 'bloqueado' ? String(estado.descricao ?? 'NVIDIA não autorizou este serviço') : null);
+    } catch { setBloqueio(null); }
+  }, [chaveAcesso]);
   const [pendente, setPendente] = useState<{id:string;conexao:string} | null>(null);
   const chavePedido = 'nivoo-nvidia-video-pendente:' + projetoId;
   useEffect(() => {
@@ -40,6 +50,7 @@ export function NvidiaImagemStudio({ onImport, projetoId }: { onImport: (f: File
   if (!contas.length) return null;
 
   const gerar = async () => {
+    if (bloqueio || ocupado) return;
     setOcupado(true);
     setErro(null);
     setNotice(null);
@@ -85,10 +96,18 @@ export function NvidiaImagemStudio({ onImport, projetoId }: { onImport: (f: File
       const nome = (isVideo ? 'nvidia-cosmos-' : 'nvidia-flux-') + Date.now() + (isVideo ? '.mp4' : '.jpg');
       await onImport(new File([bytes], nome, { type: mime }));
       if (isVideo) { localStorage.removeItem(chavePedido); setPendente(null); }
+      try { localStorage.setItem(chaveAcesso, JSON.stringify({ modelo: modeloAcesso,
+        estado: 'confirmado', descricao: 'Geração concluída nesta conta' })); } catch { /* opcional */ }
       setNotice((isVideo ? 'Vídeo' : 'Imagem') + ' adicionado à biblioteca de mídia deste projeto.');
       setPrompt('');
     } catch (e: any) {
-      setErro(String(e?.message ?? e));
+      const mensagem = String(e?.message ?? e);
+      setErro(mensagem);
+      if (/\bHTTP (402|403|404)\b/i.test(mensagem)) {
+        try { localStorage.setItem(chaveAcesso, JSON.stringify({ modelo: modeloAcesso,
+          estado: 'bloqueado', descricao: mensagem.slice(0, 450) })); } catch { /* opcional */ }
+        setBloqueio(mensagem.slice(0, 450));
+      }
     } finally {
       setOcupado(false);
     }
@@ -138,7 +157,14 @@ export function NvidiaImagemStudio({ onImport, projetoId }: { onImport: (f: File
             localStorage.removeItem(chavePedido);setPendente(null);
           }}>Desvincular pedido antigo</button>
         </div>}
-        <button type="button" disabled={ocupado || (!prompt.trim() && !(modalidade === 'video' && pendente))} onClick={() => { void gerar(); }}>
+        {bloqueio && <div className="error">
+          Este modelo não foi autorizado pela sua conexão NVIDIA: {bloqueio}
+          <button type="button" className="secondary" disabled={ocupado} onClick={() => {
+            try { localStorage.removeItem(chaveAcesso); } catch { /* opcional */ }
+            setBloqueio(null); setErro(null);
+          }}>Já habilitei o endpoint — verificar novamente</button>
+        </div>}
+        <button type="button" disabled={ocupado || !!bloqueio || (!prompt.trim() && !(modalidade === 'video' && pendente))} onClick={() => { void gerar(); }}>
           {ocupado ? 'Consultando/gerando…' : modalidade === 'video' && pendente ? 'Consultar vídeo anterior' : 'Gerar e colocar na biblioteca'}
         </button>
         {modalidade === 'video' && <p className="muted small">A geração pode demorar. Se ocorrer timeout, NÃO repita sem verificar o histórico da NVIDIA. Algumas contas recebem HTTP 404 por falta de permissão Public API Endpoints.</p>}
