@@ -36,6 +36,16 @@ describe('Conferência técnica de vídeo do Studio Workflow', () => {
     expect(cmd).not.toContain('nivoo-renderizar-motion');
   });
 
+  it('exige a duração e a resolução anunciadas pelo renderizador', () => {
+    const cmd = conferenciaTecnicaDeVideo('local-shell',
+      'nivoo-renderizar-motion motion/pizza --saida midia/saida/pizza.mp4 --segundos 25 --tamanho 1080x1920',
+      {}, 'true');
+    expect(cmd).toContain('stream=width,height');
+    expect(cmd).toContain("'1080x1920'");
+    expect(cmd).toContain('format=duration');
+    expect(cmd).toContain('-v target=25');
+  });
+
   it('não cria conferência de vídeo para etapas que não renderizam', () => {
     expect(conferenciaTecnicaDeVideo('local-shell', 'echo pronto', {}, 'true')).toBe('true');
   });
