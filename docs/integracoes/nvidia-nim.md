@@ -47,3 +47,30 @@ Os modelos desconhecidos retornados pela API permanecem classificados conservado
 O catálogo combina os IDs da chave do usuário à referência de modelos, mas a classificação detalhada de novas entradas exige confirmação das capacidades na fonte. A base curada corresponde aos 94 itens documentados em 22/11/2026.
 
 **Multimodalidade:** alguns modelos NVIDIA aceitam imagem, vídeo ou áudio de entrada, mas o adaptador de agente do Nivoo nesta etapa envia prompts de texto. Essa parte só ficará operacional quando o transporte de mídia for conectado e validado.
+
+
+## APIs de especialidade integradas (pacote único)
+
+O conector NVIDIA do Nivoo AI Manager agora possui **rotas próprias** para modelos de especialidades, além do Chat Completions usado pelo Studio Workflow:
+
+| Uso | Endpoint da NVIDIA | Implementação |
+| --- | --- | --- |
+| Chat de texto sem ferramentas | `POST https://integrate.api.nvidia.com/v1/chat/completions` | Nivoo: `POST /accounts/:id/nvidia/conversa` |
+| Embeddings para pesquisa/RAG | `POST https://integrate.api.nvidia.com/v1/embeddings` | Nivoo: `POST /accounts/:id/nvidia/embedding`, suporte inicial Nemotron 3.5 Embed 1B/8B e 3 Embed 1B |
+| Reranking de documentos | `POST https://ai.api.nvidia.com/v1/retrieval/nvidia/nemotron-3.5-rerank-8b/reranking` | Nivoo: `POST /accounts/:id/nvidia/rerank` |
+| Geração de imagem FLUX.1 Schnell | `POST https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell` | Nivoo: `POST /accounts/:id/nvidia/imagem` |
+
+A tela **Conexões > NVIDIA > Catálogo** mostra um painel para executar essas operações com a chave que já está salva. No **Nivoo Studio de Vídeo**, quando a conexão NVIDIA estiver ativa, aparece a ação **Gerar imagem com NVIDIA**, que salva o JPEG diretamente na biblioteca de mídia do projeto, sem baixar e reenviar.
+
+**Atenção:** a NVIDIA atualmente marca FLUX.1 Schnell como Downloadable; a API de referência existe, mas a conta pode recusar a chamada por créditos, autorização, termos ou cotas. Não se afirma que a geração de imagem é gratuita.
+
+**Não há integração automática dos embeddings ao mecanismo de busca de projetos** nesta etapa; a rota e o painel estão disponíveis para uso programático e avaliação. As rotas de rerank também estão operacionais como serviço, mas ainda não são acionadas automaticamente pela pesquisa dos projetos.
+
+**Não instalamos infraestrutura adicional de GPU no POCOU.** Modelos como Wan Animate, relighting, upscaling, FLUX 3 Klein e outras opções apenas para download continuam exigindo implantação própria. O catálogo os apresenta como não executáveis pela API de chat.
+
+Proteções: URL oficial fixa por especialidade, chave guardada no cofre da conexão, limites de tamanho para entrada/saída, timeouts, status de erros HTTP, não logar a chave, validação de IDs e sem comandos arbitrários pelo executor.
+
+Referências:
+- https://build.nvidia.com/nvidia/nemotron-3_5-embed-1b/apireference
+- https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-rerank-8b-infer
+- https://docs.api.nvidia.com/nim/reference/black-forest-labs-flux_1-schnell-infer
