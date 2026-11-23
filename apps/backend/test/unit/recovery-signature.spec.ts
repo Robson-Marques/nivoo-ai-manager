@@ -1,6 +1,6 @@
 import {
-  assinaturasDasFalhas, historicoDeFalhas, MARCADOR_RECUPERACAO,
-  MAX_OCORRENCIAS_MESMA_FALHA, recorrenciasDasFalhas,
+  assinaturaErroDaEtapa, assinaturasDasFalhas, historicoDeFalhas, MARCADOR_RECUPERACAO,
+  MAX_OCORRENCIAS_MESMA_FALHA, recorrenciasDasFalhas, repeticoesDoMesmoErro,
 } from '../../src/jobs/recovery-signature';
 
 const falhaComando = (saida: string) => ({
@@ -66,6 +66,20 @@ describe('recuperação progressiva: três ocorrências do MESMO defeito', () =>
     const a = assinaturasDasFalhas([falhaComando('AssertionError: vencimento incorreto\n[Nest] WARN [VersionHelper] git describe falhou: spawn /bin/sh ENOENT')])[0];
     const b = assinaturasDasFalhas([falhaComando('\u001b[31mAssertionError: vencimento incorreto\u001b[39m\n[Nest] WARN [VersionHelper] git tag --list falhou: spawn /bin/sh ENOENT')])[0];
     expect(a.hash).toBe(b.hash);
+  });
+
+  it('etapa de IA não para por ter corrigido erros diferentes em várias sessões', () => {
+    const anteriores = Array.from({ length: 10 }, (_, n) => 'verificação da etapa falhou: problema diferente ' + n);
+    const atual = 'verificação da etapa falhou: problema completamente novo';
+    expect(repeticoesDoMesmoErro([...anteriores, atual], atual, 'npm test')).toBe(1);
+  });
+
+  it('etapa de IA para na terceira ocorrência do mesmo erro, inclusive intercalada', () => {
+    const a = 'verificação da etapa falhou: AssertionError: resposta inválida 201';
+    const b = 'verificação da etapa falhou: AssertionError: foto não gerada';
+    expect(assinaturaErroDaEtapa(a)).not.toBe(assinaturaErroDaEtapa(b));
+    expect(repeticoesDoMesmoErro([a, b, a], a, 'npm test')).toBe(2);
+    expect(repeticoesDoMesmoErro([a, b, a, a], a, 'npm test')).toBe(3);
   });
 
   it('etapas antigas não são tratadas como a mesma falha sem evidência', () => {
