@@ -22,6 +22,7 @@ export const NOME_IA: Record<string, string> = {
   'codex-cli': 'ChatGPT (conta)',
   'codex-api': 'ChatGPT (API)',
   'gemini-api': 'Gemini (API)',
+  'nvidia-api': 'NVIDIA NIM (API)',
 };
 
 const MAX_TEXTO_MENSAGEM = 20_000;
@@ -1050,7 +1051,7 @@ function Pensando({ desde, andamento, projetoId, conversaId, onMudou }: { desde:
     return () => clearInterval(t);
   }, []);
   const a = andamento ?? '';
-  const fase = !a || /^(claude|codex|gemini) /.test(a) ? 0 : /^\[(agente|agent_message)\]/.test(a) ? 2 : 1;
+  const fase = !a || /^(claude|codex|gemini|nvidia) /.test(a) ? 0 : /^\[(agente|agent_message)\]/.test(a) ? 2 : 1;
   const fases = ['Preparando', 'Lendo o projeto', 'Escrevendo a resposta'];
   const seg = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 1000));
   return (
