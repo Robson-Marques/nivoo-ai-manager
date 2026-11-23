@@ -12,6 +12,17 @@ const FRAME_RATE = 25;
 const MAX_SOURCE_FILES = 3000;
 const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 
+/**
+ * Inicializa o relógio virtual em uma data conhecida e pausa ANTES do goto.
+ * Um deslocamento de 60s evita arredondamento/atraso entre install e pauseAt.
+ * Como a página ainda está vazia, nenhum timer da composição é avançado.
+ */
+async function prepareMotionClock(page, epochMs) {
+  if (!Number.isFinite(epochMs)) throw new Error('Tempo inicial da composição inválido');
+  await page.clock.install({ time: new Date(epochMs) });
+  await page.clock.pauseAt(new Date(epochMs + 60_000));
+}
+
 function sourceFingerprint(sourcePath) {
   // Animadores normalmente usam motion/<cena>/index.html e assets de cenas
   // vizinhas. Para HTML fora da pasta motion, não varrer o projeto inteiro.
@@ -95,9 +106,10 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   const reused = already.filter(Boolean).length;
   if (reused) onProgress({ done: reused, frames, reused, message: `reaproveitando ${reused}/${frames} quadros preservados` });
   let produced = 0;
-  // Mesmo quando os quadros JPEG estão salvos, avançar o relógio quadro a quadro
-  // preserva callbacks/timers do código JavaScript para quadros ainda não capturados.
-  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now())));
+  // A página já está pausada ANTES do primeiro goto pelo executável de
+  // renderização. Não tentar pauseAt(Date.now()) aqui: o tempo avança entre
+  // avaliar Date.now no browser e chamar pauseAt, causando "past".
+  // Avançar o relógio mesmo ao reutilizar frames preserva o estado do JS.
   for (let frame = 0; frame < frames; frame++) {
     if (frame) await page.clock.runFor(1000 / fps);
     if (already[frame]) continue;
@@ -155,4 +167,4 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   }
 }
 
-module.exports = { FRAME_RATE, sourceFingerprint, prepareFrameCache, renderMotionOffline };
+module.exports = { FRAME_RATE, prepareMotionClock, sourceFingerprint, prepareFrameCache, renderMotionOffline };

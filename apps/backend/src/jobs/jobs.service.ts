@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
-import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
+import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
@@ -247,7 +247,8 @@ export class JobsService {
     const etapasRoteadas = corrigirPlanoRenderizacaoMotion(plan.steps, defaultProvider, objective);
     const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
     const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
-    const brutas = comPreflightVisual(etapasComVideo, defaultProvider);
+    const etapasComDependencias = dependenciasDeMontagemPorArquivo(etapasComVideo, defaultProvider);
+    const brutas = comPreflightVisual(etapasComDependencias, defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
@@ -266,7 +267,8 @@ export class JobsService {
     const etapasRoteadas = corrigirPlanoRenderizacaoMotion(body.steps ?? [], defaultProvider, objective);
     const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
     const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
-    const steps = this.parseSteps(comPreflightVisual(etapasComVideo, defaultProvider), defaultProvider);
+    const etapasComDependencias = dependenciasDeMontagemPorArquivo(etapasComVideo, defaultProvider);
+    const steps = this.parseSteps(comPreflightVisual(etapasComDependencias, defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.

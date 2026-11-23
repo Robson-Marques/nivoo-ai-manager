@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { corrigirPlanoRenderizacaoMotion, etapaPedeRenderizacaoMotion } from '../../src/jobs/executor-priority';
+import { corrigirPlanoRenderizacaoMotion, dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../../src/jobs/executor-priority';
 
 describe('Planejamento de renderização motion: execução real, sem aceitar MP4 antigo', () => {
   const alvo = 'midia/saida/black-na-sua-quinta-3d-v3-final.mp4';
@@ -47,6 +47,47 @@ describe('Planejamento de renderização motion: execução real, sem aceitar MP
       verifyCommand: `test -s ${alvo}`,
     };
     expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/não executa nivoo-renderizar-motion/);
+  });
+
+  it('juntar-videos depende automaticamente do MP4 produzido pelo render no mesmo trabalho', () => {
+    const stages = [
+      {
+        key: 'render_mudo', provider: 'local-shell',
+        instructions: 'nivoo-renderizar-motion motion/v3 --saida midia/saida/novo-mudo.mp4 --segundos 25 --tamanho 1080x1920',
+      },
+      {
+        key: 'montar_trilha', provider: 'juntar-videos',
+        instructions: 'Montar trilha existente', providerOptions: {
+          cenas: ['midia/saida/novo-mudo.mp4'],
+          arquivo: 'midia/saida/novo-final.mp4',
+          trilha: { arquivo: 'musica.mp3' },
+        },
+      },
+    ];
+    const resolved = dependenciasDeMontagemPorArquivo(stages, 'nvidia-api') as Array<{ key: string; dependsOn?: string[] }>;
+    expect(resolved.find(s => s.key === 'montar_trilha')?.dependsOn).toEqual(['render_mudo']);
+    expect(resolved.find(s => s.key === 'render_mudo')?.dependsOn).toBeUndefined();
+  });
+
+  it('preserva dependências anteriores e aceita cenas externas sem produtor no job', () => {
+    const stages = [
+      { key: 'preparar', provider: 'local-shell', instructions: 'echo pronto' },
+      { key: 'render_mudo', provider: 'local-shell', instructions: 'nivoo-renderizar-motion motion/v3 --saida midia/saida/mudo.mp4 --segundos 25 --tamanho 1080x1920' },
+      { key: 'montagem', provider: 'juntar-videos',
+        dependsOn: ['preparar'], providerOptions: { cenas: ['midia/saida/mudo.mp4', 'midia/saida/outra.mp4'], arquivo: 'midia/saida/final.mp4' } },
+    ];
+    const once = dependenciasDeMontagemPorArquivo(stages, 'nvidia-api') as typeof stages;
+    const twice = dependenciasDeMontagemPorArquivo(once, 'nvidia-api') as typeof stages;
+    expect(once[2].dependsOn).toEqual(['preparar', 'render_mudo']);
+    expect(twice).toEqual(once);
+  });
+
+  it('rejeita dois renders que tentam sobrescrever o mesmo MP4', () => {
+    const stages = ['render1', 'render2'].map(key => ({
+      key, provider: 'local-shell',
+      instructions: 'nivoo-renderizar-motion motion/v3 --saida midia/saida/mesmo.mp4 --segundos 25 --tamanho 1080x1920',
+    }));
+    expect(() => dependenciasDeMontagemPorArquivo(stages, 'nvidia-api')).toThrow(/mesmo MP4/);
   });
 
   it('não aceita um nome de MP4 como suposta fonte de composição', () => {
