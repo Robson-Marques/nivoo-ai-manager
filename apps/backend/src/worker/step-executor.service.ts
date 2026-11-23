@@ -405,7 +405,13 @@ export class StepExecutorService {
     // Tempo da sessão: o da etapa; com limite de tempo no trabalho (> 0), nunca além do que resta dele.
     // 0 = sem limite de tempo no trabalho (não pode virar "1 segundo").
     const remainingSec = job.maxDurationSec > 0 ? Math.max(1, job.maxDurationSec - job.activeSeconds) : Infinity;
-    const timeoutMs = Math.min(job.stepTimeoutSec, remainingSec) * 1000;
+    // A captura offline não é uma sessão de IA; 625 quadros de 1080x1920
+    // podem exigir mais que os 900 s padrão. A cada quadro há checkpoint
+    // durável, portanto uma interrupção nunca exige recompor ou repetir tudo.
+    // Respeitar limites explícitos do trabalho (maxDurationSec).
+    const motionLongo = providerId === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(step.instructions);
+    const tempoEtapaSec = motionLongo ? Math.max(job.stepTimeoutSec, 3600) : job.stepTimeoutSec;
+    const timeoutMs = Math.min(tempoEtapaSec, remainingSec) * 1000;
     const started = Date.now();
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
