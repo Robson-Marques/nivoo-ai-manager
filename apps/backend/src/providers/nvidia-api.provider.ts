@@ -55,7 +55,8 @@ function textoDaResposta(content: unknown): string {
 }
 
 function erroSemChave(texto: string, chave: string): string {
-  return texto.split(chave).join('[chave ocultada]').replace(/nvapi-[A-Za-z0-9_-]+/g, '[chave ocultada]').slice(0, 900);
+  const limpo = chave ? texto.split(chave).join('[chave ocultada]') : texto;
+  return limpo.replace(/nvapi-[A-Za-z0-9_-]+/g, '[chave ocultada]').slice(0, 900);
 }
 
 /** Apenas leitura/escrita de arquivos do worktree; o verificador do Nivoo executa os testes depois. */
@@ -257,7 +258,7 @@ export class NvidiaApiProvider implements AiProvider {
       if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido' };
       const erro = erroSemChave(String(e?.message ?? e), this.chave() ?? '');
       req.onLog('[NVIDIA erro] ' + erro, 'WARN');
-      return { exitCode: 1, output: '', error: erro, resourceUnavailable: looksLikeResourceProblem(erro) || /HTTP (401|402|403|429|500|502|503|504)/.test(erro),
+      return { exitCode: 1, output: '', error: erro, resourceUnavailable: looksLikeResourceProblem(erro) || /HTTP (401|402|403|429|500|502|503|504)|fetch failed|network error|timeout/i.test(erro),
         inputTokens: entrada, outputTokens: saida };
     }
   }
