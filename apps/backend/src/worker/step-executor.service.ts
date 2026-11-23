@@ -973,8 +973,11 @@ export class StepExecutorService {
       return this.agendarReparoDeScript(task, workerId, job, step, worktree, number, erroAtual);
     }
 
-    await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `falha na tentativa ${number}; nova tentativa agendada` } });
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
+    const motivo = (result.error || result.output || 'executor não informou a causa').trim().slice(0, 600);
+    await L(`NOVA TENTATIVA EXPLICADA: a etapa "${step.key}" será repetida em ${Math.ceil(backoff / 1000)}s porque a tentativa #${number} falhou. Causa: ${motivo}. Arquivos já entregues são preservados; o motivo precisa ser corrigido antes de reexecutar conteúdo caro.`, 'WARN', attempt.id);
+    await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE',
+      statusDetail: `Tentativa #${number} falhou: ${motivo.slice(0, 250)}. Retomada em ${Math.ceil(backoff / 1000)}s.` } });
     await this.queue.requeue(task.id, workerId, new Date(Date.now() + backoff), result.error);
     return 'RETRY';
   }
