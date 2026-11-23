@@ -6,6 +6,7 @@ import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.prov
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider } from './gemini-api.provider';
 import { NvidiaApiProvider } from './nvidia-api.provider';
+import { GroqFreeProvider, OpenRouterFreeProvider } from './free-cloud-api.provider';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { JuntarVideosProvider } from './juntar-videos.provider';
 import { GerarNarracaoProvider } from './gerar-narracao.provider';
@@ -26,13 +27,15 @@ export class ProviderRegistry {
     codexApi: CodexApiProvider,
     geminiApi: GeminiApiProvider,
     nvidiaApi: NvidiaApiProvider,
+    openRouterFree: OpenRouterFreeProvider,
+    groqFree: GroqFreeProvider,
     video: GeminiVideoProvider,
     juntar: JuntarVideosProvider,
     gerarNarracao: GerarNarracaoProvider,
     arquivos: ArquivosProjetoProvider,
     shell: LocalShellProvider,
   ) {
-    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, nvidiaApi, video, juntar, gerarNarracao, arquivos, shell]) this.providers.set(p.id, p);
+    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, nvidiaApi, openRouterFree, groqFree, video, juntar, gerarNarracao, arquivos, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */
