@@ -41,6 +41,8 @@ function destinoNoNivoo(modelo: ModeloNvidia): string {
   if (modelo.id === 'nvidia/nemotron-3.5-rerank-8b') return 'Integrado: reordenação de resultados na pesquisa/RAG via API';
   if (modelo.id === 'black-forest-labs/flux.1-schnell')
     return 'Conector de imagem implementado: painel NVIDIA e importação no Studio de Vídeo; acesso sujeito à chave';
+  if (modelo.nome === 'Cosmos3 Nano')
+    return 'API de vídeo integrada: geração de clipes via Cosmos3 no Studio de Vídeo; acesso sujeito à habilitação NVIDIA';
   if (modelo.areas.includes('video')) return 'Studio de Vídeo: exige implantação/endpoint próprio';
   if (modelo.areas.includes('imagens')) return 'Design de Imagens: exige implantação/endpoint próprio';
   if (modelo.areas.includes('audio')) return 'Áudio e Transcrição: exige implantação/endpoint próprio';
