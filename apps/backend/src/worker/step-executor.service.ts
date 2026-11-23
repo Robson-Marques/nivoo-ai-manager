@@ -12,6 +12,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
+import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
 import { referenciasDaConferencia, variaveisDaConferencia } from '../accounts/secrets';
@@ -201,8 +202,18 @@ export class StepExecutorService {
       }
     }
 
-    // Disponibilidade do conector.
+    // Vídeo gera quadros, intermediários e snapshots: numa partição com
+    // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
+    // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
+    if (providerId === 'local-shell' && /\\bnivoo-(?:conferir-arte|renderizar-motion)\\b/.test(step.instructions)) {
+      const espaco = armazenamentoDisponivel(['/', worktree, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
+      if (!espaco.ok) {
+        const gb = ((espaco.livre ?? 0) / (1024 ** 3)).toFixed(2);
+        return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
+          `Pouco espaço livre (${gb} GiB em ${espaco.pasta}). Para captura/render de vídeo, reserve pelo menos 4 GiB livres; nada foi excluído. Libere espaço e clique Continuar; composição e trabalho preservados.`);
+      }
+    }
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
       return this.awaitResource(task, workerId, job, step, `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`);
