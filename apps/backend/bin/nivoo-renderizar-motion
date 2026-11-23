@@ -51,8 +51,8 @@ if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
     ? manifest : path.join(entrada, 'index.html');
 }
 if (!fs.existsSync(entrada)) {
-  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava scene.json ou index.html)`);
-  process.exit(1);
+  console.error(`MOTION_CONTRATO: composição ${alvoBruto} incompleta para motor ${motorExigido}: ${path.basename(entrada)} ausente. Nenhum quadro será capturado.`);
+  process.exit(4);
 }
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
 if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
