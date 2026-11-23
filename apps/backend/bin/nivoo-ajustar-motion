@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * Reparador determinístico da composição Black na sua Quinta WebGL 3D v3.
+ * Cria versão nova, sem sobrescrever HTML ou imagens originais.
+ * Uso: nivoo-ajustar-motion motion/black-na-sua-quinta-3d-v3 --saida motion/black-na-sua-quinta-3d-v3-corrigido
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+
+function replaceExactly(source, original, replacement, label) {
+  const parts = source.split(original);
+  if (parts.length !== 2)
+    throw new Error('Composição incompatível (' + label + '): ' + (parts.length - 1) + ' ocorrências. Nada alterado.');
+  return parts.join(replacement);
+}
+function fixWebglPizzaAndRhythm(original) {
+  if (original.includes('NIVOO_WEBGL_PIZZA_FIX_V1')) throw new Error('A composição já contém a correção.');
+  for (const [label, needle] of [
+    ['título', 'Black na sua Quinta · Nivoo Gastronomia · 3D v3'],
+    ['duração', 'window.__motionSegundos = 25;'],
+    ['inclinação 3D', 'M.Rx(E.tilt)'],
+    ['cópias escuras', 'tint: top ? [1, 1, 1] : [.38, .3, .24]'],
+    ['profundidade WebGL', 'gl.enable(gl.DEPTH_TEST)'],
+  ]) if (!original.includes(needle)) throw new Error('Composição não reconhecida: ' + label + '. Não alterada.');
+
+  let c = replaceExactly(original, 'window.__motionSegundos = 25;',
+    'window.__motionSegundos = 20; // NIVOO_WEBGL_PIZZA_FIX_V1', 'tempo total');
+  const oldPizza = [
+    '      for (let k = 0; k < 3; k++) {',
+    '        const z = 17 + k * 3, top = k === 2;',
+    '        blend.push({ z, f: () => draw(QUAD, M.chain(M.T(cxs + E.dx, wy(cys) - E.dy + E.hover - (2 - k) * 2.2, z), M.Rz(-rot * DEG), M.Rx(E.tilt), M.S(E.s, E.s, 1), M.S(w, h, 1)),',
+    '          { mode: 1, tex: imgTex, alpha: E.a, tint: top ? [1, 1, 1] : [.38, .3, .24] }) });',
+    '      }',
+  ].join('\n');
+  const newPizza = [
+    '      // Imagem frontal única z=34, sempre acima da tábua z<=14.',
+    '      // Sem Rx: a imagem não atravessa a tábua; sem cópias escuras da pizza.',
+    '      // Movimento preservado com giro suave no plano, tamanho e sombra separados.',
+    '      const fotoZ = 34;',
+    '      blend.push({ z: fotoZ, f: () => draw(QUAD,',
+    '        M.chain(M.T(cxs + E.dx, wy(cys) - E.dy + E.hover, fotoZ),',
+    '          M.Rz(-rot * DEG + E.tilt * .28), M.S(E.s, E.s, 1), M.S(w, h, 1)),',
+    '        { mode: 1, tex: imgTex, alpha: E.a, tint: [1, 1, 1] }) });',
+  ].join('\n');
+  c = replaceExactly(c, oldPizza, newPizza, 'camadas da pizza');
+
+  const rhythm = [
+    '  // Relógio editorial acelerado: néon e BLACK 7,15s -> 3,5s.',
+    '  // Demais cenas mais rápidas, mantendo tela final para leitura e narração.',
+    '  const RITMO = [[0,0],[3.5,7.15],[8.0,13.2],[11.3,17.4],[15.5,22.6],[20,25]];',
+    '  function tempoDaCena(real) {',
+    '    const t = clamp(real, 0, window.__motionSegundos);',
+    '    for (let i = 1; i < RITMO.length; i++) {',
+    '      if (t <= RITMO[i][0]) {',
+    '        const a = RITMO[i - 1], b = RITMO[i];',
+    '        return lerp(a[1], b[1], (t - a[0]) / (b[0] - a[0]));',
+    '      }',
+    '    }',
+    '    return 25;',
+    '  }',
+    '  function renderAt(t) {',
+    '    const P = pose(tempoDaCena(t));',
+  ].join('\n');
+  c = replaceExactly(c, '  function renderAt(t) {\n    const P = pose(t);', rhythm, 'renderAt');
+  c = replaceExactly(c, 'renderAt(clamp(Number(q), 0, 25));',
+    'renderAt(clamp(Number(q), 0, window.__motionSegundos));', 'quadro manual');
+  c = replaceExactly(c, 'const t = Math.min(25, (now - t0) / 1000);',
+    'const t = Math.min(window.__motionSegundos, (now - t0) / 1000);', 'relógio');
+  c = replaceExactly(c, 'if (t < 25) requestAnimationFrame(tick);',
+    'if (t < window.__motionSegundos) requestAnimationFrame(tick);', 'fim da animação');
+  return c;
+}
+function run(args = process.argv.slice(2)) {
+  const i = args.indexOf('--saida'), sourceArg = args[0];
+  if (!sourceArg || sourceArg.startsWith('--') || i < 0 || !args[i + 1])
+    throw new Error('Uso: nivoo-ajustar-motion motion/<origem> --saida motion/<nova-pasta>');
+  let source = path.resolve(sourceArg);
+  if (fs.existsSync(source) && fs.statSync(source).isDirectory()) source = path.join(source, 'index.html');
+  const outDir = path.resolve(args[i + 1]), output = path.join(outDir, 'index.html');
+  if (!fs.existsSync(source)) throw new Error('HTML não encontrado: ' + source);
+  if (path.dirname(source) === outDir) throw new Error('Recusado: origem deve permanecer intacta.');
+  if (path.dirname(path.dirname(source)) !== path.dirname(outDir))
+    throw new Error('Destino deve ser uma pasta irmã para manter os assets relativos.');
+  if (fs.existsSync(output)) throw new Error('Saída já existe: ' + output + '. Não sobrescrevo.');
+  const corrected = fixWebglPizzaAndRhythm(fs.readFileSync(source, 'utf8'));
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(output, corrected, { flag: 'wx' });
+  console.log('Composição corrigida: ' + output);
+  console.log('Original preservado: ' + source);
+  console.log('Abertura: néon+BLACK 7,15s -> 3,5s; total 25s -> 20s; pizza não atravessa tábua.');
+  console.log('Para renderizar: nivoo-renderizar-motion ' + args[i + 1] +
+    ' --saida midia/saida/black-quinta-v3-corrigido.mp4 --segundos 20 --tamanho 1080x1920');
+  return { source, output };
+}
+if (require.main === module) {
+  try { run(); } catch (err) { console.error('nivoo-ajustar-motion:', err.message); process.exitCode = 1; }
+}
+module.exports = { fixWebglPizzaAndRhythm, run };
