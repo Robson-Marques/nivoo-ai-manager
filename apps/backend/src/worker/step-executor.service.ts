@@ -2,7 +2,7 @@ import { registrarErro } from '../diagnostico/erros';
 import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
-import { etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
+import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
 import { ferramentasDaIa } from '../providers/ferramentas';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
@@ -161,6 +161,36 @@ export class StepExecutorService {
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
       return 'IGNORADO';
+    }
+
+    // Corrige jobs já gravados sem dependsOn: o orquestrador só consegue
+    // respeitar dependências presentes no banco. Se uma cena do juntar-videos
+    // está sendo produzida por nivoo-renderizar-motion no MESMO trabalho, não
+    // iniciar FFmpeg antes de o produtor concluir — sem criar tentativa/falha.
+    if ((step.provider ?? job.defaultProvider) === 'juntar-videos') {
+      const etapas = await this.prisma.step.findMany({
+        where: { jobId: job.id },
+        select: { key: true, status: true, provider: true, instructions: true, dependsOn: true, providerOptions: true },
+      });
+      const normalizadas = dependenciasDeMontagemPorArquivo(etapas, job.defaultProvider) as Array<{ key: string; dependsOn: string[] }>;
+      const montagem = normalizadas.find((s) => s.key === step.key);
+      const pendentes = (montagem?.dependsOn ?? step.dependsOn).filter((key) =>
+        etapas.some((s) => s.key === key && s.status !== 'CONCLUIDO'));
+      if (pendentes.length) {
+        if (montagem && montagem.dependsOn.some((key) => !step.dependsOn.includes(key))) {
+          await this.prisma.$transaction(async (tx) => {
+            await OrchestratorService.lockJob(tx, job.id);
+            await tx.step.update({
+              where: { id: step.id },
+              data: { dependsOn: montagem.dependsOn, status: 'PENDENTE', statusDetail: 'aguardando renderização das cenas antes de montar trilha' },
+            });
+          });
+        }
+        await L(`Montagem aguardando ${pendentes.join(', ')} produzir o vídeo mudo; sem tentar FFmpeg ou gastar IA.`);
+        await this.queue.complete(task.id, workerId);
+        await this.orchestrator.scheduleReady(job.id);
+        return 'CONTINUA';
+      }
     }
 
     // Limites de tempo e orçamento do job.
