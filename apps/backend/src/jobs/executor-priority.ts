@@ -109,6 +109,12 @@ export function etapaPedeRenderizacaoMotion(step: { key?: unknown; title?: unkno
     /\b(?:3d|motion|composi(?:ção|cao)|anima(?:ção|cao))\b/i.test(title + ' ' + instr);
 }
 
+/**
+ * Converte o pedido de render em uma chamada real do executor local.
+ * A forma textual do Bash não é um contrato: comandos com set -e, paths
+ * absolutos do binário, flags em outra ordem, e aspas continuam válidos.
+ * Nunca considera "test -s MP4" como evidência de execução.
+ */
 export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: string, objective = ''): unknown {
   if (!Array.isArray(raw)) return raw;
   return raw.map((item: unknown) => {
@@ -116,37 +122,70 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     const step = item as Record<string, unknown>;
     const provider = String(step.provider ?? defaultProvider);
     if (!etapaPedeRenderizacaoMotion(step) || provider === 'juntar-videos' || provider === 'gemini-video') return item;
-    const instr = String(step.instructions ?? '').trim();
-    if (provider === 'local-shell') {
-      // Atribuir local-shell sem chamar o renderizador (ex.: comando true)
-      // também era capaz de aprovar MP4 anterior com test -s.
-      if (!/^nivoo-renderizar-motion\s+motion\/[A-Za-z0-9._/-]+\s+--saida\s+midia\/saida\/[A-Za-z0-9._-]+\.mp4(?:\s|$)/.test(instr)) {
-        throw new BadRequestException('Etapa motion local-shell não executa nivoo-renderizar-motion com fonte e destino explícitos. Não basta encontrar um MP4 anterior na conferência.');
-      }
-      return item;
-    }
-    const verified = String(step.verifyCommand ?? '');
-    const normalized = (instr + ' ' + objective);
-    const paths = [...normalized.matchAll(/(?:^|[\s'"(])((?:motion)\/[A-Za-z0-9._/-]+)(?=[\s'")]|$)/g)]
-      .map(m => m[1].replace(/\/index\.html$/, ''));
-    const source = [...new Set(paths)].length === 1 ? paths[0] : null;
-    const targets = [...(instr + ' ' + verified).matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)].map(m => m[0]);
-    const target = [...new Set(targets)].length === 1 ? targets[0] : null;
-    const seconds = /--segundos\s+(\d+(?:\.\d+)?)/.exec(instr)?.[1] ??
-      /(\d+(?:\.\d+)?)\s*(?:s\b|segundos?\b)/i.exec(normalized)?.[1];
-    const size = /--tamanho\s+(\d{3,5}x\d{3,5})/.exec(instr)?.[1] ??
-      /\b(\d{3,5}x\d{3,5})\b/.exec(normalized)?.[1];
 
-    if (source && target && seconds && size &&
-        !source.split('/').includes('..') && Number(seconds) > 0 && Number(seconds) <= 300) {
-      const command = `nivoo-renderizar-motion ${source} --saida ${target} --segundos ${seconds} --tamanho ${size}`;
+    const instr = String(step.instructions ?? '').trim();
+    // Comando de render real, inclusive depois de "set -e;" ou em linha
+    // seguinte. A conferência técnica do MP4 é independente disso.
+    const comandoReal = /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion(?:\s|$)/m.test(instr);
+    if (provider === 'local-shell' && comandoReal) return item;
+
+    const opts = step.providerOptions && typeof step.providerOptions === 'object' && !Array.isArray(step.providerOptions)
+      ? step.providerOptions as Record<string, unknown> : {};
+    const texto = instr + ' ' + objective;
+    const escolher = (items: string[]): string | null => {
+      const unicos = [...new Set(items.filter(Boolean))];
+      return unicos.length === 1 ? unicos[0] : null;
+    };
+    const caminhoFonte = (value: unknown): string => {
+      const text = String(value ?? '').trim().replace(/^['"]|['"]$/g, '').replace(/\/index\.html$/, '');
+      return /^motion\/[A-Za-z0-9._/-]+$/.test(text) && !text.split('/').includes('..') ? text : '';
+    };
+    const fontesInstrucao = [...instr.matchAll(/\bmotion\/[A-Za-z0-9._/-]+/g)]
+      .map(m => caminhoFonte(m[0]));
+    const fontesObjetivo = [...objective.matchAll(/\bmotion\/[A-Za-z0-9._/-]+/g)]
+      .map(m => caminhoFonte(m[0]));
+    const source = escolher([
+      caminhoFonte(opts.fonte ?? opts.entrada ?? opts.source ?? opts.sourcePath),
+      ...fontesInstrucao,
+    ]) ?? escolher(fontesObjetivo);
+
+    const saida = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(instr);
+    const saidaDeclarada = saida?.[1] ?? saida?.[2] ?? saida?.[3] ??
+      String(opts.saida ?? opts.arquivo ?? opts.output ?? '');
+    const saidaValida = (v: string) => /^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/.test(v) ? v : '';
+    const alvosInstrucao = [...instr.matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)].map(m => m[0]);
+    const alvosConferencia = [...String(step.verifyCommand ?? '').matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)]
+      .map(m => m[0]);
+    const target = saidaValida(saidaDeclarada) ||
+      escolher(alvosInstrucao.map(saidaValida)) ||
+      escolher(alvosConferencia.map(saidaValida));
+
+    const segundosExplicitos = /--segundos\s+(\d+(?:\.\d+)?)/.exec(instr)?.[1] ??
+      String(opts.segundos ?? opts.duracao ?? '');
+    const seconds = segundosExplicitos || /(\d+(?:\.\d+)?)\s*(?:s\b|segundos?\b)/i.exec(texto)?.[1] || '';
+    const tamanhoExplicito = /--tamanho\s+(\d{3,5}[x×]\d{3,5})/.exec(instr)?.[1] ??
+      String(opts.tamanho ?? opts.resolucao ?? '');
+    const size = (tamanhoExplicito || /\b(\d{3,5}\s*[x×]\s*\d{3,5})\b/i.exec(texto)?.[1] || '')
+      .replace(/\s/g, '').replace('×', 'x');
+
+    if (source && target && Number(seconds) > 0 && Number(seconds) <= 300 &&
+        /^\d{3,5}x\d{3,5}$/.test(size)) {
+      const command = 'nivoo-renderizar-motion ' + source +
+        ' --saida ' + target + ' --segundos ' + seconds + ' --tamanho ' + size;
       return { ...step, provider: 'local-shell', instructions: command };
     }
+
+    const falta = [
+      !source ? 'fonte motion/<pasta>' : '',
+      !target ? 'destino midia/saida/<nome>.mp4' : '',
+      !(Number(seconds) > 0 && Number(seconds) <= 300) ? 'duração em segundos' : '',
+      !/^\d{3,5}x\d{3,5}$/.test(size) ? 'resolução' : '',
+    ].filter(Boolean).join(', ');
     throw new BadRequestException(
-      `Etapa "${String(step.key ?? 'render')}" tenta renderizar MP4 com IA (${provider}), mas a IA não executa terminal. ` +
-      'Separe a criação da composição em uma etapa de IA e a renderização em uma etapa local-shell. ' +
-      'Informe a fonte REAL motion/<pasta> (com index.html), o --saida midia/saida/<novo-nome>.mp4, ' +
-      '--segundos e --tamanho. Não aprove um MP4 antigo com test -s.');
+      'A etapa ' + String(step.key ?? 'render') + ' foi atribuída a ' + provider +
+      ', mas ainda faltam dados para criar o comando de renderização: ' + falta +
+      '. O Nivoo deve recuperar esses dados da composição existente e do catálogo de arquivos, ' +
+      'sem pedir ao usuário um comando Bash. Não é permitido aprovar MP4 anterior como renderização nova.');
   });
 }
 
