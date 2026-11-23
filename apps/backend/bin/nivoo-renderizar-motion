@@ -127,6 +127,37 @@ function motionSceneCore() {
       console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivoo');
     } else {
       await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+      const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
+      if (fs.existsSync(overlayPath)) {
+        // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
+        // ficam numa camada RGBA independente ACIMA da geometria,
+        // sem Z-fighting, oclusão nem fotos escuras duplicadas.
+        const { loadScene, overlayScript } = motionSceneCore();
+        const { scene, binaries } = loadScene(overlayPath);
+        if (scene.width !== W || scene.height !== H) throw new Error(
+          `Overlay de mídia ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}`);
+        await pagina.evaluate((size) => {
+          const canvas = document.createElement('canvas');
+          canvas.id = 'nivoo-overlay';
+          canvas.width = size.width;
+          canvas.height = size.height;
+          Object.assign(canvas.style, {
+            position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh',
+            zIndex:'2147483647', pointerEvents:'none',
+          });
+          document.body.appendChild(canvas);
+        }, { width: W, height: H });
+        await pagina.addScriptTag({ content: overlayScript(scene, binaries) });
+        let deadline;
+        try {
+          await Promise.race([
+            pagina.evaluate(() => window.__nivooOverlayLoadPromise),
+            new Promise((_, reject) => { deadline = setTimeout(
+              () => reject(new Error('Tempo limite de 30s carregando fotos da camada WebGL')), 30_000); }),
+          ]);
+        } finally { clearTimeout(deadline); }
+        console.log('nivoo-renderizar-motion: fotos/produtos em camada segura sobre WebGL (overlays.json)');
+      }
     }
     const segundos = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
