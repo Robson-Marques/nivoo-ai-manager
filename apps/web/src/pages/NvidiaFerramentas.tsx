@@ -48,7 +48,21 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
         tipo === 'rerank' ? { modelo, consulta, trechos: trechos.split('\n').map(t => t.trim()).filter(Boolean) } :
         tipo === 'video' ? { modelo, prompt, proporcao: '9:16', numFrames: 25 } :
         { modelo, prompt, largura: 1024, altura: 1024 };
-      setResultado(await api<Resultado>(rota, 'POST', body));
+      if (tipo === 'video') {
+        const iniciado = await api<{ id: string }>(rota + '/iniciar', 'POST', body);
+        let pronto: Resultado | null = null;
+        for (let n = 0; n < 80; n++) {
+          await new Promise(resolve => setTimeout(resolve, 2500));
+          const estado = await api<{ estado: string; erro?: string; resultado?: Resultado }>(
+            rota + '/' + encodeURIComponent(iniciado.id));
+          if (estado.estado === 'falhou') throw new Error(estado.erro ?? 'Erro de geração na NVIDIA');
+          if (estado.estado === 'concluido' && estado.resultado) { pronto = estado.resultado; break; }
+        }
+        if (!pronto) throw new Error('Geração ainda em andamento: pedido ' + iniciado.id + '. Não a reenvie.');
+        setResultado(pronto);
+      } else {
+        setResultado(await api<Resultado>(rota, 'POST', body));
+      }
     } catch (e: any) {
       setErro(String(e?.message ?? e));
     } finally {
