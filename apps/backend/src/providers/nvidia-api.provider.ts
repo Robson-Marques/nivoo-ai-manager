@@ -11,7 +11,7 @@ export const NVIDIA_DEFAULT_MODEL = 'nvidia/nemotron-3-nano';
 const DEFAULT_TURNS = 24;
 const MAX_TURNS = 40;
 const MAX_FILE_BYTES = 320_000;
-const MAX_READ_BYTES = 80_000;
+const MAX_READ_BYTES = 1_000_000;
 const MAX_TOOL_OUTPUT = 24_000;
 
 type ChatMessage = { role: string; content: unknown; tool_calls?: any[]; tool_call_id?: string };
@@ -24,7 +24,7 @@ export const NVIDIA_TOOLS: Array<Record<string, unknown>> = [
   } },
   { type: 'function', function: {
     name: 'ler_arquivo', description: 'Leia um arquivo de texto relativo ao trabalho, para entender o código antes de modificá-lo.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' } }, required: ['caminho'] },
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, inicio: { type: 'integer', description: 'Posição inicial em caracteres (padrão 0)' }, limite: { type: 'integer', description: 'Máximo de caracteres (padrão 18000)' } }, required: ['caminho'] },
   } },
   { type: 'function', function: {
     name: 'escrever_arquivo', description: 'Crie ou substitua um arquivo de texto do trabalho, sem acessar diretórios protegidos.',
@@ -82,11 +82,14 @@ export function executarFerramentaNvidia(cwd: string, name: string, args: Record
   }
   if (name === 'ler_arquivo') {
     const stat = fs.statSync(caminho);
-    if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('Arquivo não é texto ou é muito grande (limite 80 KB)');
+    if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('Arquivo não é texto ou é muito grande (limite 1 MB)');
     const buffer = fs.readFileSync(caminho);
     if (buffer.includes(0)) throw new Error('Arquivo binário; somente texto é permitido');
     const conteudo = buffer.toString('utf8');
-    return JSON.stringify({ caminho: args.caminho, conteudo: conteudo.slice(0, MAX_TOOL_OUTPUT - 1500), truncado: conteudo.length > MAX_TOOL_OUTPUT - 1500 });
+    const inicio = Math.max(0, Math.min(conteudo.length, Number(args.inicio) || 0));
+    const limite = Math.max(1, Math.min(18000, Number(args.limite) || 18000));
+    return JSON.stringify({ caminho: args.caminho, inicio, total: conteudo.length,
+      conteudo: conteudo.slice(inicio, inicio + limite), temMais: inicio + limite < conteudo.length });
   }
   if (name === 'escrever_arquivo' || name === 'substituir_texto') {
     if (typeof args.caminho !== 'string' || args.caminho.trim() === '') throw new Error('Informe o arquivo relativo');
