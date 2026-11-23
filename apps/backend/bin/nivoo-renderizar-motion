@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * nivoo-renderizar-motion — transforma uma ANIMAÇÃO DE CÓDIGO (motion design: HTML/CSS/JS que a IA escreve) em vídeo,
- * gravando a página num navegador sem tela (Playwright) e convertendo para mp4 (ffmpeg). SEM Veo e SEM custo.
+ * capturando cada quadro no Playwright com relógio controlado e codificando com FFmpeg. SEM Veo e SEM custo.
  *
  * uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]
  *   A página pode definir window.__motionSegundos (duração) e setar window.__motionFim = true quando terminar.
@@ -23,8 +23,6 @@ function playwrightCore() {
     throw new Error('playwright-core não encontrado na instalação Nivoo (/opt/nivoo/app/node_modules). Confira a etapa 6 de nivoo update. ' + (e?.message ?? e));
   }
 }
-
-const { spawnSync } = require('node:child_process');
 
 const args = process.argv.slice(2);
 const opt = (nome, padrao) => {
@@ -57,55 +55,48 @@ if (!W || !H) {
   process.exit(2);
 }
 
+function offlineRenderer() {
+  // O comando pode ser chamado pelo checkout ou por /usr/local/bin.
+  // Em ambos os casos usa o módulo versionado em /opt/nivoo/app.
+  const locais = [
+    path.join(__dirname, 'motion-offline-render.js'),
+    path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app', 'apps/backend/bin/motion-offline-render.js'),
+  ];
+  const encontrado = locais.find((p) => fs.existsSync(p));
+  if (!encontrado) throw new Error('captura offline não instalada; execute nivoo update');
+  return require(encontrado).renderMotionOffline;
+}
+
 (async () => {
-  let chromium;
-  try {
-    ({ chromium } = playwrightCore());
-  } catch (e) {
-    console.error('nivoo-renderizar-motion: ' + e.message);
-    process.exit(3);
-  }
-  const dirVideo = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-motion-'));
+  const { chromium } = playwrightCore();
+  const renderOffline = offlineRenderer();
   let navegador;
+  let ctx;
   try {
     navegador = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu', '--force-color-profile=srgb'] });
-  } catch (e) {
-    console.error(`nivoo-renderizar-motion: navegador sem tela não abriu (${String(e.message).split('\n')[0]}). Rode "nivoo update".`);
-    process.exit(3);
+    // Nada de recordVideo: a gravação WebM em tempo real saltava quadros
+    // quando a composição 3D demorava para ser desenhada.
+    ctx = await navegador.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+    const pagina = await ctx.newPage();
+    const erros = [];
+    pagina.on('pageerror', (e) => erros.push(String(e.message).slice(0, 200)));
+    // Controla Date, performance.now, setTimeout e requestAnimationFrame antes
+    // de carregar o HTML. A captura de cada quadro não consome tempo da animação.
+    await pagina.clock.install({ time: new Date('2025-01-01T00:00:00Z') });
+    await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+    const segundos = Math.min(300, Math.max(1,
+      Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
+    const result = await renderOffline({
+      page: pagina, outputPath: saida, seconds: segundos, width: W, height: H,
+      onProgress: (frame, total) => console.log(`nivoo-renderizar-motion: quadros ${frame}/${total} (captura offline)`),
+    });
+    if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
+    console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${segundos.toFixed(1)} s, ${(result.bytes / 1024 / 1024).toFixed(1)} MB, ${result.frames} quadros a ${result.fps} fps)`);
+  } finally {
+    if (ctx) await ctx.close().catch(() => {});
+    if (navegador) await navegador.close().catch(() => {});
   }
-  const ctx = await navegador.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, recordVideo: { dir: dirVideo, size: { width: W, height: H } } });
-  const pagina = await ctx.newPage();
-  const erros = [];
-  pagina.on('pageerror', (e) => erros.push(String(e.message).slice(0, 200)));
-  await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
-  // Duração: a que a página declarar (window.__motionSegundos), senão --segundos. Para antes se window.__motionFim.
-  const segundos = Math.min(300, Math.max(1, Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
-  const limite = Date.now() + segundos * 1000;
-  while (Date.now() < limite) {
-    if (await pagina.evaluate(() => window.__motionFim === true).catch(() => false)) break;
-    await pagina.waitForTimeout(100);
-  }
-  const video = pagina.video();
-  await ctx.close(); // grava o .webm
-  await navegador.close();
-  const webm = video ? await video.path() : null;
-  if (!webm || !fs.existsSync(webm)) {
-    console.error('nivoo-renderizar-motion: a gravação não foi criada');
-    process.exit(4);
-  }
-  fs.mkdirSync(path.dirname(saida), { recursive: true });
-  // webm → mp4 (H.264, yuv420p, faststart): toca em qualquer lugar e serve para juntar/editar depois.
-  const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', webm, '-t', String(segundos), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', saida], { encoding: 'utf8' });
-  fs.rmSync(dirVideo, { recursive: true, force: true });
-  if (r.status !== 0) {
-    console.error(`nivoo-renderizar-motion: ffmpeg falhou: ${(r.stderr || '').trim().slice(-300)}`);
-    process.exit(4);
-  }
-  const dur = Number(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', saida], { encoding: 'utf8' }).stdout.trim()) || 0;
-  const mb = (fs.statSync(saida).size / 1024 / 1024).toFixed(1);
-  if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
-  console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${dur.toFixed(1)} s, ${mb} MB)`);
 })().catch((e) => {
   console.error(`nivoo-renderizar-motion: falhou: ${e?.message ?? e}`);
-  process.exit(4);
+  process.exitCode = 4;
 });
