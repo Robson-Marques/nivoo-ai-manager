@@ -162,7 +162,7 @@ export function SeletorModelo({ projeto, onMudou, className, ia: iaFixa, rotulo 
     await api(`/projects/${projeto.id}`, 'PATCH', { model, ...(iaFixa ? { modeloDe: iaFixa } : {}) });
     onMudou();
   };
-  const lista = atual && !opcoes.some((o) => o.id === atual)
+  const lista: Array<{ id: string; nome: string; categoria?: string; descricao?: string }> = atual && !opcoes.some((o) => o.id === atual)
     ? [{ id: atual, nome: ehNvidia ? atual + ' (antigo/incompatível: escolha outro)' : atual, categoria: 'Outros' }, ...opcoes]
     : opcoes;
   const gruposNvidia = [...new Set(lista.map(o => o.categoria ?? 'Programação e agentes'))];
