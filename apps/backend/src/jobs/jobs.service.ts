@@ -30,7 +30,7 @@ const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_T
  * o planejador esquece de propor uma etapa de direção de arte. Não escolhe
  * automaticamente uma referência: o agente recebe os anexos originais.
  */
-function comPreflightVisual(raw: unknown, defaultProvider: string): unknown {
+export function comPreflightVisual(raw: unknown, defaultProvider: string): unknown {
   if (!Array.isArray(raw)) return raw;
   const keys = new Set(raw.map((s: any) => String(s?.key ?? '')));
   const result: any[] = [];
