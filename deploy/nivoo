@@ -7,7 +7,16 @@ NODE_DIR=/opt/nivoo/node
 NIVOO_USER=nivoo
 NIVOO_HOME=/var/lib/nivoo
 ENV_FILE=/etc/nivoo/nivoo.env
-BACKUP_DIR=/var/backups/nivoo
+# Se a instalação tem volume separado para workspaces (POCOU: /dev/sda4),
+# gravar backups nele em vez de lotar a partição raiz (/dev/sda2).
+# .nivoo-system está excluído do tar de dados (sem backup recursivo).
+# Em instalações de disco único, manter o destino legado.
+BACKUP_DIR_LEGADO=/var/backups/nivoo
+WORKSPACES_MOUNT="$NIVOO_HOME/data/workspaces"
+BACKUP_DIR="$BACKUP_DIR_LEGADO"
+if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$WORKSPACES_MOUNT"; then
+  BACKUP_DIR="$WORKSPACES_MOUNT/.nivoo-system/backups"
+fi
 
 # Funções de rotação: só reconhecem os nomes exatos criados pelo Nivoo e nunca apagam outros arquivos da pasta.
 . "$APP_DIR/deploy/backup-retention.sh"
@@ -239,7 +248,11 @@ EOF
     fi
     ;;
   backup)
+    if [ "$BACKUP_DIR" != "$BACKUP_DIR_LEGADO" ] && ! mountpoint -q "$WORKSPACES_MOUNT"; then
+      die "partição dos workspaces não montada; backup cancelado sem escrever na raiz"
+    fi
     install -d -m 700 "$BACKUP_DIR"
+    echo "Backup Nivoo: destino $BACKUP_DIR" >&2
     # Impede dois backups simultâneos de disputarem espaço ou apagarem o conjunto em criação um do outro.
     exec 9>"$BACKUP_DIR/.backup.lock"
     flock -n 9 || die "já existe outro backup do Nivoo em andamento"
@@ -287,6 +300,15 @@ EOF
   restore)
     # nivoo restore <carimbo>   ex.: nivoo restore 20261028-101500
     ts="${1:?informe o carimbo do backup (veja ls $BACKUP_DIR)}"
+    # Backups anteriores não são apagados ou transferidos silenciosamente.
+    # Restaurar também pode localizar conjuntos completos no destino antigo.
+    if [ ! -f "$BACKUP_DIR/nivoo-db-$ts.dump" ] &&
+       [ -f "$BACKUP_DIR_LEGADO/nivoo-db-$ts.dump" ] &&
+       [ -f "$BACKUP_DIR_LEGADO/nivoo-data-$ts.tar.gz" ] &&
+       [ -f "$BACKUP_DIR_LEGADO/nivoo-env-$ts" ]; then
+      BACKUP_DIR="$BACKUP_DIR_LEGADO"
+      echo "Restore Nivoo: usando backup anterior em $BACKUP_DIR" >&2
+    fi
     read -rp "Isto SUBSTITUI o banco e os dados atuais pelo backup $ts. Digite SIM para continuar: " ans
     [ "$ans" = SIM ] || { echo "cancelado"; exit 1; }
     [ -f "$BACKUP_DIR/nivoo-db-$ts.dump" ] && [ -f "$BACKUP_DIR/nivoo-data-$ts.tar.gz" ] || { echo "backup $ts incompleto ou inexistente" >&2; exit 1; }
