@@ -27,6 +27,10 @@ describe('Motion: QA da linha do tempo antes do MP4', () => {
     expect(revista.instructions).toMatch(/neon/i);
     expect(revista.instructions).toMatch(/A partir de/i);
     expect(revista.instructions).toContain('quadrosInspecionados');
+    expect(revista.instructions).toMatch(/NÃO tente recapturar imagens/);
+    expect(revista.instructions).toMatch(/não tem Bash\/terminal/);
+    expect(revista.instructions).toMatch(/motor Nivoo detecta o arquivo alterado/);
+    expect((revista as any).providerOptions).toEqual({ maxTurns: 16 });
     expect(revista.verifyCommand).toContain("d.get('movimentoConforme') is True");
     expect(revista.verifyCommand).toContain("all(x['arquivo'] in vistos for x in q)");
     expect(itens.at(-1)?.dependsOn).toContain(revista.key);

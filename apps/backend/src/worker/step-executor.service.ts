@@ -12,6 +12,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
+import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
 import { textoDoRepositorio } from '../git/contexto-git';
 import { referenciasDaConferencia, variaveisDaConferencia } from '../accounts/secrets';
@@ -63,6 +64,13 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
 // Recursos externos sem acesso continuam protegidos por três verificações.
 const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
+// Revisão visual custa tokens e pode modificar a composição em toda sessão.
+// Depois de duas revisões reprovadas, pedir decisão humana com as pendências
+// e preservar o HTML e os quadros existentes: nunca entrar em loop infinito.
+export const MAX_REVISOES_VISUAIS_AUTOMATICAS = 2;
+export function revisaoVisualEsgotada(stepKey: string, revisoesReprovadas: number): boolean {
+  return /^direcao-arte-/.test(stepKey) && revisoesReprovadas >= MAX_REVISOES_VISUAIS_AUTOMATICAS;
+}
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
@@ -194,8 +202,18 @@ export class StepExecutorService {
       }
     }
 
-    // Disponibilidade do conector.
+    // Vídeo gera quadros, intermediários e snapshots: numa partição com
+    // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
+    // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
+    if (providerId === 'local-shell' && /\bnivoo-(?:conferir-arte|renderizar-motion)\b/.test(step.instructions)) {
+      const espaco = armazenamentoDisponivel(['/', worktree, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
+      if (!espaco.ok) {
+        const gb = ((espaco.livre ?? 0) / (1024 ** 3)).toFixed(2);
+        return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
+          `Pouco espaço livre (${gb} GiB em ${espaco.pasta}). Para captura/render de vídeo, reserve pelo menos 4 GiB livres; nada foi excluído. Libere espaço e clique Continuar; composição e trabalho preservados.`);
+      }
+    }
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
       return this.awaitResource(task, workerId, job, step, `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`);
@@ -559,6 +577,21 @@ export class StepExecutorService {
         result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
       }
     }
+    // Uma revisão não pode ser aprovada com os PNG anteriores à última
+    // alteração no HTML. Mesmo se a IA marcar conforme=true, a composição
+    // alterada precisa ser recapturada pelo local-shell antes da aprovação.
+    if (verified && /^direcao-arte-/.test(step.key)) {
+      const capturas = await this.prisma.step.findMany({
+        where: { jobId: job.id },
+        select: { key: true, provider: true, instructions: true, status: true },
+      });
+      const desatualizadas = capturasParaRecuperar(worktree, step, capturas);
+      if (desatualizadas.length) {
+        verified = false;
+        result = { ...result, error: `Parecer anterior às alterações da composição: recaptura local necessária em ${desatualizadas.join(', ')}; não aprovar os PNGs antigos` };
+        await L(`Revisão não aprovada com quadros antigos; capturas vencidas: ${desatualizadas.join(', ')}`, 'WARN', attempt.id);
+      }
+    }
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
     // Artefatos: saída da tentativa + arquivos novos em out/.
@@ -806,6 +839,18 @@ export class StepExecutorService {
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
+    // Caso real: a IA corrige um zoom, a recaptura retorna, a IA encontra um
+    // novo corte e corrige outra vez. Sem teto, o QA gasta indefinidamente.
+    // O parecer negativo NÃO deve ser aprovado à força; guardar a composição
+    // e apresentar ao usuário as falhas específicas restantes.
+    if (revisaoVisualEsgotada(step.key, sessions.length)) {
+      const causa = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
+      await this.logs.log(job.id,
+        `Revisão visual interrompida após ${sessions.length} pareceres sem aprovação; composição e capturas preservadas.`,
+        { stepId: step.id, level: 'WARN', source: 'worker' });
+      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        `Limite de ${MAX_REVISOES_VISUAIS_AUTOMATICAS} revisões visuais automáticas sem aprovação: não repetir IA/recapturas infinitamente. ${(causa ?? 'Abra o parecer visual e confira as pendências.').slice(0, 1200)}. O trabalho está salvo; após ajuste dirigido, use Continuar.`);
+    }
     const conferenciaAtual = sessions[0]?.error ?? '';
     const conferencias = sessions
       .map((a) => a.error)

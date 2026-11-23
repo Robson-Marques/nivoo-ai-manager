@@ -73,7 +73,7 @@ export function comPreflightVisual(raw: unknown, defaultProvider: string): unkno
     });
     result.push({
       key: check, title: 'Inspecionar fidelidade e acabamento antes da renderização',
-      provider: ai, dependsOn: [key],
+      provider: ai, dependsOn: [key], providerOptions: { maxTurns: 16 },
       instructions: [
         `LEIA ${evidence}/evidencias.json, ABRA ${evidence}/quadro.png e ABRA TODOS os quadros listados em evidencias.json.quadros.`,
         'Não basta aprovar uma imagem estática: avalie a animação em instantes diferentes. Compare entrada, desenvolvimento, produtos, texto de preço e encerramento.',
@@ -85,11 +85,11 @@ export function comPreflightVisual(raw: unknown, defaultProvider: string): unkno
         'Quando a referência tiver relevo, compare profundidade 2.5D: separação de planos, perspectiva sutil, sombras de contato, luz consistente, brilho de bordas e oclusão. Cartões chapados com sombras iguais não reproduzem o efeito.',
         'Sem referência com volume, não imponha 3D. Preserve o logotipo original, fotografias e legibilidade, e verifique um quadro do movimento além do quadro estático.',
         'Em peça sem referência, confira consistência com o estilo do briefing, sem adicionar neon/efeitos apenas por ser premium.',
-        'Se observar diferenças, corrija APENAS os elementos necessários no HTML/CSS/JS e CAPTURE DE NOVO o quadro usando o mesmo comando nivoo-conferir-arte da etapa anterior.',
+        'Se observar diferenças, corrija APENAS o HTML/CSS/JS necessário e salve parecer.json com conforme=false e pendencias reais. NÃO tente recapturar imagens: seu agente não tem Bash/terminal. O motor Nivoo detecta o arquivo alterado e executa a recaptura local automaticamente antes da próxima revisão.',
         'Não redimensione ou recolora imagens originais indevidamente. Não refaça a sequência de animação já aprovada.',
         `Salve ${evidence}/parecer.json contendo {"conforme":true|false,"movimentoConforme":true|false,"quadrosInspecionados":["out/qualidade/.../quadro-01.png","..."],"referencia":"caminho ou sem referencia","comparacoes":[{"aspecto":"...","observacao":"...","acao":"..."}],"correcoes":[],"pendencias":[]}.`,
         'quadrosInspecionados deve conter os caminhos EXATOS de TODOS os quadros listados em evidencias.json.quadros (mínimo quatro); movimentoConforme só pode ser true depois de conferir cada um.',
-        'Só marque conforme=true se a imagem final foi realmente aberta e verificada; se faltar ferramenta de inspeção, registre impedimento concreto, não invente aprovação.',
+        'Só marque conforme=true se TODOS os quadros atuais foram realmente abertos e os defeitos estavam corrigidos; não invente aprovação. Se depois de corrigir ainda não houver imagens recapturadas, salve conforme=false: a recaptura é responsabilidade do backend, não da sua sessão.',
         'A checagem é ANTES de renderizar MP4, para evitar repetição de vídeos caros.',
       ].join('\n'),
       verifyCommand: `python3 -c "import json,sys; d=json.load(open('${evidence}/parecer.json')); e=json.load(open('${evidence}/evidencias.json')); q=e.get('quadros',[]); vistos=d.get('quadrosInspecionados',[]); sys.exit(0 if d.get('conforme') is True and d.get('movimentoConforme') is True and isinstance(q,list) and len(q)>=4 and isinstance(vistos,list) and all(x['arquivo'] in vistos for x in q) and isinstance(d.get('comparacoes'),list) and len(d['comparacoes'])>=3 and not d.get('pendencias') else 1)"`,
