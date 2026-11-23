@@ -1,4 +1,4 @@
-import { armazenamentoDisponivel, MIN_FREE_DISK_BYTES } from '../../src/worker/worker-runner.service';
+import { armazenamentoDisponivel, MIN_FREE_DISK_BYTES, MIN_FREE_VIDEO_BYTES } from '../../src/common/disk-guard';
 import { MAX_REVISOES_VISUAIS_AUTOMATICAS, revisaoVisualEsgotada } from '../../src/worker/step-executor.service';
 
 describe('proteções contra disco cheio e revisões visuais infinitas', () => {
@@ -14,6 +14,7 @@ describe('proteções contra disco cheio e revisões visuais infinitas', () => {
 
   it('reserva 512 MiB antes de tarefas que produzem imagens e vídeos', () => {
     expect(MIN_FREE_DISK_BYTES).toBe(512 * 1024 * 1024);
+    expect(MIN_FREE_VIDEO_BYTES).toBe(4 * 1024 * 1024 * 1024);
   });
 
   it('limita a dois os ciclos automáticos de revisão visual reprovada', () => {
