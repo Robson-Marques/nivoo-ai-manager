@@ -2,19 +2,25 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { ExecutionRequest } from '../../src/providers/provider.interface';
+import { gravarSegredoDaConexao, segredoDaConexao } from '../../src/accounts/secrets';
 import { executarFerramentaNvidia, NVIDIA_API_BASE, NvidiaApiProvider } from '../../src/providers/nvidia-api.provider';
 
 describe('NVIDIA NIM API — integração no Nivoo', () => {
   let cwd: string;
   let chaveAnterior: string | undefined;
+  let arquivoAnterior: string | undefined;
   beforeEach(() => {
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-nvidia-'));
     chaveAnterior = process.env.NVIDIA_API_KEY;
+    arquivoAnterior = process.env.NIVOO_SECRETS_FILE;
+    process.env.NIVOO_SECRETS_FILE = path.join(cwd, 'segredos.json');
     delete process.env.NVIDIA_API_KEY;
   });
   afterEach(() => {
     if (chaveAnterior === undefined) delete process.env.NVIDIA_API_KEY;
     else process.env.NVIDIA_API_KEY = chaveAnterior;
+    if (arquivoAnterior === undefined) delete process.env.NIVOO_SECRETS_FILE;
+    else process.env.NIVOO_SECRETS_FILE = arquivoAnterior;
     jest.restoreAllMocks();
     fs.rmSync(cwd, { recursive: true, force: true });
   });
@@ -25,6 +31,14 @@ describe('NVIDIA NIM API — integração no Nivoo', () => {
     const status = await p.checkAvailability();
     expect(status).toMatchObject({ id: 'nvidia-api', installed: true, authenticated: false, available: false });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('chaves de duas conexões NVIDIA não se misturam', () => {
+    gravarSegredoDaConexao(null, 'NVIDIA_API_KEY', 'nvapi-primeira-conta');
+    gravarSegredoDaConexao('nvidia-api--abcdef12', 'NVIDIA_API_KEY', 'nvapi-segunda-conta');
+    expect(segredoDaConexao(null, 'NVIDIA_API_KEY')).toBe('nvapi-primeira-conta');
+    expect(segredoDaConexao('nvidia-api--abcdef12', 'NVIDIA_API_KEY')).toBe('nvapi-segunda-conta');
+    expect(segredoDaConexao('nvidia-api--12345678', 'NVIDIA_API_KEY')).toBeUndefined();
   });
 
   it('testa a chave com GET /models sem expor o segredo e filtra modelos que não são chat', async () => {
