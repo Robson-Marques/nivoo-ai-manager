@@ -27,8 +27,12 @@ function sourceFingerprint(sourcePath) {
   // Animadores normalmente usam motion/<cena>/index.html e assets de cenas
   // vizinhas. Para HTML fora da pasta motion, não varrer o projeto inteiro.
   let root = path.resolve(path.dirname(sourcePath));
-  for (let atual = root; path.dirname(atual) !== atual; atual = path.dirname(atual)) {
-    if (path.basename(atual) === 'motion') { root = atual; break; }
+  // Cenas declarativas têm assets locais à própria cena. Não recalcular
+  // centenas de hashes por vídeos não relacionados de outras pastas motion.
+  if (path.basename(sourcePath) !== 'scene.json') {
+    for (let atual = root; path.dirname(atual) !== atual; atual = path.dirname(atual)) {
+      if (path.basename(atual) === 'motion') { root = atual; break; }
+    }
   }
   const hasher = createHash('sha256');
   let arquivos = 0, bytes = 0;
