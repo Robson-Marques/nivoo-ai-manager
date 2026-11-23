@@ -1,4 +1,4 @@
-import { conferenciaTecnicaDeVideo } from '../../src/jobs/jobs.service';
+import { conferenciaTecnicaDeVideo } from '../../src/jobs/video-step-verification';
 
 describe('Conferência técnica de vídeo do Studio Workflow', () => {
   it('substitui true do renderizador por verificação de MP4 válido', () => {
