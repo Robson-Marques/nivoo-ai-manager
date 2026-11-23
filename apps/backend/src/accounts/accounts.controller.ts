@@ -73,11 +73,6 @@ export class AccountsController {
     return this.nvidia.imagem(id, body);
   }
 
-  @Post(':id/nvidia/video')
-  videoNvidia(@Param('id') id: string, @Body() body: unknown) {
-    return this.nvidia.video(id, body);
-  }
-
   @Post(':id/nvidia/video/iniciar')
   iniciarVideoNvidia(@Param('id') id: string, @Body() body: unknown) {
     return this.nvidia.iniciarVideo(id, body);
