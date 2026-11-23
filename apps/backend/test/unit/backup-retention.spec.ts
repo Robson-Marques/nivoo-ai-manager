@@ -91,7 +91,6 @@ describeNoLinux('retenção dos backups do servidor', () => {
       const r = spawnSync('bash', ['-c', script, 'teste', dir, helper], { encoding: 'utf8' });
       expect(r.status).toBe(0);
       expect(r.stdout).toMatch(/DEPOIS_PRECHECK\s+9/);
-      expect(r.stdout).toMatch(/DEPOIS_PRECHECK\\n9/);
       expect(fs.readdirSync(dir).sort()).toEqual(antes.filter(x => !x.includes('20261120-100000')));
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
