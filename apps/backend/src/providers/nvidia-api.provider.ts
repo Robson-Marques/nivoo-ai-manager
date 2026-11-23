@@ -85,7 +85,8 @@ export function executarFerramentaNvidia(cwd: string, name: string, args: Record
     if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('Arquivo não é texto ou é muito grande (limite 80 KB)');
     const buffer = fs.readFileSync(caminho);
     if (buffer.includes(0)) throw new Error('Arquivo binário; somente texto é permitido');
-    return JSON.stringify({ caminho: args.caminho, conteudo: buffer.toString('utf8') }).slice(0, MAX_TOOL_OUTPUT);
+    const conteudo = buffer.toString('utf8');
+    return JSON.stringify({ caminho: args.caminho, conteudo: conteudo.slice(0, MAX_TOOL_OUTPUT - 1500), truncado: conteudo.length > MAX_TOOL_OUTPUT - 1500 });
   }
   if (name === 'escrever_arquivo' || name === 'substituir_texto') {
     if (typeof args.caminho !== 'string' || args.caminho.trim() === '') throw new Error('Informe o arquivo relativo');
@@ -140,6 +141,7 @@ export class NvidiaApiProvider implements AiProvider {
     const temporizador = AbortSignal.timeout(Math.max(1000, timeoutMs));
     const resposta = await fetch(NVIDIA_API_BASE + endpoint, {
       method: data == null ? 'GET' : 'POST',
+      redirect: 'error',
       headers: { Authorization: 'Bearer ' + chave, ...(data == null ? {} : { 'Content-Type': 'application/json' }) },
       ...(data == null ? {} : { body: JSON.stringify(data) }),
       signal: signal ? AbortSignal.any([signal, temporizador]) : temporizador,
@@ -193,6 +195,7 @@ export class NvidiaApiProvider implements AiProvider {
     const turnos = Math.max(1, Math.min(MAX_TURNS, Number(req.options?.maxTurns) || DEFAULT_TURNS));
     const messages: ChatMessage[] = [
       { role: 'system', content: [
+        req.systemPrompt ?? '',
         'Você é um agente de engenharia trabalhando APENAS na pasta do projeto Nivoo.',
         'Use as ferramentas de arquivo para ler e modificar o projeto. Sem terminal, sem rede ou acesso a segredos.',
         'Leia antes de alterar. Preserve as mudanças existentes e registre de forma clara o que fez.',
