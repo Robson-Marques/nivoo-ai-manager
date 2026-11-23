@@ -145,7 +145,7 @@ export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCr
           </div>
           {agenteDeVideo && (
             <span className="muted small">
-              O Gemini não aparece aqui de propósito: a chave dele é usada só para <b>gerar</b> vídeo Omni e, se você escolher, música Lyria. A montagem usa Claude ou ChatGPT e a locução padrão usa Kokoro local, sem token.
+              O Gemini não aparece aqui de propósito: a chave dele é usada só para <b>gerar</b> vídeo Omni e, se você escolher, música Lyria. A montagem pode usar Claude, ChatGPT ou NVIDIA NIM e a locução padrão usa Kokoro local, sem token.
             </span>
           )}
           {contasMontagem.length > 0 && !contasMontagem.find((c) => c.id === ia)?.conectado && (
