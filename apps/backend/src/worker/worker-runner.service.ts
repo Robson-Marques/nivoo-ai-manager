@@ -1,7 +1,7 @@
 import { registrarErro } from '../diagnostico/erros';
 import { Injectable, Logger } from '@nestjs/common';
 import * as os from 'node:os';
-import * as fs from 'node:fs';
+import { armazenamentoDisponivel } from '../common/disk-guard';
 import { appConfig } from '../config';
 import { CompletionService } from '../jobs/completion.service';
 import { LogService } from '../jobs/log.service';
@@ -19,20 +19,6 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
  * Duas faixas em paralelo: trabalhos (etapas e avaliação, um de cada vez — o worktree do job não é
  * compartilhado) e conversa (respostas do chat), para o chat não ficar esperando um trabalho longo.
  */
-// Reserva mínima antes de criar artefatos PNG/MP4: evita quebrar o banco e
-// deixar tentativas órfãs por ENOSPC. O operador deve liberar espaço; o worker
-// não apaga arquivos nem faz limpeza destrutiva automaticamente.
-export const MIN_FREE_DISK_BYTES = 512 * 1024 * 1024;
-
-export function armazenamentoDisponivel(pastas: string[], minimo = MIN_FREE_DISK_BYTES): { ok: boolean; pasta?: string; livre?: number } {
-  for (const pasta of [...new Set(pastas)]) {
-    const stat = fs.statfsSync(pasta);
-    const livre = stat.bavail * stat.bsize;
-    if (livre < minimo) return { ok: false, pasta, livre };
-  }
-  return { ok: true };
-}
-
 const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
   { nome: 'trabalho', tipos: ['RUN_STEP', 'EVALUATE_JOB'] },
   { nome: 'conversa', tipos: ['PLAN_MESSAGE'] },
