@@ -28,7 +28,8 @@ function renderSource(command: string): string | null {
 function isComposer(step: RawStep): boolean {
   const title = String(step.title ?? '') + ' ' + String(step.key ?? '');
   const instr = String(step.instructions ?? '');
-  return /compos|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d/i.test(title) &&
+  return (/compos|compor|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d/i.test(title) ||
+      /\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr)) &&
     !/revis|auditor|confer|verific|valid|aprov/i.test(title) &&
     !/\bnivoo-renderizar-motion\b/.test(instr);
 }
@@ -84,9 +85,10 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       // recodificar o mesmo HTML. O planejador repara essa estrutura uma vez,
       // incluindo a edição da fonte antes do render. A pessoa não precisa
       // escrever comandos nem especificar tecnologias.
-      const wantsVisualFix = /corrig|consert|recort|defeit|falha visual|problema (?:na |de )?(?:imagem|pizza|foto|camada)/i.test(objective);
-      const visual3d = /3[\s-]*d|webgl/i.test(objective) &&
-        /pizzas?|fotos?|imagens?|produtos?|logos?|recort|camadas?/i.test(objective);
+      const revision = objective+' '+String(render.title??'')+' '+source;
+      const wantsVisualFix = /corrig|consert|recort|defeit|refaz|recri|nova vers[aã]o|falha visual|problema (?:na |de )?(?:imagem|pizza|foto|camada)/i.test(objective);
+      const visual3d = /3[\s-]*d|webgl/i.test(revision) &&
+        /pizzas?|fotos?|imagens?|produtos?|logos?|recort|camadas?/i.test(revision);
       if (wantsVisualFix && visual3d) throw new Error(
         'MOTION_CONTRATO: o usuário pediu corrigir o visual de um vídeo 3D. ' +
         'Só renderizar a composição antiga repetiria o defeito. ' +
