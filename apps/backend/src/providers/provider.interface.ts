@@ -56,6 +56,8 @@ export interface ExecutionResult {
   error?: string;
   /** Recurso indisponível (limite de uso, autenticação ausente, rede): reagendar. */
   resourceUnavailable?: boolean;
+  /** Tempo mínimo de espera indicado pelo provedor (ex.: Retry-After no HTTP 429). */
+  retryAfterMs?: number;
   interrupted?: boolean;
   costUsd?: number;
   /** true quando o provedor não informou o custo (timeout/interrupção) e ele foi estimado pelos tokens. */

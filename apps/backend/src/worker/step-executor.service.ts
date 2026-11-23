@@ -7,6 +7,7 @@ import { mcpDoProjeto } from '../mcp/mcp';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
+import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
@@ -23,6 +24,7 @@ import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
 import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
+import { conferenciaGrepAlternativasLegada } from '../jobs/verification-legacy-grep';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -209,7 +211,10 @@ export class StepExecutorService {
     }
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
-      return this.awaitResource(task, workerId, job, step, `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`);
+      const retryAfter = Number(status.limits?.retryAfterMs);
+      return this.awaitResource(task, workerId, job, step,
+        `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
     }
 
     // Etapa paga por uso (vídeo): o custo estimado não pode estourar o limite do trabalho nem o do projeto.
@@ -569,6 +574,24 @@ export class StepExecutorService {
         await L('Conferência: o projeto não tem package-lock.json, então "npm ci" não roda; refiz com "npm install" (sem travar no lockfile).', 'WARN', attempt.id);
         v = await conferir();
       }
+      // Planos antigos geravam grep -q 'digest\\|imageId\\|sha256' e reprovavam
+      // identificadores como pulledImageDigest só pela letra D maiúscula.
+      // Reexecuta apenas a checagem curta test -f && grep; nunca afrouxa
+      // testes de compilação, nem conclui uma etapa sem executar o comando.
+      if (v.exitCode !== 0 && !v.aborted) {
+        const compativel = conferenciaGrepAlternativasLegada(verifyCommandEfetivo);
+        if (compativel) {
+          const original = verifyCommandEfetivo;
+          verifyCommandEfetivo = compativel;
+          const alternativa = await conferir();
+          if (alternativa.exitCode === 0) {
+            v = alternativa;
+            await L('Conferência legada: marcadores alternativos encontrados ignorando apenas maiúsculas/minúsculas; o teste foi executado novamente e passou. Não substitui testes de comportamento.', 'WARN', attempt.id);
+          } else {
+            verifyCommandEfetivo = original;
+          }
+        }
+      }
       clearInterval(pulso);
       if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
       // 401/403 num registro de pacotes privado: falta um token (segredo) que a IA não pode fornecer.
@@ -731,7 +754,7 @@ export class StepExecutorService {
 
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
       this.registry.invalidate(providerId);
-      return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível');
+      return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs);
     }
 
     if (ambiente && attemptStatus !== 'SUCESSO') {
@@ -1209,7 +1232,7 @@ export class StepExecutorService {
     return 'AGUARDANDO_APROVACAO';
   }
 
-  private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string): Promise<StepOutcome> {
+  private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, retryAfterMs?: number): Promise<StepOutcome> {
     // IA reserva: acabou o crédito/limite da IA do projeto → continua sozinho com a próxima conectada.
     const providerId = step.provider ?? job.defaultProvider;
     const reserva = await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId).catch(() => null);
@@ -1223,17 +1246,23 @@ export class StepExecutorService {
       return 'CONTINUA';
     }
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
-    if (task.resourceWaits >= MAX_RESOURCE_RECHECKS_PER_STEP || waits >= MAX_RESOURCE_RECHECKS_PER_STEP) {
+    const rateLimit = isTransientRateLimit(detail);
+    // HTTP 429 pode significar cota diária esgotada: não é defeito permanente.
+    // Fica na fila com runAt persistido, sem insistir nas chamadas nem bloquear
+    // definitivamente o trabalho após três verificações.
+    if (!rateLimit && (task.resourceWaits >= MAX_RESOURCE_RECHECKS_PER_STEP || waits >= MAX_RESOURCE_RECHECKS_PER_STEP)) {
       return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
         `O recurso/conector continuou indisponível após ${Math.max(task.resourceWaits,waits)} verificações. Interrompido para evitar loop. Resolva a conexão ou ferramenta antes de iniciar outro trabalho: ${detail.slice(0,550)}`);
     }
-    const delay = RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
+    const delay = rateLimit
+      ? resourceRateLimitDelayMs(task.resourceWaits, retryAfterMs)
+      : RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
       await tx.step.update({ where: { id: step.id }, data: { status: 'AGUARDANDO_RECURSO', statusDetail: detail.slice(0, 1000) } });
       await tx.job.updateMany({ where: { id: job.id, status: 'EXECUTANDO' }, data: { status: 'AGUARDANDO_RECURSO', statusDetail: `etapa ${step.key}: ${detail}`.slice(0, 2000) } });
     });
-    await this.logs.log(job.id, `Aguardando recurso (${detail}). Nova verificação em ${Math.round(delay / 1000)}s. Esperas anteriores: ${waits}`, {
+    await this.logs.log(job.id, `${rateLimit ? 'Limite HTTP 429 do provedor (sem chamadas durante a espera)' : 'Aguardando recurso'} (${detail}). Nova tentativa em ${Math.round(delay / 60_000)} min. Esperas anteriores: ${waits}`, {
       stepId: step.id,
       level: 'WARN',
       source: 'worker',
