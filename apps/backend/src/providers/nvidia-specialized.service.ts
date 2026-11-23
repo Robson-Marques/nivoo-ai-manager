@@ -13,6 +13,7 @@ export const NVIDIA_SPECIAL_ENDPOINTS = {
   embeddings: 'https://integrate.api.nvidia.com/v1/embeddings',
   rerank: 'https://ai.api.nvidia.com/v1/retrieval/nvidia/nemotron-3.5-rerank-8b/reranking',
   imageFluxSchnell: 'https://ai.api.nvidia.com/v1/genai/black-forest-labs/flux.1-schnell',
+  videoCosmosNano: 'https://ai.api.nvidia.com/v1/cosmos/nvidia/cosmos3-nano',
 } as const;
 
 const EMBEDDINGS = new Set([
@@ -24,7 +25,7 @@ const RERANK = 'nvidia/nemotron-3.5-rerank-8b';
 const FLUX = 'black-forest-labs/flux.1-schnell';
 
 export interface NvidiaResultado {
-  tipo: 'conversa' | 'embedding' | 'rerank' | 'imagem';
+  tipo: 'conversa' | 'embedding' | 'rerank' | 'imagem' | 'video';
   modelo: string;
   [key: string]: unknown;
 }
@@ -63,7 +64,7 @@ export class NvidiaSpecializedService {
     return k;
   }
 
-  private async post(conexao: string, url: string, payload: unknown, timeoutMs = 40_000): Promise<any> {
+  private async post(conexao: string, url: string, payload: unknown, timeoutMs = 40_000, maxBytes = 9_000_000): Promise<any> {
     // O chamador NUNCA pode fornecer URL: as rotas são constantes oficiais.
     if (!(Object.values(NVIDIA_SPECIAL_ENDPOINTS) as string[]).includes(url)) throw new BadRequestException('Endpoint proibido');
     const chave = this.chave(conexao);
@@ -84,11 +85,14 @@ export class NvidiaSpecializedService {
       throw new BadRequestException('NVIDIA indisponível: ' + erroSemSegredo(String(e?.message ?? e), chave));
     }
     const bruto = await resposta.text();
-    if (bruto.length > 9_000_000) throw new BadRequestException('Resposta NVIDIA excedeu o tamanho permitido');
+    if (bruto.length > maxBytes) throw new BadRequestException('Resposta NVIDIA excedeu o tamanho permitido');
     let json: any;
     try { json = JSON.parse(bruto); } catch { throw new BadRequestException('Resposta não JSON da NVIDIA'); }
     if (!resposta.ok) {
       const erro = erroSemSegredo(String(json?.error?.message ?? json?.detail ?? json?.message ?? 'Erro sem descrição'), chave);
+      if (url === NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano && resposta.status === 404) {
+        throw new BadRequestException('NVIDIA Cosmos3 Nano HTTP 404: o endpoint pode exigir habilitar Public API Endpoints na sua organização NVIDIA. Confira o acesso no Build; não refaça a mesma geração automaticamente.');
+      }
       throw new BadRequestException('NVIDIA HTTP ' + resposta.status + ': ' + erro);
     }
     return json;
@@ -176,6 +180,40 @@ export class NvidiaSpecializedService {
     return { tipo: 'imagem', modelo: model, mime: 'image/jpeg', base64: img, largura, altura };
   }
 
+  /**
+   * Prévia text-to-video Cosmos3 Nano hospedada, com parâmetros documentados.
+   * A geração pode ser lenta. Não repetir após timeout: resultado remoto pode
+   * ter sido concluído mesmo sem resposta no Nivoo.
+   */
+  async video(conexao: string, input: any): Promise<NvidiaResultado> {
+    const model = modeloSeguro(input?.modelo ?? 'nvidia/cosmos3-nano');
+    if (model !== 'nvidia/cosmos3-nano') throw new BadRequestException('Somente Cosmos3 Nano tem API hospedada de vídeo nesta versão');
+    const prompt = texto(input?.prompt, 'prompt', 2000);
+    const proporcao = input?.proporcao === '9:16' ? '9:16' : '16:9';
+    const resolucao = proporcao === '9:16' ? '480_9_16' : '480_16_9';
+    const numFrames = numeroLimitado(input?.numFrames, 'numFrames', 25, 25, 49);
+    const fps = 24;
+    const r = await this.post(conexao, NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano, {
+      model_mode: 'text2video',
+      prompt,
+      resolution: resolucao,
+      num_frames: numFrames,
+      num_inference_steps: 35,
+      fps,
+      seed: numeroLimitado(input?.seed, 'seed', 42, 0, 4294967295),
+    }, 180_000, 64_000_000);
+    const media = r?.b64_video;
+    if (typeof media !== 'string' || media.length === 0 || media.length > 60_000_000 ||
+        !/^[A-Za-z0-9+/=\r\n]+$/.test(media)) {
+      const id = String(r?.request_id ?? r?.id ?? '').slice(0, 120);
+      if (id) throw new BadRequestException('NVIDIA aceitou uma geração assíncrona com ID ' + id +
+        ', mas não retornou vídeo imediato. Não reenviar automaticamente: consultar o status da solicitação no Build.');
+      throw new BadRequestException('A NVIDIA não retornou MP4 nessa chamada. Verifique disponibilidade e permissões do Cosmos3 Nano.');
+    }
+    return { tipo: 'video', modelo: model, mime: 'video/mp4', base64: media,
+      fps, numFrames, proporcao, duracaoSeg: Number((numFrames / fps).toFixed(2)) };
+  }
+
   /** O catálogo de capacidades é exclusivo das conexões NVIDIA. */
   capacidadesParaConexao(conexao: string) {
     if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Selecione uma conexão NVIDIA válida');
@@ -189,7 +227,8 @@ export class NvidiaSpecializedService {
       { tipo: 'embedding', modelos: [...EMBEDDINGS], estado: 'integrado', local: false },
       { tipo: 'rerank', modelos: [RERANK], estado: 'integrado', local: false },
       { tipo: 'imagem', modelos: [FLUX], estado: 'API implementada; acesso depende da chave', local: false },
-      { tipo: 'video', modelos: ['Wan 2.2 Animate', 'Cosmos3 Nano'], estado: 'requer endpoint/implantação específica', local: true },
+      { tipo: 'video', modelos: ['Cosmos3 Nano'], estado: 'API de vídeo integrada; pode exigir habilitação Public API Endpoints na conta', local: false },
+      { tipo: 'video-local', modelos: ['Wan 2.2 Animate', 'Video Super Resolution'], estado: 'necessita NIM local ou infraestrutura própria', local: true },
       { tipo: 'audio', modelos: ['Parakeet', 'Magpie', 'Whisper'], estado: 'requer endpoint/implantação específica', local: true },
       { tipo: 'outros', modelos: ['OCR', 'Kumo', 'ciência', 'segurança'], estado: 'requer endpoint/implantação específica', local: true },
     ];
