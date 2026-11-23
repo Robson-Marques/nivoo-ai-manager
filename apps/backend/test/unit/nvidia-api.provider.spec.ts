@@ -105,6 +105,23 @@ describe('NVIDIA NIM API — integração no Nivoo', () => {
     expect(logs.some((l) => l.includes('escrever_arquivo'))).toBe(true);
   });
 
+  it('não trata mensagem JSON PROGRESSO sem ferramenta como arquivo renderizado', async () => {
+    process.env.NVIDIA_API_KEY = 'nvapi-chave-de-teste-nunca-real';
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ tipo: 'PROGRESSO', conteudo: 'Vou executar o render agora.' }) }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 20, completion_tokens: 10 },
+    }), { status: 200 }));
+    const req: ExecutionRequest = {
+      jobId: 'job', stepId: 'step', attemptId: 'attempt', instructions: 'Renderizar composição 3D',
+      context: 'Teste', cwd, outputDir: path.join(cwd, 'out'), timeoutMs: 30_000,
+      signal: new AbortController().signal, onLog: () => undefined,
+      options: { model: 'nvidia/nemotron-3.5-bolt-e4b' },
+    };
+    const result = await new NvidiaApiProvider().execute(req);
+    expect(result).toMatchObject({ exitCode: 1, stopReason: 'no_action' });
+    expect(result.error).toContain('sem chamar ferramenta');
+  });
+
   it('não tenta Chat Completions com modelos de vídeo, imagem, embedding ou rerank', async () => {
     process.env.NVIDIA_API_KEY = 'nvapi-chave-de-teste-nunca-real';
     const spy = jest.spyOn(globalThis, 'fetch');
