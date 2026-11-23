@@ -91,7 +91,7 @@ describe('NVIDIA NIM API — integração no Nivoo', () => {
       jobId: 'job', stepId: 'step', attemptId: 'attempt', instructions: 'Crie out/relatorio.md',
       context: 'Projeto de teste', cwd, outputDir: path.join(cwd, 'out'),
       timeoutMs: 120_000, signal: new AbortController().signal,
-      onLog: (line) => logs.push(line), options: { model: 'nvidia/nemotron-3-nano' },
+      onLog: (line) => logs.push(line), options: { model: 'nvidia/nemotron-3.5-bolt-e4b' },
     };
     const r = await new NvidiaApiProvider().execute(req);
     expect(r).toMatchObject({ exitCode: 0, output: 'Relatório gerado.', inputTokens: 70, outputTokens: 30 });
@@ -103,6 +103,28 @@ describe('NVIDIA NIM API — integração no Nivoo', () => {
       expect.objectContaining({ role: 'tool', tool_call_id: 'call_1' }),
     ]));
     expect(logs.some((l) => l.includes('escrever_arquivo'))).toBe(true);
+  });
+
+  it('não tenta Chat Completions com modelos de vídeo, imagem, embedding ou rerank', async () => {
+    process.env.NVIDIA_API_KEY = 'nvapi-chave-de-teste-nunca-real';
+    const spy = jest.spyOn(globalThis, 'fetch');
+    for (const model of [
+      'nvidia/wan2.2-animate-2-14b',
+      'black-forest-labs/flux-3-image-klein',
+      'nvidia/nemotron-3.5-embed-1b',
+      'nvidia/nemotron-3.5-rerank-8b',
+    ]) {
+      const req: ExecutionRequest = {
+        jobId: 'job', stepId: 'step', attemptId: 'attempt', instructions: 'Escreva código',
+        context: 'Projeto', cwd, outputDir: path.join(cwd, 'out'),
+        timeoutMs: 30_000, signal: new AbortController().signal,
+        onLog: () => undefined, options: { model },
+      };
+      const r = await new NvidiaApiProvider().execute(req);
+      expect(r.exitCode).toBe(1);
+      expect(r.error).toContain('não está habilitado');
+    }
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('não envia chave em logs quando NVIDIA recusa autenticação', async () => {

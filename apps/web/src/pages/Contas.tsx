@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from '
 import { api } from '../api';
 import { FerramentasMcp } from './Mcp';
 import { ServidoresSsh } from './Ssh';
+import { NvidiaCatalogo } from './NvidiaCatalogo';
 
 /**
  * Conexões: as IAs que trabalham nos projetos (Claude, ChatGPT, Gemini e NVIDIA — pela conta ou por chave de API)
@@ -129,6 +130,7 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
   const [mostrarChave, setMostrarChave] = useState(abrirAgora && c.modo === 'api' && !c.conectado);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [catalogoNvidiaAberto, setCatalogoNvidiaAberto] = useState(false);
   const emAndamento = login && EM_ANDAMENTO.includes(login.state);
 
   const acao = useCallback(async (fn: () => Promise<any>) => {
@@ -249,6 +251,17 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
       {!c.conectado && !emAndamento && c.problema && c.instalado && !login && !/^não conectado/.test(c.problema) && <div className="conexao-painel muted small">{c.problema}</div>}
       {aviso && <div className="conexao-painel ok-msg">{aviso}</div>}
       {erro && <div className="conexao-painel error">{erro}</div>}
+      {c.tipo === 'nvidia-api' && (
+        <>
+          <div className="conexao-painel">
+            <button type="button" className="secondary" onClick={() => setCatalogoNvidiaAberto(v => !v)}>
+              {catalogoNvidiaAberto ? 'Fechar catálogo NVIDIA' : 'Explorar modelos NVIDIA por especialidade'}
+            </button>
+            <span className="muted small"> Programação, conversa, imagem, vídeo, voz, busca e dados, com acesso separado.</span>
+          </div>
+          {catalogoNvidiaAberto && <NvidiaCatalogo conexaoId={c.id} />}
+        </>
+      )}
     </Linha>
   );
 }
