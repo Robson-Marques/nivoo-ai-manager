@@ -127,7 +127,13 @@ export class FreeCloudApiProvider implements AiProvider {
       // OpenRouter /models é público e NÃO valida a chave; /key valida autenticação sem gerar tokens.
       await this.chamar(this.tipo === 'openrouter-free-api' ? '/key' : '/models', null, 12_000);
       status.authenticated = true;
-      status.available = true;
+      // "Conectado" exige ao menos um modelo de texto elegível, não só uma chave aceita.
+      const opcoes = await this.modelos();
+      if (!opcoes.length) {
+        status.errors.push('Nenhum modelo de texto elegível retornado para esta conexão');
+      } else {
+        status.available = true;
+      }
     } catch (e: any) {
       status.errors.push(String(e?.message ?? e).slice(0, 450));
     }
