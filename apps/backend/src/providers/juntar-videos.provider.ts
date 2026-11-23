@@ -195,6 +195,13 @@ export class JuntarVideosProvider implements AiProvider {
     const ff = (args: string[], timeoutMs = 600_000) => runProcess('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { cwd: tmp, env: minimalEnv(), timeoutMs, signal: req.signal });
     const probe = (arq: string, args: string[]) => runProcess('ffprobe', ['-v', 'error', ...args, arq], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 });
     try {
+      // Validar ENTRADAS DE ÁUDIO antes de copiar/processar vídeos. Se o
+      // plano errou o nome, a recuperação do catálogo ocorre aqui, sem
+      // desperdiçar uma nova renderização ou abrir sessão paga da IA.
+      const trilhaResolvida = o.trilha?.arquivo
+        ? await this.resolverEntrada(req, o.trilha.arquivo, 'trilha') : null;
+      const narracaoResolvida = o.narracao?.arquivo
+        ? await this.resolverEntrada(req, o.narracao.arquivo) : null;
       const entradas: string[] = [];
       for (const c of cenas) {
         const abs = await this.resolverEntrada(req, c);
@@ -299,7 +306,7 @@ export class JuntarVideosProvider implements AiProvider {
         // 1) MÚSICA de fundo: um áudio do projeto, ou gerada pelo Lyria (reaproveitada quando a descrição não muda).
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
-          musica = await this.resolverEntrada(req, o.trilha.arquivo, 'trilha');
+          musica = trilhaResolvida;
           trilhaInfo = `trilha ${o.trilha.arquivo}`;
         } else if (o.trilha?.descricao) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
@@ -326,7 +333,7 @@ export class JuntarVideosProvider implements AiProvider {
         let voz: string | null = null;
         let vozInfo = '';
         if (o.narracao?.arquivo) {
-          voz = await this.resolverEntrada(req, o.narracao.arquivo);
+          voz = narracaoResolvida;
           vozInfo = `narração ${o.narracao.arquivo}`;
         } else if (o.narracao?.texto?.trim() || o.narracao?.trechos?.length) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-narracao.mp3');
