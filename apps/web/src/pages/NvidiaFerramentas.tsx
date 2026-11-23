@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { api } from '../api';
 
-type Tipo = 'conversa' | 'embedding' | 'rerank' | 'imagem' | 'video';
+type Tipo = 'conversa' | 'traducao' | 'embedding' | 'rerank' | 'imagem' | 'video';
 const MODOS: Array<{ id: Tipo; titulo: string; descricao: string; modelo: string }> = [
   { id: 'conversa', titulo: 'Conversa e análise', descricao: 'Chat sem ferramentas de código', modelo: 'nvidia/nemotron-3.5-bolt-e4b' },
+  { id: 'traducao', titulo: 'Tradução Riva', descricao: 'Traduzir textos via Riva Translate 4B, sem ferramentas de código', modelo: 'nvidia/riva-translate-4b-instruct-v2' },
   { id: 'embedding', titulo: 'Pesquisa e RAG', descricao: 'Vetorização de texto por Nemotron Embed', modelo: 'nvidia/nemotron-3.5-embed-1b' },
   { id: 'rerank', titulo: 'Relevância de documentos', descricao: 'Reranking de até 30 trechos por Nemotron', modelo: 'nvidia/nemotron-3.5-rerank-8b' },
   { id: 'imagem', titulo: 'Imagens (acesso sujeito à conta)', descricao: 'FLUX.1 Schnell; endpoint existe, mas a NVIDIA pode exigir permissão/créditos', modelo: 'black-forest-labs/flux.1-schnell' },
@@ -36,14 +37,15 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     setErro(null);
     setResultado(null);
     if (t === 'imagem' || t === 'video') setPrompt('Uma pizzaria premium com iluminação cinematográfica e cores quentes, sem texto');
+    if (t === 'traducao') setPrompt('Traduza para inglês: Nossa pizzaria usa ingredientes de qualidade e massa sem óleo.');
   };
   const executar = async () => {
     setOcupado(true);
     setResultado(null);
     setErro(null);
     try {
-      const rota = '/accounts/' + encodeURIComponent(conexaoId) + '/nvidia/' + tipo;
-      const body = tipo === 'conversa' ? { modelo, prompt } :
+      const rota = '/accounts/' + encodeURIComponent(conexaoId) + '/nvidia/' + (tipo === 'traducao' ? 'conversa' : tipo);
+      const body = tipo === 'conversa' || tipo === 'traducao' ? { modelo, prompt } :
         tipo === 'embedding' ? { modelo, texto: prompt, inputType: 'query' } :
         tipo === 'rerank' ? { modelo, consulta, trechos: trechos.split('\n').map(t => t.trim()).filter(Boolean) } :
         tipo === 'video' ? { modelo, prompt, proporcao: '9:16', numFrames: 25 } :
@@ -100,7 +102,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
       </label>
       {tipo !== 'rerank' ? (
         <label>
-          {tipo === 'embedding' ? 'Texto para vetorização' : tipo === 'imagem' ? 'Descrição da imagem' : tipo === 'video' ? 'Descrição do vídeo' : 'Mensagem para a IA'}
+          {tipo === 'embedding' ? 'Texto para vetorização' : tipo === 'imagem' ? 'Descrição da imagem' : tipo === 'video' ? 'Descrição do vídeo' : tipo === 'traducao' ? 'Texto e direção da tradução' : 'Mensagem para a IA'}
           <textarea value={prompt} rows={3} onChange={e => setPrompt(e.target.value)} maxLength={15000} />
         </label>
       ) : (
