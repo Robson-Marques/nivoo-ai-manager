@@ -189,7 +189,7 @@ function adivinharEspecialidadePeloId(id: string): Pick<NvidiaCatalogItem, 'area
  */
 export function catalogarNvidiaModelos(idsDaApi: string[] = []): NvidiaCatalogItem[] {
   const ids = [...new Set(idsDaApi.filter((id) => typeof id === 'string' && /^[A-Za-z0-9._:/-]{1,150}$/.test(id)))];
-  const lista: NvidiaCatalogItem[] = CONHECIDOS.map(([nome, id, areas, uso, endpoint, oferta, ferramentas]) => {
+  const lista: NvidiaCatalogItem[] = CONHECIDOS.map(([nome, id, areas, uso, endpoint, oferta, ferramentas]): NvidiaCatalogItem => {
     const idReal = ids.find((v) => (id && igual(id, v)) || igual(nome, v));
     return { id: idReal ?? id, nome, areas, uso, endpoint, oferta,
       ferramentas: ferramentas === true, utilizavelNoWorkflow: endpoint === 'chat-completions' && ferramentas === true,
