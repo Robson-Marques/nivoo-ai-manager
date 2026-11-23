@@ -64,12 +64,12 @@ function offlineRenderer() {
   ];
   const encontrado = locais.find((p) => fs.existsSync(p));
   if (!encontrado) throw new Error('captura offline não instalada; execute nivoo update');
-  return require(encontrado).renderMotionOffline;
+  return require(encontrado);
 }
 
 (async () => {
   const { chromium } = playwrightCore();
-  const renderOffline = offlineRenderer();
+  const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
   let navegador;
   let ctx;
   try {
@@ -87,8 +87,7 @@ function offlineRenderer() {
     // carregar a página: entre avaliar e aplicar, o tempo pode avançar e
     // Playwright recusa a tentativa de voltar ao passado.
     const inicioVirtual = fs.statSync(entrada).mtimeMs;
-    await pagina.clock.install({ time: new Date(inicioVirtual) });
-    await pagina.clock.pauseAt(new Date(inicioVirtual + 10_000));
+    await prepareMotionClock(pagina, inicioVirtual);
     await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
     const segundos = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
