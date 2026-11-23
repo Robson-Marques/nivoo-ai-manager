@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 
 interface Conexao { id: string; tipo: string; conectado: boolean; nome: string }
-interface ImagemNvidia { tipo: 'imagem'; mime: string; base64: string }
+interface MidiaNvidia { tipo: 'imagem' | 'video'; mime: string; base64: string }
 
 /**
  * Geração de mídia NVIDIA diretamente dentro do Studio de Vídeo.
@@ -13,6 +13,8 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
   const [contas, setContas] = useState<Conexao[]>([]);
   const [aberto, setAberto] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [modalidade, setModalidade] = useState<'imagem' | 'video'>('imagem');
+  const [proporcao, setProporcao] = useState<'9:16' | '16:9'>('9:16');
   const [conexao, setConexao] = useState('');
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -33,19 +35,23 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
     setErro(null);
     setNotice(null);
     try {
-      if (!prompt.trim()) throw new Error('Descreva a imagem antes de gerar.');
-      const r = await api<ImagemNvidia>('/accounts/' + encodeURIComponent(conexao) + '/nvidia/imagem', 'POST', {
-        modelo: 'black-forest-labs/flux.1-schnell', prompt: prompt.trim(), largura: 1024, altura: 1024,
-      });
-      if (r.tipo !== 'imagem' || typeof r.base64 !== 'string' || r.mime !== 'image/jpeg' || r.base64.length > 8_000_000) {
-        throw new Error('A NVIDIA não retornou uma imagem JPEG válida.');
+      if (!prompt.trim()) throw new Error('Descreva a mídia antes de gerar.');
+      const isVideo = modalidade === 'video';
+      const body = isVideo
+        ? { modelo: 'nvidia/cosmos3-nano', prompt: prompt.trim(), proporcao, numFrames: 25 }
+        : { modelo: 'black-forest-labs/flux.1-schnell', prompt: prompt.trim(), largura: 1024, altura: 1024 };
+      const r = await api<MidiaNvidia>('/accounts/' + encodeURIComponent(conexao) + '/nvidia/' + modalidade, 'POST', body);
+      const mime = isVideo ? 'video/mp4' : 'image/jpeg';
+      const limite = isVideo ? 60_000_000 : 8_000_000;
+      if (r.tipo !== modalidade || typeof r.base64 !== 'string' || r.mime !== mime || r.base64.length > limite) {
+        throw new Error('A NVIDIA não retornou a mídia no formato esperado.');
       }
       const binario = atob(r.base64.replace(/\s/g, ''));
       const bytes = new Uint8Array(binario.length);
       for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
-      const nome = 'nvidia-flux-' + Date.now() + '.jpg';
-      await onImport(new File([bytes], nome, { type: 'image/jpeg' }));
-      setNotice('Imagem adicionada à biblioteca de mídia deste projeto.');
+      const nome = (isVideo ? 'nvidia-cosmos-' : 'nvidia-flux-') + Date.now() + (isVideo ? '.mp4' : '.jpg');
+      await onImport(new File([bytes], nome, { type: mime }));
+      setNotice((isVideo ? 'Vídeo' : 'Imagem') + ' adicionado à biblioteca de mídia deste projeto.');
       setPrompt('');
     } catch (e: any) {
       setErro(String(e?.message ?? e));
@@ -57,12 +63,12 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
   return (
     <div className="studio-nvidia-imagem" style={{ marginTop: 8 }}>
       <button type="button" className="secondary" onClick={() => setAberto(v => !v)}>
-        {aberto ? 'Fechar NVIDIA' : 'Gerar imagem com NVIDIA'}
+        {aberto ? 'Fechar NVIDIA' : 'Gerar imagem/vídeo NVIDIA'}
       </button>
       {aberto && <div className="studio-fields" style={{ padding: 10, maxWidth: 440 }}>
         <p className="muted small">
-          FLUX.1 Schnell via API NVIDIA: o acesso pode exigir permissão/créditos.
-          A imagem gerada é importada diretamente na biblioteca do Studio de Vídeo.
+          FLUX.1 Schnell gera imagens; Cosmos3 Nano gera clipes curtos. O acesso depende da sua conta NVIDIA.
+          A mídia aprovada é importada diretamente à biblioteca do projeto.
         </p>
         <label>
           Conexão NVIDIA
@@ -71,15 +77,31 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
           </select>
         </label>
         <label>
-          Descrição da imagem
+          Tipo de geração
+          <select value={modalidade} onChange={e => setModalidade(e.target.value as 'imagem' | 'video')}>
+            <option value="imagem">Imagem — FLUX.1 Schnell</option>
+            <option value="video">Vídeo — Cosmos3 Nano (prévia de 1 segundo)</option>
+          </select>
+        </label>
+        {modalidade === 'video' && <label>Formato
+          <select value={proporcao} onChange={e => setProporcao(e.target.value as '9:16' | '16:9')}>
+            <option value="9:16">Vertical 9:16</option>
+            <option value="16:9">Horizontal 16:9</option>
+          </select>
+        </label>}
+        <label>
+          Descrição da mídia
           <textarea
-            aria-label="Descrição para geração de imagem NVIDIA"
+            aria-label="Descrição para geração de mídia NVIDIA"
             rows={3} value={prompt} maxLength={2000} onChange={e => setPrompt(e.target.value)}
             placeholder="Ex.: pizza em primeiro plano com fumaça e iluminação cinematográfica"
           />
         </label>
         <button type="button" disabled={ocupado || !prompt.trim()} onClick={() => { void gerar(); }}>
           {ocupado ? 'Gerando/importando…' : 'Gerar e colocar na biblioteca'}
+        </button>
+        {modalidade === 'video' && <p className="muted small">A geração pode demorar. Se ocorrer timeout, NÃO repita sem verificar o histórico da NVIDIA. Algumas contas recebem HTTP 404 por falta de permissão Public API Endpoints.</p>}
+        <button type="button" style={{ display: 'none' }} aria-hidden="true" tabIndex={-1}
         </button>
         {notice && <p className="ok-msg">{notice}</p>}
         {erro && <p className="error">{erro}</p>}
