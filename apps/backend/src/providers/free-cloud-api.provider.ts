@@ -39,7 +39,7 @@ export function modeloGroqDeTexto(id: string): boolean {
   return /^[A-Za-z0-9._/-]{1,150}$/.test(id) && !pareceModeloNaoTextual(id);
 }
 
-type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown; active?: boolean };
+type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown; active?: boolean; pricing?: { prompt?: unknown; completion?: unknown } };
 type Resposta = {
   choices?: Array<{ message?: { content?: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }; finish_reason?: string }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -100,6 +100,7 @@ export class FreeCloudApiProvider implements AiProvider {
       .filter(m => typeof m.id === 'string' && m.active !== false)
       .filter(m => this.tipo === 'openrouter-free-api'
         ? modeloOpenRouterGratuito(m.id as string) && !pareceModeloNaoTextual(m.id as string) &&
+          (m.pricing == null || (Number(m.pricing.prompt ?? 0) === 0 && Number(m.pricing.completion ?? 0) === 0)) &&
           (!Array.isArray(m.supported_parameters) || m.supported_parameters.includes('tools'))
         : modeloGroqDeTexto(m.id as string))
       .map(m => ({
