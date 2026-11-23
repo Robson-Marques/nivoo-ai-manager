@@ -435,12 +435,12 @@ export class PlannerService {
     const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: { include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } }, attempts: { orderBy: { number: 'desc' }, take: 6 } } });
     if (!job) return '';
     // Trabalho que PAROU (bloqueado/falhou): a IA recebe o erro para DIAGNOSTICAR e PROPOR UM PLANO que conserta.
-    if (job.status === 'BLOQUEADO' || job.status === 'FALHOU') {
+    if (job.status === 'BLOQUEADO' || job.status === 'FALHOU' || job.status === 'AGUARDANDO_RECURSO') {
       const logs = await this.prisma.logEntry.findMany({ where: { jobId }, orderBy: { id: 'desc' }, take: 18 });
-      const etapaRuim = job.steps.find((s) => s.status === 'BLOQUEADO' || s.status === 'FALHOU') ?? job.steps[job.steps.length - 1];
+      const etapaRuim = job.steps.find((s) => ['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) ?? job.steps[job.steps.length - 1];
       const tentativasDaEtapa = job.attempts.filter((a) => a.stepId === etapaRuim?.id).slice(0, 3);
       return [
-        `O TRABALHO PAROU COM ERRO (não concluiu): "${job.title}" — status ${job.status}${job.blockedReason ? ` (${job.blockedReason})` : ''}.`,
+        `${job.status === 'AGUARDANDO_RECURSO' ? 'O TRABALHO AGUARDA UM RECURSO/ARQUIVO (não foi concluído)' : 'O TRABALHO PAROU COM ERRO (não concluiu)'}: "${job.title}" — status ${job.status}${job.blockedReason ? ` (${job.blockedReason})` : ''}.`,
         `Objetivo do trabalho: ${job.objectives[0]?.text ?? ''}`,
         `Motivo da parada: ${(job.statusDetail ?? '').replace(/\s+/g, ' ').slice(0, 800) || '(sem detalhe)'}`,
         `Etapa com problema: "${etapaRuim?.title || etapaRuim?.key}" (executor ${etapaRuim?.provider ?? job.defaultProvider}).`,
@@ -448,14 +448,15 @@ export class PlannerService {
         ...job.criteria.filter((c) => c.status !== 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}) ${c.status}: ${c.description.slice(0, 150)}${c.checks[0] ? ` — evidência: ${JSON.stringify(c.checks[0].evidence).slice(0, 300)}` : ''}`),
         `Últimas linhas do log:\n${logs.reverse().map((l) => `${l.level} ${l.source}: ${l.message.replace(/\s+/g, ' ').slice(0, 220)}`).join('\n')}`,
         '',
-        'SUA TAREFA AGORA (auto-correção): explique ao usuário, em uma frase simples, o que deu errado; e PROPONHA UM PLANO que',
-        'conserta a causa (um rascunho de trabalho novo, como qualquer plano), ajustando o que falhou.',
-        'ATENÇÃO: não marque "continuacao": true após falha/bloqueio e não inicie nova execução automática.',
-        'Apresente o diagnóstico e aguarde o usuário clicar Fazer antes de gastar tokens novamente.',
-        'Se o erro for de algo que só o usuário resolve (falta um arquivo, uma conexão, uma decisão), NÃO',
-        'proponha plano: diga o que você precisa dele.',
-        'Se este MESMO erro já apareceu numa tentativa de correção anterior (veja a conversa), NÃO repita o mesmo plano: tente',
-        'uma abordagem diferente ou, se não houver, peça ajuda ao usuário.',
+        'SUA TAREFA AGORA (retomada): explique a causa, mas NÃO proponha criar outro trabalho só para corrigir uma etapa bloqueada.',
+        'O mesmo job guarda checkpoints e etapas concluídas. Use o botão Continuar do trabalho existente DEPOIS de corrigir a causa.',
+        'Em montagem bloqueada por TRILHA_NAO_LOCALIZADA, o Nivoo já procura o nome original nos uploads e artefatos do projeto.',
+        'Se não encontrou: informe qual áudio original falta, quais candidatos constam do diagnóstico e que o usuário precisa',
+        'enviar ou identificar a trilha correta; NÃO invente um novo nome de MP3 e NÃO gere outra composição 3D.',
+        'Em erro técnico de script, o worker cria reparos na própria execução antes da terceira repetição idêntica.',
+        'Se atingiu a terceira repetição do mesmo erro, explique o impedimento específico, sem mandar fazer três tentativas idênticas.',
+        'Não marque "continuacao": true e não inicie outra execução automática após um bloqueio real sem recurso/correção.',
+        'Só proponha trabalho NOVO quando houver objetivo realmente novo; não repita composição, vídeo, testes e custos já concluídos.',
       ].join('\n');
     }
     const arquivos = job.mergedCommit ? await this.workspace.arquivosDoCommit(dirKey, job.mergedCommit) : [];
@@ -564,6 +565,10 @@ export class PlannerService {
       'O executor OFICIAL juntar-videos localiza automaticamente por nome exato no catálogo do projeto.',
       'Não diga que o arquivo precisa ser importado para midia/ nem que o executor o rejeita por estar em resultados.',
       'Não confunda arquivos listados com seleção aprovada: escolha apenas os identificados claramente no pedido/histórico.',
+      'PROIBIDO INVENTAR NOMES DE ARQUIVO DE TRILHA OU NARRAÇÃO: em juntar-videos, trilha.arquivo e narracao.arquivo devem copiar o NOME OU CAMINHO REAL de mídia do projeto ou de artefato listado acima.',
+      'Se uma música instrumental foi pedida mas NÃO há MP3/WAV real compatível na mídia/catálogo, NÃO crie o nome hipotético black-na-sua-quinta-trilha-instrumental.mp3 nem qualquer outro.',
+      'Detecte a falta ANTES de propor um plano de composição/renderização caro. Informe que a trilha original não existe e peça o arquivo OU uma escolha explícita de gerar música (Lyria pode cobrar).',
+      'Quando uma trilha existe mas seu nome difere do pedido, use exatamente o nome registrado na lista, ou o ID de artefato inequívoco. Não substitua por outro áudio de campanha.'
       'Se houver um único vídeo e áudios inequívocos já aprovados, proponha diretamente um plano de juntar-videos.',
       'Somente peça esclarecimento se o arquivo estiver AUSENTE do catálogo e da mídia, ou se houver versões ambíguas.',
       `Locução deste projeto: motor ${project.motorNarracao === 'gemini' ? 'Gemini TTS paga (usa token)' : 'Kokoro local (grátis, sem token)'}, voz ${descreverVoz(project.vozNarracao)}, velocidade ${project.velocidadeNarracao}. Pronúncias: ${JSON.stringify(project.pronunciasNarracao ?? {})}. Quando houver narração por texto, copie estas escolhas para narracao.motor, narracao.voz, narracao.velocidade e narracao.pronuncias.`,

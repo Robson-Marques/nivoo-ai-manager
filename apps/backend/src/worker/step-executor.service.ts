@@ -1,5 +1,5 @@
 import { registrarErro } from '../diagnostico/erros';
-import { diagnosticoRenderDeterministico } from './deterministic-media-errors';
+import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { ferramentasDaIa } from '../providers/ferramentas';
@@ -717,14 +717,25 @@ export class StepExecutorService {
       return 'CONCLUIDO';
     }
 
-    // A montagem pelo executor oficial é determinística: repetir o mesmo plano,
-    // com os mesmos arquivos e argumentos, não corrige mídia inválida nem erro FFmpeg.
-    // Bloquear na primeira falha com mensagem real, sem gastar outras tentativas.
+    // Se a trilha de fato não existe (ou há opções ambíguas), não repetir
+    // ffmpeg três vezes nem bloquear como "verificação impossível".
+    // O trabalho AGUARDA a mídia, com MP4 e checkpoints intactos.
+    if (!isAi && providerId === 'juntar-videos' &&
+        /TRILHA_NAO_LOCALIZADA:|TRILHA_AMBIGUA:/.test(result.error ?? '')) {
+      return this.aguardarTrilha(task, workerId, job, step, worktree, number,
+        (result.error ?? '').slice(0, 2400));
+    }
+
+    // A montagem pode falhar por REFERÊNCIA ERRADA de áudio, sem que o
+    // vídeo esteja inválido. O executor agora tenta recuperar a trilha no
+    // catálogo do próprio projeto (sem escolher material ambíguo). Só então
+    // a falha entra na regra COMUM de três ocorrências do MESMO erro.
+    // Não abrir um trabalho novo nem repetir as etapas 3D já concluídas.
     if (!isAi && providerId === 'juntar-videos') {
       const detalhe = (result.error || result.output || 'O executor de vídeo não informou a causa').trim();
-      await this.checkpoint(job.id, step, worktree, `montagem falhou na etapa ${step.key}`, { tentativa: number });
-      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
-        `Montagem interrompida na primeira falha; arquivos originais preservados. ${detalhe.slice(0, 2500)}`);
+      await L('Montagem pendente; vídeo e checkpoints preservados. ' +
+        'A recuperação automática da trilha foi tentada antes da montagem. ' +
+        detalhe.slice(0, 1500), 'WARN', attempt.id);
     }
 
     // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
@@ -734,14 +745,10 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `Comando local inválido ou não instalado; não vou repetir sem alteração: ${mensagem.slice(0, 2200)}`);
     }
-    // Falhas determinísticas de scripts/montagem não se corrigem por repetição.
-    if (!isAi && providerId === 'local-shell') {
-      const explicacao = diagnosticoRenderDeterministico((result.output ?? '') + '\n' + (result.error ?? ''));
-      if (explicacao) {
-        await this.checkpoint(job.id, step, worktree, `erro determinístico na etapa ${step.key}`, { tentativa: number });
-        return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA, explicacao);
-      }
-    }
+    // Erro corrigível de script no executor local: ANTES este trecho
+    // bloqueava todo o trabalho na primeira falha. O teste é determinístico,
+    // mas o CÓDIGO executado pode ser corrigido por uma nova etapa de IA.
+    const diagnosticoScript = (result.output ?? '') + '\n' + (result.error ?? '');
 
     // Falha nova: a IA continua. A mesma falha (inclusive intercalada por
     // outras) na terceira ocorrência impede outra sessão improdutiva.
@@ -766,6 +773,16 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
         `o mesmo erro ocorreu ${repeticoes} vezes nesta etapa; interrompido para não repetir indefinidamente: ${erroAtual.slice(-700)}`);
     }
+    // Corrigir código automaticamente SEM abrir outro trabalho. A etapa de
+    // reparo é filha das dependências já aprovadas, e a etapa local original
+    // só volta a rodar DEPOIS de o reparo terminar. Erros NOVOS seguem
+    // recebendo reparos; o MESMO erro é interrompido na terceira ocorrência.
+    const codigoCorrigivel = !isAi && providerId === 'local-shell' &&
+      falhaLocalCorrigivel(diagnosticoScript);
+    if (codigoCorrigivel) {
+      return this.agendarReparoDeScript(task, workerId, job, step, worktree, number, erroAtual);
+    }
+
     await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `falha na tentativa ${number}; nova tentativa agendada` } });
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
     await this.queue.requeue(task.id, workerId, new Date(Date.now() + backoff), result.error);
@@ -1008,6 +1025,91 @@ export class StepExecutorService {
     await this.recordLesson(job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'BLOQUEADO';
+  }
+
+  /** Nenhum áudio real corresponde ao nome usado no plano. Aguardar
+   * entrada do usuário em vez de repetir testes ou criar novo trabalho. */
+  private async aguardarTrilha(
+    task: ClaimedTask, workerId: string, job: Job, step: Step,
+    worktree: string, number: number, detalhe: string,
+  ): Promise<StepOutcome> {
+    await this.checkpoint(job.id, step, worktree, `aguardando trilha na etapa ${step.key}`, {
+      tentativa: number, motivo: detalhe.slice(0, 1000),
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, job.id);
+      await tx.step.update({ where: { id: step.id }, data: {
+        status: 'AGUARDANDO_RECURSO', statusDetail: detalhe,
+      } });
+      await tx.job.updateMany({ where: { id: job.id, status: 'EXECUTANDO' }, data: {
+        status: 'AGUARDANDO_RECURSO', statusDetail: `etapa ${step.key}: ${detalhe}`.slice(0, 2000),
+      } });
+    });
+    await this.logs.log(job.id,
+      'Montagem aguardando o áudio correto, sem repetição automática e sem descartar o MP4 já renderizado: ' +
+      detalhe.slice(0, 1600) + ' Após disponibilizar a mídia, use Continuar neste MESMO trabalho.',
+      { stepId: step.id, level: 'WARN', source: 'worker' });
+    await this.queue.complete(task.id, workerId);
+    return 'AGUARDANDO_RECURSO';
+  }
+
+  /**
+   * Erro corrigível do local-shell (script/código): abrir uma única etapa
+   * corretiva na MESMA execução. Nenhum trabalho novo é criado e as etapas
+   * CONCLUIDAS (incluindo render 3D) permanecem intactas. O teste local é
+   * executado novamente só depois de editar o código.
+   */
+  private async agendarReparoDeScript(
+    task: ClaimedTask, workerId: string, job: Job & { project: { provider: string } },
+    step: Step, worktree: string, number: number, diagnostico: string,
+  ): Promise<StepOutcome> {
+    const agente = job.project.provider;
+    if (!this.registry.has(agente) || this.registry.get(agente).kind === 'executor') {
+      await this.checkpoint(job.id, step, worktree, `script falhou na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+        'O script precisa de reparo, mas este projeto não possui uma IA de código configurada. ' +
+        diagnostico.slice(0, 850));
+    }
+    const chave = `reparo-${step.key.slice(0, 31)}-${number}`;
+    const relatorio = `out/reparos/${chave}.md`;
+    const instrucoes = [
+      'REPARO AUTOMÁTICO DA ETAPA DO MESMO TRABALHO (NÃO CRIAR PROJETO OU PLANO NOVO).',
+      `A etapa determinística "${step.key}" apresentou o erro abaixo.`,
+      `Comando real: ${step.instructions.slice(0, 4500)}`,
+      `Erro verificado pelo sistema: ${diagnostico.slice(0, 2600)}`,
+      'Leia os arquivos envolvidos e CORRIJA no worktree a causa técnica.',
+      'Pode usar Read, Edit e Write. O executor do Nivoo rodará o comando automaticamente depois.',
+      'Não finja que executou o comando se não tem terminal. Não apague vídeos, áudio, backups ou resultados anteriores.',
+      'Se não houver arquivo ou recurso real para corrigir (por exemplo, música que nunca foi enviada),',
+      'registre o impedimento no relatório; NÃO invente mídia nem substitua recursos aprovados.',
+      `Grave um relatório breve em ${relatorio} com os arquivos alterados, a causa corrigida e as limitações restantes.`,
+    ].join('\n');
+    await this.checkpoint(job.id, step, worktree, `erro de script: agendando reparo ${chave}`, {
+      tentativa: number, diagnostico: diagnostico.slice(0, 1000),
+    });
+    await this.prisma.$transaction(async (tx) => {
+      await OrchestratorService.lockJob(tx, job.id);
+      await tx.step.create({
+        data: {
+          jobId: job.id, key: chave, order: step.order,
+          title: `Corrigir o erro da etapa ${step.title}`.slice(0, 300),
+          instructions: instrucoes, provider: agente,
+          dependsOn: [...step.dependsOn], verifyCommand: `test -s '${relatorio}'`,
+          providerOptions: {}, requiresApproval: false,
+        },
+      });
+      await tx.step.update({
+        where: { id: step.id },
+        data: { status: 'PENDENTE', statusDetail: `reparo automático ${chave} antes de reexecutar`,
+          dependsOn: [...new Set([...step.dependsOn, chave])] },
+      });
+    });
+    await this.logs.log(job.id,
+      `Script da etapa "${step.key}" falhou; reparo ${chave} com ${agente} agendado no MESMO trabalho, preservando etapas concluídas. Não executar o mesmo teste antes do reparo.`,
+      { stepId: step.id, level: 'WARN', source: 'worker' });
+    await this.queue.complete(task.id, workerId);
+    await this.orchestrator.scheduleReady(job.id);
+    return 'CONTINUA';
   }
 
   private async failStep(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, reason: string = BlockedReason.LIMITE_TENTATIVAS): Promise<StepOutcome> {
