@@ -133,7 +133,6 @@ function sceneDocument(scene, binaries) {
 }
 /** O mesmo código JavaScript funciona em navegador e em Node para testes. */
 function sceneRuntime({scene,binaries}) {
-  'use strict';
   const canvas=document.getElementById('nivoo'), ctx=canvas.getContext('2d',{alpha:false});
   if (!ctx) throw new Error('Canvas 2D indisponível');
   const images={}, end=scene.duration;
