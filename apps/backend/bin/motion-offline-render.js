@@ -139,7 +139,7 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
     if (already[frame]) continue;
     // Overlay RGBA deve mostrar precisamente o mesmo tempo do WebGL de fundo,
     // mesmo que os assets da camada levem tempo adicional para carregar.
-    if (hasMediaOverlay) await page.evaluate(t => window.__nivooOverlayRenderAt(t), frame / fps);
+    if (hasMediaOverlay) await page.evaluate(t => window.__nivooOverlayRenderAt(t), motionTime);
     const jpg = await page.screenshot({ type: 'jpeg', quality: 90, animations: 'allow', caret: 'hide', timeout: 120000 });
     if (!Buffer.isBuffer(jpg) || jpg.length < 100 || jpg[0] !== 0xff || jpg[1] !== 0xd8 || jpg.at(-2) !== 0xff || jpg.at(-1) !== 0xd9) {
       throw new Error(`Quadro ${frame} JPEG inválido`);
