@@ -3,6 +3,7 @@ import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.prov
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider } from './gemini-api.provider';
 import { NvidiaApiProvider } from './nvidia-api.provider';
+import { NvidiaSpecializedService } from './nvidia-specialized.service';
 import { ArquivosProjetoProvider } from './arquivos-projeto.provider';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { JuntarVideosProvider } from './juntar-videos.provider';
@@ -14,7 +15,7 @@ import { KokoroTtsService } from './kokoro-tts.service';
 
 @Global()
 @Module({
-  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, NvidiaApiProvider, GeminiVideoProvider, KokoroTtsService, JuntarVideosProvider, GerarNarracaoProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
-  exports: [ProviderRegistry, ModelCatalogService, GeminiVideoProvider, KokoroTtsService],
+  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, NvidiaApiProvider, NvidiaSpecializedService, GeminiVideoProvider, KokoroTtsService, JuntarVideosProvider, GerarNarracaoProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
+  exports: [ProviderRegistry, ModelCatalogService, NvidiaSpecializedService, GeminiVideoProvider, KokoroTtsService],
 })
 export class ProvidersModule {}
