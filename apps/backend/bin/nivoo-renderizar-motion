@@ -37,9 +37,14 @@ if (!alvoBruto) {
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
 const resolver = (rel) => (/^midia\//.test(rel) && midiaDir ? path.join(midiaDir, rel.replace(/^midia\//, '')) : path.resolve(rel));
 let entrada = path.resolve(alvoBruto);
-if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) entrada = path.join(entrada, 'index.html');
+if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
+  const manifest = path.join(entrada, 'scene.json');
+  // Projetos novos usam cenas estruturadas pelo núcleo. Projetos HTML
+  // anteriores continuam compatíveis sem migração ou alteração dos arquivos.
+  entrada = fs.existsSync(manifest) ? manifest : path.join(entrada, 'index.html');
+}
 if (!fs.existsSync(entrada)) {
-  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava um index.html)`);
+  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava scene.json ou index.html)`);
   process.exit(1);
 }
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
@@ -88,7 +93,23 @@ function offlineRenderer() {
     // Playwright recusa a tentativa de voltar ao passado.
     const inicioVirtual = fs.statSync(entrada).mtimeMs;
     await prepareMotionClock(pagina, inicioVirtual);
-    await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+    const declarativa = path.basename(entrada) === 'scene.json';
+    if (declarativa) {
+      // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
+      // imagens RGBA, sombras, z-index e velocidade dos elementos.
+      const { loadScene, sceneDocument } = require('./motion-scene-core');
+      const { scene, binaries } = loadScene(entrada);
+      if (scene.width !== W || scene.height !== H)
+        throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
+      await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
+      await pagina.waitForFunction(() => window.__nivooSceneReady || window.__nivooSceneError,
+        { timeout: 30_000 });
+      const error = await pagina.evaluate(() => window.__nivooSceneError);
+      if (error) throw new Error('Falha ao preparar camadas da cena: ' + error);
+      console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivoo');
+    } else {
+      await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+    }
     const segundos = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
     const result = await renderOffline({
