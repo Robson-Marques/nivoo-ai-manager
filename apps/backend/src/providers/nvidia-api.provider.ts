@@ -287,6 +287,21 @@ export class NvidiaApiProvider implements AiProvider {
         if (!calls.length) {
           if (texto) req.onLog('[agente NVIDIA] ' + texto.slice(0, 1000));
           if (!texto && !alteracoes) throw new Error('NVIDIA retornou resposta vazia; escolha um modelo compatível com chat e ferramentas');
+          // Alguns modelos param após um JSON de PROGRESSO dizendo "vou
+          // executar", sem chamar ferramenta e sem criar nenhum arquivo.
+          // Isso NÃO é execução bem-sucedida e não pode concluir uma etapa
+          // só porque a conferência encontrou um MP4 de trabalho anterior.
+          let progressoSemAcao = false;
+          if (!alteracoes && texto) {
+            try {
+              const resposta = JSON.parse(texto);
+              progressoSemAcao = resposta?.tipo === 'PROGRESSO' || resposta?.tipo === 'INICIO';
+            } catch { /* resposta textual normal */ }
+          }
+          if (progressoSemAcao) {
+            return { exitCode: 1, output: texto, error: 'A NVIDIA retornou somente mensagem de progresso, sem chamar ferramenta ou gravar arquivo. Nenhuma execução foi realizada.',
+              inputTokens: entrada, outputTokens: saida, numTurns: volta + 1, stopReason: 'no_action' };
+          }
           return { exitCode: 0, output: texto || 'Alterações concluídas: ' + alteracoes + ' arquivo(s).',
             inputTokens: entrada, outputTokens: saida, numTurns: volta + 1, stopReason: json.choices?.[0]?.finish_reason ?? 'completed' };
         }
