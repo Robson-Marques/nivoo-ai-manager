@@ -244,7 +244,10 @@ export class JobsService {
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const brutas = comPreflightVisual(comVideoCompleto(aplicarPrioridadeDosExecutores(corrigirPlanoRenderizacaoMotion(plan.steps, defaultProvider, objective), defaultProvider), defaultProvider), defaultProvider);
+    const etapasRoteadas = corrigirPlanoRenderizacaoMotion(plan.steps, defaultProvider, objective);
+    const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
+    const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
+    const brutas = comPreflightVisual(etapasComVideo, defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
