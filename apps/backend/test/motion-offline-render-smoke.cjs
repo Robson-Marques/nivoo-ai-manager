@@ -26,7 +26,7 @@ async function main() {
     let firstCalls = 0;
     function page(screenshot) {
       return {
-        clock: { pauseAt: async () => {}, runFor: async () => {} },
+        clock: { pauseAt: async () => { throw new Error('helper não deve pausar relógio após goto'); }, runFor: async () => {} },
         evaluate: async () => Date.now(),
         screenshot,
       };
