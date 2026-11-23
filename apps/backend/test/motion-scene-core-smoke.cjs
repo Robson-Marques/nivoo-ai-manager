@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { validateScene,loadScene,sceneDocument,sceneRuntime } = require('../bin/motion-scene-core');
+const { validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime } = require('../bin/motion-scene-core');
 
 async function main() {
   const scene = {
@@ -45,7 +45,7 @@ async function main() {
     const draws=[], raf=[];
     const ctx={
       save(){},restore(){},translate(){},rotate(){},scale(){},fillRect(){},
-      beginPath(){},ellipse(){},roundRect(){},rect(){},fill(){},stroke(){},strokeText(){},fillText(){},
+      beginPath(){},ellipse(){},roundRect(){},rect(){},fill(){},stroke(){},strokeText(){},fillText(){},clearRect(){},
       moveTo(){},lineTo(){},drawImage(img){ draws.push(img.src); },
       set fillStyle(v){},set globalAlpha(v){},set shadowColor(v){},set shadowBlur(v){},
       set shadowOffsetX(v){},set shadowOffsetY(v){},set strokeStyle(v){},set lineWidth(v){},
@@ -71,6 +71,23 @@ async function main() {
     assert.equal(win.__motionFim,false);
     win.__renderAt(20);
     assert.equal(win.__motionFim,true);
+
+    // O compositor híbrido não modifica relógio nem status da cena WebGL base.
+    const overlayWin={__motionSegundos:25,__motionFim:false};
+    const overlay=overlayScript(scene,saved.binaries);
+    new vm.Script(overlay);
+    const before=draws.length;
+    vm.runInNewContext(overlay,{
+      window:overlayWin,document:{getElementById:()=>({width:1080,height:1920,getContext:()=>ctx})},
+      Image:MockImage,requestAnimationFrame:cb=>raf.push(cb),performance:{now:()=>0},
+      Promise,Math,console,queueMicrotask,
+    });
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(overlayWin.__nivooOverlayReady,true);
+    assert.equal(overlayWin.__motionSegundos,25);
+    overlayWin.__nivooOverlayRenderAt(15);
+    assert.equal(draws.length-before,1);
+    assert.equal(overlayWin.__motionFim,false);
 
     fs.writeFileSync(escape,Buffer.from('outside'));
     fs.symlinkSync(escape,path.join(root,'assets','external.png'));
