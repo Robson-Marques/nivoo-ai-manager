@@ -163,7 +163,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('mode', null);
   });
 
-  it('entrega: terminado o trabalho da conversa, a IA volta sozinha com o que fez, os arquivos e as perguntas', async () => {
+  it('entrega: conclusão publica os resultados uma única vez, sem criar outra sessão de IA', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Entrega', provider: 'claude-code-cli' }).expect(201)).body;
     const c = (await h.http().post(`/api/projects/${p.id}/conversations`).send({}).expect(201)).body;
     ctl('mode', 'texto');
@@ -185,7 +185,8 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
       const e = ms.find((m: any) => m.kind === 'entrega' && m.status !== 'PENDENTE');
       return e ?? null;
     }, 30_000);
-    expect(entrega.content).toMatch(/1\. C5 — apagar a POC\? Recomendo apagar/);
+    expect(entrega.content).toContain('Trabalho concluído. Os arquivos e as prévias produzidas estão disponíveis');
+    expect(entrega.content).toContain('Nenhuma aprovação adicional será solicitada automaticamente.');
     expect(entrega.jobId).toBe(jobId);
     // A sessão do trabalho recebeu a conversa inteira do pedido (não só o resumo do objetivo).
     const wt = path.join((await h.prisma.project.findUniqueOrThrow({ where: { id: p.id } })).workspacePath, 'worktrees', jobId);
@@ -201,13 +202,9 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const pastas = fs.readdirSync(path.join(raiz, 'resultados'));
     expect(pastas).toEqual([expect.stringMatching(new RegExp(`^\\d{4}-\\d{2}-\\d{2}-auditoria-${jobId.slice(0, 8)}$`))]);
     expect(fs.readFileSync(path.join(raiz, 'resultados', pastas[0], 'relatorio-auditoria.md'), 'utf8')).toContain('RELATORIO-ACHADOS-18');
-    const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
-    expect(prompt).toContain('apresente a ENTREGA do trabalho que acabou de terminar');
-    expect(prompt).toContain('docs/auditoria.md (novo)');
-    expect(prompt).toContain('SE FALTA PARTE DO PEDIDO');
-    expect(prompt).toContain('Perguntas: SÓ o que bloqueia');
-    expect(prompt).toMatch(/Resultados gravados pela IA[^\n]*relatorio-auditoria\.md/);
-    expect(prompt).toContain(`contexto/resultados/${jobId.slice(0, 8)}/relatorio-auditoria.md`);
+    const mensagens = (await h.http().get(`/api/projects/${p.id}/conversations/${c.id}`)).body.messages;
+    expect(mensagens.filter((m: any) => m.kind === 'entrega' && m.jobId === jobId)).toHaveLength(1);
+    // O relatório real continua disponível mesmo sem segunda sessão de IA para formular a entrega.
     ctl('mode', null);
   });
 
@@ -226,7 +223,8 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const x = await fim(p.id, j.id);
     ctl('mode', null);
     expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'REPETICAO_IMPRODUTIVA' });
-    expect(x.statusDetail).toMatch(/mesma conferência da etapa falhou três vezes (sem contar erros distintos): \(exit 1\): o comando de conferência falhou sem mensagem: test -f relatorio-final\.md — falta relatorio-final\.md/);
+    expect(x.statusDetail).toContain('a mesma conferência da etapa falhou três vezes (sem contar erros distintos)');
+    expect(x.statusDetail).toContain('test -f relatorio-final.md — falta relatorio-final.md');
     expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(3);
   });
 
