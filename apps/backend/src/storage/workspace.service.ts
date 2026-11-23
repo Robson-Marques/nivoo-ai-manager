@@ -241,10 +241,10 @@ export class WorkspaceService {
     if (arquivos) {
       fs.mkdirSync(destino, { recursive: true });
       fs.writeFileSync(path.join(destino, 'LEIA-ME.txt'),
-        'Fontes originais de motion de trabalhos anteriores (somente referência).\\n' +
-        'Edite/COPIE apenas os arquivos necessários para motion/ do trabalho atual.\\n' +
-        'As fontes originais permanecem preservadas; não reconstrua do zero sem necessidade.\\n' +
-        'Trabalhos: ' + trabalhos.join(', ') + '\\n');
+        'Fontes originais de motion de trabalhos anteriores (somente referência).\n' +
+        'Edite/COPIE apenas os arquivos necessários para motion/ do trabalho atual.\n' +
+        'As fontes originais permanecem preservadas; não reconstrua do zero sem necessidade.\n' +
+        'Trabalhos: ' + trabalhos.join(', ') + '\n');
     }
     return { arquivos, bytes, ignorados, trabalhos };
   }
