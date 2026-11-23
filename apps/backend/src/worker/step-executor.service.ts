@@ -24,6 +24,7 @@ import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
 import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
+import { conferenciaGrepAlternativasLegada } from '../jobs/verification-legacy-grep';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -569,6 +570,24 @@ export class StepExecutorService {
           .replace(/\s--immutable/g, '');
         await L('Conferência: o projeto não tem package-lock.json, então "npm ci" não roda; refiz com "npm install" (sem travar no lockfile).', 'WARN', attempt.id);
         v = await conferir();
+      }
+      // Planos antigos geravam grep -q 'digest\\|imageId\\|sha256' e reprovavam
+      // identificadores como pulledImageDigest só pela letra D maiúscula.
+      // Reexecuta apenas a checagem curta test -f && grep; nunca afrouxa
+      // testes de compilação, nem conclui uma etapa sem executar o comando.
+      if (v.exitCode !== 0 && !v.aborted) {
+        const compativel = conferenciaGrepAlternativasLegada(verifyCommandEfetivo);
+        if (compativel) {
+          const original = verifyCommandEfetivo;
+          verifyCommandEfetivo = compativel;
+          const alternativa = await conferir();
+          if (alternativa.exitCode === 0) {
+            v = alternativa;
+            await L('Conferência legada: marcadores alternativos encontrados ignorando apenas maiúsculas/minúsculas; o teste foi executado novamente e passou. Não substitui testes de comportamento.', 'WARN', attempt.id);
+          } else {
+            verifyCommandEfetivo = original;
+          }
+        }
       }
       clearInterval(pulso);
       if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
