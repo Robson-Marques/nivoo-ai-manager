@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
+import { NvidiaFerramentas } from './NvidiaFerramentas';
 
 interface Area { id: string; nome: string; descricao: string }
 interface ModeloNvidia {
@@ -83,6 +84,7 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
 
   return (
     <section className="conexao-painel" aria-label="Catálogo NVIDIA por tipo de trabalho">
+      <NvidiaFerramentas conexaoId={conexaoId} />
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <strong>Catálogo NVIDIA por especialidade</strong>
         <button type="button" className="secondary" onClick={() => { void carregar(); }} disabled={atualizando}>
@@ -155,7 +157,8 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
       ))}
       <p className="muted small" style={{ marginTop: 12 }}>
         Para escolher a IA que altera código, abra o projeto e use o seletor de modelo.
-        Modelos de vídeo, áudio, imagem, embedding e rerank não executam a ferramenta de edição de arquivos.
+        Modelos de vídeo e áudio exigem conectores próprios; embedding, reranking e imagem têm seus painéis de API acima.
+        A geração de imagem pode não estar liberada gratuitamente na sua conta.
       </p>
     </section>
   );
