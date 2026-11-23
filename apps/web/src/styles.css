@@ -124,6 +124,13 @@ textarea { resize: vertical; line-height: 1.5; }
 .msg.ia { background: var(--panel); border: 1px solid var(--line); }
 .msg.ia.pensando { color: var(--muted); font-style: italic; }
 .msg.ia.erro { border-color: var(--bad); color: var(--bad); }
+/* Horários persistidos do chat: envio, início da chamada e conclusão. */
+.horario-da-mensagem { font-size: 11px; line-height: 1.35; margin-top: 7px; opacity: .78; font-variant-numeric: tabular-nums; white-space: normal; }
+.msg.eu .horario-da-mensagem { color: rgba(255,255,255,.88); text-align: right; }
+.msg.ia .horario-da-mensagem, .aviso-sistema .horario-da-mensagem { color: var(--muted); }
+.msg-pendente-com-hora > .horario-da-mensagem { margin-left: 12px; color: var(--muted); }
+.msg-pendente-com-hora > .msg { width: 100%; }
+
 .texto-ia { white-space: normal; }
 .texto-ia .texto-comum { white-space: pre-wrap; }
 .bloco-comando { margin: 8px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #111827; color: #f8fafc; }
