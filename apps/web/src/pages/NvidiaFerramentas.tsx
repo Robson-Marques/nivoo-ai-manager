@@ -5,8 +5,8 @@ type Tipo = 'conversa' | 'traducao' | 'embedding' | 'rerank' | 'imagem' | 'video
 const MODOS: Array<{ id: Tipo; titulo: string; descricao: string; modelo: string }> = [
   { id: 'conversa', titulo: 'Conversa e análise', descricao: 'Chat sem ferramentas de código', modelo: 'nvidia/nemotron-3.5-bolt-e4b' },
   { id: 'traducao', titulo: 'Tradução Riva', descricao: 'Traduzir textos via Riva Translate 4B, sem ferramentas de código', modelo: 'nvidia/riva-translate-4b-instruct-v2' },
-  { id: 'embedding', titulo: 'Pesquisa e RAG', descricao: 'Vetorização de texto por Nemotron Embed', modelo: 'nvidia/nemotron-3.5-embed-1b' },
-  { id: 'rerank', titulo: 'Relevância de documentos', descricao: 'Reranking de até 30 trechos por Nemotron', modelo: 'nvidia/nemotron-3.5-rerank-8b' },
+  { id: 'embedding', titulo: 'Gerar vetores de texto', descricao: 'Cria embeddings Nemotron para pesquisa. Ainda não vincula automaticamente a busca dos projetos', modelo: 'nvidia/nemotron-3.5-embed-1b' },
+  { id: 'rerank', titulo: 'Ordenar trechos por relevância', descricao: 'Reordena manualmente até 30 trechos. Ainda não participa automaticamente da busca dos projetos', modelo: 'nvidia/nemotron-3.5-rerank-8b' },
   { id: 'imagem', titulo: 'Imagens (acesso sujeito à conta)', descricao: 'FLUX.1 Schnell; endpoint existe, mas a NVIDIA pode exigir permissão/créditos', modelo: 'black-forest-labs/flux.1-schnell' },
   { id: 'video', titulo: 'Vídeo Cosmos3 Nano', descricao: 'Text-to-video 480p de 25 quadros; requer Public API Endpoints na sua conta', modelo: 'nvidia/cosmos3-nano' },
 ];
@@ -154,15 +154,18 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
           </button>
         </div>
       )}
-      <label>
-        ID do modelo
-        <input
-          value={modelo}
-          onChange={e => setModelo(e.target.value)}
-          spellCheck={false}
-          aria-label="Modelo NVIDIA do serviço"
-        />
-      </label>
+      <details>
+        <summary className="muted small" style={{ cursor: 'pointer' }}>Configurações avançadas do modelo</summary>
+        <label>
+          ID técnico do modelo
+          <input
+            value={modelo}
+            onChange={e => setModelo(e.target.value)}
+            spellCheck={false}
+            aria-label="Modelo NVIDIA do serviço"
+          />
+        </label>
+      </details>
       {tipo === 'traducao' && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <label>De
           <select value={idiomaOrigem} onChange={e => setIdiomaOrigem(e.target.value)}>
