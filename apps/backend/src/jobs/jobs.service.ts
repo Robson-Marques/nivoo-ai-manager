@@ -547,7 +547,17 @@ export class JobsService {
           });
           await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
         } else if (['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) {
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
+          await tx.step.update({
+            where: { id: s.id },
+            data: {
+              status: 'PENDENTE', statusDetail: 'retomada', ...recomeco,
+              // A revisão espera todas as capturas vencidas, mesmo quando
+              // a dependência original só exigia um dos quadros.
+              ...(recapturar.size && revisoresBloqueados.some((r) => r.id === s.id)
+                ? { dependsOn: [...new Set([...s.dependsOn, ...recapturar])] }
+                : {}),
+            },
+          });
         }
       }
       await tx.job.update({
