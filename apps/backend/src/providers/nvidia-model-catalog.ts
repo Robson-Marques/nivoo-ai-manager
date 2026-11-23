@@ -80,7 +80,7 @@ const CONHECIDOS: Linha[] = [
   ['Riva Translate 4B', null, ['audio'], 'Traduzir textos em vários idiomas', 'especializado', 'free-endpoint'],
   ['RFD4 Proteina', null, ['ciencia'], 'Design de proteínas, enzimas e anticorpos', 'especializado', 'free-endpoint'],
   ['Ising Calibration 1.5', null, ['ciencia', 'visao'], 'Análise de gráficos de calibração quântica', 'especializado', 'free-endpoint'],
-  ['Cosmos3 Nano', null, ['video', 'imagens'], 'Gerar imagens, vídeos e previsões de ação; endpoint próprio', 'video', 'ambos'],
+  ['Cosmos3 Nano', 'nvidia/cosmos3-nano', ['video', 'imagens'], 'Gerar imagens, vídeos e previsões de ação; endpoint próprio', 'video', 'ambos'],
   ['Cosmos3 Nano Reasoner', null, ['visao', 'video'], 'Compreender imagens e vídeos (não gera vídeo)', 'chat-completions', 'ambos'],
   ["Nemotron 3 Embed 1B",null,["busca"],"Vetorização para pesquisa e RAG (descontinuação anunciada)","embedding","free-endpoint"],
   ["Laguna XS 2.1","poolside/laguna-xs-2.1",["agentes"],"Programação agêntica de longo horizonte","chat-completions","free-endpoint",true],
