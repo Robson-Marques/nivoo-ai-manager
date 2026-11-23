@@ -202,9 +202,9 @@ cd "$APP_DIR"
 npm ci --no-audit --no-fund --loglevel=error
 # Não descartar stdout do build: TypeScript mostra os arquivos e linhas com erro.
 npm run build --silent
-# Reparo WebGL: testes determinísticos antes de iniciar serviços; não gastar
-# sessões de IA em composição inválida ou sobrescrever originais.
-node "$APP_DIR/apps/backend/test/motion-code-repair-smoke.cjs"
+# Motor reutilizável de cenas: validação estrutural e runtime isolados antes
+# de reiniciar serviços. Sem sessões de IA nem revisão artística automática.
+node "$APP_DIR/apps/backend/test/motion-scene-core-smoke.cjs"
 # Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
@@ -297,7 +297,6 @@ ok "pnpm $(pnpm --version 2>/dev/null), yarn $(yarn --version 2>/dev/null)"
 # Comando de administração
 install -m 755 "$APP_DIR/deploy/nivoo" /usr/local/bin/nivoo
 install -m 755 "$APP_DIR/apps/backend/bin/nivoo-conferir-arte" /usr/local/bin/nivoo-conferir-arte
-install -m 755 "$APP_DIR/apps/backend/bin/nivoo-ajustar-motion" /usr/local/bin/nivoo-ajustar-motion
 # Autoteste obrigatório: o binário copiado deve achar a MESMA dependência que npm instalou.
 # Falhar aqui evita gastar sessões de IA descobrindo ausência de playwright-core depois.
 node -e "require(require.resolve('playwright-core',{paths:['$APP_DIR']})); console.log('ok: Playwright resolvido pelo executável instalado')" 

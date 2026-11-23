@@ -29,7 +29,8 @@ const opt = (nome, padrao) => {
   const i = args.indexOf(nome);
   return i >= 0 ? args[i + 1] : padrao;
 };
-const alvoBruto = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--saida' && args[i - 1] !== '--segundos' && args[i - 1] !== '--tamanho');
+const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo']);
+const alvoBruto = args.find((a, i) => !a.startsWith('--') && !flagsWithValue.has(args[i - 1]));
 if (!alvoBruto) {
   console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
   process.exit(2);
@@ -37,9 +38,14 @@ if (!alvoBruto) {
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
 const resolver = (rel) => (/^midia\//.test(rel) && midiaDir ? path.join(midiaDir, rel.replace(/^midia\//, '')) : path.resolve(rel));
 let entrada = path.resolve(alvoBruto);
-if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) entrada = path.join(entrada, 'index.html');
+if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
+  const manifest = path.join(entrada, 'scene.json');
+  // Projetos novos usam cenas estruturadas pelo núcleo. Projetos HTML
+  // anteriores continuam compatíveis sem migração ou alteração dos arquivos.
+  entrada = fs.existsSync(manifest) ? manifest : path.join(entrada, 'index.html');
+}
 if (!fs.existsSync(entrada)) {
-  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava um index.html)`);
+  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava scene.json ou index.html)`);
   process.exit(1);
 }
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
@@ -67,6 +73,18 @@ function offlineRenderer() {
   return require(encontrado);
 }
 
+function motionSceneCore() {
+  // /usr/local/bin recebe uma cópia do comando, mas não dos helpers.
+  // Procurar primeiro a pasta atual do projeto e depois o checkout instalado.
+  const candidates = [
+    path.join(__dirname, 'motion-scene-core.js'),
+    path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app', 'apps/backend/bin/motion-scene-core.js'),
+  ];
+  const found = candidates.find(p => fs.existsSync(p));
+  if (!found) throw new Error('motor declarativo não encontrado; confira /opt/nivoo/app/apps/backend/bin/motion-scene-core.js');
+  return require(found);
+}
+
 (async () => {
   const { chromium } = playwrightCore();
   const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
@@ -88,11 +106,82 @@ function offlineRenderer() {
     // Playwright recusa a tentativa de voltar ao passado.
     const inicioVirtual = fs.statSync(entrada).mtimeMs;
     await prepareMotionClock(pagina, inicioVirtual);
-    await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
-    const segundos = Math.min(300, Math.max(1,
+    const declarativa = path.basename(entrada) === 'scene.json';
+    if (declarativa) {
+      // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
+      // imagens RGBA, sombras, z-index e velocidade dos elementos.
+      const { loadScene, sceneDocument } = motionSceneCore();
+      const { scene, binaries } = loadScene(entrada);
+      if (scene.width !== W || scene.height !== H)
+        throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
+      await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
+      let deadline;
+      try {
+        await Promise.race([
+          pagina.evaluate(() => window.__nivooSceneLoadPromise),
+          new Promise((_, reject) => { deadline = setTimeout(
+            () => reject(new Error('Tempo limite de 30s para carregar imagens da cena')), 30_000); }),
+        ]);
+      } finally { clearTimeout(deadline); }
+      const error = await pagina.evaluate(() => window.__nivooSceneError);
+      if (error) throw new Error('Falha ao preparar camadas da cena: ' + error);
+      console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivoo');
+    } else {
+      await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
+      const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
+      if (fs.existsSync(overlayPath)) {
+        // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
+        // ficam numa camada RGBA independente ACIMA da geometria,
+        // sem Z-fighting, oclusão nem fotos escuras duplicadas.
+        const { loadScene, overlayScript } = motionSceneCore();
+        const { scene, binaries } = loadScene(overlayPath);
+        if (scene.width !== W || scene.height !== H) throw new Error(
+          `Overlay de mídia ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}`);
+        await pagina.evaluate((size) => {
+          const canvas = document.createElement('canvas');
+          canvas.id = 'nivoo-overlay';
+          canvas.width = size.width;
+          canvas.height = size.height;
+          Object.assign(canvas.style, {
+            position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh',
+            zIndex:'2147483647', pointerEvents:'none',
+          });
+          document.body.appendChild(canvas);
+        }, { width: W, height: H });
+        await pagina.addScriptTag({ content: overlayScript(scene, binaries) });
+        let deadline;
+        try {
+          await Promise.race([
+            pagina.evaluate(() => window.__nivooOverlayLoadPromise),
+            new Promise((_, reject) => { deadline = setTimeout(
+              () => reject(new Error('Tempo limite de 30s carregando fotos da camada WebGL')), 30_000); }),
+          ]);
+        } finally { clearTimeout(deadline); }
+        console.log('nivoo-renderizar-motion: fotos/produtos em camada segura sobre WebGL (overlays.json)');
+      }
+    }
+    const segundosFonte = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
+    let segundos = segundosFonte, pacing = null;
+    const modoRitmo = opt('--ritmo','normal');
+    if (!['normal','energetico'].includes(modoRitmo)) throw new Error('--ritmo deve ser normal ou energetico');
+    const temRitmoExplicit = ['--duracao-origem','--abertura-origem','--abertura-final'].some(f=>args.includes(f));
+    if (!declarativa && (temRitmoExplicit || modoRitmo === 'energetico')) {
+      // A composição original NÃO é modificada. Apenas a captura virtual
+      // percorre seu relógio mais rápido na abertura e no resto das cenas.
+      segundos = args.includes('--segundos') ? segundosArg : Math.max(1,Math.round(segundosFonte*.8));
+      const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
+      const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
+      const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
+      pacing = {sourceDuration,openingEnd,openingSeconds};
+      if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
+          !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
+          !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
+        throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
+      console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+    }
     const result = await renderOffline({
-      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H,
+      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
     if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);

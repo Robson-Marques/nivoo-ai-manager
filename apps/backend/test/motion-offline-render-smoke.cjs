@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { renderMotionOffline, prepareFrameCache, prepareMotionClock } = require('../bin/motion-offline-render');
+const { renderMotionOffline, prepareFrameCache, prepareMotionClock, mapMotionTime } = require('../bin/motion-offline-render');
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-motion-resume-'));
@@ -22,6 +22,12 @@ async function main() {
     await prepareMotionClock(clockPage, 1234560000);
     await clockPage.goto('file:///motion/index.html');
     assert.deepEqual(events, [['install', 1234560000], ['pauseAt', 1234620000], ['goto']]);
+    const ritmo={sourceDuration:25,openingEnd:7.15,openingSeconds:3.5};
+    assert.equal(mapMotionTime(0,20,ritmo),0);
+    assert.ok(Math.abs(mapMotionTime(3.5,20,ritmo)-7.15)<1e-9);
+    assert.ok(Math.abs(mapMotionTime(20,20,ritmo)-25)<1e-9);
+    assert.ok(mapMotionTime(4,20,ritmo)>mapMotionTime(3.5,20,ritmo));
+
     const sourcePath = path.join(dir, 'motion', 'v3', 'index.html');
     fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
     fs.writeFileSync(sourcePath, '<html>v3</html>');
@@ -35,10 +41,14 @@ async function main() {
     const outputPath = path.join(dir, 'saida', 'motion.mp4');
     const opts = { outputPath, sourcePath, seconds: 0.4, width: 16, height: 16 };
     let firstCalls = 0;
-    function page(screenshot) {
+    const overlayFrames = [];
+    function page(screenshot, hasOverlay = false) {
       return {
         clock: { pauseAt: async () => { throw new Error('helper não deve pausar relógio após goto'); }, runFor: async () => {} },
-        evaluate: async () => Date.now(),
+        evaluate: async (_fn, frameSec) => {
+          if (frameSec !== undefined) { overlayFrames.push(frameSec); return null; }
+          return hasOverlay;
+        },
         screenshot,
       };
     }
@@ -51,11 +61,15 @@ async function main() {
       }),
     }), /interrupção simulada/);
     const cacheDir = prepareFrameCache(opts).cacheDir;
+    assert.notEqual(cacheDir,prepareFrameCache({...opts,pacing:ritmo}).cacheDir,
+      'cache de vídeo com aceleração não pode reutilizar quadros da versão normal');
     assert.equal(fs.readdirSync(cacheDir).filter(f => f.endsWith('.jpg')).length, 5);
     let secondCalls = 0;
     const result = await renderMotionOffline({
-      ...opts, page: page(async () => { secondCalls++; return sample; }),
+      ...opts, page: page(async () => { secondCalls++; return sample; }, true),
     });
+    assert.equal(overlayFrames.length, 5);
+    assert.deepEqual(overlayFrames.map(t=>Math.round(t*25)), [5,6,7,8,9]);
     assert.equal(firstCalls, 6);
     assert.equal(secondCalls, 5);
     assert.equal(result.reused, 5);
