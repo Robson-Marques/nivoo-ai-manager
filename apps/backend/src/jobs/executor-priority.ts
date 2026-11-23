@@ -115,7 +115,7 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
     const step = item as Record<string, unknown>;
     const provider = String(step.provider ?? defaultProvider);
-    if (provider === 'local-shell' || provider === 'juntar-videos' || !etapaPedeRenderizacaoMotion(step)) return item;
+    if (provider === 'local-shell' || provider === 'juntar-videos' || provider === 'gemini-video' || !etapaPedeRenderizacaoMotion(step)) return item;
     const instr = String(step.instructions ?? '').trim();
     const verified = String(step.verifyCommand ?? '');
     const normalized = (instr + ' ' + objective);
