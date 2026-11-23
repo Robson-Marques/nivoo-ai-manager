@@ -132,8 +132,11 @@ function sceneDocument(scene, binaries) {
     '<script>('+sceneRuntime.toString()+')('+state+');</script></body></html>';
 }
 /** O mesmo código JavaScript funciona em navegador e em Node para testes. */
-function sceneRuntime({scene,binaries}) {
-  const canvas=document.getElementById('nivoo'), ctx=canvas.getContext('2d',{alpha:false});
+function sceneRuntime({scene,binaries,overlay=false}) {
+  // Overlay transparente sobre HTML/WebGL 3D: nenhuma imagem de produto
+  // atravessa malhas da cena 3D. O WebGL só desenha geometria própria.
+  const canvas=document.getElementById(overlay?'nivoo-overlay':'nivoo'),
+    ctx=canvas.getContext('2d',{alpha:overlay});
   if (!ctx) throw new Error('Canvas 2D indisponível');
   const images={}, end=scene.duration;
   const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
@@ -222,31 +225,46 @@ function sceneRuntime({scene,binaries}) {
     }
     ctx.restore();
   }
-  window.__motionSegundos=end;window.__motionFim=false;window.__nivooSceneReady=false;
-  window.__motionCore={version:1,mode:'declarative',timeline};
+  if(!overlay){window.__motionSegundos=end;window.__motionFim=false;window.__nivooSceneReady=false;}
+  else {window.__nivooOverlayReady=false;}
+  window.__motionCore={version:1,mode:overlay?'webgl-overlay':'declarative',timeline};
   const sorted=scene.layers.map(l=>{
     // Fotos nunca interpenetram o suporte: sem rotação inclinada no eixo de
     // profundidade e sempre pelo menos 1 unidade à frente do supportZ.
     return {...l,z:l.type==='image'?Math.max(l.z??0,(l.supportZ??-10000)+1):l.z??0};
   }).sort((a,b)=>a.z-b.z);
-  window.__renderAt=(time)=>{
+  const drawAt=(time)=>{
     const t=timeline(Number(time)||0);
-    ctx.fillStyle=scene.background??'#090402';ctx.fillRect(0,0,canvas.width,canvas.height);
+    if(overlay){ctx.clearRect(0,0,canvas.width,canvas.height);}
+    else {ctx.fillStyle=scene.background??'#090402';ctx.fillRect(0,0,canvas.width,canvas.height);}
     for(const l of sorted)drawLayer(l,t);
-    window.__motionFim=Number(time)>=end;
+    if(!overlay)window.__motionFim=Number(time)>=end;
   };
+  if(overlay)window.__nivooOverlayRenderAt=drawAt;
+  else window.__renderAt=drawAt;
   // A promessa de carregamento é aguardada diretamente pelo Playwright.
   // waitForFunction usa requestAnimationFrame/setInterval, que ficam parados
   // com o relógio virtual pausado, causando timeout e novas tentativas.
-  window.__nivooSceneLoadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise((resolve,reject)=>{
+  const loadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise((resolve,reject)=>{
     const img=new Image();img.onload=()=>{images[key]=img;resolve();};
     img.onerror=()=>reject(new Error('Imagem inválida: '+key));img.src=binaries[key];
   }))).then(()=>{
-    window.__nivooSceneReady=true;
-    window.__renderAt(0);
+    if(overlay)window.__nivooOverlayReady=true;
+    else window.__nivooSceneReady=true;
+    drawAt(0);
     const beginning=performance.now();
-    function tick(now){const t=Math.min(end,(now-beginning)/1000);window.__renderAt(t);if(t<end)requestAnimationFrame(tick);}
+    function tick(now){const t=Math.min(end,(now-beginning)/1000);drawAt(t);if(t<end)requestAnimationFrame(tick);}
     requestAnimationFrame(tick);
-  }).catch(e=>{window.__nivooSceneError=String(e.message||e);throw e;});
+  }).catch(e=>{
+    if(overlay)window.__nivooOverlayError=String(e.message||e);
+    else window.__nivooSceneError=String(e.message||e);
+    throw e;
+  });
+  if(overlay)window.__nivooOverlayLoadPromise=loadPromise;
+  else window.__nivooSceneLoadPromise=loadPromise;
 }
-module.exports={ validateScene,loadScene,sceneDocument,sceneRuntime };
+function overlayScript(scene,binaries) {
+  validateScene(scene);
+  return '('+sceneRuntime.toString()+')('+safeJSON({scene,binaries,overlay:true})+');';
+}
+module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime };
