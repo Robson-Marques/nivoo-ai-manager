@@ -115,8 +115,16 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
     const step = item as Record<string, unknown>;
     const provider = String(step.provider ?? defaultProvider);
-    if (provider === 'local-shell' || provider === 'juntar-videos' || provider === 'gemini-video' || !etapaPedeRenderizacaoMotion(step)) return item;
+    if (!etapaPedeRenderizacaoMotion(step) || provider === 'juntar-videos' || provider === 'gemini-video') return item;
     const instr = String(step.instructions ?? '').trim();
+    if (provider === 'local-shell') {
+      // Atribuir local-shell sem chamar o renderizador (ex.: comando true)
+      // também era capaz de aprovar MP4 anterior com test -s.
+      if (!/^nivoo-renderizar-motion\s+motion\/[A-Za-z0-9._/-]+\s+--saida\s+midia\/saida\/[A-Za-z0-9._-]+\.mp4(?:\s|$)/.test(instr)) {
+        throw new BadRequestException('Etapa motion local-shell não executa nivoo-renderizar-motion com fonte e destino explícitos. Não basta encontrar um MP4 anterior na conferência.');
+      }
+      return item;
+    }
     const verified = String(step.verifyCommand ?? '');
     const normalized = (instr + ' ' + objective);
     const paths = [...normalized.matchAll(/(?:^|[\s'"(])((?:motion)\/[A-Za-z0-9._/-]+)(?=[\s'")]|$)/g)]
