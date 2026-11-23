@@ -141,8 +141,14 @@ function sceneRuntime({scene,binaries}) {
   const ease=(t,kind)=>kind==='out'?1-(1-t)**3:kind==='back'?1+2.4*(t-1)**3+1.4*(t-1)**2:kind==='linear'?t:smooth(t);
   const lerp=(a,b,k)=>a+(b-a)*k;
   const sourceEnd=scene.pacing?.sourceDuration??end;
-  const openingEnd=scene.pacing?.openingEnd;
-  const openingSeconds=scene.pacing?.openingSeconds??(scene.profile==='energetic'?Math.min(3.5,end*.3):openingEnd);
+  // Perfil energético sem configuração manual: comprimir automaticamente a
+  // revelação do neon quando ela ocupa vários segundos da abertura.
+  const neonEnds=scene.layers.filter(l=>l.type==='neon'&&Number.isFinite(l.end)&&l.end>0&&l.end<sourceEnd*.65)
+    .map(l=>l.end);
+  const openingEnd=scene.pacing?.openingEnd??
+    (scene.profile==='energetic'&&neonEnds.length?Math.max(...neonEnds):undefined);
+  const openingSeconds=scene.pacing?.openingSeconds??
+    (scene.profile==='energetic'&&openingEnd?Math.min(openingEnd,3.5,end*.3):openingEnd);
   const timeline=(t)=>{
     t=clamp(t,0,end);
     if (!openingEnd||!openingSeconds||openingEnd===sourceEnd||openingSeconds===end) return t*sourceEnd/end;
