@@ -34,13 +34,19 @@ function nomeDaOferta(o: ModeloNvidia['oferta']): string {
 }
 
 function destinoNoNivoo(modelo: ModeloNvidia): string {
-  if (modelo.utilizavelNoWorkflow && modelo.id) return 'Studio Workflow: modelo de agente';
-  if (modelo.areas.includes('video')) return 'Studio de Vídeo: conector especializado pendente';
-  if (modelo.areas.includes('imagens')) return 'Design de Imagens: conector especializado pendente';
-  if (modelo.areas.includes('audio')) return 'Áudio e Transcrição: conector especializado pendente';
-  if (modelo.areas.includes('busca')) return 'Busca/RAG: conector especializado pendente';
-  if (modelo.areas.includes('dados')) return 'Dados: conector especializado pendente';
-  return 'Modelo especializado: não habilitado como agente';
+  if (modelo.utilizavelNoWorkflow && modelo.id) return 'Integrado: agente de código no Studio Workflow e conversa';
+  if (modelo.endpoint === 'chat-completions' && modelo.id) return 'Chat NVIDIA: disponível se houver suporte ao endpoint de texto';
+  if (modelo.id && ['nvidia/nemotron-3.5-embed-1b', 'nvidia/nemotron-3.5-embed-8b', 'nvidia/nemotron-3-embed-1b'].includes(modelo.id))
+    return 'Integrado: embeddings na pesquisa/RAG via API';
+  if (modelo.id === 'nvidia/nemotron-3.5-rerank-8b') return 'Integrado: reordenação de resultados na pesquisa/RAG via API';
+  if (modelo.id === 'black-forest-labs/flux.1-schnell')
+    return 'Conector de imagem implementado: painel NVIDIA e importação no Studio de Vídeo; acesso sujeito à chave';
+  if (modelo.areas.includes('video')) return 'Studio de Vídeo: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('imagens')) return 'Design de Imagens: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('audio')) return 'Áudio e Transcrição: exige implantação/endpoint próprio';
+  if (modelo.areas.includes('busca')) return 'Busca/RAG: endpoint específico ainda não integrado';
+  if (modelo.areas.includes('dados')) return 'Dados: endpoint específico ainda não integrado';
+  return 'Modelo especializado: endpoint próprio ainda não integrado';
 }
 
 /** Exploração por especialidade; nunca oferece modelos de vídeo no seletor de código. */
