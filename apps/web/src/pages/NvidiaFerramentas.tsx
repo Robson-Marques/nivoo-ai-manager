@@ -54,7 +54,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     }
   };
   const urlImagem = resultado?.tipo === 'imagem' && resultado.base64 &&
-    resultado.base64.length < 8_000_000 ? 'data:' + (resultado.mime ?? 'image/png') + ';base64,' + resultado.base64 : null;
+    resultado.base64.length < 8_000_000 ? 'data:' + (resultado.mime ?? 'image/jpeg') + ';base64,' + resultado.base64 : null;
   return (
     <section className="conexao-painel" aria-label="Ferramentas NVIDIA integradas">
       <strong>Serviços NVIDIA executáveis por API</strong>
@@ -119,7 +119,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
           {urlImagem && (
             <div>
               <img src={urlImagem} alt="Imagem gerada pela NVIDIA" style={{ maxWidth: '100%', maxHeight: 450, objectFit: 'contain' }}/>
-              <a className="botao-link" href={urlImagem} download="nvidia-flux.png">Salvar imagem PNG</a>
+              <a className="botao-link" href={urlImagem} download="nvidia-flux.jpg">Salvar imagem JPEG</a>
             </div>
           )}
         </div>
