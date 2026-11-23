@@ -25,7 +25,15 @@ describe('Conferência técnica de vídeo do Studio Workflow', () => {
     expect(conferenciaTecnicaDeVideo('local-shell',
       'nivoo-renderizar-motion motion/black --saida midia/saida/v3.mp4',
       {}, 'test -s out/verificacao.md',
-    )).toBe('test -s out/verificacao.md');
+    )).toContain('ffprobe');
+  });
+
+  it('complementa teste de existência do render com ffprobe sem renderizar novamente', () => {
+    const cmd = conferenciaTecnicaDeVideo('local-shell',
+      'nivoo-renderizar-motion motion/pizza --saida midia/saida/pizza.mp4',
+      {}, 'test -s midia/saida/pizza.mp4');
+    expect(cmd).toContain('ffprobe');
+    expect(cmd).not.toContain('nivoo-renderizar-motion');
   });
 
   it('não cria conferência de vídeo para etapas que não renderizam', () => {
