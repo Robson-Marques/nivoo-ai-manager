@@ -11,3 +11,14 @@ export function diagnosticoRenderDeterministico(saida: string): string | null {
   }
   return null;
 }
+
+/** Scripts falhos são reparáveis por edição do worktree, mesmo que o
+ * executor seja determinístico. Não confundir com ausência de Bash/GPU,
+ * crédito de API ou recurso físico que a IA não consegue inventar. */
+export function falhaLocalCorrigivel(saida: string): boolean {
+  if (/command not found|comando não encontrado|sem conexão|falta de token|credencial ausente|permission denied/i.test(saida)) {
+    return false;
+  }
+  return !!diagnosticoRenderDeterministico(saida) ||
+    /SyntaxError|AssertionError|Cannot find module|ERR_MODULE_NOT_FOUND|Module not found|ReferenceError|TypeError|script\b[^\n]{0,120}\.cjs|\.tsx?:\d+:\d+: error/i.test(saida);
+}
