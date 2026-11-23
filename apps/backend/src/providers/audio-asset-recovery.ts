@@ -40,7 +40,10 @@ function nomes(fontes: FonteTrilha[]): string[] {
 }
 
 export function escolherTrilha(procurado: string, fontes: FonteTrilha[]): ResultadoTrilha {
-  const validas = fontes.filter(f => AUDIO.test(f.nome) && AUDIO.test(f.arquivo) && !NEGADO.test(f.nome));
+  // Artefatos são armazenados por hash SEM EXTENSÃO no disco; o nome
+  // catalogado (não storagePath) informa o formato. Restringir pelo arquivo
+  // físico excluiria justamente as trilhas de trabalhos anteriores.
+  const validas = fontes.filter(f => AUDIO.test(f.nome) && !NEGADO.test(f.nome));
   const alternativas = nomes(validas);
   if (!AUDIO.test(procurado) || NEGADO.test(procurado)) return { motivo: 'inexistente', alternativas };
 
