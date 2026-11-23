@@ -127,6 +127,10 @@ describe('NVIDIA: conectores especializados de verdade por endpoint', () => {
     expect(pedido.estado).toBe('executando');
     expect(service.statusVideo('nvidia-api', pedido.id).estado).toBe('executando');
     expect(spy).toHaveBeenCalledTimes(1);
+    const repetido = service.iniciarVideo('nvidia-api', { prompt: 'Cena de um pôr do sol' });
+    expect(repetido.id).toBe(pedido.id);
+    expect(repetido.aviso).toContain('sem gerar novamente');
+    expect(spy).toHaveBeenCalledTimes(1);
     liberar(new Response(JSON.stringify({ b64_video: b64 }), { status: 200 }));
     await new Promise(resolve => setImmediate(resolve));
     const estado = service.statusVideo('nvidia-api', pedido.id);
