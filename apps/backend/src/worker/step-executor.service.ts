@@ -211,7 +211,10 @@ export class StepExecutorService {
     }
     const status = await this.registry.status(providerId, 15_000);
     if (!status.available) {
-      return this.awaitResource(task, workerId, job, step, `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`);
+      const retryAfter = Number(status.limits?.retryAfterMs);
+      return this.awaitResource(task, workerId, job, step,
+        `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
     }
 
     // Etapa paga por uso (vídeo): o custo estimado não pode estourar o limite do trabalho nem o do projeto.
