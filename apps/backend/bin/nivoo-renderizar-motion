@@ -72,6 +72,18 @@ function offlineRenderer() {
   return require(encontrado);
 }
 
+function motionSceneCore() {
+  // /usr/local/bin recebe uma cópia do comando, mas não dos helpers.
+  // Procurar primeiro a pasta atual do projeto e depois o checkout instalado.
+  const candidates = [
+    path.join(__dirname, 'motion-scene-core.js'),
+    path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app', 'apps/backend/bin/motion-scene-core.js'),
+  ];
+  const found = candidates.find(p => fs.existsSync(p));
+  if (!found) throw new Error('motor declarativo não encontrado; confira /opt/nivoo/app/apps/backend/bin/motion-scene-core.js');
+  return require(found);
+}
+
 (async () => {
   const { chromium } = playwrightCore();
   const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
@@ -97,7 +109,7 @@ function offlineRenderer() {
     if (declarativa) {
       // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
       // imagens RGBA, sombras, z-index e velocidade dos elementos.
-      const { loadScene, sceneDocument } = require('./motion-scene-core');
+      const { loadScene, sceneDocument } = motionSceneCore();
       const { scene, binaries } = loadScene(entrada);
       if (scene.width !== W || scene.height !== H)
         throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
