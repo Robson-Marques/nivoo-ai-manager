@@ -15,7 +15,11 @@ export const VIDEO_QUALITY_POLICY = [
   'Compare quadro-chave e um quadro em movimento com a referência para verificar separação de planos, relevo, luz/sombra, escala, oclusão e legibilidade. Se a referência for flat, não imponha aparência 3D.',
   '3D COMPLETO É UMA MODALIDADE DISTINTA: pode ser planejada futuramente com malhas, câmera, materiais e renderizador 3D, mas não finja gerar geometria 3D real com simples transformações 2.5D.',
   'Ajustar somente áudio, trilha, narração ou sincronização NÃO autoriza refazer a composição visual aprovada.',
-  'Movimento: temporalidade deliberada, entradas/saídas suaves, pauses suficientes para leitura, ritmo variado conforme o assunto, sem excesso de movimento ou revelações incompletas.',
+  'Movimento: temporalidade deliberada, entradas/saídas suaves, pausas suficientes para leitura, ritmo variado conforme o assunto, sem excesso de movimento ou revelações incompletas.',
+  'QUADROS TEMPORAIS REAIS: revisão visual deve abrir múltiplos quadros distribuídos na duração, não só a última tela. Um cartaz final bonito não valida movimento. Confira sequência, ritmo, entradas, elementos invertidos e sobreposições ao longo do vídeo.',
+  'MEGAFONE E EMISSÃO LUMINOSA, quando existirem no briefing: a boca do megafone deve apontar para o lado correto do efeito; o rastro de néon deve nascer exatamente na boca e seguir linha contínua com brilho e movimento plausíveis, sem emendas ou saltos.',
+  'MOLDURAS E ETIQUETAS, quando existirem no briefing: a moldura de textos como “A partir de” precisa permanecer fechada, com cantos unidos, bordas completas, sem cortes por máscara ou camadas, e legível em todas as fases da animação.',
+  'Se um quadro revelar falha objetiva de orientação, efeito, encaixe ou moldura, marque movimentoConforme=false e registre pendências concretas. Repare os arquivos da cena e recapture todos os quadros alterados antes de renderizar o MP4.',
   'Confira o resultado em vários instantes, início, meio e fim. Critério técnico (arquivo, resolução, duração) é diferente de qualidade artística. Se não for possível inspecionar, declare essa limitação; nunca finja ter validado.',
   'Não desperdice sessões tentando resolver falha de ferramenta, caminho inválido ou critério de sistema imutável. Preserve os entregáveis que existem e informe o bloqueio concreto.',
 ] as const;
