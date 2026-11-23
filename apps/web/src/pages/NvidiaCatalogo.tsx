@@ -95,7 +95,7 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
         os demais IDs retornados pela API também aparecem, sem serem presumidos modelos de código.
       </p>
       <p className="muted small">
-        <a href="https://build.nvidia.com/models" target="_blank" rel="noopener noreferrer">
+        <a href="https://build.nvidia.com/models?pageSize=96" target="_blank" rel="noopener noreferrer">
           Ver catálogo público completo da NVIDIA
         </a>
         {' · '}
@@ -141,7 +141,7 @@ export function NvidiaCatalogo({ conexaoId }: { conexaoId: string }) {
                 <strong>{m.nome}</strong>
                 {m.id && <div className="muted small" style={{ overflowWrap: 'anywhere' }}>{m.id}</div>}
                 <p className="small" style={{ margin: '7px 0' }}>{m.uso}</p>
-                <div className="muted small">{m.areas.map(a => catalogo.areas.find(x => x.id === a)?.nome ?? a).join(' · ')}</div>
+                <div className="muted small">{m.areas.map(a => catalogo?.areas.find(x => x.id === a)?.nome ?? a).join(' · ')}</div>
                 <div className="small" style={{ marginTop: 8 }}><b>{nomeDaOferta(m.oferta)}</b></div>
                 <div className="small">{destinoNoNivoo(m)}</div>
                 <div className="muted small">
