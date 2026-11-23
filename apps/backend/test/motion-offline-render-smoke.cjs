@@ -6,11 +6,22 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { renderMotionOffline, prepareFrameCache } = require('../bin/motion-offline-render');
+const { renderMotionOffline, prepareFrameCache, prepareMotionClock } = require('../bin/motion-offline-render');
 
 async function main() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-motion-resume-'));
   try {
+    const events = [];
+    const clockPage = {
+      clock: {
+        install: async ({ time }) => { events.push(['install', time.getTime()]); },
+        pauseAt: async time => { events.push(['pauseAt', time.getTime()]); },
+      },
+      goto: async () => { events.push(['goto']); },
+    };
+    await prepareMotionClock(clockPage, 1234560000);
+    await clockPage.goto('file:///motion/index.html');
+    assert.deepEqual(events, [['install', 1234560000], ['pauseAt', 1234620000], ['goto']]);
     const sourcePath = path.join(dir, 'motion', 'v3', 'index.html');
     fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
     fs.writeFileSync(sourcePath, '<html>v3</html>');
