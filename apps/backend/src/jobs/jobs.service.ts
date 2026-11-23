@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
-import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
+import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
@@ -446,6 +446,21 @@ export class JobsService {
     const job = await this.get(projectId, jobId);
     if (!['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(job.status)) {
       throw new ConflictException(`Job em ${job.status} não pode ser retomado`);
+    }
+    // Jobs anteriores ao roteamento correto podiam "concluir" render motion
+    // com nvidia-api apenas encontrando um MP4 antigo, sem executar comando.
+    // Renascer o revisor não corrige isso: evitar novas sessões e gasto inútil.
+    const renderFalso = job.steps.find((s) =>
+      s.status === 'CONCLUIDO' && (s.provider ?? job.defaultProvider) !== 'local-shell' &&
+      (s.provider ?? job.defaultProvider) !== 'gemini-video' && etapaPedeRenderizacaoMotion(s));
+    const renderReal = job.steps.some((s) =>
+      (s.provider ?? job.defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
+    if (renderFalso && !renderReal) {
+      throw new ConflictException(
+        `O plano antigo marcou "${renderFalso.key}" como renderizado pela IA sem executar o renderizador; ` +
+        'retomar repetiria a revisão sem produzir vídeo. Não é seguro aprovar o MP4 anterior. ' +
+        'Replaneje a renderização com fonte motion/<pasta> explícita, executor local-shell e novo nome de MP4; ' +
+        'os arquivos e resultados anteriores foram preservados.');
     }
     // Uma sessão ainda em andamento (worker vivo encerrando o processo depois do "Pausar") impede a retomada:
     // senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace. "Continuar" logo depois de "Pausar"
