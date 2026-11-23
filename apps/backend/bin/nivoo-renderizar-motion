@@ -29,10 +29,15 @@ const opt = (nome, padrao) => {
   const i = args.indexOf(nome);
   return i >= 0 ? args[i + 1] : padrao;
 };
-const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo']);
+const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo','--motor']);
 const alvoBruto = args.find((a, i) => !a.startsWith('--') && !flagsWithValue.has(args[i - 1]));
 if (!alvoBruto) {
   console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
+  process.exit(2);
+}
+const motorExigido = opt('--motor', 'auto');
+if (!['auto','scene','hybrid'].includes(motorExigido)) {
+  console.error('MOTION_CONTRATO: --motor precisa ser auto, scene ou hybrid');
   process.exit(2);
 }
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
@@ -42,11 +47,12 @@ if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
   const manifest = path.join(entrada, 'scene.json');
   // Projetos novos usam cenas estruturadas pelo núcleo. Projetos HTML
   // anteriores continuam compatíveis sem migração ou alteração dos arquivos.
-  entrada = fs.existsSync(manifest) ? manifest : path.join(entrada, 'index.html');
+  entrada = motorExigido === 'scene' || (motorExigido === 'auto' && fs.existsSync(manifest))
+    ? manifest : path.join(entrada, 'index.html');
 }
 if (!fs.existsSync(entrada)) {
-  console.error(`nivoo-renderizar-motion: não achei a animação: ${alvoBruto} (esperava scene.json ou index.html)`);
-  process.exit(1);
+  console.error(`MOTION_CONTRATO: composição ${alvoBruto} incompleta para motor ${motorExigido}: ${path.basename(entrada)} ausente. Nenhum quadro será capturado.`);
+  process.exit(4);
 }
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
 if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
@@ -86,6 +92,11 @@ function motionSceneCore() {
 }
 
 (async () => {
+  // Vínculo real com o núcleo: estrutura/asset/motor obrigatórios são testados
+  // ANTES de iniciar Chromium e antes de gerar qualquer quadro.
+  const contract = motionSceneCore().checkMotionSource(alvoBruto, motorExigido);
+  console.log('nivoo-renderizar-motion: MOTION_CORE_CONECTADO modo=' + contract.mode +
+    ', camadas=' + contract.layers + '; fonte validada antes da captura');
   const { chromium } = playwrightCore();
   const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
   let navegador;
@@ -136,7 +147,16 @@ function motionSceneCore() {
         const { loadScene, overlayScript } = motionSceneCore();
         const { scene, binaries } = loadScene(overlayPath);
         if (scene.width !== W || scene.height !== H) throw new Error(
-          `Overlay de mídia ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}`);
+          `MOTION_CONTRATO: overlay ${scene.width}x${scene.height} difere de saída ${W}x${H}`);
+        // O relógio do overlay usa tempo de ORIGEM do WebGL; a duração
+        // declarada deve ser a da composição antes de qualquer aceleração.
+        const sourceDuration=Number(await pagina.evaluate(()=>window.__motionSegundos));
+        if (Number.isFinite(sourceDuration) && sourceDuration>0 &&
+            Math.abs(scene.duration-sourceDuration)>0.12) {
+          throw new Error('MOTION_CONTRATO: overlays.json.duration='+scene.duration+
+            ' deve coincidir com a duração original do HTML/WebGL ('+sourceDuration+
+            's), não com a duração acelerada do MP4.');
+        }
         await pagina.evaluate((size) => {
           const canvas = document.createElement('canvas');
           canvas.id = 'nivoo-overlay';

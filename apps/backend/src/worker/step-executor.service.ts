@@ -886,6 +886,21 @@ export class StepExecutorService {
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
 
+    // Fonte motion incompatível com o motor declarado no plano é falha de
+    // contrato, não uma reprovação artística. Não abrir mais sessões nem
+    // repetir o render; o produtor precisa corrigir o FORMATO da fonte.
+    // O diagnóstico é emitido pelo mesmo núcleo que o render usa.
+    if (attemptStatus !== 'SUCESSO' && /MOTION_CONTRATO:/.test(result.error ?? '')) {
+      const causa = (result.error ?? '').slice(0, 1700);
+      await L('CONTRATO MOTION: a fonte não corresponde ao motor escolhido. Sem nova tentativa automática. ' +
+        causa, 'ERROR', attempt.id);
+      await this.checkpoint(job.id, step, worktree, 'fonte motion fora do contrato do motor', { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        'A composição ainda não foi preparada corretamente para o motor Nivoo. ' +
+        causa + '. Arquivos preservados, sem renderização nem loop de conferência. ' +
+        'O Nivo precisa corrigir a fonte da etapa, não pedir ao usuário para depurar ferramentas.');
+    }
+
     if (attemptStatus === 'SESSAO_ENCERRADA') {
       const reprovacaoVisual = parecerVisualNaoAprovado(worktree, step.verifyCommand ?? '');
       if (reprovacaoVisual) {
