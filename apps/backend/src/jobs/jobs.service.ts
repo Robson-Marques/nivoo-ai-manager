@@ -5,6 +5,7 @@ import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
 import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
+import { conectarMotorMotion } from './motion-core-routing';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -248,7 +249,8 @@ export class JobsService {
     const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
     const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
     const etapasComDependencias = dependenciasDeMontagemPorArquivo(etapasComVideo, defaultProvider);
-    const brutas = comPreflightVisual(etapasComDependencias, defaultProvider);
+    const etapasNoMotor = conectarMotorMotion(etapasComDependencias, defaultProvider, objective);
+    const brutas = comPreflightVisual(etapasNoMotor, defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
@@ -268,7 +270,9 @@ export class JobsService {
     const etapasComPrioridade = aplicarPrioridadeDosExecutores(etapasRoteadas, defaultProvider);
     const etapasComVideo = comVideoCompleto(etapasComPrioridade, defaultProvider);
     const etapasComDependencias = dependenciasDeMontagemPorArquivo(etapasComVideo, defaultProvider);
-    const steps = this.parseSteps(comPreflightVisual(etapasComDependencias, defaultProvider), defaultProvider);
+    // Mesma rota usada na prévia do plano e no trabalho executável.
+    const etapasNoMotor = conectarMotorMotion(etapasComDependencias, defaultProvider, objective);
+    const steps = this.parseSteps(comPreflightVisual(etapasNoMotor, defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
