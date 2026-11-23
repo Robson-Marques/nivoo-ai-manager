@@ -147,7 +147,16 @@ function motionSceneCore() {
         const { loadScene, overlayScript } = motionSceneCore();
         const { scene, binaries } = loadScene(overlayPath);
         if (scene.width !== W || scene.height !== H) throw new Error(
-          `Overlay de mídia ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}`);
+          `MOTION_CONTRATO: overlay ${scene.width}x${scene.height} difere de saída ${W}x${H}`);
+        // O relógio do overlay usa tempo de ORIGEM do WebGL; a duração
+        // declarada deve ser a da composição antes de qualquer aceleração.
+        const sourceDuration=Number(await pagina.evaluate(()=>window.__motionSegundos));
+        if (Number.isFinite(sourceDuration) && sourceDuration>0 &&
+            Math.abs(scene.duration-sourceDuration)>0.12) {
+          throw new Error('MOTION_CONTRATO: overlays.json.duration='+scene.duration+
+            ' deve coincidir com a duração original do HTML/WebGL ('+sourceDuration+
+            's), não com a duração acelerada do MP4.');
+        }
         await pagina.evaluate((size) => {
           const canvas = document.createElement('canvas');
           canvas.id = 'nivoo-overlay';
