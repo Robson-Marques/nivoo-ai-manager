@@ -22,7 +22,13 @@ async function main() {
   };
   validateScene(scene);
   assert.throws(()=>validateScene({...scene,layers:[scene.layers[0],scene.layers[0]]}),/duplicado/);
-  assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../secreto.png'}]}),/asset local inválido/);
+  // O motor aceita UMA subida para reutilizar assets de uma pasta irmã em motion/.
+  // Esse suporte foi integrado depois do teste antigo, que rejeitava qualquer ../.
+  assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../antigo/assets/pizza.js'}]}));
+  // Duas subidas permitem escapar da pasta motion/: devem ser recusadas ainda
+  // na validação, antes de carregar imagens ou iniciar uma renderização.
+  assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../../secreto.png'}]}),/asset local inválido/);
+  assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'/etc/senha.png'}]}),/asset local inválido/);
   assert.throws(()=>validateScene({...scene,pacing:{openingEnd:30}}),/openingEnd/);
   assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],keys:[{at:10},{at:1}]}]}),/ordenados/);
 
