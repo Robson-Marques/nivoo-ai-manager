@@ -22,6 +22,7 @@ import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaC
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
+import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -321,6 +322,20 @@ export class StepExecutorService {
         const outros = (await jobsDaConversa(this.prisma, origem.conversationId)).filter((id) => id !== job.id);
         const resultados = await this.artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
         if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
+        // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
+        const trabalhosAnteriores = await this.prisma.job.findMany({
+          where: { projectId: job.projectId, id: { in: outros } },
+          orderBy: { createdAt: 'asc' }, select: { id: true },
+        });
+        // Fontes anteriores são auxiliares: falha de leitura em um worktree antigo
+        // não pode derrubar a tentativa atual nem iniciar novas sessões para reparar cache.
+        try {
+          const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
+          if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
+          if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
+        } catch (e: any) {
+          await L(`Recuperação auxiliar das fontes motion anteriores indisponível: ${String(e?.message ?? e).slice(0, 300)}; preservando a etapa e os arquivos atuais`, 'WARN');
+        }
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
@@ -390,6 +405,16 @@ export class StepExecutorService {
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
     let logChain = Promise.resolve();
+    let ultimoEvento = Date.now();
+    const progresso = setInterval(() => {
+      const tempo = Math.floor((Date.now() - started) / 1000);
+      const inatividade = Math.floor((Date.now() - ultimoEvento) / 1000);
+      const detail = `Sessão ativa há ${tempo}s; último evento do executor há ${inatividade}s (sem presumir avanço)`;
+      logChain = logChain.then(async () => {
+        await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { statusDetail: detail } }).catch(() => undefined);
+        await this.logs.log(job.id, detail, { stepId: step.id, attemptId: attempt.id, source: `provider:${providerId}` }).catch(() => undefined);
+      });
+    }, 60_000);
     try {
       result = await provider.execute({
         jobId: job.id,
@@ -407,8 +432,9 @@ export class StepExecutorService {
         options: {
           model: projectModel(job.project, providerId),
           ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }),
-          // Um plano não pode sobrescrever a trava de turnos do executor.
-          ...(isAi ? { maxTurns: Math.min(20,Math.max(1,Number(((step.providerOptions ?? {}) as { maxTurns?:number }).maxTurns ?? 20))) } : {}),
+          // Sem corte arbitrário em 20 turnos: a sessão já tem timeout controlado.
+          // Só encaminha um teto se o plano/projeto o configurou explicitamente.
+          ...((step.providerOptions as { maxTurns?: number } | null)?.maxTurns ? { maxTurns: (step.providerOptions as { maxTurns: number }).maxTurns } : {}),
         },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
         ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
@@ -416,6 +442,7 @@ export class StepExecutorService {
           logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },
         onLog: (line, level = 'INFO') => {
+          ultimoEvento = Date.now();
           logChain = logChain.then(() =>
             this.logs.log(job.id, line, { stepId: step.id, attemptId: attempt.id, level, source: `provider:${providerId}` }).catch(() => undefined),
           );
@@ -424,6 +451,8 @@ export class StepExecutorService {
     } catch (e: any) {
       result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
       registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);
+    } finally {
+      clearInterval(progresso);
     }
     await logChain;
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
@@ -445,7 +474,9 @@ export class StepExecutorService {
     const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
-    const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
+    const verifyCommand = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK :
+      conferenciaTecnicaDeVideo(providerId, step.instructions,
+        (step.providerOptions ?? {}) as Record<string, unknown>, step.verifyCommand ?? undefined);
     let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
     // O renderizador motion grava exclusivamente em midia/saida/. Planos antigos
     // podem pedir --saida out/*.mp4 em verifyCommand; corrigir aqui evita abrir
@@ -1315,6 +1346,14 @@ export class StepExecutorService {
         ...(fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'))
           ? [`Resultados de trabalhos ANTERIORES desta conversa (relatórios, inventários, planos) estão em ${SESSION_CONTEXT_DIR}/resultados/<id do trabalho>/: use-os como base.`]
           : []),
+      ]);
+    }
+    if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'fontes-anteriores'))) {
+      add('fontes-motion', [
+        '## Fontes editáveis de animações anteriores — NÃO recriar sem necessidade',
+        'Consulte contexto/fontes-anteriores/LEIA-ME.txt e as pastas <id>/motion/ antes de escrever uma composição nova.',
+        'São cópias de LEITURA das fontes originais de outros jobs; compare com motion/ atual e reutilize o código e os ativos existentes.',
+        'Escreva somente a versão corrigida em motion/ do trabalho atual. Não altere cópias nem trabalhos anteriores.',
       ]);
     }
     // Versão declarada × última etiqueta do Git: a IA sobe o número certo (o mesmo que o Nivoo vai publicar).

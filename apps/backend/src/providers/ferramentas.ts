@@ -44,6 +44,8 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
     return [
       titulo,
       '- Você (Claude) lê com Read, procura com Grep e Glob e edita com Edit/Write. Não tem terminal (Bash) e não precisa dele.',
+      '- Bash está DESABILITADO inclusive para head/cat; chame Read no arquivo inteiro ou por trechos. Nunca tente Bash, nem em subagentes.',
+      '- Para executar comandos reais (render, ffmpeg, teste, build), a etapa seguinte deve usar local-shell com um comando concreto; não tente executá-los aqui.',
       ...extras,
     ];
   }

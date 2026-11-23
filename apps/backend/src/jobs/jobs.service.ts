@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
 import { aplicarPrioridadeDosExecutores, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
+import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -157,6 +158,7 @@ export class JobsService {
         const m = (providerOptions.mover as Array<{ para: string }>).map((x) => `test -e '${x.para}'`);
         verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
       }
+      verificacao = conferenciaTecnicaDeVideo(provider ?? defaultProvider, instructions, providerOptions, verificacao);
       // Política sobre o que vai RODAR: comandos (verificação; instruções só de etapa de comando). Instrução de IA é texto
       // — "não use rm -rf" ou um achado citando DELETE FROM não é uma ação destrutiva.
       const ehComando = (provider ?? defaultProvider) === 'local-shell';

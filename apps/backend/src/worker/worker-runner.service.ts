@@ -27,11 +27,11 @@ const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
 @Injectable()
 export class WorkerRunnerService {
   private readonly logger = new Logger('Worker');
-  private readonly errosSeguidos = new Map<string, number>();
+  private readonly errosSeguidos = new Map<string, { assinatura: string; total: number }>();
 
   /** Erro interno repetido: a tarefa sai da fila e o trabalho/mensagem mostra o motivo (diagnóstico tem o resto). */
   private async desistirDaTarefa(task: ClaimedTask, motivo: string): Promise<void> {
-    const texto = `erro interno do Nivoo repetido 5 vezes: ${motivo.slice(0, 500)}. Use "Copiar diagnóstico completo" e mande para o suporte; depois "Tentar de novo".`;
+    const texto = `mesmo erro interno do Nivoo repetido 5 vezes: ${motivo.slice(0, 500)}. Execução interrompida para preservar recursos e o checkpoint; verifique o diagnóstico antes de retomar.`;
     await this.queue.complete(task.id, this.workerId);
     if (task.jobId) {
       await this.prisma.$transaction([
@@ -170,8 +170,13 @@ export class WorkerRunnerService {
       }
       // O mesmo erro interno várias vezes seguidas: parar e mostrar o motivo, em vez de repetir a cada 10 s para
       // sempre com o trabalho "executando" na tela.
-      const n = (this.errosSeguidos.get(task.id) ?? 0) + 1;
-      this.errosSeguidos.set(task.id, n);
+      const assinatura = `${e?.code ?? ''}:${String(e?.message ?? e)}`
+        .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '<id>')
+        .replace(/\b\d{2}:\d{2}:\d{2}\b/g, '<hora>')
+        .replace(/\s+/g, ' ').trim().slice(0, 600);
+      const anterior = this.errosSeguidos.get(task.id);
+      const n = anterior?.assinatura === assinatura ? anterior.total + 1 : 1;
+      this.errosSeguidos.set(task.id, { assinatura, total: n });
       if (n >= 5) {
         this.errosSeguidos.delete(task.id);
         await this.desistirDaTarefa(task, String(e?.message ?? e)).catch(() => undefined);

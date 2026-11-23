@@ -193,6 +193,61 @@ export class WorkspaceService {
     return { skipped: a.skipped + b.skipped };
   }
 
+  /**
+   * Recupera fontes editáveis motion de outros trabalhos DA MESMA CONVERSA e projeto.
+   * O catálogo de artefatos guarda out/, não necessariamente index.html/JS/ativos de motion/.
+   * Nunca modifica o job de origem, não segue links e não copia caches ou segredos.
+   */
+  copiarFontesMotionAnteriores(
+    dirKey: string, jobIds: string[], workdir: string, limiteBytes = 80 * 1024 * 1024,
+  ): { arquivos: number; bytes: number; ignorados: number; trabalhos: string[] } {
+    const base = this.projectDirs(dirKey).worktrees;
+    const destino = path.join(workdir, SESSION_CONTEXT_DIR, 'fontes-anteriores');
+    let bytes = 0;
+    let arquivos = 0;
+    let ignorados = 0;
+    const trabalhos: string[] = [];
+    // UUIDs impedem traversal; limita a seis referências para não duplicar mídias enormes.
+    const ids = [...new Set(jobIds)].filter(id => /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)).slice(-6).reverse();
+    for (const id of ids) {
+      const origem = path.join(base, id, 'motion');
+      if (!fs.existsSync(origem) || this.isLink(origem) || !fs.lstatSync(origem).isDirectory()) continue;
+      const pilha: Array<{ abs: string; rel: string }> = [{ abs: origem, rel: '' }];
+      const antes = arquivos;
+      while (pilha.length && arquivos < 500) {
+        const atual = pilha.pop()!;
+        const entradas = fs.readdirSync(atual.abs, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+        for (const entry of entradas) {
+          if (entry.isSymbolicLink() || entry.name.startsWith('.') || entry.name === 'node_modules') { ignorados++; continue; }
+          const rel = path.join(atual.rel, entry.name);
+          const abs = path.join(atual.abs, entry.name);
+          if (entry.isDirectory()) {
+            if (rel.split(path.sep).length <= 8) pilha.push({ abs, rel });
+            else ignorados++;
+            continue;
+          }
+          if (!entry.isFile() || !/\.(?:html?|css|m?js|cjs|jsx|tsx?|json|svg|png|jpe?g|webp|gif|glb|gltf|obj|mtl|md)$/i.test(entry.name)) continue;
+          const size = fs.lstatSync(abs).size;
+          if (arquivos >= 500 || size > 24 * 1024 * 1024 || bytes + size > limiteBytes) { ignorados++; continue; }
+          const alvo = path.join(destino, id.slice(0, 8), 'motion', rel);
+          fs.mkdirSync(path.dirname(alvo), { recursive: true });
+          fs.copyFileSync(abs, alvo);
+          arquivos++;
+          bytes += size;
+        }
+      }
+      if (arquivos > antes) trabalhos.push(id.slice(0, 8));
+    }
+    if (arquivos) {
+      fs.mkdirSync(destino, { recursive: true });
+      fs.writeFileSync(path.join(destino, 'LEIA-ME.txt'),
+        'Fontes originais de motion de trabalhos anteriores (somente referência).\n' +
+        'Edite/COPIE apenas os arquivos necessários para motion/ do trabalho atual.\n' +
+        'As fontes originais permanecem preservadas; não reconstrua do zero sem necessidade.\n' +
+        'Trabalhos: ' + trabalhos.join(', ') + '\n');
+    }
+    return { arquivos, bytes, ignorados, trabalhos };
+  }
   /** Mudanças do worktree em relação ao ponto onde saiu da pasta principal (para a conferência das regras). */
   async diffAgainstMain(worktree: string, maxChars = 60_000): Promise<string> {
     const base = (await this.git(worktree, ['merge-base', 'main', 'HEAD'])).stdout.trim();
