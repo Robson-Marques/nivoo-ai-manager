@@ -73,6 +73,10 @@ function run() {
     fs.writeFileSync(source+'/index.html','<html><body><canvas></canvas></body></html>');
     fs.writeFileSync(source+'/overlays.json',JSON.stringify(standard));
     assert.equal(checkMotionSource(source,'hybrid').mode,'hybrid');
+    // O mesmo produto não pode ser desenhado dentro do HTML e no overlay.
+    fs.writeFileSync(source+'/index.html','<script src="assets/pizza.png"></script>');
+    assert.throws(()=>checkMotionSource(source,'hybrid'),/MOTION_CONTRATO:.*referenciada no index.html/);
+    fs.writeFileSync(source+'/index.html','<html><body><canvas></canvas></body></html>');
     const script=path.resolve(__dirname,'../bin/nivoo-conferir-motion');
     const ok=spawnSync(process.execPath,[script,source,'--modo','hybrid'],{encoding:'utf8'});
     assert.equal(ok.status,0,ok.stderr);
