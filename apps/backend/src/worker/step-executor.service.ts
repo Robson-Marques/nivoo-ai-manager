@@ -783,6 +783,21 @@ export class StepExecutorService {
     await this.checkpoint(job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
     });
+    // Contar a mesma falha antes de agendar outra recaptura: um agente que
+    // altera a composição minimamente a cada volta não pode girar sem fim.
+    const sessions = await this.prisma.attempt.findMany({
+      where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
+      orderBy: { number: 'desc' },
+    });
+    const conferenciaAtual = sessions[0]?.error ?? '';
+    const conferencias = sessions
+      .map((a) => a.error)
+      .filter((erro): erro is string => !!erro && erro.startsWith('verificação da etapa falhou'));
+    if (conferenciaAtual.startsWith('verificação da etapa falhou') &&
+        repeticoesDoMesmoErro(conferencias, conferenciaAtual, step.verifyCommand ?? '') >= MAX_OCORRENCIAS_MESMA_FALHA) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `a mesma conferência da etapa falhou três vezes (sem contar erros distintos): ${conferenciaAtual.slice(-600)}`);
+    }
     // Se a direção de arte mudou HTML/JS após as capturas, a IA NÃO pode
     // aprovar um quadro obsoleto. Voltar aos executores locais automaticamente,
     // preservando a composição e as outras etapas concluídas.
@@ -809,7 +824,8 @@ export class StepExecutorService {
             // Dependência explícita: a revisão não pode disputar a fila com
             // a recaptura de outro quadro do mesmo vídeo.
             dependsOn: [...new Set([...step.dependsOn, ...vencidas])],
-            resumeFromAttempt: number,
+            // Não redefinir resumeFromAttempt ao recapturar: a terceira
+            // ocorrência do MESMO defeito deve continuar contando.
             statusDetail: 'aguardando novas capturas, sem refazer composição',
           },
         });
@@ -821,10 +837,6 @@ export class StepExecutorService {
       await this.orchestrator.scheduleReady(job.id);
       return 'CONTINUA';
     }
-    const sessions = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
-      orderBy: { number: 'desc' },
-    });
     // Uma sessão nova é válida quando existe progresso ou erro corrigível novo.
     // Só paramos após repetir a mesma falha ou não haver progresso.
     const recent = sessions.slice(0, MAX_OCORRENCIAS_MESMA_FALHA);
@@ -836,15 +848,6 @@ export class StepExecutorService {
     }
     // A conferência da etapa falhando sempre igual, sessão após sessão: a IA mexe em arquivos (parece avanço),
     // mas não resolve o que a conferência cobra. Para e explica, em vez de girar sem fim.
-    const conferencias = sessions
-      .map((a) => a.error)
-      .filter((erro): erro is string => !!erro && erro.startsWith('verificação da etapa falhou'));
-    const erroConferencia = sessions[0]?.error ?? '';
-    if (erroConferencia.startsWith('verificação da etapa falhou') &&
-        repeticoesDoMesmoErro(conferencias, erroConferencia, step.verifyCommand ?? '') >= MAX_OCORRENCIAS_MESMA_FALHA) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `a mesma conferência da etapa falhou três vezes (sem contar erros distintos): ${erroConferencia.slice(-600)}`);
-    }
     // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
     // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
     const janelaLonga = Math.max(8, job.repetitionWindow * 4);
