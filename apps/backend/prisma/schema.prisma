@@ -175,6 +175,10 @@ model ConversationMessage {
   /// Enquanto a IA responde: a última atividade dela (ex.: "[ferramenta] Read src/app.ts"), para a tela.
   andamento      String?
   createdAt      DateTime      @default(now())
+  /// Primeiro momento em que o worker invocou o provedor; null = resposta barrada antes da IA.
+  startedAt      DateTime?
+  /// Hora em que a resposta efetivamente ficou pronta/erro/cancelada (não confundir com createdAt).
+  completedAt    DateTime?
 
   tasks QueueTask[]
 }

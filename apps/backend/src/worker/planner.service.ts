@@ -77,6 +77,24 @@ export class PlannerService {
       await this.queue.complete(task.id, workerId);
       return;
     }
+    // Telemetria do planejamento: registrada no journalctl -u nivoo-worker.
+    // Sem prompt, resposta, caminho privado ou chave de API no log.
+    const entrouNoWorkerMs = Date.now();
+    const registrarTempo = (evento: string, extras: Record<string, string | number | boolean | null | undefined> = {}) => {
+      const agora = Date.now();
+      console.info('[NIVOO_PLANO_TEMPO] ' + JSON.stringify({
+        instante: new Date(agora).toISOString(),
+        mensagemId: msg.id,
+        conversaId: msg.conversationId,
+        projetoId: msg.conversation.project.id,
+        enviadaEm: msg.createdAt.toISOString(),
+        desdeEnvioMs: Math.max(0, agora - msg.createdAt.getTime()),
+        desdeEntradaWorkerMs: Math.max(0, agora - entrouNoWorkerMs),
+        evento,
+        ...extras,
+      }));
+    };
+    registrarTempo('worker_recebeu', { tipo: msg.kind ?? 'normal' });
     // Uma resposta por vez em cada conversa: a mais antiga primeiro (ex.: a entrega de um trabalho chega
     // enquanto a IA ainda responde ao usuário).
     const antes = await this.prisma.conversationMessage.findFirst({
@@ -84,13 +102,17 @@ export class PlannerService {
       orderBy: { createdAt: 'asc' },
     });
     if (antes && (antes.createdAt < msg.createdAt || antes.id < msg.id)) {
+      registrarTempo('aguarda_resposta_anterior');
       await this.queue.requeue(task.id, workerId, new Date(Date.now() + 5_000), 'espera a resposta anterior da conversa');
       return;
     }
     const project = msg.conversation.project;
     const fail = async (texto: string) => {
       // Só se ainda estiver pendente: o usuário pode ter cancelado a resposta.
-      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto } });
+      registrarTempo('erro_antes_ou_sem_execucao', {
+        codigo: texto.includes('limite de gasto') ? 'LIMITE_INTERNO' : texto.includes('não está conectada') ? 'PROVEDOR_INDISPONIVEL' : 'PREPARACAO',
+      });
+      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
       await this.queue.complete(task.id, workerId);
     };
 
@@ -109,7 +131,15 @@ export class PlannerService {
     // A IA escolhida para o projeto conversa e trabalha; o perfil do projeto vale para qualquer uma.
     let providerId = project.provider;
     if (!this.registry.has(providerId)) return fail(`IA desconhecida: ${providerId}`);
+    const iniciouStatusMs = Date.now();
+    registrarTempo('consulta_status_inicio', { provedor: providerId });
     let status = await this.registry.status(providerId, 15_000);
+    registrarTempo('consulta_status_fim', {
+      provedor: providerId,
+      duracaoMs: Date.now() - iniciouStatusMs,
+      disponivel: status.available,
+      limite429: status.errors.some((x) => /(?:HTTP\s*429|Too Many Requests)/i.test(x)),
+    });
     let trocou = '';
     if (!status.available) {
       // IA reserva do projeto: responde com a próxima conectada em vez de parar.
@@ -119,6 +149,7 @@ export class PlannerService {
         providerId = reserva.id;
         project.provider = reserva.id;
         status = await this.registry.status(providerId, 0);
+        registrarTempo('status_reserva', { provedor: providerId, disponivel: status.available });
       }
     }
     if (!status.available) {
@@ -170,6 +201,14 @@ export class PlannerService {
           .catch(() => undefined)
           .finally(() => (gravando = null));
       };
+      // Registrar quando a execução pelo provedor foi SOLICITADA.
+      // Se um erro de configuração ocorrer antes, startedAt permanece null.
+      await this.prisma.conversationMessage.updateMany({
+        where: { id: msg.id, status: 'PENDENTE', startedAt: null },
+        data: { startedAt: new Date() },
+      });
+      const iniciouIaMs = Date.now();
+      registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs });
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -189,6 +228,19 @@ export class PlannerService {
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
         },
         onLog: (linha) => gravarAndamento(linha),
+      }).catch((e: unknown) => {
+        registrarTempo('ia_chamada_excecao', { provedor: providerId, duracaoMs: Date.now() - iniciouIaMs, tipo: e instanceof Error ? e.name : 'erro' });
+        throw e;
+      });
+      registrarTempo('ia_chamada_fim', {
+        provedor: providerId,
+        duracaoMs: Date.now() - iniciouIaMs,
+        codigoSaida: result.exitCode,
+        recursoIndisponivel: !!result.resourceUnavailable,
+        erroHttp: /\bHTTP\s*(\d{3})\b/i.exec(String(result.error ?? ''))?.[1] ?? null,
+        respostaCaracteres: result.output?.length ?? 0,
+        tokensEntrada: result.inputTokens ?? 0,
+        tokensSaida: result.outputTokens ?? 0,
       });
       await gravando;
       if (result.interrupted) {
@@ -200,6 +252,7 @@ export class PlannerService {
       if (result.resourceUnavailable) {
         const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
         if (reserva) {
+          registrarTempo('reencaminhada_para_reserva', { provedorAnterior: providerId, proximoProvedor: reserva.id });
           await this.prisma.conversationMessage.create({
             data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `${reserva.anterior} ficou indisponível (${(result.error ?? '').slice(0, 200)}). Quem responde agora é ${reserva.nome}, que passou a ser a IA do projeto.` },
           });
@@ -208,6 +261,7 @@ export class PlannerService {
         }
       }
       let parsed = extractJson(result.output);
+      registrarTempo('resposta_interpretada', { tipo: parsed?.tipo ?? (parsed ? 'json_sem_tipo' : 'sem_json'), temPlano: !!parsed?.job });
       let kind = 'resposta';
       let content = result.output.trim();
       let plan: Prisma.InputJsonValue | undefined;
@@ -226,9 +280,11 @@ export class PlannerService {
           ? 'A IA usou todos os passos desta resposta sem terminar (pedido grande demais para uma resposta). Envie "continue", ou peça por partes.'
           : 'A IA terminou sem responder nada. Envie a mensagem de novo; se repetir, troque a IA do projeto no topo da conversa.';
       } else if (parsed?.tipo === 'plano') {
+        registrarTempo('validacao_plano_inicio', { etapas: Array.isArray(parsed.job?.steps) ? parsed.job.steps.length : 0 });
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId });
+          registrarTempo('validacao_plano_aprovada');
           // Anexos que o plano coloca no projeto (o sistema copia ao aprovar; só anexos desta conversa).
           const noProjeto = Array.isArray(parsed.job?.anexosNoProjeto)
             ? parsed.job.anexosNoProjeto
@@ -243,6 +299,7 @@ export class PlannerService {
           // Uma única correção interna, com o erro exato do contrato, e nova validação.
           // Sem executar trabalho nem inventar limiares numéricos.
           const erroInicial = String(e?.response?.message ?? e?.message ?? 'plano inválido').slice(0, 700);
+          registrarTempo('validacao_plano_reprovada', { tipoErro: e?.name ?? 'erro', motivoCodigo: /local-shell|renderizar-motion/.test(erroInicial) ? 'RENDER_MOTION' : 'OUTRA_VALIDACAO' });
           let reparoErro = erroInicial;
           gravarAndamento('Conferindo o plano: ajustando uma configuração inválida antes de apresentar.');
           try {
@@ -259,6 +316,8 @@ export class PlannerService {
               'JSON ANTERIOR:',
               JSON.stringify(parsed).slice(0, 24000),
             ].join('\n');
+            const iniciouReparoMs = Date.now();
+            registrarTempo('reparo_ia_inicio', { provedor: providerId });
             const reparo = await this.registry.get(providerId).execute({
               jobId: 'conversa', stepId: msg.conversationId, attemptId: msg.id,
               instructions: instrucaoReparo, context: '', cwd: tmp,
@@ -269,11 +328,23 @@ export class PlannerService {
               options: { maxTurns: 3, model: projectModel(project, providerId) },
               onLog: (linha) => gravarAndamento(linha),
             });
+            registrarTempo('reparo_ia_fim', {
+              provedor: providerId,
+              duracaoMs: Date.now() - iniciouReparoMs,
+              codigoSaida: reparo.exitCode,
+              recursoIndisponivel: !!reparo.resourceUnavailable,
+              erroHttp: /\bHTTP\s*(\d{3})\b/i.exec(String(reparo.error ?? ''))?.[1] ?? null,
+              respostaCaracteres: reparo.output?.length ?? 0,
+              tokensEntrada: reparo.inputTokens ?? 0,
+              tokensSaida: reparo.outputTokens ?? 0,
+            });
             if (reparo.interrupted || signal.aborted) return;
             if (reparo.exitCode !== 0 || reparo.resourceUnavailable) throw new Error(reparo.error ?? 'reparo indisponível');
             const corrigido = extractJson(reparo.output);
+            registrarTempo('reparo_json_interpretado', { tipo: corrigido?.tipo ?? 'sem_json', temPlano: !!corrigido?.job });
             if (corrigido?.tipo !== 'plano' || !corrigido.job) throw new Error('A correção não retornou um plano estruturado');
             const validado = this.jobs.validatePlan({ ...corrigido.job, defaultProvider: providerId });
+            registrarTempo('reparo_plano_aprovado');
             const noProjeto = Array.isArray(corrigido.job?.anexosNoProjeto)
               ? corrigido.job.anexosNoProjeto
                   .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && caminhoDoProjeto(x?.para))
@@ -285,6 +356,7 @@ export class PlannerService {
             content = String(corrigido.texto ?? parsed.texto ?? 'Plano conferido e corrigido.');
           } catch (erroReparo: any) {
             reparoErro = String(erroReparo?.response?.message ?? erroReparo?.message ?? 'reparo inválido').slice(0, 700);
+            registrarTempo('reparo_plano_falhou', { tipoErro: erroReparo?.name ?? 'erro', motivoCodigo: reparoErro.includes('não retornou um plano estruturado') ? 'JSON_NAO_E_PLANO' : 'OUTRO_ERRO' });
             kind = 'resposta';
             content = `A configuração do plano ainda está inválida e não será executada. Erro: ${reparoErro}. A versão anterior foi preservada. O Nivoo tentou uma correção interna, mas não conseguiu validá-la.`;
           }
@@ -324,13 +396,20 @@ export class PlannerService {
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,
+          completedAt: new Date(),
         },
       });
       // Resposta cancelada pelo usuário enquanto a IA trabalhava: o custo da sessão conta mesmo assim.
+      registrarTempo('resposta_gravada', {
+        gravada: gravada.count > 0,
+        status: erro ? 'ERRO' : 'PRONTA',
+        tipo: kind,
+        custoUsd: result.costUsd ?? 0,
+      });
       if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
       if (gravada.count && !erro && plan) {
         const alvo = planoDaEntrega
-          ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega } })).id
+          ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
           : msg.id;
         await this.seguirSozinho(project.id, msg.conversationId, alvo, parsed?.continuacao === true);
       }

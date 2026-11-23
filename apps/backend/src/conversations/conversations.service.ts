@@ -224,7 +224,7 @@ export class ConversationsService {
     const ids = msgs.map((m) => m.id);
     await prisma.$transaction([
       prisma.queueTask.updateMany({ where: { messageId: { in: ids }, status: { in: ['QUEUED', 'RUNNING'] } }, data: { status: 'CANCELLED', lockedUntil: null } }),
-      prisma.conversationMessage.updateMany({ where: { id: { in: ids }, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: 'Resposta cancelada.' } }),
+      prisma.conversationMessage.updateMany({ where: { id: { in: ids }, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: 'Resposta cancelada.', completedAt: new Date() } }),
     ]);
     return ids.length;
   }
