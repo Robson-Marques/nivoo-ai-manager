@@ -35,10 +35,14 @@ async function main() {
     const outputPath = path.join(dir, 'saida', 'motion.mp4');
     const opts = { outputPath, sourcePath, seconds: 0.4, width: 16, height: 16 };
     let firstCalls = 0;
-    function page(screenshot) {
+    const overlayFrames = [];
+    function page(screenshot, hasOverlay = false) {
       return {
         clock: { pauseAt: async () => { throw new Error('helper não deve pausar relógio após goto'); }, runFor: async () => {} },
-        evaluate: async () => Date.now(),
+        evaluate: async (_fn, frameSec) => {
+          if (frameSec !== undefined) { overlayFrames.push(frameSec); return null; }
+          return hasOverlay;
+        },
         screenshot,
       };
     }
@@ -54,8 +58,10 @@ async function main() {
     assert.equal(fs.readdirSync(cacheDir).filter(f => f.endsWith('.jpg')).length, 5);
     let secondCalls = 0;
     const result = await renderMotionOffline({
-      ...opts, page: page(async () => { secondCalls++; return sample; }),
+      ...opts, page: page(async () => { secondCalls++; return sample; }, true),
     });
+    assert.equal(overlayFrames.length, 5);
+    assert.deepEqual(overlayFrames.map(t=>Math.round(t*25)), [5,6,7,8,9]);
     assert.equal(firstCalls, 6);
     assert.equal(secondCalls, 5);
     assert.equal(result.reused, 5);
