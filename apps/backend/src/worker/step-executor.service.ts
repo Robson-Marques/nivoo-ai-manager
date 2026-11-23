@@ -327,9 +327,15 @@ export class StepExecutorService {
           where: { projectId: job.projectId, id: { in: outros } },
           orderBy: { createdAt: 'asc' }, select: { id: true },
         });
-        const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
-        if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
-        if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
+        // Fontes anteriores são auxiliares: falha de leitura em um worktree antigo
+        // não pode derrubar a tentativa atual nem iniciar novas sessões para reparar cache.
+        try {
+          const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
+          if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
+          if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
+        } catch (e: any) {
+          await L(`Recuperação auxiliar das fontes motion anteriores indisponível: ${String(e?.message ?? e).slice(0, 300)}; preservando a etapa e os arquivos atuais`, 'WARN');
+        }
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
       repoHarness = await this.workspace.hideRepoHarness(worktree);
