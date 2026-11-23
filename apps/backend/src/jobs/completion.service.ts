@@ -198,10 +198,6 @@ export class CompletionService {
         { source: 'evaluator', level: 'WARN' });
       return false;
     }
-    const cobranca = [
-      ...violacoesAgora.map((v) => v.slice(0, 300)),
-      ...falhas.filter((f) => f.key !== RULE_REVIEW_STEP).map((f) => `${f.key} — ${criterios.find((c) => c.key === f.key)?.description ?? ''}`),
-    ];
     // Uma ocorrência anterior da MESMA assinatura pede abordagem diferente/IA
     // reserva. Uma falha nova não herda a repetição de outra.
     const repetidas = Math.max(0, ...recorrencias.map((f) => f.ocorrencias - 1));
