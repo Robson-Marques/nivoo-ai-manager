@@ -25,7 +25,7 @@ describe('Recuperar trilha de vídeo sem recriar projeto ou trocar música', () 
 
   it('aceita mudança de extensão quando a identidade é inequívoca', () => {
     const r = escolherTrilha(pedido, [fonte('Black na sua Quinta Trilha Instrumental.wav')]);
-    expect(r.motivo).toBe('basename' /* se nome exato com outra extensão? */);
+    expect(r.motivo).toBe('similar-unica');
   });
 
   it('não escolhe música de Finanças para vídeo Black na sua Quinta', () => {
