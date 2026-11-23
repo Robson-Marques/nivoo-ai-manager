@@ -1,4 +1,5 @@
 name: One-off recovery validation
+# Validar configuração Jest definitiva e regressões.
 # Reexecução após alinhar os testes de regressão com a entrega determinística.
 on:
   push:
