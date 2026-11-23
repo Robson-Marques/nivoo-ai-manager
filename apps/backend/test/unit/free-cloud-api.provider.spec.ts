@@ -61,6 +61,7 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
       { id: 'openai/gpt-5', supported_parameters: ['tools'] },
       { id: 'meta/free-chat:free', supported_parameters: ['tools'] },
       { id: 'meta/free-simples:free', supported_parameters: ['response_format'] },
+      { id: 'meta/model-falso:free', supported_parameters: ['tools'], pricing: { prompt: '0.50', completion: '0' } },
       { id: 'nvidia/free-embed:free', supported_parameters: ['tools'] },
     ] }), { status: 200 }));
     const opcoes = await new OpenRouterFreeProvider().modelos();
@@ -68,6 +69,7 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
     expect(opcoes.map(m => m.id)).toContain('meta/free-chat:free');
     expect(opcoes.map(m => m.id)).not.toContain('openai/gpt-5');
     expect(opcoes.map(m => m.id)).not.toContain('meta/free-simples:free');
+    expect(opcoes.map(m => m.id)).not.toContain('meta/model-falso:free');
   });
 
   it('guarda várias chaves separadas sem compartilhar a conta', () => {
