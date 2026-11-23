@@ -435,12 +435,12 @@ export class PlannerService {
     const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: { include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } }, attempts: { orderBy: { number: 'desc' }, take: 6 } } });
     if (!job) return '';
     // Trabalho que PAROU (bloqueado/falhou): a IA recebe o erro para DIAGNOSTICAR e PROPOR UM PLANO que conserta.
-    if (job.status === 'BLOQUEADO' || job.status === 'FALHOU') {
+    if (job.status === 'BLOQUEADO' || job.status === 'FALHOU' || job.status === 'AGUARDANDO_RECURSO') {
       const logs = await this.prisma.logEntry.findMany({ where: { jobId }, orderBy: { id: 'desc' }, take: 18 });
-      const etapaRuim = job.steps.find((s) => s.status === 'BLOQUEADO' || s.status === 'FALHOU') ?? job.steps[job.steps.length - 1];
+      const etapaRuim = job.steps.find((s) => ['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) ?? job.steps[job.steps.length - 1];
       const tentativasDaEtapa = job.attempts.filter((a) => a.stepId === etapaRuim?.id).slice(0, 3);
       return [
-        `O TRABALHO PAROU COM ERRO (não concluiu): "${job.title}" — status ${job.status}${job.blockedReason ? ` (${job.blockedReason})` : ''}.`,
+        `${job.status === 'AGUARDANDO_RECURSO' ? 'O TRABALHO AGUARDA UM RECURSO/ARQUIVO (não foi concluído)' : 'O TRABALHO PAROU COM ERRO (não concluiu)'}: "${job.title}" — status ${job.status}${job.blockedReason ? ` (${job.blockedReason})` : ''}.`,
         `Objetivo do trabalho: ${job.objectives[0]?.text ?? ''}`,
         `Motivo da parada: ${(job.statusDetail ?? '').replace(/\s+/g, ' ').slice(0, 800) || '(sem detalhe)'}`,
         `Etapa com problema: "${etapaRuim?.title || etapaRuim?.key}" (executor ${etapaRuim?.provider ?? job.defaultProvider}).`,
