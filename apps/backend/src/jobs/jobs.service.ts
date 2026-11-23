@@ -466,9 +466,18 @@ export class JobsService {
     if (fechando) {
       throw new ConflictException(`A sessão #${fechando.number} ainda está sendo encerrada pelo worker ${fechando.workerId}. Aguarde alguns segundos e clique em Continuar de novo.`);
     }
-    // Retomar uma revisão visual bloqueada primeiro refaz as capturas vencidas,
-    // em vez de iniciar outra sessão de IA com os mesmos PNGs antigos.
-    const pasta = await this.pastaDoTrabalho(projectId, jobId);
+    // Em jobs motion antigos, o núcleo inseria uma revisão de IA compulsória
+    // ANTES do render. Ela podia bloquear toda a entrega apesar de o HTML e
+    // os quadros já existirem. A retomada conserva o histórico, dispensa
+    // somente essa etapa EXTRA e executa as etapas produtivas pendentes.
+    // Isso NÃO equivale a certificar a qualidade artística do vídeo.
+    const motionLegadoBloqueado = job.blockedReason === BlockedReason.CRITERIOS_NAO_ATENDIDOS &&
+      job.steps.some((s) => (s.provider ?? job.defaultProvider) === 'local-shell' &&
+        /\\bnivoo-renderizar-motion\\b/.test(s.instructions)) &&
+      job.steps.some((s) => /^direcao-arte-/.test(s.key) && s.status === 'BLOQUEADO');
+    // Se o fluxo é direto, não há razão para gerar outra captura só para
+    // alimentar o revisor artificial que foi dispensado.
+    const pasta = motionLegadoBloqueado ? null : await this.pastaDoTrabalho(projectId, jobId);
     const revisoresBloqueados = job.steps.filter((etapa) =>
       ['BLOQUEADO', 'FALHOU'].includes(etapa.status) && /^direcao-arte-/.test(etapa.key));
     const recapturar = new Set<string>(
@@ -479,6 +488,17 @@ export class JobsService {
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       for (const s of job.steps) {
+        if (motionLegadoBloqueado && /^direcao-arte-/.test(s.key)) {
+          // Registrar como etapa DISPENSADA, nunca como parecer conforme.
+          // ExecStatus não possui estado SKIPPED: o statusDetail documenta
+          // que nenhuma aprovação artística foi presumida. Mantemos
+          // tentativas, arquivos, snapshots e dependências originais.
+          await tx.step.update({ where: { id: s.id }, data: {
+            status: 'CONCLUIDO',
+            statusDetail: 'Dispensada: revisão visual adicional antiga do Nivoo, sem aprovação artística; seguir para renderização da composição existente',
+          } });
+          continue;
+        }
         const ultima = await tx.attempt.aggregate({ where: { stepId: s.id }, _max: { number: true } });
         const recomeco = { resumeFromAttempt: ultima._max.number ?? 0 }; // limites contam a partir da retomada
         if (recapturar.has(s.key) && s.status === 'CONCLUIDO') {
@@ -512,7 +532,10 @@ export class JobsService {
         data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `retomado por ${by}`, finishedAt: null, startedAt: job.startedAt ?? new Date() },
       });
     });
-    await this.logs.log(jobId, `Job retomado por ${by} a partir do último checkpoint${recapturar.size ? '; recapturar ' + [...recapturar].join(', ') + ' antes de revisar' : ''}`);
+    await this.logs.log(jobId,
+      `Job retomado por ${by} a partir do último checkpoint${motionLegadoBloqueado
+        ? '; revisão visual adicional legada dispensada SEM certificar qualidade; render/montagem prosseguem'
+        : recapturar.size ? '; recapturar ' + [...recapturar].join(', ') + ' antes de revisar' : ''}`);
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);
   }
