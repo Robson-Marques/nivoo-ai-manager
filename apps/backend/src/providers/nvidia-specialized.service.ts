@@ -125,8 +125,20 @@ export class NvidiaSpecializedService {
     const model = modeloSeguro(input?.modelo);
     if (!modeloDeChatConhecido(model)) throw new BadRequestException('Modelo não confirmado como Chat Completions; escolha um modelo de conversa');
     const prompt = texto(input?.prompt, 'prompt', 15000);
+    // Riva Translate v2 requires source-target locale code in the system
+    // message; plain natural-language "traduza..." is not sufficient.
+    const idiomas = new Set(['en','pt-br','pt-pt','es-es','es-us','fr','de','it','ja','zh-cn','zh-tw','ko','ru']);
+    const riva = model === 'nvidia/riva-translate-4b-instruct-v2';
+    const origem = String(input?.idiomaOrigem ?? 'pt-br').toLowerCase();
+    const destino = String(input?.idiomaDestino ?? 'en').toLowerCase();
+    if (riva && (!idiomas.has(origem) || !idiomas.has(destino) || origem === destino)) {
+      throw new BadRequestException('Informe idiomas de origem e destino diferentes e suportados pelo Riva');
+    }
+    const messages = riva
+      ? [{ role: 'system', content: origem + '-' + destino }, { role: 'user', content: prompt }]
+      : [{ role: 'user', content: prompt }];
     const r = await this.post(conexao, NVIDIA_SPECIAL_ENDPOINTS.chat, {
-      model, messages: [{ role: 'user', content: prompt }], stream: false,
+      model, messages, stream: false,
       max_tokens: numeroLimitado(input?.maxTokens, 'maxTokens', 1200, 1, 4096),
     });
     const output = r?.choices?.[0]?.message?.content;
