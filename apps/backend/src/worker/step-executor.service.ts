@@ -207,7 +207,7 @@ export class StepExecutorService {
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
     if (providerId === 'local-shell' && /\bnivoo-(?:conferir-arte|renderizar-motion)\b/.test(step.instructions)) {
-      const espaco = armazenamentoDisponivel(['/', worktree, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
+      const espaco = armazenamentoDisponivel(['/', this.workspace.projectDirs(job.project.dirKey).root, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
       if (!espaco.ok) {
         const gb = ((espaco.livre ?? 0) / (1024 ** 3)).toFixed(2);
         return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
@@ -243,6 +243,20 @@ export class StepExecutorService {
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
     const knowledgeDir = this.workspace.projectDirs(job.project.dirKey).knowledge;
     const outputDir = path.join(worktree, 'out');
+
+    // Antes de iniciar outro Claude: este trabalho pode já acumular revisões
+    // reprovadas de uma versão anterior do Nivoo. Bloquear sem gastar mais uma
+    // sessão (inclusive em jobs retomados após atualização do servidor).
+    if (/^direcao-arte-/.test(step.key)) {
+      const revisoes = await this.prisma.attempt.count({
+        where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
+      });
+      if (revisaoVisualEsgotada(step.key, revisoes)) {
+        const detalhe = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
+        return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+          `Revisão visual pausada após ${revisoes} reprovações automáticas; os arquivos do vídeo estão preservados. ${(detalhe ?? 'Revise os PNGs e parecer visual antes de continuar.').slice(0, 1200)}`);
+      }
+    }
 
     const isAi = provider.kind !== 'executor';
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
