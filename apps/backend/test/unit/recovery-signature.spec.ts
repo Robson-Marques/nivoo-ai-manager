@@ -82,6 +82,18 @@ describe('recuperação progressiva: três ocorrências do MESMO defeito', () =>
     expect(repeticoesDoMesmoErro([a, b, a, a], a, 'npm test')).toBe(3);
   });
 
+  it('fluxo de vídeo: erros diferentes de legendas, transições e render não são o mesmo erro', () => {
+    const legendas = revisar('Legendas do vídeo sobrepõem a marca');
+    const transicoes = revisar('Transições 3D não seguem o roteiro visual');
+    const montagem = revisar('Renderização do MP4 falhou por saída inválida');
+    const anteriores = [
+      correcao(1, [legendas.hash]),
+      correcao(2, [transicoes.hash]),
+    ];
+    expect(recorrenciasDasFalhas(anteriores, [montagem])[0].ocorrencias).toBe(1);
+    expect(recorrenciasDasFalhas([...anteriores, correcao(3, [montagem.hash])], [legendas])[0].ocorrencias).toBe(2);
+  });
+
   it('etapas antigas não são tratadas como a mesma falha sem evidência', () => {
     const a = revisar('Falta uma captura de Cartões');
     expect(historicoDeFalhas([{ key: 'correcao-criterios-1', instructions: 'Revisar critério conferencia-regras' }]).size).toBe(0);
