@@ -1,6 +1,7 @@
 import { registrarErro } from '../diagnostico/erros';
 import { Injectable, Logger } from '@nestjs/common';
 import * as os from 'node:os';
+import * as fs from 'node:fs';
 import { appConfig } from '../config';
 import { CompletionService } from '../jobs/completion.service';
 import { LogService } from '../jobs/log.service';
@@ -18,6 +19,20 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
  * Duas faixas em paralelo: trabalhos (etapas e avaliação, um de cada vez — o worktree do job não é
  * compartilhado) e conversa (respostas do chat), para o chat não ficar esperando um trabalho longo.
  */
+// Reserva mínima antes de criar artefatos PNG/MP4: evita quebrar o banco e
+// deixar tentativas órfãs por ENOSPC. O operador deve liberar espaço; o worker
+// não apaga arquivos nem faz limpeza destrutiva automaticamente.
+export const MIN_FREE_DISK_BYTES = 512 * 1024 * 1024;
+
+export function armazenamentoDisponivel(pastas: string[], minimo = MIN_FREE_DISK_BYTES): { ok: boolean; pasta?: string; livre?: number } {
+  for (const pasta of [...new Set(pastas)]) {
+    const stat = fs.statfsSync(pasta);
+    const livre = stat.bavail * stat.bsize;
+    if (livre < minimo) return { ok: false, pasta, livre };
+  }
+  return { ok: true };
+}
+
 const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
   { nome: 'trabalho', tipos: ['RUN_STEP', 'EVALUATE_JOB'] },
   { nome: 'conversa', tipos: ['PLAN_MESSAGE'] },
@@ -87,6 +102,14 @@ export class WorkerRunnerService {
     if (publicaSinal) this.logger.log(`Worker ${this.workerId} iniciado`);
     while (this.running) {
       try {
+        // Verificar armazenamento ANTES de claim, log de banco e resposta da IA.
+        const config = appConfig();
+        const disco = armazenamentoDisponivel(['/', config.workspacesRoot, config.artifactsRoot]);
+        if (!disco.ok) {
+          if (publicaSinal) this.logger.error(`DISCO QUASE CHEIO: somente ${Math.round((disco.livre ?? 0) / (1024 * 1024))} MiB livres em ${disco.pasta}. Worker suspenso; libere espaço antes de continuar. Nada será removido automaticamente.`);
+          await sleep(30_000);
+          continue;
+        }
         if (publicaSinal) {
           const withProviders = Date.now() - lastProviderPublish > 60_000;
           await this.publishHeartbeat(withProviders);
@@ -99,6 +122,11 @@ export class WorkerRunnerService {
         }
         await this.process(task, leaseMs);
       } catch (e: any) {
+        if (/ENOSPC|no space left on device/i.test(String(e?.message ?? e))) {
+          this.running = false;
+          this.logger.error('DISCO CHEIO (ENOSPC): parando o worker; não tentar persistir logs nem repetir tarefas com disco lotado.');
+          break;
+        }
         this.logger.error(`Erro no loop: ${e?.stack ?? e}`);
         registrarErro('worker', `erro no loop do worker: ${e?.message ?? e}`, e);
         await sleep(pollMs * 2);
@@ -141,6 +169,14 @@ export class WorkerRunnerService {
       }
       this.errosSeguidos.delete(task.id);
     } catch (e: any) {
+      if (/ENOSPC|no space left on device/i.test(String(e?.message ?? e))) {
+        this.running = false;
+        ctrl.abort();
+        // Não há espaço sequer para gravar logs/artefatos. Não refile a
+        // tarefa: ela será recuperada pelo lease quando o operador liberar espaço.
+        this.logger.error(`DISCO CHEIO (ENOSPC) na tarefa ${task.id}. Worker parado, sem novas tentativas automáticas. Preserve os dados e libere armazenamento.`);
+        return;
+      }
       this.logger.error(`Falha processando tarefa ${task.id}: ${e?.stack ?? e}`);
       registrarErro('worker', `falha na tarefa ${task.type} ${task.id}${task.jobId ? ` (trabalho ${task.jobId})` : ''}: ${e?.message ?? e}`, e);
       if (task.jobId) {
