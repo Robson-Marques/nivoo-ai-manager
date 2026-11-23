@@ -566,6 +566,21 @@ export class StepExecutorService {
         result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
       }
     }
+    // Uma revisão não pode ser aprovada com os PNG anteriores à última
+    // alteração no HTML. Mesmo se a IA marcar conforme=true, a composição
+    // alterada precisa ser recapturada pelo local-shell antes da aprovação.
+    if (verified && /^direcao-arte-/.test(step.key)) {
+      const capturas = await this.prisma.step.findMany({
+        where: { jobId: job.id },
+        select: { key: true, provider: true, instructions: true, status: true },
+      });
+      const desatualizadas = capturasParaRecuperar(worktree, step, capturas);
+      if (desatualizadas.length) {
+        verified = false;
+        result = { ...result, error: `Parecer anterior às alterações da composição: recaptura local necessária em ${desatualizadas.join(', ')}; não aprovar os PNGs antigos` };
+        await L(`Revisão não aprovada com quadros antigos; capturas vencidas: ${desatualizadas.join(', ')}`, 'WARN', attempt.id);
+      }
+    }
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
     // Artefatos: saída da tentativa + arquivos novos em out/.
