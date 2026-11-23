@@ -31,7 +31,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       - run: npm ci
       - run: npm run build -w apps/backend
-      - run: npx jest --runInBand --runTestsByPath test/unit/recovery-signature.spec.ts test/unit/motion-capture-freshness.spec.ts
-        working-directory: apps/backend
+      # Exercita também a execução pela raiz do repositório, que antes falhava por tsconfig.
+      - run: npx jest --config apps/backend/jest.config.js --runInBand --runTestsByPath apps/backend/test/unit/recovery-signature.spec.ts apps/backend/test/unit/motion-capture-freshness.spec.ts
       - run: npx jest --runInBand --runTestsByPath test/acceptance/22-ate-o-fim-e-ia-reserva.spec.ts
         working-directory: apps/backend
