@@ -98,7 +98,7 @@ export function erroDeComandoLocal(instructions: string): string | null {
  * Converte somente quando fonte, destino, duração e resolução são explícitos;
  * caso contrário exige plano concreto. Não adivinha a fonte pelos nomes do MP4.
  */
-export function etapaPedeRenderizacaoMotion(step: Record<string, unknown>): boolean {
+export function etapaPedeRenderizacaoMotion(step: { key?: unknown; title?: unknown; verifyCommand?: unknown; instructions?: unknown }): boolean {
   const key = String(step.key ?? '').toLowerCase();
   const title = String(step.title ?? '').toLowerCase();
   const verify = String(step.verifyCommand ?? '');
