@@ -162,17 +162,18 @@ export class NvidiaSpecializedService {
     const model = modeloSeguro(input?.modelo ?? FLUX);
     if (model !== FLUX) throw new BadRequestException('Somente FLUX.1 Schnell tem adaptador de imagem nesta etapa');
     const prompt = texto(input?.prompt, 'prompt', 2000);
-    const largura = numeroLimitado(input?.largura, 'largura', 1024, 512, 1536);
-    const altura = numeroLimitado(input?.altura, 'altura', 1024, 512, 1536);
+    // Preview hospedado de FLUX.1 Schnell aceita somente resolução 1024×1024.
+    const largura = numeroLimitado(input?.largura, 'largura', 1024, 1024, 1024);
+    const altura = numeroLimitado(input?.altura, 'altura', 1024, 1024, 1024);
     const r = await this.post(conexao, NVIDIA_SPECIAL_ENDPOINTS.imageFluxSchnell, {
       prompt, mode: 'base', width: largura, height: altura,
-      steps: 4, seed: numeroLimitado(input?.seed, 'seed', 0, 0, 4294967295),
+      steps: 4, samples: 1, cfg_scale: 0, seed: numeroLimitado(input?.seed, 'seed', 0, 0, 4294967295),
     }, 90_000);
     const img = r?.artifacts?.[0]?.base64 ?? r?.data?.[0]?.b64_json;
     if (typeof img !== 'string' || !/^[a-zA-Z0-9+/=\r\n]+$/.test(img) || img.length > 8_000_000) {
       throw new BadRequestException('NVIDIA não retornou imagem base64 suportada');
     }
-    return { tipo: 'imagem', modelo: model, mime: 'image/png', base64: img, largura, altura };
+    return { tipo: 'imagem', modelo: model, mime: 'image/jpeg', base64: img, largura, altura };
   }
 
   /** O catálogo de capacidades é exclusivo das conexões NVIDIA. */
