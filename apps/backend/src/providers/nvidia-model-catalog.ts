@@ -157,7 +157,11 @@ function chave(nome: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 function igual(a: string, b: string): boolean {
-  return chave(a) === chave(b) || chave(a.split('/').pop() ?? a) === chave(b.split('/').pop() ?? b);
+  const x = chave(a.split('/').pop() ?? a);
+  const y = chave(b.split('/').pop() ?? b);
+  // A página mostra nomes curtos; os IDs reais às vezes incluem quantização
+  // e versão (ex.: "nemotron-3-nano-omni-30b-a3b-reasoning").
+  return x === y || (x.length >= 16 && y.startsWith(x)) || (y.length >= 16 && x.startsWith(y));
 }
 function modeloConhecido(id: string): Linha | undefined {
   return CONHECIDOS.find((l) => (l[1] && igual(l[1], id)) || igual(l[0], id));
@@ -171,7 +175,11 @@ function adivinharEspecialidadePeloId(id: string): Pick<NvidiaCatalogItem, 'area
   if (/flux|stable-diffusion|image-gen|image-edit/i.test(id)) return { areas: ['imagens'], endpoint: 'imagem', uso: 'Imagem (confirmar endpoint)' };
   if (/super.resolution|video.upscal|animate|video.diffusion/i.test(id)) return { areas: ['video'], endpoint: 'video', uso: 'Vídeo (confirmar endpoint)' };
   if (/tts|asr|speech|parakeet|whisper|translate/i.test(id)) return { areas: ['audio'], endpoint: 'audio', uso: 'Áudio ou tradução (confirmar endpoint)' };
-  if (/pii|gliner|document.parse|nemotron.parse/i.test(id)) return { areas: ['documentos'], endpoint: 'documentos', uso: 'Documento ou privacidade (confirmar endpoint)' };
+  if (/pii|gliner|document.parse|nemotron.parse|ocr/i.test(id)) return { areas: ['documentos'], endpoint: 'documentos', uso: 'Documento ou privacidade (confirmar endpoint)' };
+  if (/safety|guard|jailbreak/i.test(id)) return { areas: ['seguranca'], endpoint: 'especializado', uso: 'Modelo de moderação/segurança (confirmar endpoint)' };
+  if (/(llama|qwen|deepseek|mistral|gemma|nemotron|minimax|glm)[-_./]/i.test(id)) {
+    return { areas: ['conversa'], endpoint: 'desconhecido', uso: 'Família de modelo de linguagem; verificar suporte a chat e ferramentas antes de utilizar' };
+  }
   return { areas: ['a-verificar'], endpoint: 'desconhecido', uso: 'Modelo retornado pela API, capacidade ainda não documentada no Nivoo' };
 }
 
