@@ -40,6 +40,15 @@ describe('Planejamento de renderização motion: execução real, sem aceitar MP
     expect(done).toEqual(stages);
   });
 
+  it('recusa etapa local-shell que só verifica MP4 antigo sem chamar renderizador', () => {
+    const step = {
+      key: 'render_3d', title: 'Renderizar composição 3D',
+      provider: 'local-shell', instructions: 'true',
+      verifyCommand: `test -s ${alvo}`,
+    };
+    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/não executa nivoo-renderizar-motion/);
+  });
+
   it('não aceita um nome de MP4 como suposta fonte de composição', () => {
     const step = {
       key: 'render_3d', title: 'Renderizar composição 3D', provider: 'nvidia-api',
