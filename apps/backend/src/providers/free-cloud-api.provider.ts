@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { segredoDaConexao, SecretKey } from '../accounts/secrets';
+import { segredoDaConexao } from '../accounts/secrets';
+import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { executarFerramentaNvidia, NVIDIA_TOOLS } from './nvidia-api.provider';
 
@@ -30,11 +31,15 @@ export function modeloOpenRouterGratuito(id: string): boolean {
   return id === 'openrouter/free' || /^[A-Za-z0-9._/-]+:free$/.test(id);
 }
 
-export function modeloGroqDeTexto(id: string): boolean {
-  return /^[A-Za-z0-9._/-]{1,150}$/.test(id) && !/(?:whisper|transcri|guard|tts|speech|audio|image|embed|rerank|vision)/i.test(id);
+function pareceModeloNaoTextual(id: string): boolean {
+  return /(?:whisper|transcri|guard|tts|speech|audio|image|embed|rerank|vision|video|music)/i.test(id);
 }
 
-type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown };
+export function modeloGroqDeTexto(id: string): boolean {
+  return /^[A-Za-z0-9._/-]{1,150}$/.test(id) && !pareceModeloNaoTextual(id);
+}
+
+type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown; active?: boolean };
 type Resposta = {
   choices?: Array<{ message?: { content?: unknown; tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }> }; finish_reason?: string }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -92,9 +97,9 @@ export class FreeCloudApiProvider implements AiProvider {
     const resposta = await this.chamar('/models', null, 15_000);
     const raw = Array.isArray(resposta?.data) ? resposta.data as ModeloApi[] : [];
     const opcoes = raw
-      .filter(m => typeof m.id === 'string')
+      .filter(m => typeof m.id === 'string' && m.active !== false)
       .filter(m => this.tipo === 'openrouter-free-api'
-        ? modeloOpenRouterGratuito(m.id as string) &&
+        ? modeloOpenRouterGratuito(m.id as string) && !pareceModeloNaoTextual(m.id as string) &&
           (!Array.isArray(m.supported_parameters) || m.supported_parameters.includes('tools'))
         : modeloGroqDeTexto(m.id as string))
       .map(m => ({
