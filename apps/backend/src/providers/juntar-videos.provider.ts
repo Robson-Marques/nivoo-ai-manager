@@ -6,6 +6,8 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { appConfig } from '../config';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveInside } from '../common/path-guard';
+import { listarVideos } from '../projects/midia';
+import { escolherTrilha, FonteTrilha } from './audio-asset-recovery';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
@@ -71,7 +73,7 @@ export class JuntarVideosProvider implements AiProvider {
    * Exige correspondência inequívoca; nunca escolhe um áudio diferente
    * só porque foi gerado por último ou porque o pedido disse "aprovado".
    */
-  private async resolverEntrada(req: ExecutionRequest, rel: string): Promise<string> {
+  private async resolverEntrada(req: ExecutionRequest, rel: string, uso: 'geral' | 'trilha' = 'geral'): Promise<string> {
     // IDs do catálogo são contratos imutáveis: não procurar nomes semelhantes.
     const exato = /^artefato\/([0-9a-f]{8}-[0-9a-f-]{27,})\/([^/]+)$/i.exec(rel);
     if (exato) {
@@ -116,10 +118,13 @@ export class JuntarVideosProvider implements AiProvider {
     const exatos = candidatos.filter(a => a.name === rel);
     const disponiveis = exatos.length ? exatos : candidatos;
     const distintos = [...new Map(disponiveis.map(a => [a.sha256, a])).values()];
-    if (!distintos.length) throw new Error(
-      `Mídia ausente no projeto: ${rel}. Não há arquivo físico nem artefato com esse nome. ` +
-      'Consulte a lista de resultados e use o nome exato do arquivo existente.'
-    );
+    if (!distintos.length) {
+      if (uso === 'trilha') return this.recuperarTrilha(req, rel, job.projectId);
+      throw new Error(
+        `Mídia ausente no projeto: ${rel}. Não há arquivo físico nem artefato com esse nome. ` +
+        'Consulte a lista de resultados e use o nome exato do arquivo existente.'
+      );
+    }
     if (distintos.length > 1) throw new Error(
       `Há ${distintos.length} versões diferentes para ${rel} nos resultados. ` +
       `A escolha é ambígua: ${disponiveis.slice(0, 6).map(a => `${a.jobId?.slice(0, 8) ?? '-'}:${a.name}`).join(', ')}. ` +
@@ -130,6 +135,56 @@ export class JuntarVideosProvider implements AiProvider {
       throw new Error(`Artefato registrado, mas não disponível no armazenamento: ${distintos[0].name}`);
     req.onLog(`Mídia reaproveitada dos resultados do trabalho ${distintos[0].jobId?.slice(0, 8) ?? '-'}: ${distintos[0].name}`);
     return arquivo;
+  }
+
+  /**
+   * Quando o plano erra o nome do MP3, procurar PRIMEIRO os áudios reais
+   * deste projeto: uploads com o nome original (o disco tem UUID) e
+   * artefatos FILE de trabalhos anteriores. Sem usar som de outro projeto.
+   * Não gerar música paga, não escolher automaticamente se for ambíguo.
+   */
+  private async recuperarTrilha(req: ExecutionRequest, rel: string, projectId: string): Promise<string> {
+    const fontes: FonteTrilha[] = [];
+    if (req.projectMediaDir) {
+      for (const m of listarVideos(req.projectMediaDir)) {
+        if (m.pasta !== 'entrada' || !/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(m.nome)) continue;
+        const abs = this.resolver(req, m.caminho);
+        if (fs.existsSync(abs) && fs.statSync(abs).isFile() && fs.statSync(abs).size > 0) {
+          fontes.push({ nome: m.nome, arquivo: abs, origem: 'midia-projeto' });
+        }
+      }
+    }
+    const arts = await this.prisma.artifact.findMany({
+      where: { projectId, kind: 'FILE' },
+      orderBy: { createdAt: 'desc' },
+      take: 1500,
+      select: { name: true, storagePath: true, sha256: true },
+    });
+    for (const a of arts) {
+      if (!/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(a.name)) continue;
+      let abs: string;
+      try { abs = resolveInside(appConfig().artifactsRoot, a.storagePath); } catch { continue; }
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile() && fs.statSync(abs).size > 0) {
+        fontes.push({ nome: a.name, arquivo: abs, origem: 'artefato', sha256: a.sha256 });
+      }
+    }
+    const resultado = escolherTrilha(rel, fontes);
+    if (resultado.caminho && resultado.nome) {
+      req.onLog('Montagem recuperada automaticamente: trilha "' + rel + '" → "' +
+        resultado.nome + '" (fonte ' + resultado.origem + ', ' + resultado.motivo + '). Não refiz o vídeo 3D.');
+      return resultado.caminho;
+    }
+    const sugestoes = resultado.alternativas.length
+      ? ' Áudios existentes neste projeto: ' + resultado.alternativas.join('; ') + '.'
+      : ' Nenhuma trilha de áudio física foi encontrada neste projeto.';
+    if (resultado.motivo === 'ambiguo') {
+      throw new Error('TRILHA_AMBIGUA: Não é seguro escolher automaticamente a trilha "' + rel +
+        '".' + sugestoes + ' Selecione a gravação correta na biblioteca e retome apenas a montagem.');
+    }
+    throw new Error('TRILHA_NAO_LOCALIZADA: O plano apontou "' + rel +
+      '" mas esse áudio não existe neste projeto.' + sugestoes +
+      ' Não vou trocar por outro som, inventar mídia ou contratar Lyria sem autorização. ' +
+      'O vídeo 3D mudo já renderizado será preservado. Envie ou identifique a trilha correta e retome a montagem.');
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
@@ -244,7 +299,7 @@ export class JuntarVideosProvider implements AiProvider {
         // 1) MÚSICA de fundo: um áudio do projeto, ou gerada pelo Lyria (reaproveitada quando a descrição não muda).
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
-          musica = await this.resolverEntrada(req, o.trilha.arquivo);
+          musica = await this.resolverEntrada(req, o.trilha.arquivo, 'trilha');
           trilhaInfo = `trilha ${o.trilha.arquivo}`;
         } else if (o.trilha?.descricao) {
           const guardada = o.arquivo.replace(/\.mp4$/i, '-trilha.mp3');
