@@ -205,9 +205,12 @@ npm run build --silent
 # Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
-# Scripts oficiais podem chegar pelo Git sem bit executável. O chmod genérico
-# acima preserva o modo original e NÃO corrige um script 0644 (exit 126).
-# Garanta execução dos renderizadores locais antes de reiniciar workers.
+# Estes dois scripts oficiais DEVEM estar versionados no Git com modo
+# executável 100755. Antes estavam 100644, mas o instalador aplicava chmod
+# 755 no próprio checkout: o arquivo ficava "modificado" e bloqueava o
+# próximo git pull --ff-only (inclusive o nivoo update).
+# Reforçar 755 aqui não altera um checkout limpo com modo Git correto.
+# Garanta execução dos renderizadores antes de reiniciar os workers.
 for executable in "$APP_DIR/apps/backend/bin/nivoo-renderizar-motion" "$APP_DIR/apps/backend/bin/nivoo-conferir-arte"; do
   if [ -f "$executable" ]; then
     chmod 755 "$executable"
