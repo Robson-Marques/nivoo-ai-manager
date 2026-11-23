@@ -223,6 +223,7 @@ export class NvidiaApiProvider implements AiProvider {
     }
     const cooldownRestante = (cooldownNvidia.get(idDaChave(this.chave()!)) ?? 0) - Date.now();
     if (cooldownRestante > 0) {
+      base.limits.retryAfterMs = cooldownRestante;
       base.errors.push('NVIDIA HTTP 429: aguardar o limite do provedor (' + Math.ceil(cooldownRestante / 1000) + 's).');
       return base;
     }
@@ -232,6 +233,7 @@ export class NvidiaApiProvider implements AiProvider {
       base.version = 'NVIDIA Build API';
     } catch (e: any) {
       base.errors.push(erroSemChave(String(e?.message ?? e), this.chave() ?? ''));
+      if (Number.isFinite(e?.retryAfterMs)) base.limits.retryAfterMs = Number(e.retryAfterMs);
       if (/HTTP 401|HTTP 403/.test(base.errors[0])) base.authenticated = false;
     }
     return base;
