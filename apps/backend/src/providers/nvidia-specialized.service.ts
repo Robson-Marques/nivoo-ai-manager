@@ -175,6 +175,12 @@ export class NvidiaSpecializedService {
     return { tipo: 'imagem', modelo: model, mime: 'image/png', base64: img, largura, altura };
   }
 
+  /** O catálogo de capacidades é exclusivo das conexões NVIDIA. */
+  capacidadesParaConexao(conexao: string) {
+    if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Selecione uma conexão NVIDIA válida');
+    return this.capacidades();
+  }
+
   /** Estado dos conectores conhecidos, distinguindo API real de só download. */
   capacidades() {
     return [
