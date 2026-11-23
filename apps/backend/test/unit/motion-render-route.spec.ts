@@ -46,7 +46,7 @@ describe('Planejamento de renderização motion: execução real, sem aceitar MP
       provider: 'local-shell', instructions: 'true',
       verifyCommand: `test -s ${alvo}`,
     };
-    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/não executa nivoo-renderizar-motion/);
+    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/faltam dados para criar/);
   });
 
   it('juntar-videos depende automaticamente do MP4 produzido pelo render no mesmo trabalho', () => {
@@ -90,12 +90,53 @@ describe('Planejamento de renderização motion: execução real, sem aceitar MP
     expect(() => dependenciasDeMontagemPorArquivo(stages, 'nvidia-api')).toThrow(/mesmo MP4/);
   });
 
+  it('aceita script local com set -e, comando em outra linha e ordem de flags diferente', () => {
+    const step = {
+      key: 'render_mudo', title: 'Renderizar composição 3D existente',
+      provider: 'local-shell',
+      instructions: 'set -e\nnivoo-renderizar-motion motion/black-na-sua-quinta-3d-v3 --segundos 25 --tamanho 1080x1920 --saida midia/saida/novo-mudo.mp4',
+      verifyCommand: 'test -s midia/saida/novo-mudo.mp4',
+    };
+    const [normal] = corrigirPlanoRenderizacaoMotion([step], 'nvidia-api') as typeof step[];
+    expect(normal.provider).toBe('local-shell');
+    expect(normal.instructions).toBe(step.instructions);
+  });
+
+  it('aceita comando em caminho absoluto, não exige a ferramenta na primeira posição', () => {
+    const step = {
+      key: 'render_mudo', title: 'Renderizar composição 3D existente', provider: 'local-shell',
+      instructions: 'set -e; /usr/local/bin/nivoo-renderizar-motion motion/v3 --saida midia/saida/novo-mudo.mp4 --segundos 25 --tamanho 1080x1920',
+      verifyCommand: 'test -s midia/saida/novo-mudo.mp4',
+    };
+    const [normal] = corrigirPlanoRenderizacaoMotion([step], 'nvidia-api') as typeof step[];
+    expect(normal.instructions).toBe(step.instructions);
+  });
+
+  it('reconstrói comando local quando a etapa tem fonte, saída e parâmetros separados', () => {
+    const step = {
+      key: 'render_mudo', title: 'Renderizar composição 3D existente',
+      provider: 'local-shell',
+      instructions: 'Renderizar motion/black-na-sua-quinta-3d-v3 existente em 25 segundos a 1080×1920',
+      verifyCommand: 'test -s midia/saida/novo-mudo.mp4',
+    };
+    const [normal] = corrigirPlanoRenderizacaoMotion([step], 'nvidia-api') as typeof step[];
+    expect(normal.instructions).toBe('nivoo-renderizar-motion motion/black-na-sua-quinta-3d-v3 --saida midia/saida/novo-mudo.mp4 --segundos 25 --tamanho 1080x1920');
+  });
+
+  it('não aprova arquivo antigo quando stage só tem comando true e não informa a composição', () => {
+    const step = {
+      key: 'render_mudo', title: 'Renderizar composição 3D existente', provider: 'local-shell',
+      instructions: 'true', verifyCommand: 'test -s midia/saida/novo-mudo.mp4',
+    };
+    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/fonte motion/);
+  });
+
   it('não aceita um nome de MP4 como suposta fonte de composição', () => {
     const step = {
       key: 'render_3d', title: 'Renderizar composição 3D', provider: 'nvidia-api',
       instructions: 'Entregar vídeo em midia/saida/final.mp4, 25s, 1080x1920',
       verifyCommand: 'test -s midia/saida/final.mp4',
     };
-    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/fonte REAL/);
+    expect(() => corrigirPlanoRenderizacaoMotion([step], 'nvidia-api')).toThrow(/fonte motion/);
   });
 });
