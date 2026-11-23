@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ehAdicional, tipoDe } from '../accounts/connections';
 import { segredoDaConexao } from '../accounts/secrets';
 import { catalogarNvidiaModelos } from './nvidia-model-catalog';
@@ -59,7 +59,7 @@ function modeloDeChatConhecido(id: string): boolean {
 @Injectable()
 export class NvidiaSpecializedService {
   private readonly videos = new Map<string, {
-    conexao: string; estado: 'executando' | 'concluido' | 'falhou'; criadoEm: number;
+    conexao: string; assinatura: string; estado: 'executando' | 'concluido' | 'falhou'; criadoEm: number;
     resultado?: NvidiaResultado; erro?: string;
   }>();
   private limparVideos() {
@@ -67,6 +67,11 @@ export class NvidiaSpecializedService {
     for (const [id, job] of this.videos) {
       if (agora - job.criadoEm > 30 * 60_000) this.videos.delete(id);
     }
+    // Clipes MP4 em base64 ocupam muita memória: manter no máximo quatro
+    // resultados finalizados, além dos dois pedidos em andamento.
+    const finalizados = [...this.videos.entries()].filter(([, v]) => v.estado !== 'executando')
+      .sort((a, b) => a[1].criadoEm - b[1].criadoEm);
+    for (const [id] of finalizados.slice(0, Math.max(0, finalizados.length - 4))) this.videos.delete(id);
   }
   private chave(conexao: string): string {
     if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Selecione uma conexão NVIDIA válida');
@@ -238,12 +243,21 @@ export class NvidiaSpecializedService {
    */
   iniciarVideo(conexao: string, input: any) {
     this.chave(conexao);
-    texto(input?.prompt, 'prompt', 2000);
+    const prompt = texto(input?.prompt, 'prompt', 2000);
     this.limparVideos();
+    const assinatura = createHash('sha256').update(JSON.stringify({ conexao, prompt,
+      modelo: input?.modelo ?? 'nvidia/cosmos3-nano', proporcao: input?.proporcao ?? '16:9',
+      numFrames: input?.numFrames ?? 25, seed: input?.seed ?? 42 })).digest('hex');
+    for (const [id, job] of this.videos) {
+      if (job.conexao === conexao && job.assinatura === assinatura &&
+          Date.now() - job.criadoEm < 10 * 60_000) {
+        return { id, estado: job.estado, aviso: 'Pedido idêntico já iniciado: reutilizando o ID, sem gerar novamente.' };
+      }
+    }
     const pendentes = [...this.videos.values()].filter(v => v.conexao === conexao && v.estado === 'executando');
     if (pendentes.length >= 2) throw new BadRequestException('Há duas gerações NVIDIA em andamento; consulte os resultados antes de iniciar outra.');
     const id = randomUUID();
-    this.videos.set(id, { conexao, estado: 'executando', criadoEm: Date.now() });
+    this.videos.set(id, { conexao, assinatura, estado: 'executando', criadoEm: Date.now() });
     void this.video(conexao, input)
       .then(resultado => {
         const atual = this.videos.get(id);
