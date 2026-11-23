@@ -28,6 +28,8 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
   const [consulta, setConsulta] = useState('Qual documento fala sobre vencimento do cartão?');
   const [trechos, setTrechos] = useState('O cartão fecha em 20 de cada mês.\nO vencimento do cartão ocorre no dia 28.\nO produto foi entregue na sexta-feira.');
   const [modelo, setModelo] = useState(MODOS[0].modelo);
+  const [idiomaOrigem, setIdiomaOrigem] = useState('pt-br');
+  const [idiomaDestino, setIdiomaDestino] = useState('en');
   const [ocupado, setOcupado] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     setErro(null);
     setResultado(null);
     if (t === 'imagem' || t === 'video') setPrompt('Uma pizzaria premium com iluminação cinematográfica e cores quentes, sem texto');
-    if (t === 'traducao') setPrompt('Traduza para inglês: Nossa pizzaria usa ingredientes de qualidade e massa sem óleo.');
+    if (t === 'traducao') setPrompt('Nossa pizzaria usa ingredientes de qualidade e massa sem óleo.');
   };
   const executar = async () => {
     setOcupado(true);
@@ -45,7 +47,8 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     setErro(null);
     try {
       const rota = '/accounts/' + encodeURIComponent(conexaoId) + '/nvidia/' + (tipo === 'traducao' ? 'conversa' : tipo);
-      const body = tipo === 'conversa' || tipo === 'traducao' ? { modelo, prompt } :
+      const body = tipo === 'traducao' ? { modelo, prompt, idiomaOrigem, idiomaDestino } :
+        tipo === 'conversa' ? { modelo, prompt } :
         tipo === 'embedding' ? { modelo, texto: prompt, inputType: 'query' } :
         tipo === 'rerank' ? { modelo, consulta, trechos: trechos.split('\n').map(t => t.trim()).filter(Boolean) } :
         tipo === 'video' ? { modelo, prompt, proporcao: '9:16', numFrames: 25 } :
@@ -100,6 +103,24 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
           aria-label="Modelo NVIDIA do serviço"
         />
       </label>
+      {tipo === 'traducao' && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <label>De
+          <select value={idiomaOrigem} onChange={e => setIdiomaOrigem(e.target.value)}>
+            <option value="pt-br">Português (Brasil)</option><option value="en">Inglês</option>
+            <option value="es-es">Espanhol</option><option value="fr">Francês</option>
+            <option value="de">Alemão</option><option value="it">Italiano</option>
+            <option value="ja">Japonês</option><option value="zh-cn">Chinês simplificado</option>
+          </select>
+        </label>
+        <label>Para
+          <select value={idiomaDestino} onChange={e => setIdiomaDestino(e.target.value)}>
+            <option value="en">Inglês</option><option value="pt-br">Português (Brasil)</option>
+            <option value="es-es">Espanhol</option><option value="fr">Francês</option>
+            <option value="de">Alemão</option><option value="it">Italiano</option>
+            <option value="ja">Japonês</option><option value="zh-cn">Chinês simplificado</option>
+          </select>
+        </label>
+      </div>}
       {tipo !== 'rerank' ? (
         <label>
           {tipo === 'embedding' ? 'Texto para vetorização' : tipo === 'imagem' ? 'Descrição da imagem' : tipo === 'video' ? 'Descrição do vídeo' : tipo === 'traducao' ? 'Texto e direção da tradução' : 'Mensagem para a IA'}
