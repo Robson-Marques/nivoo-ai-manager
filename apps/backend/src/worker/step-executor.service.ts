@@ -67,6 +67,9 @@ const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
 // Depois de duas revisões reprovadas, pedir decisão humana com as pendências
 // e preservar o HTML e os quadros existentes: nunca entrar em loop infinito.
 export const MAX_REVISOES_VISUAIS_AUTOMATICAS = 2;
+export function revisaoVisualEsgotada(stepKey: string, revisoesReprovadas: number): boolean {
+  return /^direcao-arte-/.test(stepKey) && revisoesReprovadas >= MAX_REVISOES_VISUAIS_AUTOMATICAS;
+}
 
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
@@ -814,7 +817,7 @@ export class StepExecutorService {
     // novo corte e corrige outra vez. Sem teto, o QA gasta indefinidamente.
     // O parecer negativo NÃO deve ser aprovado à força; guardar a composição
     // e apresentar ao usuário as falhas específicas restantes.
-    if (/^direcao-arte-/.test(step.key) && sessions.length >= MAX_REVISOES_VISUAIS_AUTOMATICAS) {
+    if (revisaoVisualEsgotada(step.key, sessions.length)) {
       const causa = diagnosticoParecerVisual(worktree, step.verifyCommand ?? '');
       await this.logs.log(job.id,
         `Revisão visual interrompida após ${sessions.length} pareceres sem aprovação; composição e capturas preservadas.`,
