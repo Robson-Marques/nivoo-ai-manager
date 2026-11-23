@@ -564,6 +564,10 @@ export class PlannerService {
       'O executor OFICIAL juntar-videos localiza automaticamente por nome exato no catálogo do projeto.',
       'Não diga que o arquivo precisa ser importado para midia/ nem que o executor o rejeita por estar em resultados.',
       'Não confunda arquivos listados com seleção aprovada: escolha apenas os identificados claramente no pedido/histórico.',
+      'PROIBIDO INVENTAR NOMES DE ARQUIVO DE TRILHA OU NARRAÇÃO: em juntar-videos, trilha.arquivo e narracao.arquivo devem copiar o NOME OU CAMINHO REAL de mídia do projeto ou de artefato listado acima.',
+      'Se uma música instrumental foi pedida mas NÃO há MP3/WAV real compatível na mídia/catálogo, NÃO crie o nome hipotético black-na-sua-quinta-trilha-instrumental.mp3 nem qualquer outro.',
+      'Detecte a falta ANTES de propor um plano de composição/renderização caro. Informe que a trilha original não existe e peça o arquivo OU uma escolha explícita de gerar música (Lyria pode cobrar).',
+      'Quando uma trilha existe mas seu nome difere do pedido, use exatamente o nome registrado na lista, ou o ID de artefato inequívoco. Não substitua por outro áudio de campanha.'
       'Se houver um único vídeo e áudios inequívocos já aprovados, proponha diretamente um plano de juntar-videos.',
       'Somente peça esclarecimento se o arquivo estiver AUSENTE do catálogo e da mídia, ou se houver versões ambíguas.',
       `Locução deste projeto: motor ${project.motorNarracao === 'gemini' ? 'Gemini TTS paga (usa token)' : 'Kokoro local (grátis, sem token)'}, voz ${descreverVoz(project.vozNarracao)}, velocidade ${project.velocidadeNarracao}. Pronúncias: ${JSON.stringify(project.pronunciasNarracao ?? {})}. Quando houver narração por texto, copie estas escolhas para narracao.motor, narracao.voz, narracao.velocidade e narracao.pronuncias.`,
