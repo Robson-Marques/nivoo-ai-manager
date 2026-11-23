@@ -104,7 +104,7 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
     ] }), { status: 200 }));
     expect(modeloGroqDeTexto('whisper-large-v3')).toBe(false);
     const modelos = await new GroqFreeProvider().modelos();
-    expect(modelos.map(m => m.id)).toEqual(['meta-llama/llama-4-scout', 'openai/gpt-oss-120b']);
+    expect(modelos.map(m => m.id)).toEqual(['openai/gpt-oss-120b', 'meta-llama/llama-4-scout']);
     expect(String(spy.mock.calls[0][0])).toBe('https://api.groq.com/openai/v1/models');
   });
 
