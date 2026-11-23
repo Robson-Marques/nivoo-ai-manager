@@ -47,6 +47,15 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       ...extras,
     ];
   }
+  if (tipo === 'nvidia-api') {
+    return [
+      titulo,
+      '- NVIDIA NIM: ferramentas listar_arquivos, ler_arquivo, escrever_arquivo e substituir_texto no worktree.',
+      '- Sem terminal ou MCP nesta primeira versão. Testes/builds são executados pelo Nivoo na conferência.',
+      '- A API NVIDIA pode ter limite de créditos e modelos sem suporte a ferramentas: use modelo compatível.',
+      '- Integrações MCP do projeto não estão disponíveis para o provedor NVIDIA nesta versão.',
+    ];
+  }
   if (tipo === 'gemini-api') {
     return [
       titulo,

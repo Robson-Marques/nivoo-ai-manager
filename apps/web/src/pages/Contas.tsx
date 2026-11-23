@@ -4,7 +4,7 @@ import { FerramentasMcp } from './Mcp';
 import { ServidoresSsh } from './Ssh';
 
 /**
- * Conexões: as IAs que trabalham nos projetos (Claude, ChatGPT, Gemini — pela conta ou por chave de API)
+ * Conexões: as IAs que trabalham nos projetos (Claude, ChatGPT, Gemini e NVIDIA — pela conta ou por chave de API)
  * e as contas Git (GitHub, GitLab). Quantas quiser de cada tipo, cada uma com o seu nome
  * (ex.: "ChatGPT 1" e "ChatGPT 2"); logins e chaves nunca se misturam.
  */
@@ -395,7 +395,7 @@ function NovaConexao({ ias, onFechar, onCriada }: { ias: any[]; onFechar: () => 
                   <span className={`marca marca-${t.modo === 'git' ? 'git' : t.ia.toLowerCase()}`}>{t.modo === 'git' ? <Icone nome="ramo" /> : t.ia[0]}</span>
                   <span>
                     <b>{t.ia}{t.modo === 'conta' ? ' — conta' : t.modo === 'api' ? ' — chave de API' : ''}</b>
-                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? `cobrança por uso (${t.ondeChave})` : t.descricao}</span>
+                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? (t.tipo === 'nvidia-api' ? 'API de avaliação gratuita com cotas (build.nvidia.com)' : `cobrança por uso (${t.ondeChave})`) : t.descricao}</span>
                   </span>
                 </button>
               ))}

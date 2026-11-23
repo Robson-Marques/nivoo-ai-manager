@@ -10,7 +10,7 @@ import { appConfig } from '../config';
  * configuração padrão do serviço (compatível com o que já estava conectado); as seguintes são
  * `<tipo>--<8 hex>` e usam pasta própria em ~/.nivoo-ia/<id>.
  */
-export const TIPOS_IA = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-api'] as const;
+export const TIPOS_IA = ['claude-code-cli', 'claude-api', 'codex-cli', 'codex-api', 'gemini-api', 'nvidia-api'] as const;
 export type TipoIa = (typeof TIPOS_IA)[number];
 
 export const TIPO_INFO: Record<TipoIa, { ia: string; modo: 'conta' | 'api'; nomePadrao: string; conta?: string; ondeChave?: string }> = {
@@ -19,6 +19,7 @@ export const TIPO_INFO: Record<TipoIa, { ia: string; modo: 'conta' | 'api'; nome
   'codex-cli': { ia: 'ChatGPT', modo: 'conta', nomePadrao: 'ChatGPT', conta: 'conta do ChatGPT (Plus/Pro)' },
   'codex-api': { ia: 'ChatGPT', modo: 'api', nomePadrao: 'ChatGPT API', ondeChave: 'platform.openai.com' },
   'gemini-api': { ia: 'Gemini', modo: 'api', nomePadrao: 'Gemini API', ondeChave: 'aistudio.google.com' },
+  'nvidia-api': { ia: 'NVIDIA', modo: 'api', nomePadrao: 'NVIDIA NIM (grátis para avaliação)', ondeChave: 'build.nvidia.com' },
 };
 
 export interface Conexao {
