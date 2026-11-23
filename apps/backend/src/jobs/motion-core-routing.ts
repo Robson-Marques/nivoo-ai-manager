@@ -124,6 +124,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias, pizzas, produtos e logos ficam SOMENTE em overlays.json como camadas RGBA.',
             'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
+            'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay. O verificador do Nivo rejeita a mesma imagem nos dois lugares.',
+            'A duração overlays.json.duration é a duração ORIGINAL do relógio WebGL, mesmo quando o MP4 final será acelerado.',
             'As imagens locais podem ser PNG/WebP/JPG ou módulos JS base64 legados na pasta motion; o próprio motor as carrega.',
           ];
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
