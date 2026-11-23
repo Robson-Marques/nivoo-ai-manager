@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { api } from '../api';
 
-type Tipo = 'conversa' | 'embedding' | 'rerank' | 'imagem';
+type Tipo = 'conversa' | 'embedding' | 'rerank' | 'imagem' | 'video';
 const MODOS: Array<{ id: Tipo; titulo: string; descricao: string; modelo: string }> = [
   { id: 'conversa', titulo: 'Conversa e análise', descricao: 'Chat sem ferramentas de código', modelo: 'nvidia/nemotron-3.5-bolt-e4b' },
   { id: 'embedding', titulo: 'Pesquisa e RAG', descricao: 'Vetorização de texto por Nemotron Embed', modelo: 'nvidia/nemotron-3.5-embed-1b' },
   { id: 'rerank', titulo: 'Relevância de documentos', descricao: 'Reranking de até 30 trechos por Nemotron', modelo: 'nvidia/nemotron-3.5-rerank-8b' },
   { id: 'imagem', titulo: 'Imagens (acesso sujeito à conta)', descricao: 'FLUX.1 Schnell; endpoint existe, mas a NVIDIA pode exigir permissão/créditos', modelo: 'black-forest-labs/flux.1-schnell' },
+  { id: 'video', titulo: 'Vídeo Cosmos3 Nano', descricao: 'Text-to-video 480p de 25 quadros; requer Public API Endpoints na sua conta', modelo: 'nvidia/cosmos3-nano' },
 ];
 interface Resultado {
   tipo: Tipo;
@@ -34,7 +35,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
     setModelo(MODOS.find(m => m.id === t)!.modelo);
     setErro(null);
     setResultado(null);
-    if (t === 'imagem') setPrompt('Uma pizzaria premium com iluminação cinematográfica e cores quentes, sem texto');
+    if (t === 'imagem' || t === 'video') setPrompt('Uma pizzaria premium com iluminação cinematográfica e cores quentes, sem texto');
   };
   const executar = async () => {
     setOcupado(true);
@@ -45,6 +46,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
       const body = tipo === 'conversa' ? { modelo, prompt } :
         tipo === 'embedding' ? { modelo, texto: prompt, inputType: 'query' } :
         tipo === 'rerank' ? { modelo, consulta, trechos: trechos.split('\n').map(t => t.trim()).filter(Boolean) } :
+        tipo === 'video' ? { modelo, prompt, proporcao: '9:16', numFrames: 25 } :
         { modelo, prompt, largura: 1024, altura: 1024 };
       setResultado(await api<Resultado>(rota, 'POST', body));
     } catch (e: any) {
@@ -55,6 +57,8 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
   };
   const urlImagem = resultado?.tipo === 'imagem' && resultado.base64 &&
     resultado.base64.length < 8_000_000 ? 'data:' + (resultado.mime ?? 'image/jpeg') + ';base64,' + resultado.base64 : null;
+  const urlVideo = resultado?.tipo === 'video' && resultado.base64 && resultado.base64.length < 60_000_000
+    ? 'data:video/mp4;base64,' + resultado.base64 : null;
   return (
     <section className="conexao-painel" aria-label="Ferramentas NVIDIA integradas">
       <strong>Serviços NVIDIA executáveis por API</strong>
@@ -120,6 +124,12 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
             <div>
               <img src={urlImagem} alt="Imagem gerada pela NVIDIA" style={{ maxWidth: '100%', maxHeight: 450, objectFit: 'contain' }}/>
               <a className="botao-link" href={urlImagem} download="nvidia-flux.jpg">Salvar imagem JPEG</a>
+            </div>
+          )}
+          {urlVideo && (
+            <div>
+              <video controls src={urlVideo} style={{ maxWidth: '100%', maxHeight: 450 }} />
+              <a className="botao-link" href={urlVideo} download="nvidia-cosmos.mp4">Salvar MP4</a>
             </div>
           )}
         </div>
