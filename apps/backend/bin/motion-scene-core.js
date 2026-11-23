@@ -57,8 +57,11 @@ function validateScene(raw) {
       finite(l.height, l.id+'.height', 1, 12000);
     }
     if (l.type === 'image') {
-      if (typeof l.asset !== 'string' || !/^[A-Za-z0-9_.\/-]+\.(?:png|webp|jpe?g)$/i.test(l.asset) ||
-          path.isAbsolute(l.asset) || l.asset.split('/').includes('..')) throw new Error(l.id+': asset local inválido');
+      // Modos comuns: imagem binária e módulo JS que contém UMA imagem base64
+      // (legado do Studio). Permite pasta irmã SOMENTE dentro de motion/.
+      if (typeof l.asset !== 'string' || !/^[A-Za-z0-9_.\/-]+\.(?:png|webp|jpe?g|js)$/i.test(l.asset) ||
+          path.isAbsolute(l.asset) || l.asset.split('/').filter(s=>s==='..').length>1)
+        throw new Error(l.id+': asset local inválido');
       assets.add(l.asset);
       if (l.supportZ !== undefined) finite(l.supportZ, l.id+'.supportZ', -10000, 10000);
     }
@@ -108,15 +111,26 @@ function loadScene(scenePath) {
   const { scene, assets } = validateScene(parsed);
   const binaries = {};
   let totalBytes=0;
+  const motionParent = path.basename(path.dirname(dir)) === 'motion' ? path.dirname(dir) : dir;
   for (const relative of assets) {
     const file = fs.realpathSync(path.resolve(dir, relative));
-    if (!file.startsWith(dir + path.sep)) throw new Error('Imagem fora da pasta da composição: '+relative);
+    if (!file.startsWith(motionParent + path.sep))
+      throw new Error('Imagem fora da pasta de cenas motion: '+relative);
     const size = fs.statSync(file).size;
     if (size > 20*1024*1024 || (totalBytes += size) > 60*1024*1024)
       throw new Error('Assets grandes demais; limite 20 MB por arquivo/60 MB por cena');
     const ext=path.extname(relative).toLowerCase();
-    const mime=ext==='.png'?'image/png':ext==='.webp'?'image/webp':'image/jpeg';
-    binaries[relative]='data:'+mime+';base64,'+fs.readFileSync(file).toString('base64');
+    if(ext==='.js') {
+      // NÃO executar JS do cliente para recuperar a imagem. Extrair somente
+      // URL base64 já incorporada, sem interpretar código ou baixar recursos.
+      const content=fs.readFileSync(file,'utf8');
+      const matches=content.match(/data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+/g)??[];
+      if (matches.length!==1) throw new Error('Módulo JS de imagem deve conter exatamente uma data:image base64: '+relative);
+      binaries[relative]=matches[0];
+    } else {
+      const mime=ext==='.png'?'image/png':ext==='.webp'?'image/webp':'image/jpeg';
+      binaries[relative]='data:'+mime+';base64,'+fs.readFileSync(file).toString('base64');
+    }
   }
   return { scene, binaries, sourcePath:absolute };
 }
