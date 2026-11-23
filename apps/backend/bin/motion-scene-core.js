@@ -235,7 +235,10 @@ function sceneRuntime({scene,binaries}) {
     for(const l of sorted)drawLayer(l,t);
     window.__motionFim=Number(time)>=end;
   };
-  Promise.all(Object.keys(binaries).map(key=>new Promise((resolve,reject)=>{
+  // A promessa de carregamento é aguardada diretamente pelo Playwright.
+  // waitForFunction usa requestAnimationFrame/setInterval, que ficam parados
+  // com o relógio virtual pausado, causando timeout e novas tentativas.
+  window.__nivooSceneLoadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise((resolve,reject)=>{
     const img=new Image();img.onload=()=>{images[key]=img;resolve();};
     img.onerror=()=>reject(new Error('Imagem inválida: '+key));img.src=binaries[key];
   }))).then(()=>{
@@ -244,6 +247,6 @@ function sceneRuntime({scene,binaries}) {
     const beginning=performance.now();
     function tick(now){const t=Math.min(end,(now-beginning)/1000);window.__renderAt(t);if(t<end)requestAnimationFrame(tick);}
     requestAnimationFrame(tick);
-  }).catch(e=>{window.__nivooSceneError=String(e.message||e)});
+  }).catch(e=>{window.__nivooSceneError=String(e.message||e);throw e;});
 }
 module.exports={ validateScene,loadScene,sceneDocument,sceneRuntime };
