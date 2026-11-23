@@ -8,7 +8,7 @@ import { appConfig } from '../config';
  * API). Ficam num arquivo do servidor com permissão 600 — nunca no git nem no banco — e valem para a API e
  * o worker. Variáveis de ambiente de mesmo nome têm prioridade (configuração feita pelo administrador).
  */
-export const SECRET_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'NVIDIA_API_KEY'] as const;
+export const SECRET_KEYS = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'NVIDIA_API_KEY', 'OPENROUTER_API_KEY', 'GROQ_API_KEY'] as const;
 export type SecretKey = (typeof SECRET_KEYS)[number];
 
 function file(): string {
