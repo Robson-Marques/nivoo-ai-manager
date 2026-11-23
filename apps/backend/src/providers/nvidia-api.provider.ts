@@ -49,8 +49,17 @@ export const NVIDIA_TOOLS: Array<Record<string, unknown>> = [
 
 /** Não enviar arquivos secretos do servidor nem entregar à IA acesso a comandos do host. */
 function caminhoSeguro(cwd: string, relativo: unknown): string {
-  const nome = String(relativo ?? '').trim().replace(/\\/g, '/');
+  let nome = String(relativo ?? '').trim().replace(/\\/g, '/');
   if (nome === '.' || !nome) return resolveInside(cwd, '.');
+  // Alguns modelos retornam o caminho absoluto completo da própria pasta
+  // do trabalho. Aceitar SOMENTE se estiver dentro do worktree: sem acesso ao host.
+  if (path.isAbsolute(nome)) {
+    const relativa = path.relative(fs.realpathSync(cwd), path.resolve(nome));
+    if (!relativa || relativa.startsWith('..') || path.isAbsolute(relativa)) {
+      throw new Error('Caminho externo ao trabalho. Use o caminho RELATIVO dentro do projeto.');
+    }
+    nome = relativa.replace(/\\/g, '/');
+  }
   const nomeValido = caminhoDoProjeto(nome);
   if (!nomeValido) throw new Error('Caminho inválido. Informe um caminho RELATIVO ao projeto, sem ../ nem caminhos absolutos.');
   if (nomeValido.split('/').some((p) =>
@@ -94,6 +103,16 @@ export function executarFerramentaNvidia(cwd: string, name: string, args: Record
     return JSON.stringify({ arquivos });
   }
   if (name === 'ler_arquivo') {
+    // Repositórios TypeScript não têm o .js compilado no worktree. Para LEITURA
+    // apenas, resolver .js -> .ts quando o correspondente existe e é autorizado.
+    if (!fs.existsSync(caminho) && typeof args.caminho === 'string' && /\.js$/i.test(args.caminho)) {
+      const alternativa = args.caminho.replace(/\.js$/i, '.ts');
+      const possivel = caminhoSeguro(cwd, alternativa);
+      if (fs.existsSync(possivel) && fs.statSync(possivel).isFile()) {
+        const leitura = JSON.parse(executarFerramentaNvidia(cwd, name, { ...args, caminho: alternativa }));
+        return JSON.stringify({ ...leitura, aviso: 'O arquivo .js não existe no código-fonte; foi lido o arquivo TypeScript .ts correspondente.' });
+      }
+    }
     const stat = fs.statSync(caminho);
     if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('Arquivo não é texto ou é muito grande (limite 1 MB)');
     const buffer = fs.readFileSync(caminho);
