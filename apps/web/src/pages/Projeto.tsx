@@ -814,7 +814,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
 
 /** O horário de exibição acompanha o fuso configurado no navegador. */
 function TempoMensagem({ m, tipo }: { m: any; tipo: 'enviada' | 'resposta' | 'pendente' | 'sistema' }) {
-  const timeValue = tipo === 'resposta' ? (m.completedAt ?? m.createdAt) : m.createdAt;
+  const timeValue = tipo === 'resposta' ? (m.completedAt ?? m.createdAt) :
+    tipo === 'pendente' ? (m.startedAt ?? m.createdAt) : m.createdAt;
   const time = new Date(timeValue);
   if (!Number.isFinite(time.getTime())) return null;
   const formatar = (value: Date) => value.toLocaleString('pt-BR', {
@@ -823,7 +824,7 @@ function TempoMensagem({ m, tipo }: { m: any; tipo: 'enviada' | 'resposta' | 'pe
     hour12: false,
   });
   const rotulo = tipo === 'enviada' ? 'Enviada' :
-    tipo === 'pendente' ? 'Solicitada' :
+    tipo === 'pendente' ? (m.startedAt ? 'IA iniciada' : 'Solicitada') :
     tipo === 'sistema' ? 'Sistema' :
     m.completedAt ? 'Resposta' : 'Registrada (horário de conclusão antigo indisponível)';
   const inicial = new Date(m.createdAt);
@@ -840,9 +841,14 @@ function TempoMensagem({ m, tipo }: { m: any; tipo: 'enviada' | 'resposta' | 'pe
         <span> · Total: {periodo(inicial, terminado)}</span>
       )}
       {tipo === 'resposta' && terminado && desdeInicio && Number.isFinite(desdeInicio.getTime()) && (
-        <span title="Inclui a chamada ao provedor, validação e eventuais tentativas de reparo">
-          {' '}· Após acionar IA: {periodo(desdeInicio, terminado)}
-        </span>
+        <>
+          <span title="Tempo desde a chegada da mensagem até a chamada ao provedor">
+            {' '}· Antes da IA: {periodo(inicial, desdeInicio)}
+          </span>
+          <span title="Inclui chamada ao provedor, validação e eventuais tentativas de reparo">
+            {' '}· Após acionar IA: {periodo(desdeInicio, terminado)}
+          </span>
+        </>
       )}
     </div>
   );
