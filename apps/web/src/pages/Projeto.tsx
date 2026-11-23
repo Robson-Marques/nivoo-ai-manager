@@ -12,8 +12,8 @@ import { SeletorModelo } from '../Pecas';
 
 /**
  * Projeto: conversa com a IA escolhida, presa ao "fine-tune do projeto" (regras do agente + regras do
- * projeto + conhecimento + memória). Pedido de trabalho vira plano; com "Fazer", é executado, conferido
- * por uma IA separada contra as regras e só então entra na pasta do projeto.
+ * projeto + conhecimento + memória). Pedido vira plano; com "Fazer", o trabalho é executado e entregue
+ * ao usuário. Revisão visual/editorial é humana; apenas integridade técnica indispensável é automática.
  */
 
 export const NOME_IA: Record<string, string> = {
@@ -916,7 +916,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
         <div className="plano">
           <b>Posso fazer isto:</b>
           <ol>{(m.plan.steps ?? []).map((s: any, i: number) => <li key={i}>{s.title || s.key}</li>)}</ol>
-          <p className="muted small">No fim, uma IA separada confere se tudo seguiu as regras do agente e do projeto. Só então fica pronto.</p>
+          <p className="muted small">Ao terminar, o Nivoo entrega os arquivos para você analisar. Verificações técnicas indispensáveis não substituem sua aprovação visual ou editorial.</p>
           {podeFazer ? (
             <div className="row">
               <button disabled={indo} onClick={() => { setIndo(true); onFazer().finally(() => setIndo(false)); }}>{indo ? 'Começando…' : 'Fazer'}</button>
