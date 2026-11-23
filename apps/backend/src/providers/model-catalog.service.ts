@@ -2,6 +2,7 @@ import { tipoDe } from '../accounts/connections';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { runProcess } from '../common/exec';
 import { GeminiVideoProvider } from './gemini-video.provider';
+import { NvidiaApiProvider } from './nvidia-api.provider';
 import { ProviderRegistry } from './provider-registry.service';
 
 export interface ModelOption {
@@ -12,7 +13,7 @@ export interface ModelOption {
 /** Nome de modelo aceito (aliases como "opus" ou ids completos como "gpt-6.1-sol"). */
 export function checkModelName(model: unknown): string {
   const m = String(model ?? '').trim();
-  if (!/^[A-Za-z0-9._:\-[\]]{1,100}$/.test(m)) throw new BadRequestException('Nome de modelo inválido');
+  if (!/^[A-Za-z0-9._:\/[\]-]{1,150}$/.test(m)) throw new BadRequestException('Nome de modelo inválido');
   return m;
 }
 
@@ -43,6 +44,17 @@ export class ModelCatalogService {
       return (this.registry.get(providerId) as GeminiVideoProvider).modelosParaEscolher();
     }
     if (providerId.startsWith('claude')) return { opcoes: CLAUDE };
+    if (tipoDe(providerId) === 'nvidia-api') {
+      const hit = this.cache.get(providerId);
+      if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };
+      try {
+        const opcoes = await (this.registry.get(providerId) as NvidiaApiProvider).modelos();
+        if (opcoes.length) this.cache.set(providerId, { at: Date.now(), opcoes });
+        return { opcoes, aviso: 'Catálogo NVIDIA: selecione um modelo compatível com Chat Completions e ferramentas. Disponibilidade sujeita a cotas.' };
+      } catch (e: any) {
+        return { opcoes: [], aviso: 'NVIDIA: ' + String(e?.message ?? e).slice(0, 180) + '. Cadastre a chave em Conexões.' };
+      }
+    }
     if (!tipoDe(providerId)) return { opcoes: [] }; // executores do sistema (arquivos, comandos) não têm modelo
     const hit = this.cache.get(providerId);
     if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };
