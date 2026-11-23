@@ -717,14 +717,16 @@ export class StepExecutorService {
       return 'CONCLUIDO';
     }
 
-    // A montagem pelo executor oficial é determinística: repetir o mesmo plano,
-    // com os mesmos arquivos e argumentos, não corrige mídia inválida nem erro FFmpeg.
-    // Bloquear na primeira falha com mensagem real, sem gastar outras tentativas.
+    // A montagem pode falhar por REFERÊNCIA ERRADA de áudio, sem que o
+    // vídeo esteja inválido. O executor agora tenta recuperar a trilha no
+    // catálogo do próprio projeto (sem escolher material ambíguo). Só então
+    // a falha entra na regra COMUM de três ocorrências do MESMO erro.
+    // Não abrir um trabalho novo nem repetir as etapas 3D já concluídas.
     if (!isAi && providerId === 'juntar-videos') {
       const detalhe = (result.error || result.output || 'O executor de vídeo não informou a causa').trim();
-      await this.checkpoint(job.id, step, worktree, `montagem falhou na etapa ${step.key}`, { tentativa: number });
-      return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
-        `Montagem interrompida na primeira falha; arquivos originais preservados. ${detalhe.slice(0, 2500)}`);
+      await L('Montagem pendente; vídeo e checkpoints preservados. ' +
+        'A recuperação automática da trilha foi tentada antes da montagem. ' +
+        detalhe.slice(0, 1500), 'WARN', attempt.id);
     }
 
     // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
