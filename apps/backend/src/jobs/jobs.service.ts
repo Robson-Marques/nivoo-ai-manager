@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { CriterionKind, Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
 import { aplicarPrioridadeDosExecutores, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
+import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -63,30 +64,6 @@ export function normalizarInstrucaoDeEtapa(texto: string, provider: string, orig
   return provider === 'local-shell' ? validarSaidaMotion(texto, origem) : texto;
 }
 
-/**
- * Conferência local de MP4: substitui "true" por prova de arquivo e stream de vídeo,
- * e exige stream de áudio quando a montagem recebeu trilha/narração.
- * Não renderiza novamente nem chama IA. Serve também para jobs legados ao executar.
- */
-export function conferenciaTecnicaDeVideo(
-  provider: string, instructions: string, opts: Record<string, unknown>, verifyCommand?: string,
-): string | undefined {
-  if (verifyCommand && !/^(?:true|:)\s*;?$/.test(verifyCommand.trim())) return verifyCommand;
-  let arquivo: string | null = null;
-  if (provider === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(instructions)) {
-    const saida = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(instructions);
-    const candidato = saida?.[1] ?? saida?.[2] ?? saida?.[3] ?? '';
-    if (/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(candidato)) arquivo = candidato;
-  } else if (provider === 'juntar-videos') {
-    const candidato = typeof opts.arquivo === 'string' ? caminhoDoProjeto(opts.arquivo) : null;
-    if (candidato && /\.mp4$/i.test(candidato)) arquivo = candidato;
-  }
-  if (!arquivo) return verifyCommand;
-  const quoted = "'" + arquivo.replace(/'/g, "'\\''") + "'";
-  const video = `test -s ${quoted} && test -n "$(ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 ${quoted})"`;
-  const exigeAudio = provider === 'juntar-videos' && !!(opts.trilha || opts.narracao);
-  return exigeAudio ? video + ` && test -n "$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 ${quoted})"` : video;
-}
 export interface StepInput {
   key: string;
   title: string;
