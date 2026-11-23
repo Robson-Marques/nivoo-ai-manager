@@ -812,9 +812,45 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
   );
 }
 
+/** O horário de exibição acompanha o fuso configurado no navegador. */
+function TempoMensagem({ m, tipo }: { m: any; tipo: 'enviada' | 'resposta' | 'pendente' | 'sistema' }) {
+  const timeValue = tipo === 'resposta' ? (m.completedAt ?? m.createdAt) : m.createdAt;
+  const time = new Date(timeValue);
+  if (!Number.isFinite(time.getTime())) return null;
+  const formatar = (value: Date) => value.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  const rotulo = tipo === 'enviada' ? 'Enviada' :
+    tipo === 'pendente' ? 'Solicitada' :
+    tipo === 'sistema' ? 'Sistema' :
+    m.completedAt ? 'Resposta' : 'Registrada (horário de conclusão antigo indisponível)';
+  const inicial = new Date(m.createdAt);
+  const terminado = m.completedAt ? new Date(m.completedAt) : null;
+  const desdeInicio = m.startedAt ? new Date(m.startedAt) : null;
+  const periodo = (from: Date, to: Date) => {
+    const segundos = Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000));
+    return segundos < 60 ? `${segundos}s` : `${Math.floor(segundos / 60)}min ${segundos % 60}s`;
+  };
+  return (
+    <div className="horario-da-mensagem">
+      <time dateTime={time.toISOString()}>{rotulo}: {formatar(time)}</time>
+      {tipo === 'resposta' && terminado && Number.isFinite(inicial.getTime()) && (
+        <span> · Total: {periodo(inicial, terminado)}</span>
+      )}
+      {tipo === 'resposta' && terminado && desdeInicio && Number.isFinite(desdeInicio.getTime()) && (
+        <span title="Inclui a chamada ao provedor, validação e eventuais tentativas de reparo">
+          {' '}· Após acionar IA: {periodo(desdeInicio, terminado)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respondida = false, onResponder }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void>; respondida?: boolean; onResponder?: (texto: string) => Promise<void> }) {
   const [indo, setIndo] = useState(false);
-  if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}</div>;
+  if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}<TempoMensagem m={m} tipo="sistema" /></div>;
   if (m.role === 'USUARIO') {
     return (
       <div className="msg eu">
@@ -832,15 +868,22 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
           </div>
         )}
         {m.content}
+        <TempoMensagem m={m} tipo="enviada" />
       </div>
     );
   }
-  if (m.status === 'PENDENTE') return <Pensando desde={m.createdAt} andamento={m.andamento} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />;
+  if (m.status === 'PENDENTE') return (
+    <div className="msg-pendente-com-hora">
+      <Pensando desde={m.createdAt} andamento={m.andamento} projetoId={projetoId} conversaId={m.conversationId} onMudou={onMudou} />
+      <TempoMensagem m={m} tipo="pendente" />
+    </div>
+  );
   if (m.status === 'ERRO') {
     return (
       <div className="msg ia erro">
         <TextoDaIa texto={m.content} />
         {/conectada|indisponível|limite|Conexões/.test(m.content) && <TrocarIa depois={onReenviar} />}
+        <TempoMensagem m={m} tipo="resposta" />
       </div>
     );
   }
@@ -878,6 +921,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
           )}
         </div>
       )}
+      <TempoMensagem m={m} tipo="resposta" />
     </div>
   );
 }
