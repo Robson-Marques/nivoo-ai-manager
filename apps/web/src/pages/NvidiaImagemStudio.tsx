@@ -9,7 +9,7 @@ interface MidiaNvidia { tipo: 'imagem' | 'video'; mime: string; base64: string }
  * Reutiliza o upload durável já existente (sem criar segunda biblioteca).
  * Só mostra o controle quando há chave NVIDIA conectada.
  */
-export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promise<void> }) {
+export function NvidiaImagemStudio({ onImport, projetoId }: { onImport: (f: File) => Promise<void>; projetoId: string }) {
   const [contas, setContas] = useState<Conexao[]>([]);
   const [aberto, setAberto] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -19,6 +19,15 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendente, setPendente] = useState<{id:string;conexao:string} | null>(null);
+  const chavePedido = 'nivoo-nvidia-video-pendente:' + projetoId;
+  useEffect(() => {
+    try {
+      const texto = localStorage.getItem(chavePedido);
+      const x = texto ? JSON.parse(texto) : null;
+      setPendente(x && typeof x.id === 'string' && typeof x.conexao === 'string' ? x : null);
+    } catch { setPendente(null); }
+  }, [chavePedido]);
 
   useEffect(() => {
     api<Conexao[]>('/accounts').then(cs => {
@@ -35,25 +44,31 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
     setErro(null);
     setNotice(null);
     try {
-      if (!prompt.trim()) throw new Error('Descreva a mídia antes de gerar.');
+      if (!prompt.trim() && !(modalidade === 'video' && pendente)) throw new Error('Descreva a mídia antes de gerar.');
       const isVideo = modalidade === 'video';
       const body = isVideo
         ? { modelo: 'nvidia/cosmos3-nano', prompt: prompt.trim(), proporcao, numFrames: 25 }
         : { modelo: 'black-forest-labs/flux.1-schnell', prompt: prompt.trim(), largura: 1024, altura: 1024 };
       let r: MidiaNvidia;
       if (isVideo) {
-        const iniciar = await api<{ id: string; estado: string }>(
-          '/accounts/' + encodeURIComponent(conexao) + '/nvidia/video/iniciar', 'POST', body);
-        setNotice('Geração Cosmos3 iniciada uma única vez. Consultando o pedido ' + iniciar.id + '…');
+        let pedido = pendente;
+        if (!pedido) {
+          const iniciar = await api<{ id: string; estado: string }>(
+            '/accounts/' + encodeURIComponent(conexao) + '/nvidia/video/iniciar', 'POST', body);
+          pedido = { id: iniciar.id, conexao };
+          localStorage.setItem(chavePedido, JSON.stringify(pedido));
+          setPendente(pedido);
+        }
+        setNotice('Consultando o pedido Cosmos3 ' + pedido.id + ' (sem gerar novamente)…');
         let pronto: MidiaNvidia | null = null;
         for (let i = 0; i < 80; i++) {
           await new Promise(resolve => setTimeout(resolve, 2500));
           const estado = await api<{ estado: string; resultado?: MidiaNvidia; erro?: string }>(
-            '/accounts/' + encodeURIComponent(conexao) + '/nvidia/video/' + encodeURIComponent(iniciar.id));
+            '/accounts/' + encodeURIComponent(pedido.conexao) + '/nvidia/video/' + encodeURIComponent(pedido.id));
           if (estado.estado === 'falhou') throw new Error(estado.erro ?? 'A NVIDIA não concluiu o vídeo');
           if (estado.estado === 'concluido' && estado.resultado) { pronto = estado.resultado; break; }
         }
-        if (!pronto) throw new Error('Geração ainda em andamento. Pedido ' + iniciar.id +
+        if (!pronto) throw new Error('Geração ainda em andamento. Pedido ' + pedido.id +
           '. Não reinicie a geração: consulte o estado na NVIDIA.');
         r = pronto;
       } else {
@@ -69,6 +84,7 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
       for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
       const nome = (isVideo ? 'nvidia-cosmos-' : 'nvidia-flux-') + Date.now() + (isVideo ? '.mp4' : '.jpg');
       await onImport(new File([bytes], nome, { type: mime }));
+      if (isVideo) { localStorage.removeItem(chavePedido); setPendente(null); }
       setNotice((isVideo ? 'Vídeo' : 'Imagem') + ' adicionado à biblioteca de mídia deste projeto.');
       setPrompt('');
     } catch (e: any) {
@@ -115,8 +131,15 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
             placeholder="Ex.: pizza em primeiro plano com fumaça e iluminação cinematográfica"
           />
         </label>
-        <button type="button" disabled={ocupado || !prompt.trim()} onClick={() => { void gerar(); }}>
-          {ocupado ? 'Gerando/importando…' : 'Gerar e colocar na biblioteca'}
+        {modalidade === 'video' && pendente && <div className="muted small">
+          Pedido pendente: {pendente.id}. A consulta reutiliza esse pedido, mesmo depois de recarregar a página.
+          <button type="button" className="link" disabled={ocupado} onClick={() => {
+            if (!window.confirm('Descartar o vínculo local? Isso NÃO cancela o processamento na NVIDIA. Consulte o histórico antes de gerar novamente.')) return;
+            localStorage.removeItem(chavePedido);setPendente(null);
+          }}>Desvincular pedido antigo</button>
+        </div>}
+        <button type="button" disabled={ocupado || (!prompt.trim() && !(modalidade === 'video' && pendente))} onClick={() => { void gerar(); }}>
+          {ocupado ? 'Consultando/gerando…' : modalidade === 'video' && pendente ? 'Consultar vídeo anterior' : 'Gerar e colocar na biblioteca'}
         </button>
         {modalidade === 'video' && <p className="muted small">A geração pode demorar. Se ocorrer timeout, NÃO repita sem verificar o histórico da NVIDIA. Algumas contas recebem HTTP 404 por falta de permissão Public API Endpoints.</p>}
         {notice && <p className="ok-msg">{notice}</p>}
