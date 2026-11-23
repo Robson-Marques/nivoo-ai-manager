@@ -408,7 +408,10 @@ function NovaConexao({ ias, onFechar, onCriada }: { ias: any[]; onFechar: () => 
                   <span className={`marca marca-${t.modo === 'git' ? 'git' : t.ia.toLowerCase()}`}>{t.modo === 'git' ? <Icone nome="ramo" /> : t.ia[0]}</span>
                   <span>
                     <b>{t.ia}{t.modo === 'conta' ? ' — conta' : t.modo === 'api' ? ' — chave de API' : ''}</b>
-                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? (t.tipo === 'nvidia-api' ? 'API de avaliação gratuita com cotas (build.nvidia.com)' : `cobrança por uso (${t.ondeChave})`) : t.descricao}</span>
+                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? (t.tipo === 'nvidia-api' ? 'API de avaliação gratuita com cotas (build.nvidia.com)' :
+                      t.tipo === 'openrouter-free-api' ? 'Somente modelos grátis; rota paga bloqueada (openrouter.ai)' :
+                      t.tipo === 'groq-free-api' ? 'Grátis somente no plano Free, sujeito a cotas (groq.com)' :
+                      `cobrança por uso (${t.ondeChave})`) : t.descricao}</span>
                   </span>
                 </button>
               ))}
