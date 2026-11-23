@@ -74,3 +74,25 @@ Referências:
 - https://build.nvidia.com/nvidia/nemotron-3_5-embed-1b/apireference
 - https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-3_5-rerank-8b-infer
 - https://docs.api.nvidia.com/nim/reference/black-forest-labs-flux_1-schnell-infer
+
+
+## Prévia de vídeo NVIDIA Cosmos3 Nano (hosted)
+
+O Cosmos3 Nano é uma exceção relevante entre os modelos de vídeo: a NVIDIA publica um **Free Endpoint hospedado** em:
+
+- POST https://ai.api.nvidia.com/v1/cosmos/nvidia/cosmos3-nano
+- Modo `text2video`, 480p, formato 16:9 ou 9:16 e 25 quadros a 24 fps, com `b64_video` em MP4.
+- Saída com marcação de proveniência SynthID e restrições de segurança do modelo.
+
+O Nivoo AI Manager tem o executor para essa API:
+
+- `POST /accounts/:id/nvidia/video/iniciar` inicia **uma** geração e retorna ID imediatamente;
+- `GET /accounts/:id/nvidia/video/:pedidoId` acompanha o mesmo pedido sem novos gastos;
+- `Nivoo Studio de Vídeo → Gerar imagem/vídeo NVIDIA → Cosmos3 Nano` importa o MP4 gerado diretamente na biblioteca durável do projeto;
+- `Conexões → NVIDIA → Catálogo` permite testar vídeo e salvar o MP4.
+
+**Disponibilidade:** relatos públicos em novembro de 2026 mostram contas gratuitas recebendo HTTP 404 por falta de habilitação de `Public API Endpoints`. O código apresenta essa falha especificamente; a presença do modelo no catálogo **não comprova** que a conta pode chamá-lo. Em caso de timeout do provedor, a geração pode ter concluído remotamente; não é seguro reenviar automaticamente.
+
+**Limitação de continuidade:** o estado dos pedidos assíncronos ainda fica na memória da API. Se o servidor reiniciar durante uma geração, o Nivoo não a reenviará e o ID poderá não estar mais disponível no sistema; confira o histórico da NVIDIA antes de solicitar outra geração. Para produção, seria necessário um armazenamento durável de jobs e contrato de recuperação do gateway.
+
+Referências: https://build.nvidia.com/nvidia/cosmos3-nano/modelcard e https://build.nvidia.com/nvidia/cosmos3-nano/apireference
