@@ -89,6 +89,21 @@ async function main() {
     assert.equal(draws.length-before,1);
     assert.equal(overlayWin.__motionFim,false);
 
+    // Compatibilidade com assets base64 que o Studio guardava em módulos
+    // JS numa pasta irmã da composição, sem executar esse JavaScript.
+    const sceneDir=path.join(root,'motion','novo');
+    const legacy=path.join(root,'motion','antigo','assets');
+    fs.mkdirSync(sceneDir,{recursive:true});
+    fs.mkdirSync(legacy,{recursive:true});
+    fs.writeFileSync(path.join(legacy,'pizza.js'),
+      "window.assets={pizza:'data:image/png;base64,iVBORw0KGgo='};");
+    const legacyScene=JSON.parse(JSON.stringify(scene));
+    legacyScene.layers[0].asset='../antigo/assets/pizza.js';
+    fs.writeFileSync(path.join(sceneDir,'scene.json'),JSON.stringify(legacyScene));
+    const fromLegacy=loadScene(path.join(sceneDir,'scene.json'));
+    assert.equal(fromLegacy.binaries['../antigo/assets/pizza.js'],
+      'data:image/png;base64,iVBORw0KGgo=');
+
     fs.writeFileSync(escape,Buffer.from('outside'));
     fs.symlinkSync(escape,path.join(root,'assets','external.png'));
     const bad=JSON.parse(JSON.stringify(scene));
