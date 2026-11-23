@@ -8,7 +8,7 @@
  */
 export type NvidiaArea =
   | 'agentes' | 'conversa' | 'visao' | 'imagens' | 'video'
-  | 'audio' | 'documentos' | 'busca' | 'dados' | 'ciencia' | 'a-verificar';
+  | 'audio' | 'documentos' | 'busca' | 'dados' | 'ciencia' | 'seguranca' | 'a-verificar';
 export type NvidiaEndpoint =
   | 'chat-completions' | 'embedding' | 'rerank' | 'imagem' | 'video'
   | 'audio' | 'documentos' | 'dados' | 'especializado' | 'desconhecido';
@@ -25,6 +25,7 @@ export const NVIDIA_AREAS: Array<{ id: NvidiaArea; nome: string; descricao: stri
   { id: 'busca', nome: 'Pesquisa e RAG', descricao: 'Embeddings, vetorização e reranking' },
   { id: 'dados', nome: 'Dados estruturados', descricao: 'Previsões tabulares e relacionais' },
   { id: 'ciencia', nome: 'Ciência e modelos especializados', descricao: 'Biologia, física e técnicas científicas' },
+  { id: 'seguranca', nome: 'Segurança e moderação', descricao: 'Verificação de conteúdo, prevenção de abusos e privacidade' },
   { id: 'a-verificar', nome: 'Ainda não classificados', descricao: 'A função real depende da documentação do modelo' },
 ];
 
@@ -81,7 +82,74 @@ const CONHECIDOS: Linha[] = [
   ['Ising Calibration 1.5', null, ['ciencia', 'visao'], 'Análise de gráficos de calibração quântica', 'especializado', 'free-endpoint'],
   ['Cosmos3 Nano', null, ['video', 'imagens'], 'Gerar imagens, vídeos e previsões de ação; endpoint próprio', 'video', 'ambos'],
   ['Cosmos3 Nano Reasoner', null, ['visao', 'video'], 'Compreender imagens e vídeos (não gera vídeo)', 'chat-completions', 'ambos'],
-  ['Nemotron Nano 12B V2 VL', 'nvidia/nemotron-nano-12b-v2-vl', ['visao', 'conversa'], 'Entendimento de imagens, documentos e vídeo', 'chat-completions', 'nao-verificada'],
+  ["Nemotron 3 Embed 1B",null,["busca"],"Vetorização para pesquisa e RAG (descontinuação anunciada)","embedding","free-endpoint"],
+  ["Laguna XS 2.1",null,["agentes"],"Programação agêntica de longo horizonte","chat-completions","free-endpoint"],
+  ["Qwen Image Edit NVPCB",null,["imagens"],"Edição de imagem industrial e iluminação","imagem","download"],
+  ["Nemotron OCR V2",null,["documentos"],"OCR multilíngue de documentos complexos","documentos","download"],
+  ["Nemotron 3 Ultra 550B",null,["agentes","conversa"],"Programação, planejamento, raciocínio e uso de ferramentas","chat-completions","ambos"],
+  ["Chatterbox Multilingual TTS",null,["audio"],"Síntese de voz expressiva multilíngue","audio","download"],
+  ["Nemotron 3.5 Content Safety",null,["seguranca","visao"],"Moderação de conteúdo multimodal","especializado","ambos"],
+  ["Qwen Image",null,["imagens"],"Geração de imagens com texto multilíngue","imagem","download"],
+  ["Qwen Image Edit",null,["imagens"],"Edição de imagens e textos dentro da imagem","imagem","download"],
+  ["Nemotron 3 Nano Omni 30B",null,["visao","audio","conversa"],"Entender texto, imagem, vídeo e fala; não gera vídeo","chat-completions","ambos"],
+  ["Relighting",null,["video"],"Alterar iluminação de pessoas em vídeo","video","download"],
+  ["Synthetic Video Detector",null,["video","seguranca"],"Detecção de vídeo sintético","video","ambos"],
+  ["Active Speaker Detection",null,["video","audio"],"Detectar quem está falando em vídeo","video","ambos"],
+  ["LipSync",null,["video","audio"],"Sincronizar movimento labial com áudio","video","download"],
+  ["Ising Calibration 1 35B",null,["ciencia","visao"],"Analisar gráficos de calibração quântica","especializado","ambos"],
+  ["Gemma 4 31B IT",null,["conversa","agentes"],"Raciocínio e programação; ferramentas ainda não confirmadas","chat-completions","ambos"],
+  ["Nemotron ASR Streaming",null,["audio"],"Transcrição de fala em tempo real","audio","download"],
+  ["FLUX 2 Klein 4B",null,["imagens"],"Gerar e editar imagens rapidamente","imagem","download"],
+  ["Nemotron OCR V1",null,["documentos"],"OCR de imagens e documentos","documentos","download"],
+  ["Nemotron Table Structure V1",null,["documentos"],"Detectar tabelas, gráficos e títulos","documentos","download"],
+  ["Nemotron Page Elements V3",null,["documentos"],"Detectar elementos e layout de páginas","documentos","download"],
+  ["Nemotron Graphic Elements V1",null,["documentos"],"Reconhecer componentes gráficos em documentos","documentos","download"],
+  ["Evo2 40B Forward",null,["ciencia"],"Analisar sequências de DNA","especializado","download"],
+  ["Evo2 7B Forward",null,["ciencia"],"Analisar sequências genômicas","especializado","download"],
+  ["StreamPETR",null,["visao","dados"],"Detecção temporal de objetos 3D para direção autônoma","especializado","free-endpoint"],
+  ["Llama 3.1 Nemotron Safety Guard 8B V3",null,["seguranca"],"Moderação e segurança de conteúdos multilíngues","especializado","free-endpoint"],
+  ["OpenFold3",null,["ciencia"],"Estrutura 3D de complexos biomoleculares","especializado","download"],
+  ["Parakeet CTC 0.6B ZH TW",null,["audio"],"Transcrever mandarim taiwanês e inglês","audio","download"],
+  ["Parakeet CTC 0.6B ZH CN",null,["audio"],"Transcrever mandarim e inglês","audio","download"],
+  ["Parakeet CTC 0.6B ES",null,["audio"],"Transcrever espanhol e inglês","audio","download"],
+  ["Parakeet CTC 0.6B VI",null,["audio"],"Transcrever vietnamita e inglês","audio","download"],
+  ["Trellis",null,["imagens"],"Gerar ativos e objetos 3D a partir de texto ou imagem","imagem","download"],
+  ["Stable Diffusion 3.5 Large",null,["imagens"],"Geração de imagens","imagem","download"],
+  ["FLUX.1 Kontext Dev",null,["imagens"],"Edição e geração contextual de imagens","imagem","download"],
+  ["Parakeet TDT 0.6B V2",null,["audio"],"Transcrever inglês com timestamps","audio","download"],
+  ["NeMoRetriever OCR",null,["documentos"],"OCR de imagens e estrutura de páginas","documentos","download"],
+  ["Riva Translate 1.6B",null,["audio"],"Tradução multilíngue","especializado","download"],
+  ["Background Noise Removal",null,["audio"],"Remoção de ruído em áudios","audio","ambos"],
+  ["Boltz 2",null,["ciencia"],"Previsão de estruturas moleculares","especializado","download"],
+  ["Magpie TTS Zeroshot",null,["audio"],"Gerar voz expressiva a partir de amostra","audio","free-endpoint"],
+  ["FLUX.1 Schnell",null,["imagens"],"Geração rápida de imagens","imagem","download"],
+  ["Parakeet 1.1B RNNT Multilingual ASR",null,["audio"],"Transcrição em diversos idiomas","audio","download"],
+  ["FLUX.1 Dev",null,["imagens"],"Geração de imagens","imagem","download"],
+  ["SparseDrive",null,["visao","dados"],"Percepção e planejamento de direção autônoma","especializado","free-endpoint"],
+  ["BEVFormer",null,["visao","dados"],"Percepção 3D de ambientes para direção autônoma","especializado","free-endpoint"],
+  ["Magpie TTS Multilingual",null,["audio"],"Síntese expressiva de voz multilíngue","audio","download"],
+  ["MSA Search",null,["ciencia"],"Alinhamento de sequências de proteínas","especializado","download"],
+  ["OpenFold2",null,["ciencia"],"Estrutura 3D de proteínas","especializado","download"],
+  ["Evo2 40B",null,["ciencia"],"Modelos de genômica e sequências longas","especializado","download"],
+  ["Whisper Large V3",null,["audio"],"Reconhecimento automático de fala","audio","download"],
+  ["Canary 1B ASR",null,["audio"],"Transcrição e tradução de fala (descontinuação anunciada)","audio","download"],
+  ["Nemoguard 8B Topic Control",null,["seguranca"],"Controle de temas permitidos em conversas","especializado","download"],
+  ["Nemoguard Jailbreak Detect",null,["seguranca"],"Detecção de prompt injection e jailbreak","especializado","download"],
+  ["GenMol",null,["ciencia"],"Geração molecular por difusão","especializado","download"],
+  ["PaddleOCR",null,["documentos"],"Extração de textos, tabelas e caixas delimitadoras","documentos","download"],
+  ["Conformer CTC ASR",null,["audio"],"Transcrição de fala em espanhol","audio","download"],
+  ["FourCastNet",null,["ciencia","dados"],"Simulação de tempo e clima","especializado","download"],
+  ["Studio Voice",null,["audio"],"Melhorar qualidade e clareza da fala","audio","ambos"],
+  ["Megatron 1B NMT",null,["audio"],"Tradução neural","especializado","download"],
+  ["Parakeet CTC 1.1B ASR",null,["audio"],"Transcrição de fala em inglês","audio","download"],
+  ["Parakeet CTC 0.6B ASR",null,["audio"],"Transcrição de fala em inglês","audio","download"],
+  ["ProteinMPNN",null,["ciencia"],"Projetar sequências de aminoácidos para proteínas","especializado","download"],
+  ["EyeContact",null,["video"],"Corrigir direção do olhar em vídeo","video","download"],
+  ["RFDiffusion",null,["ciencia"],"Geração de estruturas proteicas","especializado","download"],
+  ["PaliGemma",null,["visao","conversa"],"Compreender conteúdo de imagens e texto","chat-completions","free-endpoint"],
+  ["MolMIM",null,["ciencia"],"Geração molecular controlada","especializado","download"],
+  ["DiffDock",null,["ciencia"],"Predizer interações molécula-proteína","especializado","download"],
+  ["cuOpt",null,["dados"],"Otimização de rotas e logística","especializado","download"],
 ];
 
 function chave(nome: string): string {
@@ -139,5 +207,6 @@ export function modelosNvidiaParaWorkflow(idsDaApi: string[] = []): Array<{ id: 
 }
 
 export function modeloNvidiaServeComoAgente(id: string): boolean {
-  return catalogarNvidiaModelos().some((m) => m.id && igual(m.id, id) && m.utilizavelNoWorkflow);
+  const conhecido = modeloConhecido(id);
+  return !!conhecido && conhecido[4] === 'chat-completions' && conhecido[6] === true;
 }
