@@ -25,7 +25,7 @@ import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
 import { conferenciaTecnicaDeVideo } from '../jobs/video-step-verification';
-import { inspecionarVideoGerado, videoGeradoPorEtapa } from '../jobs/native-video-result';
+import { caminhoRealDoVideo, inspecionarVideoGerado, videoGeradoPorEtapa } from '../jobs/native-video-result';
 import { conferenciaGrepAlternativasLegada } from '../jobs/verification-legacy-grep';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -193,6 +193,16 @@ export class StepExecutorService {
         }
         await L('MP4 de tentativa anterior localizado, mas não corresponde ao hash/contrato técnico registrado: ' +
           check.detail + '. Não será aceito como render válido.', 'WARN');
+      }
+      if (caminhoRealDoVideo(this.pastaDeMidia(job.project.dirKey), videoDestaEtapa)) {
+        // O renderizador publica com hard-link exclusivo; nunca sobrescreve.
+        // Mesmo que se esperasse 17 minutos, falharia com EEXIST. Impedir
+        // esse desperdício e explicar ao usuário o conflito ANTES de iniciar.
+        return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
+          'O MP4 de saída já existe em ' + videoDestaEtapa +
+          ', mas não há prova íntegra de que foi produzido por esta etapa deste trabalho. ' +
+          'Não recomecei a renderização nem sobrescrevi o vídeo. Consulte os arquivos existentes ' +
+          'e escolha um novo nome de saída ou retome a origem correta.');
       }
     }
 
