@@ -206,7 +206,7 @@ export class StepExecutorService {
     // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
-    if (providerId === 'local-shell' && /\\bnivoo-(?:conferir-arte|renderizar-motion)\\b/.test(step.instructions)) {
+    if (providerId === 'local-shell' && /\bnivoo-(?:conferir-arte|renderizar-motion)\b/.test(step.instructions)) {
       const espaco = armazenamentoDisponivel(['/', worktree, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
       if (!espaco.ok) {
         const gb = ((espaco.livre ?? 0) / (1024 ** 3)).toFixed(2);
