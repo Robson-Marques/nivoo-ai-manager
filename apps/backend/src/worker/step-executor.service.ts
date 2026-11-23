@@ -322,7 +322,12 @@ export class StepExecutorService {
         const outros = (await jobsDaConversa(this.prisma, origem.conversationId)).filter((id) => id !== job.id);
         const resultados = await this.artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
         if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
-        const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, outros, worktree);
+        // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
+        const trabalhosAnteriores = await this.prisma.job.findMany({
+          where: { projectId: job.projectId, id: { in: outros } },
+          orderBy: { createdAt: 'asc' }, select: { id: true },
+        });
+        const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
         if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
         if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
       }
