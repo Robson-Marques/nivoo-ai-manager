@@ -3,8 +3,8 @@
 /**
  * Prévia de direção de arte ANTES do MP4, sem chamar IA nem codificar vídeo.
  * Uso: nivoo-conferir-arte motion/<pasta> --saida out/qualidade/<nome> [--segundos 25] [--tamanho 1080x1920]
- * Gera quadro.png e evidencias.json. A comparação artística é feita pela etapa
- * revisora com a referência, não por um número arbitrário de saturação.
+ * Gera quadro.png (final), quadros temporais e evidencias.json. A comparação
+ * artística é feita pela revisão com referência, INCLUINDO movimento real.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -61,26 +61,50 @@ visit(root, 0);
   try {
     const page = await browser.newPage({ viewport: { width: Number(m[1]), height: Number(m[2]) }, deviceScaleFactor: 1 });
     const errors = [];
-    page.on('pageerror', e => errors.push(String(e.message).slice(0, 220)));
+    page.on('pageerror', e => { if (errors.length < 20) errors.push(String(e.message).slice(0, 220)); });
+    page.on('console', msg => {
+      // Erros de shader/WebGL podem ocorrer no console SEM pageerror.
+      const line = String(msg.text()).slice(0, 320);
+      if (msg.type() === 'error' && /WebGL|shader|uniform|link program/i.test(line) && errors.length < 20)
+        errors.push(line);
+    });
     await page.goto('file://' + entry, { waitUntil: 'load', timeout: 30000 });
-    // É uma captura real do estágio final, não um recorte do cartaz.
-    const deadline = Date.now() + seconds * 1000;
-    while (Date.now() < deadline) {
-      if (await page.evaluate(() => window.__motionFim === true).catch(() => false)) break;
-      await page.waitForTimeout(200);
-    }
+    // Capturar a LINHA DO TEMPO real. Quadro final sozinho não revela
+    // megafone invertido, neon mal direcionado nem moldura quebrada.
+    const declarado = Number(await page.evaluate(() => window.__motionSegundos).catch(() => 0));
+    const duracao = Number.isFinite(declarado) && declarado >= 1 && declarado <= 120 ? declarado : seconds;
     fs.mkdirSync(dir, { recursive: true });
+    const marcas = [0.08, 0.30, 0.55, 0.75, 0.92].map(p => duracao * p);
+    const quadros = [];
+    const inicio = Date.now();
+    const deadline = inicio + duracao * 1000;
+    let ponto = 0;
+    while (Date.now() < deadline) {
+      const decorrido = (Date.now() - inicio) / 1000;
+      if (ponto < marcas.length && decorrido >= marcas[ponto]) {
+        const nome = 'quadro-' + String(ponto + 1).padStart(2, '0') + '.png';
+        const arquivo = path.join(dir, nome);
+        await page.screenshot({ path: arquivo, fullPage: false, animations: 'allow' });
+        quadros.push({ segundo: Number(((Date.now() - inicio) / 1000).toFixed(2)),
+          arquivo: path.relative(process.cwd(), arquivo).split(path.sep).join('/') });
+        ponto++;
+      }
+      if (await page.evaluate(() => window.__motionFim === true).catch(() => false)) break;
+      await page.waitForTimeout(100);
+    }
     const frame = path.join(dir, 'quadro.png');
     await page.screenshot({ path: frame, fullPage: false, animations: 'allow' });
+    if (quadros.length < 4) errors.push('ANIMACAO_INCOMPLETA: não foi possível capturar quatro instantes distintos; conferir duração e sinal __motionFim.');
     const report = {
       tipo: 'preflight-visual', origem: raw, quadro: path.relative(process.cwd(), frame).split(path.sep).join('/'),
-      largura: Number(m[1]), altura: Number(m[2]), segundosSolicitados: seconds,
+      largura: Number(m[1]), altura: Number(m[2]), segundosSolicitados: seconds, duracaoDeclarada: duracao,
+      quadros,
       referenciasDisponiveis: refs, referenciaEscolhidaAutomaticamente: false,
       errosJavascript: errors,
-      observacao: 'O servidor capturou a composição antes do MP4; qualidade, fidelidade e legibilidade exigem comparação visual com a referência correta. Não inventar nota de qualidade.',
+      observacao: 'A prévia inclui quadros reais de vários instantes. A direção de arte deve verificar orientação e trajetória de efeitos, molduras fechadas e ritmo. Uma captura final isolada NÃO valida o movimento.',
     };
     fs.writeFileSync(path.join(dir, 'evidencias.json'), JSON.stringify(report, null, 2));
-    console.log('Prévia visual capturada: ' + report.quadro + ' | referências: ' + refs.length);
+    console.log('Prévia temporal capturada: ' + quadros.length + ' quadros + final ' + report.quadro + ' | referências: ' + refs.length);
     if (errors.length) {
       console.error('Composição contém erro JS: ' + errors[0]);
       process.exitCode = 4;
