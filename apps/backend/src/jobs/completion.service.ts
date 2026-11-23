@@ -15,6 +15,7 @@ import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
 import { conferenciasDasEtapas, lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP } from './rule-review';
 import { assinaturasDasFalhas, MARCADOR_RECUPERACAO, MAX_OCORRENCIAS_MESMA_FALHA, recorrenciasDasFalhas } from './recovery-signature';
+import { capturasMotionDesatualizadas } from './motion-capture-freshness';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
@@ -55,31 +56,8 @@ function getPath(obj: any, p: string): unknown {
 }
 
 
-export function capturasMotionDesatualizadas(worktree: string, steps: Array<{key:string; provider:string|null; instructions:string; status:string}>): string[] {
-  const vencidas: string[] = [];
-  for (const step of steps) {
-    if (step.provider !== 'local-shell' || step.status !== 'CONCLUIDO') continue;
-    const match = /\bnivoo-conferir-arte\s+(motion\/[A-Za-z0-9._/-]+)\s+--saida\s+(out\/qualidade\/[A-Za-z0-9_-]+)/.exec(step.instructions);
-    if (!match || match[1].split('/').includes('..')) continue;
-    const dir = path.resolve(worktree, match[1]);
-    const png = path.resolve(worktree, match[2], 'quadro.png');
-    if (!dir.startsWith(worktree + path.sep) || !fs.existsSync(dir) || !fs.existsSync(png)) continue;
-    const pngTime = fs.statSync(png).mtimeMs;
-    const fontes: string[] = [];
-    const ler = (pasta: string, level: number) => {
-      if (level > 3 || fontes.length > 200) return;
-      for (const item of fs.readdirSync(pasta, {withFileTypes:true})) {
-        if (item.isSymbolicLink()) continue;
-        const full = path.join(pasta,item.name);
-        if (item.isDirectory()) ler(full,level+1);
-        else if(item.isFile() && /\.(html|css|js|mjs|png|jpe?g|svg|webp)$/i.test(item.name)) fontes.push(full);
-      }
-    };
-    ler(dir,0);
-    if(fontes.some(f=>fs.statSync(f).mtimeMs>pngTime+200)) vencidas.push(step.key);
-  }
-  return vencidas;
-}
+// Reexportação para chamadas existentes e testes de regressão.
+export { capturasMotionDesatualizadas } from './motion-capture-freshness';
 
 /**
  * Único componente que pode marcar um job como CONCLUIDO.
