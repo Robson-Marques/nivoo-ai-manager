@@ -16,6 +16,7 @@ import { evaluatePolicy } from '../security/policy';
 import { LogService } from './log.service';
 import { aceitarRevisao, conferenciasDasEtapas, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
+import { capturasParaRecuperar } from './motion-capture-freshness';
 
 const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_THRESHOLD', 'MANUAL_APPROVAL'] as const;
 
@@ -518,12 +519,27 @@ export class JobsService {
     if (fechando) {
       throw new ConflictException(`A sessão #${fechando.number} ainda está sendo encerrada pelo worker ${fechando.workerId}. Aguarde alguns segundos e clique em Continuar de novo.`);
     }
+    // Retomar uma revisão visual bloqueada primeiro refaz as capturas vencidas,
+    // em vez de iniciar outra sessão de IA com os mesmos PNGs antigos.
+    const pasta = await this.pastaDoTrabalho(projectId, jobId);
+    const revisoresBloqueados = job.steps.filter((etapa) =>
+      ['BLOQUEADO', 'FALHOU'].includes(etapa.status) && /^direcao-arte-/.test(etapa.key));
+    const recapturar = new Set<string>(
+      pasta
+        ? revisoresBloqueados.flatMap((revisao) => capturasParaRecuperar(pasta, revisao, job.steps))
+        : [],
+    );
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       for (const s of job.steps) {
         const ultima = await tx.attempt.aggregate({ where: { stepId: s.id }, _max: { number: true } });
         const recomeco = { resumeFromAttempt: ultima._max.number ?? 0 }; // limites contam a partir da retomada
-        if (s.status === 'EXECUTANDO') {
+        if (recapturar.has(s.key) && s.status === 'CONCLUIDO') {
+          await tx.step.update({
+            where: { id: s.id },
+            data: { status: 'PENDENTE', statusDetail: 'recapturar visual atualizado antes da revisão' },
+          });
+        } else if (s.status === 'EXECUTANDO') {
           // Worker morreu (sem sinal): a tentativa órfã é encerrada; a etapa volta para PENDENTE.
           await tx.attempt.updateMany({
             where: { stepId: s.id, status: 'EXECUTANDO' },
@@ -531,7 +547,17 @@ export class JobsService {
           });
           await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
         } else if (['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) {
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
+          await tx.step.update({
+            where: { id: s.id },
+            data: {
+              status: 'PENDENTE', statusDetail: 'retomada', ...recomeco,
+              // A revisão espera todas as capturas vencidas, mesmo quando
+              // a dependência original só exigia um dos quadros.
+              ...(recapturar.size && revisoresBloqueados.some((r) => r.id === s.id)
+                ? { dependsOn: [...new Set([...s.dependsOn, ...recapturar])] }
+                : {}),
+            },
+          });
         }
       }
       await tx.job.update({
@@ -539,7 +565,7 @@ export class JobsService {
         data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `retomado por ${by}`, finishedAt: null, startedAt: job.startedAt ?? new Date() },
       });
     });
-    await this.logs.log(jobId, `Job retomado por ${by} a partir do último checkpoint`);
+    await this.logs.log(jobId, `Job retomado por ${by} a partir do último checkpoint${recapturar.size ? '; recapturar ' + [...recapturar].join(', ') + ' antes de revisar' : ''}`);
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);
   }

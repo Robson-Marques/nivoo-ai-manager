@@ -38,6 +38,8 @@ import { bancoDeTesteDisponivel, descartarBancoDeTeste, prepararBancoDeTeste, TE
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
+import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
+import { capturasParaRecuperar, diagnosticoParecerVisual } from '../jobs/motion-capture-freshness';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
@@ -57,9 +59,8 @@ export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'pr
   return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, quem]));
 }
 
-// Limite material do Nivoo: a IA não pode converter uma etapa simples
-// em dezenas de sessões, mesmo que as tentativas não sejam classificadas como FALHA.
-const MAX_TOTAL_EXECUTIONS_PER_STEP = 3;
+// Erros corrigíveis diferentes não compartilham teto de sessões.
+// Recursos externos sem acesso continuam protegidos por três verificações.
 const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
 
@@ -175,20 +176,11 @@ export class StepExecutorService {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO_PROJETO, `custo do projeto US$ ${spent} ≥ orçamento do projeto US$ ${job.project.maxCostUsd}`);
       }
     }
-    // HARD STOP: conta todas as sessões iniciadas, não apenas FALHA. Um
-    // resultado SESSAO_ENCERRADA, uma verificação falha ou troca de IA também
-    // consome uma execução. Não reiniciar contagem com resumeFromAttempt.
-    const totalExecutions = await this.prisma.attempt.count({
-      where: { stepId: step.id, status: { not: 'INTERROMPIDA' } },
+    // Não abortar por quantidade TOTAL de tentativas: uma correção pode
+    // expor um defeito diferente. Somente repetição da mesma causa deve travar.
+    const failures = await this.prisma.attempt.count({
+      where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } },
     });
-    if (totalExecutions >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_SESSOES,
-        `A etapa já executou ${totalExecutions} vezes (limite rígido: ${MAX_TOTAL_EXECUTIONS_PER_STEP}). O Nivoo interrompeu novas sessões para evitar repetição e gasto de tokens. Consulte as tentativas e corrija a causa antes de criar um novo trabalho.`);
-    }
-    const failures = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } } });
-    if (failures >= job.maxAttemptsPerStep) {
-      return this.failStep(task, workerId, job, step, `limite de ${job.maxAttemptsPerStep} tentativa(s) com falha atingido`);
-    }
 
     // Política: ações destrutivas só com aprovação do usuário.
     // Só o que roda como comando: instrução de IA é texto ("não use rm -rf" não é ação destrutiva).
@@ -542,7 +534,9 @@ export class StepExecutorService {
       if (v.exitCode !== 0 && !v.aborted && !ambiente) credencialFaltando = faltaCredencial(`${v.stdout}${v.stderr}`);
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
-      const vOut = (`${v.stdout}${v.stderr}`.trim() || (v.exitCode !== 0 ? explicarConferencia(verifyCommand, worktree) : '')).slice(-4000); // a IA precisa do erro do teste/build para corrigir
+      const falhaDeParecer = v.exitCode !== 0 ? diagnosticoParecerVisual(worktree, verifyCommand) : null;
+      const vOut = (`${v.stdout}${v.stderr}`.trim() ||
+        (v.exitCode !== 0 ? [explicarConferencia(verifyCommand, worktree), falhaDeParecer].filter(Boolean).join(' — ') : '')).slice(-4000); // a IA precisa da causa real, não só exit 1
       // Saída inteira da conferência para a próxima sessão ler (o erro do teste costuma estar no fim de muita saída).
       try {
         fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
@@ -749,20 +743,28 @@ export class StepExecutorService {
       }
     }
 
-    // FALHA: repetição improdutiva?
-    const recent = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } },
+    // Falha nova: a IA continua. A mesma falha (inclusive intercalada por
+    // outras) na terceira ocorrência impede outra sessão improdutiva.
+    const errosDaEtapa = await this.prisma.attempt.findMany({
+      where: { stepId: step.id, status: 'FALHA' },
+      select: { error: true },
       orderBy: { number: 'desc' },
-      take: job.repetitionWindow,
     });
-    if (recent.length >= job.repetitionWindow && recent.every((a) => a.outputHash === outputHash)) {
-      await this.checkpoint(job.id, step, worktree, `repetição improdutiva na etapa ${step.key}`, { tentativa: number });
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `as últimas ${recent.length} tentativas terminaram com o mesmo resultado/erro (${(result.error ?? result.output ?? '').trim().slice(-200) || 'sem mensagem'})`);
+    const erroAtual = (result.error ?? result.output ?? '').slice(0, 5000);
+    const repeticoes = repeticoesDoMesmoErro(errosDaEtapa.map((a) => a.error), erroAtual, step.verifyCommand ?? '');
+    // Respeitar uma configuração EXPLÍCITA mais restritiva (ex.: 1 tentativa
+    // para scripts determinísticos), aplicada à mesma falha, não ao total
+    // de erros diferentes que a IA foi descobrindo e corrigindo.
+    if (erroAtual.trim() && job.maxAttemptsPerStep > 0 &&
+        job.maxAttemptsPerStep < MAX_OCORRENCIAS_MESMA_FALHA &&
+        repeticoes >= job.maxAttemptsPerStep) {
+      return this.failStep(task, workerId, job, step,
+        `limite configurado de ${job.maxAttemptsPerStep} tentativa(s) para o mesmo erro atingido`);
     }
-    if (failures + 1 >= job.maxAttemptsPerStep) {
-      await this.checkpoint(job.id, step, worktree, `falha definitiva na etapa ${step.key}`, { tentativa: number });
-      return this.failStep(task, workerId, job, step, `limite de ${job.maxAttemptsPerStep} tentativa(s) com falha atingido`);
+    if (erroAtual.trim() && repeticoes >= MAX_OCORRENCIAS_MESMA_FALHA) {
+      await this.checkpoint(job.id, step, worktree, `erro idêntico repetido na etapa ${step.key}`, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `o mesmo erro ocorreu ${repeticoes} vezes nesta etapa; interrompido para não repetir indefinidamente: ${erroAtual.slice(-700)}`);
     }
     await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `falha na tentativa ${number}; nova tentativa agendada` } });
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
@@ -781,35 +783,71 @@ export class StepExecutorService {
     await this.checkpoint(job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
     });
+    // Contar a mesma falha antes de agendar outra recaptura: um agente que
+    // altera a composição minimamente a cada volta não pode girar sem fim.
     const sessions = await this.prisma.attempt.findMany({
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
-    // Sessões que terminaram por timeout/limite de turnos são execuções reais:
-    // contar também falhas e indisponibilidade, sem abrir uma quarta sessão.
-    const total = await this.prisma.attempt.count({
-      where: { stepId: step.id, status: { not: 'INTERROMPIDA' } },
-    });
-    if (total >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_SESSOES,
-        `Limite de ${MAX_TOTAL_EXECUTIONS_PER_STEP} execuções da etapa alcançado. Progresso salvo; não iniciarei outra sessão automaticamente. Analise o erro e crie um novo plano corrigido.`);
+    const conferenciaAtual = sessions[0]?.error ?? '';
+    const conferencias = sessions
+      .map((a) => a.error)
+      .filter((erro): erro is string => !!erro && erro.startsWith('verificação da etapa falhou'));
+    if (conferenciaAtual.startsWith('verificação da etapa falhou') &&
+        repeticoesDoMesmoErro(conferencias, conferenciaAtual, step.verifyCommand ?? '') >= MAX_OCORRENCIAS_MESMA_FALHA) {
+      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
+        `a mesma conferência da etapa falhou três vezes (sem contar erros distintos): ${conferenciaAtual.slice(-600)}`);
     }
-    const recent = sessions.slice(0, job.repetitionWindow);
+    // Se a direção de arte mudou HTML/JS após as capturas, a IA NÃO pode
+    // aprovar um quadro obsoleto. Voltar aos executores locais automaticamente,
+    // preservando a composição e as outras etapas concluídas.
+    const etapas = await this.prisma.step.findMany({
+      where: { jobId: job.id },
+      select: { id: true, key: true, provider: true, instructions: true, status: true },
+    });
+    const vencidas = capturasParaRecuperar(worktree, step, etapas);
+    if (vencidas.length) {
+      await this.prisma.$transaction(async (tx) => {
+        await OrchestratorService.lockJob(tx, job.id);
+        for (const key of vencidas) {
+          const captura = etapas.find((e) => e.key === key);
+          if (!captura) continue;
+          await tx.step.updateMany({
+            where: { id: captura.id, status: 'CONCLUIDO' },
+            data: { status: 'PENDENTE', statusDetail: 'fonte alterada: recaptura automática' },
+          });
+        }
+        await tx.step.update({
+          where: { id: step.id },
+          data: {
+            status: 'PENDENTE',
+            // Dependência explícita: a revisão não pode disputar a fila com
+            // a recaptura de outro quadro do mesmo vídeo.
+            dependsOn: [...new Set([...step.dependsOn, ...vencidas])],
+            // Não redefinir resumeFromAttempt ao recapturar: a terceira
+            // ocorrência do MESMO defeito deve continuar contando.
+            statusDetail: 'aguardando novas capturas, sem refazer composição',
+          },
+        });
+      });
+      await this.logs.log(job.id,
+        `Quadros desatualizados após alteração na composição: recapturar ${vencidas.join(', ')} antes de nova revisão visual; não repetir IA sobre imagens antigas.`,
+        { stepId: step.id, source: 'worker' });
+      await this.queue.complete(task.id, workerId);
+      await this.orchestrator.scheduleReady(job.id);
+      return 'CONTINUA';
+    }
+    // Uma sessão nova é válida quando existe progresso ou erro corrigível novo.
+    // Só paramos após repetir a mesma falha ou não haver progresso.
+    const recent = sessions.slice(0, MAX_OCORRENCIAS_MESMA_FALHA);
     // Avanço = arquivo do trabalho alterado OU progresso anotado pela IA (tarefas longas de leitura e análise
     // passam sessões inteiras lendo antes de escrever). O limite de sessões por etapa segura o resto.
-    if (recent.length >= job.repetitionWindow && recent.every((a) => a.treeBefore === a.treeAfter && a.notesIngested === 0)) {
+    if (recent.length >= MAX_OCORRENCIAS_MESMA_FALHA && recent.every((a) => a.treeBefore === a.treeAfter && a.notesIngested === 0)) {
       return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
         `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
     }
     // A conferência da etapa falhando sempre igual, sessão após sessão: a IA mexe em arquivos (parece avanço),
     // mas não resolve o que a conferência cobra. Para e explica, em vez de girar sem fim.
-    const janelaConferencia = Math.max(6, job.repetitionWindow * 3);
-    // Normalizado: tempos, durações, datas e números mudam a cada execução de teste sem ser progresso.
-    const conferencias = sessions.slice(0, janelaConferencia).map((a) => normalizarErro(a.error ?? ''));
-    if (conferencias.length >= janelaConferencia && conferencias[0].startsWith('verificação da etapa falhou') && conferencias.every((e) => e === conferencias[0])) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `a conferência da etapa falhou ${janelaConferencia} vezes seguidas do mesmo jeito: ${(sessions[0].error ?? '').replace(/^verificação da etapa falhou /, '').slice(-600)}`);
-    }
     // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
     // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
     const janelaLonga = Math.max(8, job.repetitionWindow * 4);
@@ -1027,7 +1065,7 @@ export class StepExecutorService {
       return 'CONTINUA';
     }
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
-    if (task.resourceWaits >= MAX_RESOURCE_RECHECKS_PER_STEP || waits >= MAX_TOTAL_EXECUTIONS_PER_STEP) {
+    if (task.resourceWaits >= MAX_RESOURCE_RECHECKS_PER_STEP || waits >= MAX_RESOURCE_RECHECKS_PER_STEP) {
       return this.blockJob(task, workerId, job, step, BlockedReason.FALHA_INFRAESTRUTURA,
         `O recurso/conector continuou indisponível após ${Math.max(task.resourceWaits,waits)} verificações. Interrompido para evitar loop. Resolva a conexão ou ferramenta antes de iniciar outro trabalho: ${detail.slice(0,550)}`);
     }
