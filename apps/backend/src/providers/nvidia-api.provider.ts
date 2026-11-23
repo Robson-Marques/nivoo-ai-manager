@@ -265,6 +265,8 @@ export class NvidiaApiProvider implements AiProvider {
     ];
     let entrada = 0, saida = 0, alteracoes = 0;
     const leiturasIguais = new Map<string, number>();
+    let ultimaFalhaFerramenta = '';
+    let falhasSeguidasFerramenta = 0;
     const inicio = Date.now();
     req.onLog('NVIDIA NIM: modelo ' + model + ' (ferramentas seguras de arquivo, sem terminal)');
     try {
@@ -312,6 +314,8 @@ export class NvidiaApiProvider implements AiProvider {
               alteracoes++;
               leiturasIguais.clear();
             }
+            ultimaFalhaFerramenta = '';
+            falhasSeguidasFerramenta = 0;
             const pedido = String(args.caminho ?? args.pasta ?? '');
             const nomeSeguro = /^[A-Za-z0-9._/ -]{1,150}$/.test(pedido) && !pedido.includes('..') ? pedido : '[caminho não permitido]';
             req.onLog('[NVIDIA ferramenta] ' + nome + ': ' + nomeSeguro);
@@ -319,6 +323,16 @@ export class NvidiaApiProvider implements AiProvider {
             const mensagem = String(e?.message ?? e).slice(0, 500);
             resultado = JSON.stringify({ erro: mensagem, orientacao: 'Use caminhos relativos aos arquivos do projeto. Se arquivo .js não existir, confira a versão .ts; use listar_arquivos. Não repita chamada idêntica sem corrigir o parâmetro.' });
             req.onLog('[NVIDIA ferramenta] ' + nome + ': ' + resultado.slice(0, 300), 'WARN');
+            const assinatura = createHash('sha256')
+              .update(nome + ':' + String(call?.function?.arguments ?? '') + ':' + mensagem).digest('hex');
+            falhasSeguidasFerramenta = ultimaFalhaFerramenta === assinatura ? falhasSeguidasFerramenta + 1 : 1;
+            ultimaFalhaFerramenta = assinatura;
+            if (falhasSeguidasFerramenta >= 4) {
+              const aviso = 'Agente NVIDIA repetiu 4 vezes a mesma chamada de ferramenta inválida sem corrigir a causa. Sessão encerrada para evitar desperdício de limite; os arquivos do trabalho foram preservados.';
+              req.onLog('[NVIDIA] ' + aviso, 'WARN');
+              return { exitCode: 1, output: '', error: aviso, numTurns: volta + 1,
+                inputTokens: entrada, outputTokens: saida };
+            }
           }
           messages.push({ role: 'tool', tool_call_id: String(call.id), content: resultado.slice(0, MAX_TOOL_OUTPUT) });
         }
