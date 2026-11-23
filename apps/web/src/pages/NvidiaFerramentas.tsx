@@ -79,7 +79,7 @@ export function NvidiaFerramentas({ conexaoId }: { conexaoId: string }) {
       <p className="muted small">
         O Nivoo AI Manager envia a tarefa usando a sua chave NVIDIA, diretamente ao endpoint da especialidade.
         Alguns serviços podem exigir autorização ou créditos, mesmo quando a página mostra uma opção de avaliação.
-        Os modelos apenas para download não são executados aqui.
+        Os modelos apenas para download não são executados aqui. Cosmos3 Nano pode exigir permissão especial na sua organização.
       </p>
       <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
         {MODOS.map(m => (
