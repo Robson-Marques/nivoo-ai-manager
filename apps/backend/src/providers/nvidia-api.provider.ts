@@ -4,10 +4,11 @@ import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
 import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
+import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
 
 /** NVIDIA Build: APIs hospedadas de avaliação (não requer GPU no servidor Nivoo). */
 export const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-export const NVIDIA_DEFAULT_MODEL = 'nvidia/nemotron-3-nano';
+export const NVIDIA_DEFAULT_MODEL = 'nvidia/nemotron-3.5-bolt-e4b';
 const DEFAULT_TURNS = 24;
 const MAX_TURNS = 40;
 const MAX_FILE_BYTES = 320_000;
@@ -164,10 +165,10 @@ export class NvidiaApiProvider implements AiProvider {
     const resposta = await this.pedir('/models', null, 10_000);
     return (Array.isArray(resposta.data) ? resposta.data : [])
       .filter((m: any) => typeof m?.id === 'string' && /^[A-Za-z0-9._:/-]{1,150}$/.test(m.id))
-      // O catálogo geral contém embedding, rerank, safety e outros que não são chat.
-      .filter((m: any) => !/(embed|rerank|reward|retriev|nemoguard|safety|transcrib|speech|asr|tts)/i.test(m.id))
+      // A lista bruta pode conter chat, embedding, rerank e outros. A seleção
+      // de agentes é feita em nvidia-model-catalog, jamais por regex no gateway.
       .map((m: any) => ({ id: m.id, nome: m.id }))
-      .slice(0, 150);
+      .slice(0, 500);
   }
 
   async checkAvailability(): Promise<ProviderStatus> {
@@ -196,6 +197,10 @@ export class NvidiaApiProvider implements AiProvider {
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave NVIDIA não configurada', resourceUnavailable: true };
     const model = req.options?.model ?? process.env.NIVOO_NVIDIA_MODEL ?? NVIDIA_DEFAULT_MODEL;
+    if (!modeloNvidiaServeComoAgente(model)) {
+      return { exitCode: 1, output: '',
+        error: `O modelo NVIDIA "${model}" não está habilitado para edição de código por ferramentas. Escolha um modelo de Programação e agentes no catálogo; imagem/vídeo, embedding e rerank exigem executores próprios.` };
+    }
     const turnos = Math.max(1, Math.min(MAX_TURNS, Number(req.options?.maxTurns) || DEFAULT_TURNS));
     const messages: ChatMessage[] = [
       { role: 'system', content: [
