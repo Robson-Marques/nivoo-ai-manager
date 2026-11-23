@@ -271,8 +271,10 @@ export class JobsService {
     const steps = this.parseSteps(comPreflightVisual(etapasComDependencias, defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
-    // A trava: trabalho feito por IA termina com a conferência independente das regras do projeto.
-    // (Só pode ser dispensada pela API, explicitamente — a conversa nunca dispensa.)
+    // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
+    // independente de IA por padrão; só se a pessoa solicitar conferência
+    // explicitamente. Testes técnicos necessários permanecem nos executores.
+    // Uma entrega concluída deve ser publicada para o usuário analisar.
     const aiProviders = [...new Set(steps.map((s) => s.provider ?? defaultProvider))].filter((id) => this.registry.get(id).kind !== 'executor');
     // Motion é uma entrega de mídia: composição → render → montagem.
     // Não acrescentar revisor pago independente; a aceitação técnica é do
@@ -280,7 +282,7 @@ export class JobsService {
     // pode ser pedida explicitamente como outra tarefa, não forçada pelo motor.
     const motionDireto = steps.some((s) =>
       (s.provider ?? defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
-    if (aiProviders.length && body.conferencia !== false && !motionDireto) {
+    if (aiProviders.length && body.conferencia === true && !motionDireto) {
       const reviewer = aiProviders.includes(project.provider) ? project.provider : aiProviders[0];
       steps.push({ ...ruleReviewStep(steps.map((s) => s.key), reviewer), requiresApproval: false, providerOptions: {} });
       if (!criteria.some((c) => c.key === RULE_REVIEW_CRITERION.key)) criteria.push(RULE_REVIEW_CRITERION);
