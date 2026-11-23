@@ -110,6 +110,7 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   const reused = already.filter(Boolean).length;
   if (reused) onProgress({ done: reused, frames, reused, message: `reaproveitando ${reused}/${frames} quadros preservados` });
   let produced = 0;
+  const hasMediaOverlay = await page.evaluate(() => typeof window.__nivooOverlayRenderAt === 'function');
   // A página já está pausada ANTES do primeiro goto pelo executável de
   // renderização. Não tentar pauseAt(Date.now()) aqui: o tempo avança entre
   // avaliar Date.now no browser e chamar pauseAt, causando "past".
@@ -117,6 +118,9 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   for (let frame = 0; frame < frames; frame++) {
     if (frame) await page.clock.runFor(1000 / fps);
     if (already[frame]) continue;
+    // Overlay RGBA deve mostrar precisamente o mesmo tempo do WebGL de fundo,
+    // mesmo que os assets da camada levem tempo adicional para carregar.
+    if (hasMediaOverlay) await page.evaluate(t => window.__nivooOverlayRenderAt(t), frame / fps);
     const jpg = await page.screenshot({ type: 'jpeg', quality: 90, animations: 'allow', caret: 'hide', timeout: 120000 });
     if (!Buffer.isBuffer(jpg) || jpg.length < 100 || jpg[0] !== 0xff || jpg[1] !== 0xd8 || jpg.at(-2) !== 0xff || jpg.at(-1) !== 0xd9) {
       throw new Error(`Quadro ${frame} JPEG inválido`);
