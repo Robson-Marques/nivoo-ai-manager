@@ -308,8 +308,20 @@ function checkMotionSource(source, mode = 'auto') {
       if (!fs.existsSync(htmlPath) || !fs.existsSync(overlayPath))
         throw new Error('index.html e overlays.json são obrigatórios para composição WebGL com produtos');
       const {scene}=loadScene(overlayPath);
-      if (!scene.layers.some(layer=>layer.type==='image'))
+      const photos=scene.layers.filter(layer=>layer.type==='image');
+      if (!photos.length)
         throw new Error('overlays.json deve conter pelo menos uma imagem de produto/logo');
+      // Uma foto não pode ser texturizada no WebGL E desenhada no overlay:
+      // verificação estática por caminho/nome do asset, sem executar HTML.
+      // Essa duplicação é precisamente a origem de barras opacas e fantasmas
+      // sobre o mesmo produto quando se migra uma cena 3D antiga.
+      const html=fs.readFileSync(htmlPath,'utf8');
+      const repeated=photos.find(layer=>{
+        const name=path.basename(layer.asset);
+        return name.length>4 && html.includes(name);
+      });
+      if(repeated) throw new Error('imagem '+repeated.asset+
+        ' ainda é referenciada no index.html e no overlays.json; retire o desenho/importação duplicado do WebGL');
       return {mode:'hybrid',layers:scene.layers.length,width:scene.width,height:scene.height};
     }
     if (!fs.existsSync(htmlPath)) throw new Error('index.html não encontrado (legado)');
