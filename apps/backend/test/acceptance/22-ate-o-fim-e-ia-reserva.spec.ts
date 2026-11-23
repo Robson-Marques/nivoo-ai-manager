@@ -126,7 +126,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
 
   it('IA reserva: sem limite na conta do Claude, o trabalho continua sozinho com a reserva (Claude API)', async () => {
     await h.http().post('/api/accounts').send({ tipo: 'claude-api', nome: 'Claude API reserva' }).expect(201);
-    await h.http().post('/api/accounts/claude-api/key').send({ key: 'sk-ant-api03-CHAVE-RESERVA-0123456789' }).expect(201);
+    await h.http().post('/api/accounts/claude-api/key').send({ key: 'chave-ficticia-para-testes-unitarios' }).expect(201);
     const p = (await h.http().post('/api/projects').send({ name: 'Com reserva', provider: 'claude-code-cli' }).expect(201)).body;
     await h.http().patch(`/api/projects/${p.id}`).send({ reserva: ['nao-existe'] }).expect(400);
     expect((await h.http().patch(`/api/projects/${p.id}`).send({ reserva: ['claude-api'] }).expect(200)).body.aiReserva).toEqual(['claude-api']);
@@ -211,7 +211,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('mode', null);
   });
 
-  it('sem limite de sessões: conferência falhando sempre igual (mesmo com a IA mexendo em arquivos) para em 6 e explica', async () => {
+  it('sem limite de sessões: conferência falhando sempre igual (mesmo com a IA mexendo em arquivos) para em 3 e explica', async () => {
     const p = (await h.http().post('/api/projects').send({ name: 'Gira sem fim', provider: 'claude-code-cli' }).expect(201)).body;
     ctl('mode', 'bash');
     const j = (
@@ -226,8 +226,8 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const x = await fim(p.id, j.id);
     ctl('mode', null);
     expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'REPETICAO_IMPRODUTIVA' });
-    expect(x.statusDetail).toMatch(/conferência da etapa falhou 6 vezes seguidas do mesmo jeito: \(exit 1\): o comando de conferência falhou sem mensagem: test -f relatorio-final\.md — falta relatorio-final\.md/);
-    expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(6);
+    expect(x.statusDetail).toMatch(/mesma conferência da etapa falhou três vezes (sem contar erros distintos): \(exit 1\): o comando de conferência falhou sem mensagem: test -f relatorio-final\.md — falta relatorio-final\.md/);
+    expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(3);
   });
 
   it('critério final não passou: a IA corrige sozinha (com o critério e a evidência), confere as regras de novo e conclui', async () => {
