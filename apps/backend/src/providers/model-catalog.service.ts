@@ -3,11 +3,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { runProcess } from '../common/exec';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { NvidiaApiProvider } from './nvidia-api.provider';
+import { catalogarNvidiaModelos, modelosNvidiaParaWorkflow } from './nvidia-model-catalog';
 import { ProviderRegistry } from './provider-registry.service';
 
 export interface ModelOption {
   id: string;
   nome: string;
+  categoria?: string;
+  descricao?: string;
 }
 
 /** Nome de modelo aceito (aliases como "opus" ou ids completos como "gpt-6.1-sol"). */
@@ -46,13 +49,20 @@ export class ModelCatalogService {
     if (providerId.startsWith('claude')) return { opcoes: CLAUDE };
     if (tipoDe(providerId) === 'nvidia-api') {
       const hit = this.cache.get(providerId);
-      if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };
+      if (hit && Date.now() - hit.at < CACHE_MS) return {
+        opcoes: hit.opcoes,
+        aviso: 'Somente modelos com Chat Completions e ferramentas documentadas aparecem aqui. Outras categorias ficam em Conexões → Catálogo NVIDIA.',
+      };
       try {
-        const opcoes = await (this.registry.get(providerId) as NvidiaApiProvider).modelos();
-        if (opcoes.length) this.cache.set(providerId, { at: Date.now(), opcoes });
-        return { opcoes, aviso: 'Catálogo NVIDIA: selecione um modelo compatível com Chat Completions e ferramentas. Disponibilidade sujeita a cotas.' };
+        const modelos = await (this.registry.get(providerId) as NvidiaApiProvider).modelos();
+        const opcoes = modelosNvidiaParaWorkflow(modelos.map((m) => m.id));
+        this.cache.set(providerId, { at: Date.now(), opcoes });
+        return { opcoes, aviso: 'Apenas modelos de chat com function calling confirmado. A listagem na chave não garante cota. Imagem, vídeo e busca estão separados no Catálogo NVIDIA.' };
       } catch (e: any) {
-        return { opcoes: [], aviso: 'NVIDIA: ' + String(e?.message ?? e).slice(0, 180) + '. Cadastre a chave em Conexões.' };
+        return {
+          opcoes: modelosNvidiaParaWorkflow(),
+          aviso: 'Sem acesso ao catálogo da chave: modelos de agentes documentados na NVIDIA, ainda não verificados nesta conta. ' + String(e?.message ?? e).slice(0, 100),
+        };
       }
     }
     if (!tipoDe(providerId)) return { opcoes: [] }; // executores do sistema (arquivos, comandos) não têm modelo
@@ -66,6 +76,27 @@ export class ModelCatalogService {
     } catch (e: any) {
       return { opcoes: [], aviso: `Não foi possível ler a lista de modelos (${String(e?.message ?? e).slice(0, 200)}). Use "Outro…" e digite o nome.` };
     }
+  }
+
+  /** Visão completa das áreas, incluindo serviços que NÃO são Chat Completions. */
+  async catalogoNvidia(providerId: string) {
+    if (tipoDe(providerId) !== 'nvidia-api' || !this.registry.has(providerId)) {
+      throw new BadRequestException('O catálogo por especialidade é exclusivo das conexões NVIDIA');
+    }
+    let ids: string[] = [];
+    let aviso: string | null = null;
+    try {
+      ids = (await (this.registry.get(providerId) as NvidiaApiProvider).modelos()).map((m) => m.id);
+    } catch (e: any) {
+      aviso = 'Não foi possível consultar os IDs liberados nesta conta: ' + String(e?.message ?? e).slice(0, 180);
+    }
+    return {
+      modelos: catalogarNvidiaModelos(ids),
+      verificadoNaConta: aviso === null,
+      aviso,
+      origem: 'Catálogo de referência NVIDIA Build + IDs retornados pela API da conexão',
+      observacao: 'O catálogo público contém endpoints de especialidades e modelos somente para download; GET /v1/models não confirma disponibilidade/cotas de todos. Uso direto pelo Studio Workflow somente com chat e ferramentas documentados.',
+    };
   }
 
   /** `codex debug models`: catálogo do Codex (só os visíveis, na ordem de prioridade dele). */
