@@ -74,21 +74,21 @@ function offlineRenderer() {
   let ctx;
   try {
     navegador = await chromium.launch({ args: ['--no-sandbox', '--disable-gpu', '--force-color-profile=srgb'] });
-    // Nada de recordVideo: a gravação WebM em tempo real saltava quadros
-    // quando a composição 3D demorava para ser desenhada.
+    // Não gravar WebM em tempo real; gravar JPEGs com checkpoint durável.
+    // Se o worker cair, uma nova tentativa recupera os quadros já prontos.
     ctx = await navegador.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
     const pagina = await ctx.newPage();
     const erros = [];
     pagina.on('pageerror', (e) => erros.push(String(e.message).slice(0, 200)));
     // Controla Date, performance.now, setTimeout e requestAnimationFrame antes
     // de carregar o HTML. A captura de cada quadro não consome tempo da animação.
-    await pagina.clock.install({ time: new Date() });
+    await pagina.clock.install({ time: new Date(fs.statSync(entrada).mtimeMs) });
     await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
     const segundos = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
     const result = await renderOffline({
-      page: pagina, outputPath: saida, seconds: segundos, width: W, height: H,
-      onProgress: (frame, total) => console.log(`nivoo-renderizar-motion: quadros ${frame}/${total} (captura offline)`),
+      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H,
+      onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
     if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
     console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${segundos.toFixed(1)} s, ${(result.bytes / 1024 / 1024).toFixed(1)} MB, ${result.frames} quadros a ${result.fps} fps)`);
