@@ -17,6 +17,10 @@ function normalizar(texto: string): string {
   return texto
     .replace(/\u001b\[[0-9;]*m/g, '')
     .replace(/\/worktrees\/[0-9a-f-]{36}/gi, '/worktrees/<job>')
+    // FFmpeg/Remotion usam diretórios temporários com nomes aleatórios.
+    // A mesma falha não pode virar "erro novo" só porque o tmp mudou.
+    .replace(/\/tmp\/nivoo-[a-z0-9._-]+/gi, '/tmp/nivoo-<temporario>')
+    .replace(/\b(?:tentativa|attempt)\s*#?\s*\d+\b/gi, 'tentativa <n>')
     .replace(/\b(?:pid|processo)\s*[:=#-]?\s*\d+\b/gi, 'processo <pid>')
     .replace(/\b\d{2}\/\d{2}\/\d{4},?\s*\d{2}:\d{2}:\d{2}\b/g, '<horario>')
     .replace(/\s+/g, ' ')
