@@ -33,3 +33,29 @@ export function capturasParaRecuperar(worktree: string, step: {key:string;verify
   if (!/^direcao-arte-/.test(step.key) && !/out\/qualidade\/[A-Za-z0-9_-]+\/parecer\.json/.test(step.verifyCommand ?? '')) return [];
   return capturasMotionDesatualizadas(worktree, steps);
 }
+
+/** Se uma aprovação visual JSON reprova sem stdout, mostrar a causa de verdade.
+ * Não confundir a saída genérica exit 1 com a identidade do defeito visual. */
+export function diagnosticoParecerVisual(worktree: string, verifyCommand: string): string | null {
+  const match = /out\/qualidade\/[A-Za-z0-9_-]+\/parecer\.json/.exec(verifyCommand);
+  if (!match) return null;
+  const arquivo = path.resolve(worktree, match[0]);
+  if (!arquivo.startsWith(path.resolve(worktree) + path.sep)) return null;
+  try {
+    const d = JSON.parse(fs.readFileSync(arquivo, 'utf8')) as Record<string, unknown>;
+    const pendencias = Array.isArray(d.pendencias) ? d.pendencias.filter((v): v is string => typeof v === 'string') : [];
+    const comparacoes = Array.isArray(d.comparacoes) ? d.comparacoes : [];
+    const motivos = [
+      ...pendencias,
+      ...(pendencias.length === 0 && d.conforme !== true ? comparacoes
+        .filter((v): v is Record<string, unknown> => !!v && typeof v === 'object')
+        .map((v) => String(v.observacao ?? ''))
+        .filter(Boolean)
+        .slice(-3) : []),
+    ];
+    return 'parecer visual: conforme=' + String(d.conforme) +
+      (motivos.length ? '; pendencias: ' + motivos.join('; ').slice(0, 1200) : '; sem pendencia detalhada no JSON');
+  } catch {
+    return 'parecer visual ausente ou ilegível: ' + match[0];
+  }
+}
