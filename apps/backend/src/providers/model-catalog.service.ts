@@ -66,6 +66,19 @@ export class ModelCatalogService {
         };
       }
     }
+    if (tipoDe(providerId) === 'openrouter-free-api' || tipoDe(providerId) === 'groq-free-api') {
+      try {
+        const provedor = this.registry.get(providerId) as unknown as {
+          modelos(): Promise<Array<{ id: string; nome: string; descricao: string }>>
+        };
+        const opcoes = await provedor.modelos();
+        return { opcoes, aviso: tipoDe(providerId) === 'openrouter-free-api'
+          ? 'Somente openrouter/free e modelos com sufixo :free, compatíveis com ferramentas; modelos pagos são bloqueados na execução. Limites da conta aplicáveis.'
+          : 'Modelos de texto retornados pela conta GroqCloud. Uso gratuito depende do plano Free e das cotas vigentes.' };
+      } catch (e: any) {
+        return { opcoes: [], aviso: 'Não foi possível ler os modelos desta chave: ' + String(e?.message ?? e).slice(0, 180) };
+      }
+    }
     if (!tipoDe(providerId)) return { opcoes: [] }; // executores do sistema (arquivos, comandos) não têm modelo
     const hit = this.cache.get(providerId);
     if (hit && Date.now() - hit.at < CACHE_MS) return { opcoes: hit.opcoes };

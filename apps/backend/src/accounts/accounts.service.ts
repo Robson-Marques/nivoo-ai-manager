@@ -20,7 +20,7 @@ import {
 import { LoginSession, LoginSessionsService } from './login-sessions.service';
 import { apagarSegredosDaConexao, gravarSegredoDaConexao, isolatedHome, SecretKey, secretSource } from './secrets';
 
-const CHAVE: Partial<Record<TipoIa, SecretKey>> = { 'claude-api': 'ANTHROPIC_API_KEY', 'gemini-api': 'GEMINI_API_KEY', 'nvidia-api': 'NVIDIA_API_KEY' };
+const CHAVE: Partial<Record<TipoIa, SecretKey>> = { 'claude-api': 'ANTHROPIC_API_KEY', 'gemini-api': 'GEMINI_API_KEY', 'nvidia-api': 'NVIDIA_API_KEY', 'openrouter-free-api': 'OPENROUTER_API_KEY', 'groq-free-api': 'GROQ_API_KEY' };
 /** Nome das conexões que já existiam antes das conexões múltiplas. */
 const NOME_ANTIGO: Record<TipoIa, string> = {
   'claude-code-cli': 'Claude (conta)',
@@ -29,6 +29,8 @@ const NOME_ANTIGO: Record<TipoIa, string> = {
   'codex-api': 'ChatGPT (API)',
   'gemini-api': 'Gemini (API)',
   'nvidia-api': 'NVIDIA (API)',
+  'openrouter-free-api': 'OpenRouter (somente grátis)',
+  'groq-free-api': 'GroqCloud (plano Free)',
 };
 
 /**

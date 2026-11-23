@@ -251,6 +251,13 @@ function ConexaoIa({ c, abrirAgora, onMudou }: { c: any; abrirAgora: boolean; on
       {!c.conectado && !emAndamento && c.problema && c.instalado && !login && !/^não conectado/.test(c.problema) && <div className="conexao-painel muted small">{c.problema}</div>}
       {aviso && <div className="conexao-painel ok-msg">{aviso}</div>}
       {erro && <div className="conexao-painel error">{erro}</div>}
+      {(c.tipo === 'openrouter-free-api' || c.tipo === 'groq-free-api') && (
+        <div className="conexao-painel muted small">
+          Esta conexão envia instruções e arquivos de código necessários à tarefa para o provedor escolhido.
+          Verifique as condições de privacidade da conta. O OpenRouter bloqueia modelos pagos no Nivoo;
+          no Groq, confira que sua organização permanece no plano Free.
+        </div>
+      )}
       {c.tipo === 'nvidia-api' && (
         <>
           <div className="conexao-painel">
@@ -408,7 +415,10 @@ function NovaConexao({ ias, onFechar, onCriada }: { ias: any[]; onFechar: () => 
                   <span className={`marca marca-${t.modo === 'git' ? 'git' : t.ia.toLowerCase()}`}>{t.modo === 'git' ? <Icone nome="ramo" /> : t.ia[0]}</span>
                   <span>
                     <b>{t.ia}{t.modo === 'conta' ? ' — conta' : t.modo === 'api' ? ' — chave de API' : ''}</b>
-                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? (t.tipo === 'nvidia-api' ? 'API de avaliação gratuita com cotas (build.nvidia.com)' : `cobrança por uso (${t.ondeChave})`) : t.descricao}</span>
+                    <span className="muted small">{t.modo === 'conta' ? t.conta : t.modo === 'api' ? (t.tipo === 'nvidia-api' ? 'API de avaliação gratuita com cotas (build.nvidia.com)' :
+                      t.tipo === 'openrouter-free-api' ? 'Somente modelos grátis; rota paga bloqueada (openrouter.ai)' :
+                      t.tipo === 'groq-free-api' ? 'Grátis somente no plano Free, sujeito a cotas (groq.com)' :
+                      `cobrança por uso (${t.ondeChave})`) : t.descricao}</span>
                   </span>
                 </button>
               ))}

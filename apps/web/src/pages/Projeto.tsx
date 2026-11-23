@@ -23,6 +23,8 @@ export const NOME_IA: Record<string, string> = {
   'codex-api': 'ChatGPT (API)',
   'gemini-api': 'Gemini (API)',
   'nvidia-api': 'NVIDIA NIM (API)',
+  'openrouter-free-api': 'OpenRouter (gratuito)',
+  'groq-free-api': 'GroqCloud (plano Free)',
 };
 
 const MAX_TEXTO_MENSAGEM = 20_000;
