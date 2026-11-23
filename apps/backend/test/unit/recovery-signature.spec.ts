@@ -74,6 +74,14 @@ describe('recuperação progressiva: três ocorrências do MESMO defeito', () =>
     expect(repeticoesDoMesmoErro([...anteriores, atual], atual, 'npm test')).toBe(1);
   });
 
+  it('mesma falha com caminho temporário e número de tentativa diferentes conta como igual', () => {
+    const a = 'Montagem falhou /tmp/nivoo-juntar-a3X9/final.mp4: áudio ausente (tentativa #1)';
+    const b = 'Montagem falhou /tmp/nivoo-juntar-kL812/final.mp4: áudio ausente (tentativa #2)';
+    const c = 'Montagem falhou /tmp/nivoo-juntar-aaa13/final.mp4: áudio ausente (tentativa #3)';
+    expect(assinaturaErroDaEtapa(a)).toBe(assinaturaErroDaEtapa(b));
+    expect(repeticoesDoMesmoErro([a, b, c], c)).toBe(3);
+  });
+
   it('etapa de IA para na terceira ocorrência do mesmo erro, inclusive intercalada', () => {
     const a = 'verificação da etapa falhou: AssertionError: resposta inválida 201';
     const b = 'verificação da etapa falhou: AssertionError: foto não gerada';
