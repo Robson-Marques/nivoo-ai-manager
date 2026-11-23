@@ -32,7 +32,8 @@ Exemplo executável sem assets: `apps/backend/examples/motion-scene-v1.json`.
 ```
 
 O motor:
-- Lê apenas arquivos de imagem locais de dentro da pasta da composição (`png`, `jpeg`, `webp`) e não busca recursos na internet.
+- Lê imagens locais (`png`, `jpeg`, `webp`) e módulos `.js` legados que contenham exatamente **uma** `data:image/...;base64`; o módulo é interpretado como dado, sem execução de JavaScript.
+- Permite caminho de asset para pasta irmã somente dentro do mesmo `motion/`; bloqueia travessia para fora, symlinks externos e downloads da internet.
 - Desenha cada fotografia RGBA uma única vez, sem produzir cópias escurecidas.
 - Define `z >= supportZ + 1` para o produto ficar à frente do suporte. A sombra acompanha a própria imagem; não gira a foto em um plano que atravessa malhas opacas.
 - Aceita `shape` (rect, roundRect, ellipse), `text`, `image`, `neon`; propriedades de animação por `keys`: `at`, `x`, `y`, `rotation` (graus), `opacity`, `scale`, `easing`.
