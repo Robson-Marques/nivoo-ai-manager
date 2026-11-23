@@ -84,6 +84,39 @@ describe('NVIDIA: conectores especializados de verdade por endpoint', () => {
     expect(corpo).toMatchObject({ mode: 'base', width: 1024, height: 1024, steps: 4, cfg_scale: 0 });
   });
 
+  it('Cosmos3 Nano: gera MP4 text-to-video com 25 quadros e endpoint correto', async () => {
+    const b64 = Buffer.from('video-mock-mp4').toString('base64');
+    const spy = mock({ b64_video: b64 });
+    const r = await service.video('nvidia-api', {
+      modelo: 'nvidia/cosmos3-nano',
+      prompt: 'Pizza no forno a lenha',
+      proporcao: '9:16',
+      numFrames: 25,
+    });
+    expect(r).toMatchObject({ tipo: 'video', modelo: 'nvidia/cosmos3-nano',
+      mime: 'video/mp4', base64: b64, fps: 24, numFrames: 25, proporcao: '9:16' });
+    expect(spy.mock.calls[0][0]).toBe(NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano);
+    const body = JSON.parse(String((spy.mock.calls[0][1] as RequestInit).body));
+    expect(body).toMatchObject({ model_mode: 'text2video', resolution: '480_9_16',
+      num_frames: 25, num_inference_steps: 35, fps: 24 });
+  });
+
+  it('Cosmos3 Nano: 404 em texto plano avisa falta de habilitação sem repetir', async () => {
+    const spy = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('404 page not found', { status: 404 }));
+    await expect(service.video('nvidia-api', { prompt: 'Teste breve' }))
+      .rejects.toThrow(/Public API Endpoints/);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('Cosmos3 Nano: timeout não significa que geração não ocorreu e não pode reenviar', async () => {
+    const spy = jest.spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('TimeoutError: The operation was aborted'));
+    await expect(service.video('nvidia-api', { prompt: 'Cena curta' }))
+      .rejects.toThrow(/Não reenvie automaticamente/);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('modelo desconhecido ou de outra especialidade é bloqueado sem chamadas', async () => {
     const spy = jest.spyOn(globalThis, 'fetch');
     await expect(service.embedding('nvidia-api', { modelo: 'nvidia/wan-video', texto: 'x' })).rejects.toThrow('embeddings');
