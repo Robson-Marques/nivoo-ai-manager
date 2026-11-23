@@ -164,9 +164,9 @@ export function dependenciasDeMontagemPorArquivo(raw: unknown, defaultProvider: 
     if (!s || typeof s !== 'object') continue;
     if (String(s.provider ?? defaultProvider) !== 'local-shell') continue;
     const comando = String(s.instructions ?? '');
-    const match = /\\bnivoo-renderizar-motion\\b[^\\n]*?--saida\\s+(?:'([^']+)'|"([^"]+)"|([^\\s;&|]+))/.exec(comando);
+    const match = /\bnivoo-renderizar-motion\b[^\n]*?--saida\s+(?:'([^']+)'|"([^"]+)"|([^\s;&|]+))/.exec(comando);
     const arquivo = match?.[1] ?? match?.[2] ?? match?.[3];
-    if (!arquivo || !/^midia\\/saida\\/[A-Za-z0-9._-]+\\.mp4$/.test(arquivo)) continue;
+    if (!arquivo || !/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/.test(arquivo)) continue;
     const anterior = saidas.get(arquivo);
     if (anterior && anterior !== s.key) {
       throw new BadRequestException('Duas etapas tentam produzir o mesmo MP4 ' + arquivo + '. Use saídas distintas para não sobrescrever versões anteriores.');
