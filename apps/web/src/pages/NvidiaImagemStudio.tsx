@@ -101,8 +101,6 @@ export function NvidiaImagemStudio({ onImport }: { onImport: (f: File) => Promis
           {ocupado ? 'Gerando/importando…' : 'Gerar e colocar na biblioteca'}
         </button>
         {modalidade === 'video' && <p className="muted small">A geração pode demorar. Se ocorrer timeout, NÃO repita sem verificar o histórico da NVIDIA. Algumas contas recebem HTTP 404 por falta de permissão Public API Endpoints.</p>}
-        <button type="button" style={{ display: 'none' }} aria-hidden="true" tabIndex={-1}
-        </button>
         {notice && <p className="ok-msg">{notice}</p>}
         {erro && <p className="error">{erro}</p>}
       </div>}
