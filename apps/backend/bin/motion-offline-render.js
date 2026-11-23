@@ -13,7 +13,12 @@ const MAX_SOURCE_FILES = 3000;
 const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
 
 function sourceFingerprint(sourcePath) {
-  const root = path.resolve(path.dirname(sourcePath), '..'); // toda a pasta motion, incluindo assets irmãos
+  // Animadores normalmente usam motion/<cena>/index.html e assets de cenas
+  // vizinhas. Para HTML fora da pasta motion, não varrer o projeto inteiro.
+  let root = path.resolve(path.dirname(sourcePath));
+  for (let atual = root; path.dirname(atual) !== atual; atual = path.dirname(atual)) {
+    if (path.basename(atual) === 'motion') { root = atual; break; }
+  }
   const hasher = createHash('sha256');
   let arquivos = 0, bytes = 0;
   const walk = (dir) => {
@@ -113,6 +118,9 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   }
   for (let frame = 0; frame < frames; frame++) {
     if (!validJpeg(path.join(cacheDir, `${String(frame).padStart(6, '0')}.jpg`))) throw new Error(`Quadro ${frame} não foi preservado corretamente`);
+  }
+  if (sourceFingerprint(sourcePath) !== fingerprint) {
+    throw new Error('Os arquivos da composição mudaram durante a renderização; os quadros existentes foram preservados e não será publicado um vídeo misturado.');
   }
   // Apenas agora o FFmpeg comprime. EPIPE do encerramento do navegador não
   // destrói a captura; JPEGs persistem até o MP4 ser validado e publicado.
