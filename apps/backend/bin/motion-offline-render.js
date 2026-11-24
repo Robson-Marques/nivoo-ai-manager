@@ -92,13 +92,37 @@ function mapMotionTime(time, outputDuration, pacing) {
     openingEnd+(t-openingSeconds)*(src-openingEnd)/(outputDuration-openingSeconds);
 }
 
+/**
+ * Quadros JPEG pertencem à versão do MOTOR que os produziu, não somente à
+ * versão do HTML/PNG. Caso contrário "nivoo update" pode reutilizar centenas
+ * de quadros vazios feitos pelo renderizador defeituoso anterior.
+ *
+ * Só lê o código instalado (sem rede, sem IA, sem varrer projetos). Quando
+ * parte do motor muda, a chave dos quadros muda automaticamente.
+ */
+function rendererFingerprint() {
+  const hasher = createHash('sha256');
+  const files = [
+    __filename,
+    path.join(__dirname, 'motion-scene-core.js'),
+    process.argv[1], // cópia executada /usr/local/bin/nivoo-renderizar-motion
+  ];
+  for (const name of new Set(files.filter(Boolean).map(p=>path.resolve(p)))) {
+    if (!fs.existsSync(name) || !fs.statSync(name).isFile()) continue;
+    hasher.update(name+'\0');
+    hasher.update(fs.readFileSync(name));
+  }
+  return hasher.digest('hex');
+}
+
 function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null }) {
   if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error('Fonte HTML da animação não encontrada para reutilizar quadros');
   const frames = Math.round(seconds * fps);
   if (!Number.isSafeInteger(frames) || frames < 1 || frames > 300 * fps) throw new Error('Duração de vídeo inválida');
   const fingerprint = sourceFingerprint(sourcePath);
+  const engine = rendererFingerprint();
   const signature = createHash('sha256')
-    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, frames, width, height, fps, pacing }))
+    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, engine, frames, width, height, fps, pacing }))
     .digest('hex').slice(0, 24);
   const cacheDir = path.join(path.dirname(outputPath), '.nivoo-motion-cache', signature);
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -194,4 +218,4 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   }
 }
 
-module.exports = { FRAME_RATE, prepareMotionClock, sourceFingerprint, mapMotionTime, prepareFrameCache, renderMotionOffline };
+module.exports = { FRAME_RATE, prepareMotionClock, sourceFingerprint, rendererFingerprint, mapMotionTime, prepareFrameCache, renderMotionOffline };
