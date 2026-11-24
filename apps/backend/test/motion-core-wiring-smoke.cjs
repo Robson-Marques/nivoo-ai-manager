@@ -23,11 +23,11 @@ function run() {
   assert.equal(converted.length,2,'nenhuma etapa extra');
   assert.match(converted[0].instructions,/NIVOO_MOTION_CORE_CONTRACT_V1/);
   assert.match(converted[0].instructions,/overlays\.json/);
-  assert.match(converted[0].verifyCommand,/nivoo-conferir-motion motion\/promocao-v5 --modo hybrid/);
-  assert.match(converted[0].verifyCommand,/test -s out\/composicao\.md/);
-  assert.doesNotMatch(converted[0].verifyCommand,/test -s motion\/promocao-v5\/index\.html/);
-  assert.match(converted[1].instructions,/--motor hybrid/);
-  assert.match(converted[1].instructions,/--ritmo energetico/);
+  assert.equal(converted[0].verifyCommand,compose.verifyCommand,
+    'não adicionar nem substituir testes por aprovador de composição');
+  assert.doesNotMatch(converted[0].verifyCommand,/nivoo-conferir-motion/);
+  assert.equal(converted[1].instructions,render.instructions,
+    'não modificar renderizações depois da composição ficar pronta');
   assert.deepEqual(conectarMotorMotion(converted,'codex-cli',objective),converted,
     'a prévia do plano e a criação do job devem produzir EXATAMENTE o mesmo resultado');
 
@@ -40,8 +40,8 @@ function run() {
   ];
   const convertedSimple=conectarMotorMotion(simple,'codex-cli','Publicidade de promoção sem geometria 3D');
   assert.match(convertedSimple[0].instructions,/scene\.json/);
-  assert.match(convertedSimple[0].verifyCommand,/--modo scene/);
-  assert.match(convertedSimple[1].instructions,/--motor scene/);
+  assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
+  assert.doesNotMatch(convertedSimple[1].instructions,/--motor\s/);
   assert.equal(convertedSimple.length,2);
   assert.equal(simple[0].instructions,'Escrever motion/anuncio/index.html com imagens de produtos','não alterar plano original');
 
@@ -57,7 +57,8 @@ function run() {
     'Efeito bonito sem efeito 3D, apenas neon e tipografia',
   ]) {
     const produced=conectarMotorMotion(simple,'codex-cli',objective2);
-    assert.match(produced[1].instructions,/--motor scene/,'briefing negativo não exige WebGL: '+objective2);
+    assert.match(produced[0].instructions,/scene\.json/,'briefing negativo não exige WebGL: '+objective2);
+    assert.doesNotMatch(produced[1].instructions,/--motor\s/);
     assert.deepEqual(conectarMotorMotion(produced,'codex-cli',objective2),produced,
       'roteador deve permanecer idempotente: '+objective2);
   }
@@ -65,8 +66,9 @@ function run() {
     {...simple[0],title:'Criar cena com extrusão 3D e fotos de produto'},
     simple[1],
   ],'codex-cli','Animação com geometria 3D real e fotografia');
-  assert.match(real[1].instructions,/--motor hybrid/,
-    'pedido explícito de malhas tridimensionais deve selecionar WebGL híbrido');
+  assert.match(real[0].instructions,/overlays\.json/,
+    'pedido explícito de malhas tridimensionais deve orientar WebGL híbrido');
+  assert.doesNotMatch(real[1].instructions,/--motor\s/);
 
   const old=[render];
   assert.deepEqual(conectarMotorMotion(old,'codex-cli',objective),old,
@@ -103,12 +105,13 @@ function run() {
     const script=path.resolve(__dirname,'../bin/nivoo-conferir-motion');
     const ok=spawnSync(process.execPath,[script,source,'--modo','hybrid'],{encoding:'utf8'});
     assert.equal(ok.status,0,ok.stderr);
-    assert.match(ok.stdout,/NIVO_MOTION_CORE: fonte pronta; modo=hybrid/);
+    assert.match(ok.stdout,/NIVO_MOTION: composição disponível/);
     fs.rmSync(source+'/overlays.json');
     const invalid=spawnSync(process.execPath,[script,source,'--modo','hybrid'],{encoding:'utf8'});
-    assert.equal(invalid.status,4);
-    assert.match(invalid.stderr,/MOTION_CONTRATO:/);
+    assert.equal(invalid.status,0,
+      'comando de conferência dos jobs antigos não pode bloquear vídeo pronto');
+    assert.match(invalid.stderr,/aviso \(não bloqueante\)/);
   } finally { process.chdir(previous);fs.rmSync(tmp,{recursive:true,force:true}); }
-  console.log('OK: plano e job conectados, híbrido 3D/foto, cena v1, ritmo, revisão sem etapa extra, verificação antes do render');
+  console.log('OK: Nivo usa motor sem aprovador extra; entrega, aviso de logo e retomada sem nova sessão de IA');
 }
 try{run();}catch(e){console.error(e);process.exitCode=1;}

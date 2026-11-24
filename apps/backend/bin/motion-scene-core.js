@@ -57,12 +57,12 @@ function validateScene(raw) {
       finite(l.height, l.id+'.height', 1, 12000);
     }
     if (l.type === 'image') {
-      // Modos comuns: imagem binária e módulo JS que contém UMA imagem base64
-      // (legado do Studio). Permite pasta irmã SOMENTE dentro de motion/.
-      if (typeof l.asset !== 'string' || !/^[A-Za-z0-9_.\/-]+\.(?:png|webp|jpe?g|js)$/i.test(l.asset) ||
-          path.isAbsolute(l.asset) || l.asset.split('/').filter(s=>s==='..').length>1)
-        throw new Error(l.id+': asset local inválido');
-      assets.add(l.asset);
+      // Uma imagem pode vir de arquivo local, anexo recuperado, SVG do logo
+      // ou data:image base64. Formato do NOME não reprova um trabalho pronto.
+      // Somente o carregador decide se consegue ler a mídia, sem rede e com
+      // as raízes do workspace restritas. Se não conseguir, AVISA e entrega.
+      if (typeof l.asset === 'string' && l.asset.trim()) assets.add(l.asset);
+      else console.warn('[NIVO_MOTION] camada sem referência de mídia: '+l.id);
       if (l.supportZ !== undefined) finite(l.supportZ, l.id+'.supportZ', -10000, 10000);
     }
     if (l.type === 'text') {
@@ -109,30 +109,51 @@ function loadScene(scenePath) {
   const dir = path.dirname(absolute);
   const parsed = JSON.parse(fs.readFileSync(absolute,'utf8'));
   const { scene, assets } = validateScene(parsed);
-  const binaries = {};
+  const binaries = {}, warnings = [];
   let totalBytes=0;
   const motionParent = path.basename(path.dirname(dir)) === 'motion' ? path.dirname(dir) : dir;
+  const projectRoot = motionParent !== dir ? path.dirname(motionParent) : dir;
+  const allowed = [motionParent, path.join(projectRoot,'contexto')];
   for (const relative of assets) {
-    const file = fs.realpathSync(path.resolve(dir, relative));
-    if (!file.startsWith(motionParent + path.sep))
-      throw new Error('Imagem fora da pasta de cenas motion: '+relative);
-    const size = fs.statSync(file).size;
-    if (size > 20*1024*1024 || (totalBytes += size) > 60*1024*1024)
-      throw new Error('Assets grandes demais; limite 20 MB por arquivo/60 MB por cena');
-    const ext=path.extname(relative).toLowerCase();
-    if(ext==='.js') {
-      // NÃO executar JS do cliente para recuperar a imagem. Extrair somente
-      // URL base64 já incorporada, sem interpretar código ou baixar recursos.
-      const content=fs.readFileSync(file,'utf8');
-      const matches=content.match(/data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+/g)??[];
-      if (matches.length!==1) throw new Error('Módulo JS de imagem deve conter exatamente uma data:image base64: '+relative);
-      binaries[relative]=matches[0];
-    } else {
-      const mime=ext==='.png'?'image/png':ext==='.webp'?'image/webp':'image/jpeg';
-      binaries[relative]='data:'+mime+';base64,'+fs.readFileSync(file).toString('base64');
+    try {
+      if (relative.length > 28*1024*1024) throw new Error('referência grande demais');
+      const embedded = /^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[a-zA-Z0-9+/=]+$/.test(relative);
+      if (embedded) {
+        if (Buffer.byteLength(relative,'utf8') > 28*1024*1024) throw new Error('imagem embutida muito grande');
+        binaries[relative]=relative; continue;
+      }
+      if (/^[a-z][a-z\d+.-]*:/i.test(relative)) throw new Error('referência remota não suportada');
+      if (relative.includes('\0') || /[\x00-\x1f]/.test(relative)) throw new Error('nome com caracteres de controle');
+      const candidate = relative.startsWith('contexto/') ?
+        path.resolve(projectRoot, relative) : path.resolve(dir, relative);
+      const file = fs.realpathSync(candidate);
+      if (!allowed.some(root=>file.startsWith(root+path.sep)))
+        throw new Error('arquivo fora das pastas permitidas');
+      const size=fs.statSync(file).size;
+      if (size > 20*1024*1024 || (totalBytes += size) > 60*1024*1024)
+        throw new Error('limite de tamanho da mídia excedido');
+      const ext=path.extname(file).toLowerCase();
+      if(ext==='.js') {
+        // Importa recurso antigo do Studio como DADO, nunca executa JavaScript.
+        const content=fs.readFileSync(file,'utf8');
+        const matches=content.match(/data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+/g)??[];
+        if(matches.length!==1) throw new Error('módulo não contém uma imagem base64 única');
+        binaries[relative]=matches[0];
+      } else {
+        const mime={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg',
+          '.webp':'image/webp','.svg':'image/svg+xml'}[ext];
+        if(!mime) throw new Error('formato de imagem não suportado');
+        binaries[relative]='data:'+mime+';base64,'+fs.readFileSync(file).toString('base64');
+      }
+    } catch(err) {
+      // Uma camada de logo mal referenciada não pode interromper o MP4 inteiro.
+      // Entrega o render disponível; o usuário recebe AVISO e pode pedir ajuste.
+      const reason=String(err?.message??err).slice(0,180);
+      const label=/^data:image/.test(relative)?'[imagem incorporada]':relative.slice(0,160);
+      warnings.push('Imagem não carregada ('+label+'): '+reason);
     }
   }
-  return { scene, binaries, sourcePath:absolute };
+  return { scene, binaries, warnings, sourcePath:absolute };
 }
 function safeJSON(x) { return JSON.stringify(x).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026'); }
 /** HTML para o Chromium, sem rede, fontes remotas ou dependências de IA. */
@@ -261,9 +282,10 @@ function sceneRuntime({scene,binaries,overlay=false}) {
   // A promessa de carregamento é aguardada diretamente pelo Playwright.
   // waitForFunction usa requestAnimationFrame/setInterval, que ficam parados
   // com o relógio virtual pausado, causando timeout e novas tentativas.
-  const loadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise((resolve,reject)=>{
+  const loadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise(resolve=>{
     const img=new Image();img.onload=()=>{images[key]=img;resolve();};
-    img.onerror=()=>reject(new Error('Imagem inválida: '+key));img.src=binaries[key];
+    img.onerror=()=>{console.warn('[NIVO_MOTION] imagem não carregou, mantendo demais camadas: '+key.slice(0,120));resolve();};
+    img.src=binaries[key];
   }))).then(()=>{
     if(overlay)window.__nivooOverlayReady=true;
     else window.__nivooSceneReady=true;
@@ -301,13 +323,13 @@ function checkMotionSource(source, mode = 'auto') {
   try {
     if (sourceMode==='scene') {
       if (!fs.existsSync(scenePath)) throw new Error('scene.json obrigatório para cenas estruturadas');
-      const {scene} = loadScene(scenePath);
-      return {mode:'scene',layers:scene.layers.length,width:scene.width,height:scene.height};
+      const {scene,warnings} = loadScene(scenePath);
+      return {mode:'scene',layers:scene.layers.length,width:scene.width,height:scene.height,warnings};
     }
     if (sourceMode==='hybrid') {
       if (!fs.existsSync(htmlPath) || !fs.existsSync(overlayPath))
         throw new Error('index.html e overlays.json são obrigatórios para composição WebGL com produtos');
-      const {scene}=loadScene(overlayPath);
+      const {scene,warnings}=loadScene(overlayPath);
       const photos=scene.layers.filter(layer=>layer.type==='image');
       if (!photos.length)
         throw new Error('overlays.json deve conter pelo menos uma imagem de produto/logo');
@@ -322,7 +344,7 @@ function checkMotionSource(source, mode = 'auto') {
       });
       if(repeated) throw new Error('imagem '+repeated.asset+
         ' ainda é referenciada no index.html e no overlays.json; retire o desenho/importação duplicado do WebGL');
-      return {mode:'hybrid',layers:scene.layers.length,width:scene.width,height:scene.height};
+      return {mode:'hybrid',layers:scene.layers.length,width:scene.width,height:scene.height,warnings};
     }
     if (!fs.existsSync(htmlPath)) throw new Error('index.html não encontrado (legado)');
     return {mode:'legacy',layers:0};

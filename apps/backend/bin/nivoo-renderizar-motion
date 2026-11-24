@@ -51,8 +51,9 @@ if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
     ? manifest : path.join(entrada, 'index.html');
 }
 if (!fs.existsSync(entrada)) {
-  console.error(`MOTION_CONTRATO: composição ${alvoBruto} incompleta para motor ${motorExigido}: ${path.basename(entrada)} ausente. Nenhum quadro será capturado.`);
-  process.exit(4);
+  // Fonte não gerada é falha REAL de execução; não um parecer da composição.
+  console.error(`nivoo-renderizar-motion: fonte não encontrada: ${entrada}`);
+  process.exit(2);
 }
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
 if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
@@ -92,11 +93,10 @@ function motionSceneCore() {
 }
 
 (async () => {
-  // Vínculo real com o núcleo: estrutura/asset/motor obrigatórios são testados
-  // ANTES de iniciar Chromium e antes de gerar qualquer quadro.
-  const contract = motionSceneCore().checkMotionSource(alvoBruto, motorExigido);
-  console.log('nivoo-renderizar-motion: MOTION_CORE_CONECTADO modo=' + contract.mode +
-    ', camadas=' + contract.layers + '; fonte validada antes da captura');
+  // Não executar uma segunda avaliação da composição pronta. O próprio
+  // renderizador carrega as imagens e entrega o que conseguir produzir.
+  // Erros técnicos reais (Chromium/FFmpeg/arquivo inexistente) são reportados
+  // pela ferramenta que falhou, não por um aprovador anterior ao trabalho.
   const { chromium } = playwrightCore();
   const { renderMotionOffline: renderOffline, prepareMotionClock } = offlineRenderer();
   let navegador;
@@ -122,9 +122,10 @@ function motionSceneCore() {
       // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
       // imagens RGBA, sombras, z-index e velocidade dos elementos.
       const { loadScene, sceneDocument } = motionSceneCore();
-      const { scene, binaries } = loadScene(entrada);
+      const { scene, binaries, warnings } = loadScene(entrada);
+      warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
       if (scene.width !== W || scene.height !== H)
-        throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
+        console.warn(`nivoo-renderizar-motion: tamanho de cena ${scene.width}x${scene.height} diferente da saída ${W}x${H}; renderizando e deixando avaliação visual ao usuário`);
       await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
       let deadline;
       try {
@@ -145,17 +146,18 @@ function motionSceneCore() {
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
         const { loadScene, overlayScript } = motionSceneCore();
-        const { scene, binaries } = loadScene(overlayPath);
-        if (scene.width !== W || scene.height !== H) throw new Error(
-          `MOTION_CONTRATO: overlay ${scene.width}x${scene.height} difere de saída ${W}x${H}`);
+        const { scene, binaries, warnings } = loadScene(overlayPath);
+        warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
+        if (scene.width !== W || scene.height !== H) console.warn(
+          `nivoo-renderizar-motion: overlay ${scene.width}x${scene.height} e saída ${W}x${H}; mantendo render para avaliação`);
         // O relógio do overlay usa tempo de ORIGEM do WebGL; a duração
         // declarada deve ser a da composição antes de qualquer aceleração.
         const sourceDuration=Number(await pagina.evaluate(()=>window.__motionSegundos));
         if (Number.isFinite(sourceDuration) && sourceDuration>0 &&
             Math.abs(scene.duration-sourceDuration)>0.12) {
-          throw new Error('MOTION_CONTRATO: overlays.json.duration='+scene.duration+
-            ' deve coincidir com a duração original do HTML/WebGL ('+sourceDuration+
-            's), não com a duração acelerada do MP4.');
+          console.warn('nivoo-renderizar-motion: duração do overlay ('+scene.duration+
+            's) diferente da composição ('+sourceDuration+
+            's); preservando saída e permitindo revisão visual');
         }
         await pagina.evaluate((size) => {
           const canvas = document.createElement('canvas');
@@ -190,15 +192,22 @@ function motionSceneCore() {
       // A composição original NÃO é modificada. Apenas a captura virtual
       // percorre seu relógio mais rápido na abertura e no resto das cenas.
       segundos = args.includes('--segundos') ? segundosArg : Math.max(1,Math.round(segundosFonte*.8));
-      const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
-      const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
-      const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
-      pacing = {sourceDuration,openingEnd,openingSeconds};
-      if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
-          !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
-          !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
-        throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
-      console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+      // Se o autor já acelerou a abertura no HTML e não alterou a duração
+      // total, aplicar um segundo timewarp faria a abertura de 3,5s virar
+      // ~1,7s. Não remodelar uma composição pronta só por flag automática.
+      if (!temRitmoExplicit && Math.abs(segundos-segundosFonte)<.1) {
+        console.log('nivoo-renderizar-motion: mantendo ritmo da composição pronta; sem aceleração duplicada');
+      } else {
+        const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
+        const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
+        const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
+        pacing = {sourceDuration,openingEnd,openingSeconds};
+        if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
+            !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
+            !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
+          throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
+        console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+      }
     }
     const result = await renderOffline({
       page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,

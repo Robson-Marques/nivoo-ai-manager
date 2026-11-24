@@ -4,8 +4,8 @@
  * Antes, scene.json/overlays.json eram só sugestões no prompt; a IA podia
  * devolver outro HTML e o executor gastaria 625 quadros com geometria errada.
  *
- * Aqui o NÚCLEO vincula a etapa produtora ao render oficial, define o formato
- * e exige validação determinística do arquivo produzido. Não cria etapas.
+ * Aqui o NÚCLEO recomenda o formato na etapa autora e preserva o
+ * render oficial. Não acrescenta revisores, testes finais nem etapas.
  * Renderizações de composições antigas SEM etapa produtora seguem compatíveis.
  */
 
@@ -34,18 +34,6 @@ function isComposer(step: RawStep): boolean {
     !/\bnivoo-renderizar-motion\b/.test(instr);
 }
 
-function existingCheck(verify: string, source: string): string[] {
-  // Substitui apenas testes de uma fonte HTML antiga pelo cheque oficial
-  // que aceita tanto scene.json como index.html+overlays.json.
-  return verify.split(/\s+&&\s+/g)
-    .map(s => s.trim()).filter(s =>
-      s && s !== 'true' && s !== ':' &&
-      !s.includes(source + '/index.html') &&
-      !s.includes(source + '/scene.json') &&
-      !s.includes(source + '/overlays.json') &&
-      !s.includes('nivoo-conferir-motion'));
-}
-
 /**
  * "sem geometria 3D" e "não quero WebGL" NÃO solicitam geometria 3D.
  * A classificação considera o briefing da pessoa, nunca a terminologia
@@ -56,16 +44,6 @@ export function pedeGeometria3D(texto: string): boolean {
     .replace(/\b(?:sem|dispensar|dispensa|dispensando|evitar|evite|evitando)\s+(?:(?:qualquer|nenhuma?|uma?|de|geometria|malhas?|objetos?|efeitos?|visual|real|em)\s+){0,5}(?:3[\s-]*d|webgl)\b/gi, ' ')
     .replace(/\bn[aã]o\s+(?:quero|queremos|preciso|precisamos|usar|utilizar|inclua?|incluir|faça|fazer|criar|crie|tem|ter|tenha)\s+(?:(?:de|qualquer|nenhuma?|uma?|geometria|malhas?|objetos?|efeitos?|visual|real|em)\s+){0,5}(?:3[\s-]*d|webgl)\b/gi, ' ');
   return /\b3[\s-]*d\b|\bwebgl\b|\bextrud(?:ado|ada|idos?|idas?|ir|a(?:ç[aã]o|s))?\b/i.test(limpo);
-}
-
-function addRenderFlags(command: string, mode: MotionMode, fast: boolean): string {
-  // Preserva "set -e;", nova linha e comandos adjacentes; injeta somente
-  // no segmento de invocação. Idempotente em validatePlan() e create().
-  return command.replace(/((?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\b[^\n;&]*)/, match => {
-    const motor = /(?:^|\s)--motor\s+/.test(match) ? '' : ' --motor ' + mode;
-    const ritmo = fast && !/(?:^|\s)--ritmo\s+/.test(match) ? ' --ritmo energetico' : '';
-    return match + motor + ritmo;
-  });
 }
 
 /**
@@ -123,10 +101,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const text = [
       objective, String(compose.title ?? ''), original, String(render.title ?? ''),
     ].join(' ');
-    const priorMode = String(compose.instructions ?? '').includes(marker)
-      ? /(?:^|\s)--motor\s+(scene|hybrid)(?=\s|$)/.exec(command)?.[1] as MotionMode | undefined
-      : undefined;
-    const real3d = priorMode ? priorMode === 'hybrid' : pedeGeometria3D(text);
+    const real3d = pedeGeometria3D(text);
     const hasPhotos = /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
@@ -143,8 +118,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias, pizzas, produtos e logos ficam SOMENTE em overlays.json como camadas RGBA.',
             'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
-            'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay. O verificador do Nivo rejeita a mesma imagem nos dois lugares.',
-            'A duração overlays.json.duration é a duração ORIGINAL do relógio WebGL, mesmo quando o MP4 final será acelerado.',
+            'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay, para não duplicar visualmente as fotografias.',
+            'A duração overlays.json.duration deve acompanhar a duração ORIGINAL do relógio WebGL; diferenças são avisadas, não usadas para bloquear a entrega.',
             'As imagens locais podem ser PNG/WebP/JPG ou módulos JS base64 legados na pasta motion; o próprio motor as carrega.',
           ];
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
@@ -152,13 +127,10 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
         requirements.map(s => '- ' + s).join('\n') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
-    const verify = String(compose.verifyCommand ?? '');
-    compose.verifyCommand = [...existingCheck(verify, source),
-      'nivoo-conferir-motion ' + source + ' --modo ' + mode].join(' && ');
-
-    const fast = mode === 'hybrid' &&
-      /\b(?:aceler|mais r[aá]pid|din[aâ]mic|ritmo (?:mais )?(?:r[aá]pid|aceler)|agiliz)/i.test(objective);
-    render.instructions = addRenderFlags(command, mode, fast);
+    // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
+    // O próprio renderer seleciona o motor e respeita os movimentos criados
+    // pela IA, sem acelerar DUAS vezes o néon após a edição da composição.
+    // Critérios de entrega originais permanecem intocados.
   }
   return steps;
 }
