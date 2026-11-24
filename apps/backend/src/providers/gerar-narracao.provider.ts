@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
+import { publishMediaFile } from './media-file-publication';
 import { resolveInside } from '../common/path-guard';
 import { KokoroTtsError, KokoroTtsService, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
 import { VOZ_PADRAO_KOKORO } from './vozes';
@@ -63,11 +64,13 @@ export class GerarNarracaoProvider implements AiProvider {
       catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: '', error: err.message, resourceUnavailable: err.indisponivel }; }
       const original = path.join(tmp, 'original.mp3');
       fs.writeFileSync(original, audio.bytes);
+      const normalized=path.join(tmp,'normalized.mp3');
       const result = await runProcess('ffmpeg',
-        ['-nostdin','-hide_banner','-loglevel','error','-y','-i',original,'-map','0:a:0','-c:a','libmp3lame','-q:a','3',target],
+        ['-nostdin','-hide_banner','-loglevel','error','-y','-i',original,'-map','0:a:0','-c:a','libmp3lame','-q:a','3',normalized],
         { cwd: req.cwd, env: minimalEnv(), timeoutMs: Math.min(req.timeoutMs, 180000), signal: req.signal });
-      if (result.exitCode !== 0) return { exitCode: 1, output: '', error: 'Falha ao normalizar MP3: ' + result.stderr.slice(-350) };
-      if (!fs.existsSync(target) || !fs.statSync(target).size) return { exitCode: 1, output: '', error: 'Prévia MP3 vazia' };
+      if (result.exitCode !== 0 || req.signal.aborted) return { exitCode: 1, output: '', error: 'Falha ao normalizar MP3: ' + result.stderr.slice(-350),interrupted:req.signal.aborted };
+      if (!fs.existsSync(normalized) || !fs.statSync(normalized).size) return { exitCode: 1, output: '', error: 'Prévia MP3 vazia' };
+      publishMediaFile(normalized,target,false);
       // Comparação opcional: a mesma voz/velocidade/pausas em duas locuções
       // completas e independentes. Não juntar frases e não renderizar MP4.
       // O texto original nunca é sobrescrito pela alternativa.
@@ -88,11 +91,13 @@ export class GerarNarracaoProvider implements AiProvider {
         const rawAlt = path.join(tmp, 'alternativa-original.mp3');
         fs.writeFileSync(rawAlt, alternativaAudio.bytes);
         const destinoAlt = resolveInside(req.cwd, alternativa);
+        const normalizedAlt=path.join(tmp,'normalized-alt.mp3');
         const convAlt = await runProcess('ffmpeg',
-          ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', rawAlt, '-map', '0:a:0', '-c:a', 'libmp3lame', '-q:a', '3', destinoAlt],
+          ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', rawAlt, '-map', '0:a:0', '-c:a', 'libmp3lame', '-q:a', '3', normalizedAlt],
           { cwd: req.cwd, env: minimalEnv(), timeoutMs: Math.min(req.timeoutMs, 180000), signal: req.signal });
-        if (convAlt.exitCode !== 0 || !fs.existsSync(destinoAlt) || !fs.statSync(destinoAlt).size)
-          return { exitCode: 1, output: 'Prévia A preservada: ' + nome, error: 'Falha ao preparar a alternativa B: ' + convAlt.stderr.slice(-350) };
+        if (convAlt.exitCode !== 0 || req.signal.aborted || !fs.existsSync(normalizedAlt) || !fs.statSync(normalizedAlt).size)
+          return { exitCode: 1, output: 'Prévia A preservada: ' + nome, error: 'Falha ao preparar a alternativa B: ' + convAlt.stderr.slice(-350),interrupted:req.signal.aborted };
+        publishMediaFile(normalizedAlt,destinoAlt,false);
       }
       req.onLog('Locução contínua disponível: ' + nome + (alternativa ? ' e ' + alternativa : ''));
       return { exitCode: 0, output: 'Prévia A: ' + nome + (alternativa ? '; prévia B: ' + alternativa : '') + '. Aguardando a escolha do usuário antes do vídeo.', stopReason: 'completed' };
