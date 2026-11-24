@@ -214,7 +214,10 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         if (falta && daConferencia.includes(falta)) faltaPrograma = falta;
       }
       if (v.aborted) result = { ...result, interrupted: true };
-      else if (v.exitCode !== 0) {
+      else if (v.exitCode === 0 && result.sessionEnded && !target && !deliveries.length) {
+        // A time/turn-limited coding session may already have satisfied its real check.
+        result={...result,exitCode:0,error:undefined};
+      } else if (v.exitCode !== 0) {
         result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
       }
     }

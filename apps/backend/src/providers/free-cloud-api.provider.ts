@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
 import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
+import { retryAfterHeaderMs,isTransientRateLimit } from './resource-rate-limit';
 import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
 
 /**
@@ -87,7 +88,8 @@ export class FreeCloudApiProvider implements AiProvider {
     try { json = JSON.parse(raw); } catch { /* resposta textual da API */ }
     if (!resposta.ok) {
       const detalhe = String(json?.error?.message ?? json?.message ?? raw).split(chave).join('[chave ocultada]').slice(0, 400);
-      throw new Error(this.conf.nome + ' HTTP ' + resposta.status + ': ' + detalhe);
+      const error=new Error(this.conf.nome + ' HTTP ' + resposta.status + ': ' + detalhe);
+      throw resposta.status===429?Object.assign(error,{retryAfterMs:retryAfterHeaderMs(resposta.headers.get('retry-after'))}):error;
     }
     return json;
   }
@@ -203,6 +205,7 @@ export class FreeCloudApiProvider implements AiProvider {
       const erro = String(e?.message ?? e).split(this.chave() ?? '').join('[chave ocultada]').slice(0, 800);
       req.onLog('[' + this.conf.nome + '] ' + erro, 'WARN');
       return { exitCode: 1, output: '', error: erro,
+        retryAfterMs:isTransientRateLimit(erro)&&Number.isFinite(e?.retryAfterMs)?Number(e.retryAfterMs):undefined,
         resourceUnavailable: looksLikeResourceProblem(erro) || /HTTP (401|402|403|404|429|500|502|503|504)|fetch failed|timeout/i.test(erro),
         inputTokens: entrada, outputTokens: saida };
     }

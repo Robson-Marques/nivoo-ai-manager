@@ -602,6 +602,13 @@ export class WorkspaceService {
     return sha256(`${tree.stdout.trim()}\n${listing.sort().join('\n')}`);
   }
 
+  /** Only project source changes count as repair; a report is not a correction. */
+  async repairSourceHash(worktree:string):Promise<string>{
+    await this.gitOk(worktree,['add','-A']);
+    const indexed=await this.gitOk(worktree,['ls-files','-s','-z']);
+    return sha256(indexed.stdout.split('\0').filter(l=>l&&!/\t(?:\.nivoo|contexto|out)\//.test(l)).sort().join('\0'));
+  }
+
   /** Commit de checkpoint na branch do job. Retorna o hash do HEAD. */
   async commitCheckpoint(worktree: string, message: string): Promise<string | null> {
     // Repositórios antigos rastreavam .nivoo/: deixa de rastrear (os arquivos continuam no disco).

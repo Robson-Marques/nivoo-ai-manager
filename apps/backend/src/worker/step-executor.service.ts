@@ -38,7 +38,7 @@ import { WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { ProjectProfileService } from '../projects/project-profile.service';
-import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey } from './executor/recovery-policy';
+import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey,isRepairStep } from './executor/recovery-policy';
 import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia } from './executor/media-recovery';
 import { recordLesson,ingestNotes,saveCheckpoint } from './executor/recovery-store';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
@@ -366,6 +366,7 @@ export class StepExecutorService {
     }
     const {protectedBefore,repoHarness,docsPendentes}=await prepareExecutionWorkspace(this.prisma,this.workspace,this.artifacts,job,step,providerId,isAi,worktree,knowledgeDir,L);
     const treeBefore = await this.workspace.snapshotHash(worktree);
+    const repairBefore=isRepairStep(step.key)?await this.workspace.repairSourceHash(worktree):null;
 
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
     const attempt = await this.prisma.$transaction(async (tx) => {
@@ -474,8 +475,16 @@ export class StepExecutorService {
     }
     const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
     const treeAfter = await this.workspace.snapshotHash(worktree);
+    if(repairBefore!==null&&verified&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
+      const after=await this.workspace.repairSourceHash(worktree);
+      if(after===repairBefore){
+        verified=false;
+        result={...result,exitCode:1,sessionEnded:false,stopReason:'repair_no_change',error:'Reparo escreveu relatório, mas não alterou os arquivos de projeto necessários. O comando original não será repetido.'};
+        await L(result.error!,'WARN',attempt.id);
+      }
+    }
 
-    const classified=classifyExecutionResult(result,isAi,verified,sessionClosedNormally);
+    const classified=classifyExecutionResult(result,isAi,verified,sessionClosedNormally&&result.stopReason!=='repair_no_change');
     result=classified.result;
     const {attemptStatus}=classified;
     const outputHash = normalizedOutputHash(result.output ?? '', result.error);
@@ -487,7 +496,7 @@ export class StepExecutorService {
           exitCode: result.exitCode,
           output: (result.output ?? '').slice(-20000),
           outputHash,
-          error: result.error?.slice(0, 5000),
+          error: (result.error??(attemptStatus==='FALHA'?result.output?.trim().slice(-5000)||'Executor terminou sem diagnóstico (exit '+result.exitCode+')':undefined))?.slice(0,5000),
           costUsd: result.costUsd ?? 0,
           costEstimated: !!result.costEstimated,
           inputTokens: result.inputTokens,
@@ -632,8 +641,12 @@ export class StepExecutorService {
       select: { error: true },
       orderBy: { number: 'desc' },
     });
-    const erroAtual = (result.error ?? result.output ?? '').slice(0, 5000);
-    const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual,step.verifyCommand??'',providerId,isAi,diagnosticoScript);
+    const erroAtual=(result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
+    const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
+    if(result.stopReason==='repair_no_change'||recovery.kind==='blocked'){
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,recovery.kind==='blocked'?recovery.detail:erroAtual);
+    }
     if(recovery.kind==='limit'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'limite de tentativas; resultado parcial preservado',{tentativa:number,log:logArt.id,notas:notes});
       return this.failStep(task,workerId,job,step,recovery.detail);
@@ -673,6 +686,9 @@ export class StepExecutorService {
     });
     const repeatedVerification=repeatedSessionVerification(sessions,step.verifyCommand??'');
     if(repeatedVerification)return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,repeatedVerification);
+    const decision=decideSessionContinuation(job,sessions);
+    if(decision.kind==='repeat')return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,decision.detail);
+    if(decision.kind==='limit')return this.failStep(task,workerId,job,step,decision.detail,BlockedReason.LIMITE_SESSOES);
     // Se a direção de arte mudou HTML/JS após as capturas, a IA NÃO pode
     // aprovar um quadro obsoleto. Voltar aos executores locais automaticamente,
     // preservando a composição e as outras etapas concluídas.
@@ -712,9 +728,7 @@ export class StepExecutorService {
       await this.orchestrator.scheduleReady(job.id);
       return 'CONTINUA';
     }
-    const decision=decideSessionContinuation(job,sessions);
-    if(decision.kind==='repeat')return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,decision.detail);
-    if(decision.kind==='limit')return this.failStep(task,workerId,job,step,decision.detail,BlockedReason.LIMITE_SESSOES);
+
     await this.prisma.step.update({
       where: { id: step.id },
       data: { status: 'PENDENTE', statusDetail: `sessão ${number} encerrada sem concluir; continuação automática agendada` },
@@ -807,7 +821,7 @@ export class StepExecutorService {
       `Comando real: ${step.instructions.slice(0, 4500)}`,
       `Erro verificado pelo sistema: ${diagnostico.slice(0, 2600)}`,
       'Leia os arquivos envolvidos e CORRIJA no worktree a causa técnica.',
-      'Pode usar Read, Edit e Write. O executor do Nivoo rodará o comando automaticamente depois.',
+      'Use as ferramentas de arquivo realmente disponíveis na conexão atual. O executor do Nivoo rodará o comando depois de uma alteração real de código; só gravar o relatório não é reparo.',
       'Não finja que executou o comando se não tem terminal. Não apague vídeos, áudio, backups ou resultados anteriores.',
       'Se não houver arquivo ou recurso real para corrigir (por exemplo, música que nunca foi enviada),',
       'registre o impedimento no relatório; NÃO invente mídia nem substitua recursos aprovados.',
@@ -887,13 +901,14 @@ export class StepExecutorService {
     // IA reserva: acabou o crédito/limite da IA do projeto → continua sozinho com a próxima conectada.
     const providerId = step.provider ?? job.defaultProvider;
     const visual=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
-    const reserva = visual?null:await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId).catch(() => null);
+    const pinned=(step.providerOptions as Record<string,unknown>|null)?.model;
+    const reserva = visual||pinned||!tipoDe(providerId)?null:await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId,job.id).catch(() => null);
     if (reserva) {
       const aviso = `${reserva.anterior} ficou indisponível (${detail.slice(0, 200)}). O trabalho continua com ${reserva.nome}, do ponto em que estava.`;
       await this.logs.log(job.id, aviso, { stepId: step.id, level: 'WARN', source: 'worker' });
       const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
       if (origem) await this.prisma.conversationMessage.create({ data: { conversationId: origem.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: aviso, jobId: job.id } });
-      await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE', statusDetail: `continua com ${reserva.nome}` } });
+      await this.prisma.step.update({ where: { id: step.id }, data: { provider:reserva.id,status: 'PENDENTE', statusDetail: `continua com ${reserva.nome}` } });
       await this.queue.requeue(task.id, workerId, new Date(), `continua com ${reserva.id}`);
       return 'CONTINUA';
     }

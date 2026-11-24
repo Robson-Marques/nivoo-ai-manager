@@ -22,7 +22,8 @@ describe('Recuperação de trabalho',()=>{
     expect(decideFailedAttempt(job,[err,other],err,'','local-shell',false,err).kind).toBe('repair');
     expect(decideFailedAttempt(job,[err,other,err,err],err,'','local-shell',false,err).kind).toBe('repeat');
     expect(decideFailedAttempt({...job,maxAttemptsPerStep:1},[err],err,'','local-shell',false,err).kind).toBe('limit');
-    expect(decideFailedAttempt(job,['command not found'],'command not found','','local-shell',false,'command not found').kind).toBe('retry');
+    expect(decideFailedAttempt(job,['command not found'],'command not found','','local-shell',false,'command not found').kind).toBe('blocked');
+    expect(decideFailedAttempt(job,['unrecognized arguments: --bad'],'unrecognized arguments: --bad','','local-shell',false,'unrecognized arguments: --bad').kind).toBe('blocked');
   });
   it('distingue progresso de repetição de sessão',()=>{
     const progress={...stagnant,treeAfter:'next'};
