@@ -105,7 +105,7 @@ function run() {
     const script=path.resolve(__dirname,'../bin/nivoo-conferir-motion');
     const ok=spawnSync(process.execPath,[script,source,'--modo','hybrid'],{encoding:'utf8'});
     assert.equal(ok.status,0,ok.stderr);
-    assert.match(ok.stdout,/NIVO_MOTION_CORE: fonte pronta; modo=hybrid/);
+    assert.match(ok.stdout,/NIVO_MOTION: composição disponível/);
     fs.rmSync(source+'/overlays.json');
     const invalid=spawnSync(process.execPath,[script,source,'--modo','hybrid'],{encoding:'utf8'});
     assert.equal(invalid.status,0,
