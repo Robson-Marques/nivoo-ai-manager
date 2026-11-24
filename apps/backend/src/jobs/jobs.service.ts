@@ -6,6 +6,7 @@ import { sha256 } from '../common/hash';
 import { etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { compileWorkflowPlan } from './workflow/compile-plan';
+import { AreaScope, mediaEnabledForArea } from '../specialties/media/scope';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
 import { BlockedReason } from '../common/status';
@@ -238,14 +239,14 @@ export class JobsService {
    * Valida um plano proposto pela IA da conversa SEM criar nada: mesmas regras de um job criado à mão
    * (etapas de IA com verificação, sem ciclos, política, critérios válidos). Devolve o plano normalizado.
    */
-  validatePlan(plan: any) {
+  validatePlan(plan: any, area?: AreaScope) {
     if (!plan || typeof plan !== 'object') throw new BadRequestException('Plano vazio');
     const title = reqString(plan, 'title', 300);
     const objective = reqString(plan, 'objective', 50000);
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const brutas = comPreflightVisual(compileWorkflowPlan(plan.steps, defaultProvider, objective), defaultProvider);
+    const brutas = comPreflightVisual(compileWorkflowPlan(plan.steps, defaultProvider, objective, area), defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(plan.criteria ?? []);
@@ -255,13 +256,13 @@ export class JobsService {
   }
 
   async create(projectId: string, body: any) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { area: true } });
     if (!project) throw new NotFoundException('Projeto não encontrado');
     const title = reqString(body, 'title', 300);
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = this.parseSteps(comPreflightVisual(compileWorkflowPlan(body.steps ?? [], defaultProvider, objective), defaultProvider), defaultProvider);
+    const steps = this.parseSteps(comPreflightVisual(compileWorkflowPlan(body.steps ?? [], defaultProvider, objective, project.area), defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
     const criteria = this.parseCriteria(body.criteria);
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
