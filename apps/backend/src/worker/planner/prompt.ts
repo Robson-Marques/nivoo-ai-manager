@@ -12,14 +12,7 @@ import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
 import { selectSkills,skillContext } from '../../specialties/skills';
-import { architectureContext } from '../../specialties/software/architecture-context';
-import { backendEngineeringContext } from '../../specialties/software/backend';
-import { frontendEngineeringContext } from '../../specialties/software/frontend';
-import { dataEngineeringContext } from '../../specialties/software/data';
-import { integrationEngineeringContext } from '../../specialties/software/integration';
-import { securityEngineeringContext } from '../../specialties/software/security';
-import { qualityEngineeringContext } from '../../specialties/software/quality';
-import { maintenanceEngineeringContext } from '../../specialties/software/maintenance';
+import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { bancoDeTesteDisponivel } from '../../common/banco-de-teste';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
@@ -65,14 +58,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       conversa || '(primeira mensagem)',
       '',
       ...skillContext(skills,request.worktree),
-      ...(skills.some(s=>s.id==='codigo')?architectureContext(request.worktree,task):[]),
-      ...(skills.some(s=>s.id==='software-backend')?backendEngineeringContext('planner',task):[]),
-      ...(skills.some(s=>s.id==='software-frontend')?frontendEngineeringContext('planner',task):[]),
-      ...(skills.some(s=>s.id==='software-dados')?dataEngineeringContext('planner',task,bancoDeTesteDisponivel()):[]),
-      ...(skills.some(s=>s.id==='software-integracoes')?integrationEngineeringContext('planner',task):[]),
-      ...(skills.some(s=>s.id==='software-seguranca')?securityEngineeringContext('planner',task):[]),
-      ...(skills.some(s=>s.id==='software-qualidade')?qualityEngineeringContext('planner',task):[]),
-      ...(skills.some(s=>s.id==='software-manutencao')?maintenanceEngineeringContext('planner',task):[]),
+      ...softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [
