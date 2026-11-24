@@ -2,6 +2,7 @@ import type { Skill } from '../skills';
 import { BACKEND_SKILL,backendIntent } from './backend';
 import { FRONTEND_SKILL,frontendIntent } from './frontend';
 import { DATA_SKILL,dataIntent } from './data';
+import { INTEGRATION_SKILL,integrationIntent } from './integration';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -14,9 +15,7 @@ export const SOFTWARE_SKILLS = [
   BACKEND_SKILL,
   FRONTEND_SKILL,
   DATA_SKILL,
-  {id:'software-integracoes',domain:'software',description:'Contratos de integração, APIs e eventos',source:upstream+'nemo-relay-instrument-typed-wrappers',
-    action:'Confirme o contrato real de cada integração; valide entradas, respostas, erros e efeitos de repetição.',
-    body:'Leia a documentação da versão efetivamente usada e os adaptadores existentes. Mantenha conversões de tipos nas fronteiras, preserve campos necessários e trate falhas explicitamente. Considere autenticação, idempotência, paginação e reentrega conforme o protocolo. Não invente endpoints, parâmetros ou credenciais.'},
+  INTEGRATION_SKILL,
   {id:'software-seguranca',domain:'software',description:'Segurança, autorização e isolamento',
     action:'Preserve os limites de acesso, valide entradas e verifique autorização no componente que executa a operação.',
     body:'Não confunda autenticação com autorização. Respeite a política existente, escopo de dados e isolamento. Evite segredos em logs, código e contexto. Use APIs parametrizadas e validação adequada ao projeto. Não desative controles de segurança para contornar uma falha.'},
@@ -30,7 +29,6 @@ export const SOFTWARE_SKILLS = [
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-integracoes',/\b(integrac\w*|webhooks?|oauth\w*|api externa|apis externas|api rest|graphql|grpc|idempotenc\w*|contratos? de api|sdk)\b/],
   ['software-seguranca',/\b(seguranca|autenticac\w*|autorizac\w*|permissoes|permissao|credenciais?|vulnerabil\w*|csrf|xss|sql injection|controle de acesso)\b/],
   ['software-qualidade',/\b(testes?|testar|testing|jest|pytest|vitest|lint\w*|typecheck|tipagem|compil\w*|build|regressao|ts\d{4})\b/],
   ['software-manutencao',/\b(refator\w*|manutencao|desempenho|performance|observabilidade|telemetria|profil\w*|logs?|latencia|gargalos?|otimiz\w*)\b/],
@@ -43,5 +41,6 @@ export function selectSoftwareSkillIds(text:string):string[]{
   if(backendIntent(text))ids.push('software-backend');
   if(frontendIntent(text))ids.push('software-frontend');
   if(dataIntent(text))ids.push('software-dados');
+  if(integrationIntent(text))ids.push('software-integracoes');
   return ids;
 }
