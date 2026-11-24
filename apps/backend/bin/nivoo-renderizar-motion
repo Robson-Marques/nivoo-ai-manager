@@ -208,6 +208,16 @@ function motionSceneCore() {
       page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
+    // Relatar o que de fato foi DESENHADO durante os quadros. Isso não
+    // cria aprovador nem tenta reescrever o trabalho; o MP4 é entregue.
+    const photoResult=await pagina.evaluate(()=>window.__nivooOverlayStats??null).catch(()=>null);
+    if(photoResult?.expected) {
+      const drawn=photoResult.everDrawnIds??[];
+      console.log('nivoo-renderizar-motion: imagens efetivamente desenhadas no vídeo: '+
+        drawn.length+'/'+photoResult.expected+' ('+drawn.join(', ')+')');
+      if(drawn.length<photoResult.expected)
+        console.warn('nivoo-renderizar-motion: AVISO — algumas imagens de overlays.json não aparecem nos quadros; confira os caminhos das fotos e a animação das camadas');
+    }
     if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
     console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${segundos.toFixed(1)} s, ${(result.bytes / 1024 / 1024).toFixed(1)} MB, ${result.frames} quadros a ${result.fps} fps)`);
   } finally {
