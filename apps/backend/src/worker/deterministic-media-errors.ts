@@ -12,6 +12,19 @@ export function diagnosticoRenderDeterministico(saida: string): string | null {
   return null;
 }
 
+/**
+ * O motor Motion lê uma composição imutável: erro de esquema não muda ao
+ * repetir o MESMO shell. Classificar na primeira ocorrência poupa tentativas
+ * e deixa a cena original pronta para uma atualização do próprio motor.
+ */
+export function erroDeterministicoMotion(saida:string):string|null {
+  const match=saida.match(/nivoo-renderizar-motion:\s*falhou:\s*([^\r\n]+)/i);
+  if(!match)return null;
+  const message=match[1].trim();
+  if(/(?:^|[\w.-]+:\s*)(?:número fora do intervalo|texto inválido|cor inválida|keyframes devem ser ordenados|shape deve ser|fontSize|profile inválido)|camada inválida|layers deve conter|Cena deve ser|ID de camada vazio|pacing\.sourceDuration/i.test(message))return message.slice(0,600);
+  return null;
+}
+
 /** Scripts falhos são reparáveis por edição do worktree, mesmo que o
  * executor seja determinístico. Não confundir com ausência de Bash/GPU,
  * crédito de API ou recurso físico que a IA não consegue inventar. */

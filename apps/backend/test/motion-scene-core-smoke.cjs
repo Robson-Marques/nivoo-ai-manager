@@ -32,6 +32,33 @@ async function main() {
         x:540,y:940,width:950,height:125},
     ],
   };
+  // Incidente seguinte no MESMO job: fundo.width faltante, ou percentagem
+  // escrita pela IA -> motor antigo falhava sem desenhar 1 quadro.
+  const variantes=[
+    {id:'fundo',type:'image',asset:'assets/fundo.png',width:'100%',height:'100%'},
+    {id:'logo',type:'image',asset:'assets/logo.png',w:'420px',h:'180px'},
+    {id:'chamada',type:'text',text:'Em breve no cardápio',width:'.85',height:null},
+  ];
+  // A camada de texto não deve exigir width/height que o próprio motor
+  // consegue calcular; o fundo sempre ocupa o canvas todo.
+  const formas=validateScene({...anuncio,layers:JSON.parse(JSON.stringify(variantes))}).scene.layers;
+  assert.equal(formas[0].width,1080);assert.equal(formas[0].height,1920);
+  assert.equal(formas[1].width,420);assert.equal(formas[1].height,180);
+  assert.equal(formas[2].width,918,'0.85 em string é proporção do canvas, não pixel');
+  assert.ok(formas[2].height>0);
+  const semTamanho=validateScene({...anuncio,layers:[
+    {id:'fundo',type:'image',asset:'assets/fundo.png'},
+    {id:'logo',type:'image',asset:'assets/logo.png'},
+    {id:'chamada',type:'text',text:'Em breve no cardápio'}
+  ]}).scene.layers;
+  assert.deepEqual([semTamanho[0].width,semTamanho[0].height],[1080,1920]);
+  assert.ok(semTamanho[1].width>1&&semTamanho[1].height>1);
+  assert.equal(semTamanho[1].__autoHeight,true,
+    'logos sem tamanho preservam sua proporção natural no Chromium');
+  const duplicada=validateScene(JSON.parse(JSON.stringify({version:1,width:1080,height:1920,duration:12,layers:[
+    {id:'fundo',type:'image',asset:'assets/fundo.png',width:'auto',height:0}
+  ]}))).scene.layers[0];
+  assert.deepEqual([duplicada.width,duplicada.height],[1080,1920]);
   const aceite=validateScene(JSON.parse(JSON.stringify(anuncio)));
   assert.equal(aceite.scene.profile,'normal','perfil artístico não impede o render');
   assert.equal(aceite.scene.duration,12,'duração original preservada');
@@ -78,6 +105,17 @@ async function main() {
       .match(/<script>([\s\S]+)<\/script>/)?.[1];
     assert.ok(scriptAnuncio,'HTML do anúncio deve conter o renderizador de cena');
     assert.doesNotThrow(()=>new vm.Script(scriptAnuncio));
+    const missingScene={...anuncio,layers:[
+      {id:'fundo',type:'image',asset:'assets/fundo.png'},
+      {id:'logo',type:'image',asset:'assets/logo.png'},
+      {id:'chamada',type:'text',text:'Em breve no cardápio'}
+    ]};
+    fs.writeFileSync(anuncioPath,JSON.stringify(missingScene));
+    const fromDisk=loadScene(anuncioPath);
+    assert.deepEqual([fromDisk.scene.layers[0].width,fromDisk.scene.layers[0].height],[1080,1920]);
+    assert.equal(fromDisk.scene.layers[1].__autoHeight,true);
+    assert.doesNotThrow(()=>new vm.Script(sceneDocument(fromDisk.scene,fromDisk.binaries)
+      .match(/<script>([\s\S]+)<\/script>/)?.[1]));
     const saved=loadScene(path.join(root,'scene.json'));
     assert.equal(saved.scene.duration,20);
     assert.match(saved.binaries['assets/pizza.png'],/^data:image\/png;base64,/);

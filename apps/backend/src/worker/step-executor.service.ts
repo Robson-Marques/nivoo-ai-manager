@@ -1,5 +1,5 @@
 import { registrarErro } from '../diagnostico/erros';
-import { falhaLocalCorrigivel } from './deterministic-media-errors';
+import { erroDeterministicoMotion, falhaLocalCorrigivel } from './deterministic-media-errors';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
@@ -940,6 +940,21 @@ export class StepExecutorService {
         BlockedReason.CRITERIOS_NAO_ATENDIDOS,
         'Falha real de mídia no renderizador: '+detail+
         '. Nenhum MP4 incompleto será publicado. A composição está preservada.');
+    }
+
+    // Não repetir três vezes o MESMO erro de esquema numa composição que
+    // já foi concluída. Uma nova tentativa local-shell só volta a fazer
+    // sentido após correção do motor/arquivos, pelo comando Retomar trabalho.
+    const erroDaCena=attemptStatus!=='SUCESSO'&&providerId==='local-shell'
+      ? erroDeterministicoMotion((result.error??'')+'\n'+(result.output??'')):null;
+    if(erroDaCena){
+      await L('MOTION CORE: rejeição determinística na primeira tentativa: '+erroDaCena,'ERROR',attempt.id);
+      await this.checkpoint(job.id,step,worktree,
+        'composição preservada; renderizador rejeitou um parâmetro',{tentativa:number});
+      return this.blockJob(task,workerId,job,step,BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        'O renderizador local rejeitou um parâmetro da composição: '+erroDaCena+
+        '. A composição e os arquivos originais foram preservados. '+
+        'Não repetir comando idêntico nem chamar IA para recriar a arte.');
     }
 
     // Fonte motion incompatível com o motor declarado no plano é falha de

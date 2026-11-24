@@ -43,6 +43,60 @@ function normalizeMotionProfile(value) {
   // Conservar os keyframes e o pacing explícito, sem impor outro ritmo.
   return 'normal';
 }
+/**
+ * A largura/altura são apresentação, não formato de mídia. O Studio recebe
+ * composições com width/height, w/h, "100%", "1080px", números como string,
+ * "auto" ou tamanho omitido. Corrigir essas variações no motor evita que a IA
+ * tenha de reconstruir uma cena já concluída por um problema de sintaxe.
+ *
+ * As dimensões são PIXELS após normalização e nunca saem do limite do motor.
+ * Não converte caminhos de assets, não altera o arquivo scene.json no disco.
+ */
+function motionLength(value, canvas, fallback) {
+  let number=value;
+  let pxExplicit=false, percent=false;
+  if (typeof number==='string') {
+    const v=number.trim().toLowerCase().replace(',', '.');
+    if (/^(auto|inherit|initial|unset)$/.test(v)) return fallback;
+    const pct=v.match(/^((?:\d+(?:\.\d+)?|\.\d+))\s*%$/);
+    if(pct){number=canvas*Number(pct[1])/100;percent=true;}
+    else {
+      const px=v.match(/^((?:\d+(?:\.\d+)?|\.\d+))\s*(px)?$/);
+      if(px){number=Number(px[1]);pxExplicit=!!px[2];}
+      else number=NaN;
+    }
+  }
+  if (!pxExplicit&&!percent&&typeof number==='number'&&number>0&&number<=1) {
+    number=canvas*number;
+  }
+  if (typeof number!=='number'||!Number.isFinite(number)||number<=0||number>12000)
+    return fallback;
+  return Math.max(1,number);
+}
+function isBackgroundLayer(layer) {
+  const label=[layer.id,layer.role,layer.name,layer.asset,layer.src]
+    .filter(v=>typeof v==='string').join(' ').toLowerCase();
+  return /(?:^|[^a-z])(?:fundo|background|backdrop|bg)(?:[^a-z]|$)/.test(label);
+}
+function normalizeLayerDimensions(layer,scene) {
+  if(layer.type==='neon')return;
+  const bg=layer.type==='image'&&isBackgroundLayer(layer);
+  const naturalWidth=layer.type==='image' ? Math.min(scene.width*.62,960)
+    : layer.type==='text' ? scene.width*.86 : scene.width*.35;
+  const naturalHeight=layer.type==='image' ? Math.min(scene.height*.25,520)
+    : layer.type==='text' ? Math.min(scene.height*.14,Math.max(95,(Number(layer.fontSize)||60)*2))
+    : scene.height*.16;
+  const widthFallback=bg?scene.width:naturalWidth;
+  const heightFallback=bg?scene.height:naturalHeight;
+  const originalWidth=layer.width??layer.w;
+  const originalHeight=layer.height??layer.h;
+  // Informações de tamanho ausentes são marcadas apenas em memória para
+  // preservar proporções naturais de logomarcas no navegador.
+  layer.__autoWidth=!bg&&(layer.__autoWidth===true||originalWidth==null||originalWidth==='auto');
+  layer.__autoHeight=!bg&&(layer.__autoHeight===true||originalHeight==null||originalHeight==='auto');
+  layer.width=motionLength(originalWidth,scene.width,widthFallback);
+  layer.height=motionLength(originalHeight,scene.height,heightFallback);
+}
 function validateScene(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.version !== 1)
     throw new Error('Cena deve ser um objeto com version=1');
@@ -69,6 +123,7 @@ function validateScene(raw) {
     ids.add(l.id);
     for (const k of ['x','y','z']) if (l[k] !== undefined) finite(l[k], l.id+'.'+k, -10000, 10000);
     if (l.type !== 'neon') {
+      normalizeLayerDimensions(l,raw);
       finite(l.width, l.id+'.width', 1, 12000);
       finite(l.height, l.id+'.height', 1, 12000);
     }
@@ -332,11 +387,16 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     ctx.save();
     ctx.globalAlpha=clamp(s.opacity);
     ctx.translate(s.x,s.y);ctx.rotate(s.rotation*Math.PI/180);ctx.scale(s.scale,s.scale);
-    const w=l.width??0,h=l.height??0;
+    let w=l.width??0,h=l.height??0;
     if(l.type==='image') {
+      const img=images[l.asset];
+      if(img?.naturalWidth&&img?.naturalHeight){
+        const ratio=img.naturalWidth/img.naturalHeight;
+        if(l.__autoWidth&&!l.__autoHeight)w=Math.min(12000,h*ratio);
+        else if(l.__autoHeight)h=Math.min(12000,w/ratio);
+      }
       // Em vez de "espessura" por 3 fotos escurecidas, uma só imagem RGBA.
       // Profundidade organizada pelo z entre camadas; sombra independente.
-      const img=images[l.asset];
       if (!img?.complete || !img.naturalWidth) { ctx.restore();return; }
       if(l.shadow!==false){
         ctx.shadowColor=l.shadow?.color??'rgba(0,0,0,0.5)';
@@ -485,4 +545,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
+module.exports={ motionLength,normalizeLayerDimensions,normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
