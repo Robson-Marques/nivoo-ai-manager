@@ -170,8 +170,11 @@ function sceneDocument(scene, binaries) {
 function sceneRuntime({scene,binaries,overlay=false}) {
   // Overlay transparente sobre HTML/WebGL 3D: nenhuma imagem de produto
   // atravessa malhas da cena 3D. O WebGL só desenha geometria própria.
-  const canvas=document.getElementById(overlay?'nivoo-overlay':'nivoo'),
-    ctx=canvas.getContext('2d',{alpha:overlay});
+  const canvas=overlay
+    ? (window.__nivooOverlayCanvas || document.getElementById('nivoo-overlay'))
+    : document.getElementById('nivoo');
+  if(!canvas)throw new Error('Canvas do motor Nivo ausente');
+  const ctx=canvas.getContext('2d',{alpha:overlay});
   if (!ctx) throw new Error('Canvas 2D indisponível');
   const images={}, end=scene.duration;
   const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
@@ -241,6 +244,7 @@ function sceneRuntime({scene,binaries,overlay=false}) {
         ctx.shadowOffsetY=l.shadow?.dy??12;
       }
       ctx.drawImage(img,-w/2,-h/2,w,h);
+      drawnImages++;
     } else if(l.type==='text'){
       ctx.textAlign=l.align??'center';ctx.textBaseline='middle';
       ctx.font=(l.weight??'900')+' '+(l.fontSize??48)+'px '+(l.font??'Arial, sans-serif');
@@ -263,18 +267,31 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     ctx.restore();
   }
   if(!overlay){window.__motionSegundos=end;window.__motionFim=false;window.__nivooSceneReady=false;}
-  else {window.__nivooOverlayReady=false;}
+  else {
+    window.__nivooOverlayReady=false;
+    window.__nivooOverlayStats={
+      expected:scene.layers.filter(l=>l.type==='image').length,
+      loaded:0,drawnAtLastFrame:0,lastTime:0,
+    };
+  }
   window.__motionCore={version:1,mode:overlay?'webgl-overlay':'declarative',timeline};
   const sorted=scene.layers.map(l=>{
     // Fotos nunca interpenetram o suporte: sem rotação inclinada no eixo de
     // profundidade e sempre pelo menos 1 unidade à frente do supportZ.
     return {...l,z:l.type==='image'?Math.max(l.z??0,(l.supportZ??-10000)+1):l.z??0};
   }).sort((a,b)=>a.z-b.z);
+  let drawnImages=0;
   const drawAt=(time)=>{
     const t=timeline(Number(time)||0);
+    drawnImages=0;
     if(overlay){ctx.clearRect(0,0,canvas.width,canvas.height);}
     else {ctx.fillStyle=scene.background??'#090402';ctx.fillRect(0,0,canvas.width,canvas.height);}
     for(const l of sorted)drawLayer(l,t);
+    if(overlay) {
+      window.__nivooOverlayStats.loaded=Object.keys(images).length;
+      window.__nivooOverlayStats.drawnAtLastFrame=drawnImages;
+      window.__nivooOverlayStats.lastTime=t;
+    }
     if(!overlay)window.__motionFim=Number(time)>=end;
   };
   if(overlay)window.__nivooOverlayRenderAt=drawAt;
