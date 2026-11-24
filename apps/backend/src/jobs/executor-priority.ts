@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { readMotionInvocation, MOTION_COMMAND } from './motion/command';
 /**
  * Compatibilidade com planejamento em linguagem natural:
  * uma única cena pode vir como string ou campo "video"/"videoOriginal".
@@ -132,7 +133,7 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     const instr = String(step.instructions ?? '').trim();
     // Comando de render real, inclusive depois de "set -e;" ou em linha
     // seguinte. A conferência técnica do MP4 é independente disso.
-    const comandoReal = /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion(?:\s|$)/m.test(instr);
+    const comandoReal = !!readMotionInvocation(instr) || MOTION_COMMAND.test(instr);
     if (provider === 'local-shell' && comandoReal) return item;
 
     const opts = step.providerOptions && typeof step.providerOptions === 'object' && !Array.isArray(step.providerOptions)
@@ -209,8 +210,7 @@ export function dependenciasDeMontagemPorArquivo(raw: unknown, defaultProvider: 
     if (!s || typeof s !== 'object') continue;
     if (String(s.provider ?? defaultProvider) !== 'local-shell') continue;
     const comando = String(s.instructions ?? '');
-    const match = /\bnivoo-renderizar-motion\b[^\n]*?--saida\s+(?:'([^']+)'|"([^"]+)"|([^\s;&|]+))/.exec(comando);
-    const arquivo = match?.[1] ?? match?.[2] ?? match?.[3];
+    const arquivo = readMotionInvocation(comando)?.output;
     if (!arquivo || !/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/.test(arquivo)) continue;
     const anterior = saidas.get(arquivo);
     if (anterior && anterior !== s.key) {
