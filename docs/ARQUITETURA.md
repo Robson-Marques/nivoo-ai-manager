@@ -1,5 +1,7 @@
 # Nivoo AI Manager — Arquitetura
 
+Recuperação estrutural atual: [Architecture Baseline](architecture-baseline.md) e [Blueprint Motion](architecture/modules/motion.md). Consulte o módulo dono da responsabilidade e seus consumidores antes de editar.
+
 ## 1. Visão geral
 
 ```
