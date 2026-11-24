@@ -40,6 +40,11 @@ function run() {
   ];
   const convertedSimple=conectarMotorMotion(simple,'codex-cli','Publicidade de promoção sem geometria 3D');
   assert.match(convertedSimple[0].instructions,/scene\.json/);
+  const {motionAuthorContract}=require('../bin/motion-scene-core');
+  assert.ok(convertedSimple[0].instructions.includes(motionAuthorContract()),
+    'especialista recebe exemplo e unidades do motor instalado');
+  assert.ok(converted[0].instructions.includes(motionAuthorContract()),
+    'mesmo contrato serve ao especialista híbrido');
   assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
   assert.doesNotMatch(convertedSimple[1].instructions,/--motor\s/);
   assert.equal(convertedSimple.length,2);
