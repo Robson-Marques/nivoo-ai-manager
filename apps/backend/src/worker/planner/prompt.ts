@@ -17,6 +17,7 @@ import { backendEngineeringContext } from '../../specialties/software/backend';
 import { frontendEngineeringContext } from '../../specialties/software/frontend';
 import { dataEngineeringContext } from '../../specialties/software/data';
 import { integrationEngineeringContext } from '../../specialties/software/integration';
+import { securityEngineeringContext } from '../../specialties/software/security';
 import { bancoDeTesteDisponivel } from '../../common/banco-de-teste';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
@@ -67,6 +68,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       ...(skills.some(s=>s.id==='software-frontend')?frontendEngineeringContext('planner',task):[]),
       ...(skills.some(s=>s.id==='software-dados')?dataEngineeringContext('planner',task,bancoDeTesteDisponivel()):[]),
       ...(skills.some(s=>s.id==='software-integracoes')?integrationEngineeringContext('planner',task):[]),
+      ...(skills.some(s=>s.id==='software-seguranca')?securityEngineeringContext('planner',task):[]),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [

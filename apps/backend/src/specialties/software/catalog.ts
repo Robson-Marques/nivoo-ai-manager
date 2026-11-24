@@ -3,6 +3,7 @@ import { BACKEND_SKILL,backendIntent } from './backend';
 import { FRONTEND_SKILL,frontendIntent } from './frontend';
 import { DATA_SKILL,dataIntent } from './data';
 import { INTEGRATION_SKILL,integrationIntent } from './integration';
+import { SECURITY_SKILL,securityIntent } from './security';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -16,9 +17,7 @@ export const SOFTWARE_SKILLS = [
   FRONTEND_SKILL,
   DATA_SKILL,
   INTEGRATION_SKILL,
-  {id:'software-seguranca',domain:'software',description:'Segurança, autorização e isolamento',
-    action:'Preserve os limites de acesso, valide entradas e verifique autorização no componente que executa a operação.',
-    body:'Não confunda autenticação com autorização. Respeite a política existente, escopo de dados e isolamento. Evite segredos em logs, código e contexto. Use APIs parametrizadas e validação adequada ao projeto. Não desative controles de segurança para contornar uma falha.'},
+  SECURITY_SKILL,
   {id:'software-qualidade',domain:'software',description:'Sintaxe, tipagem, compilação e testes',source:upstream+'mcore-testing',
     action:'Use os testes e comandos de validação existentes, proporcionais à mudança; diferencie inspeção, compilação e execução.',
     body:'Leia os testes e comandos reais do projeto, incluindo configurações do compilador. Corrija a causa de falhas sem remover critérios. Inclua regressão quando o comportamento mudar; aproveite a conferência técnica do executor, sem criar CI ou revisão de IA. Declare somente validações realmente executadas.'},
@@ -29,7 +28,6 @@ export const SOFTWARE_SKILLS = [
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-seguranca',/\b(seguranca|autenticac\w*|autorizac\w*|permissoes|permissao|credenciais?|vulnerabil\w*|csrf|xss|sql injection|controle de acesso)\b/],
   ['software-qualidade',/\b(testes?|testar|testing|jest|pytest|vitest|lint\w*|typecheck|tipagem|compil\w*|build|regressao|ts\d{4})\b/],
   ['software-manutencao',/\b(refator\w*|manutencao|desempenho|performance|observabilidade|telemetria|profil\w*|logs?|latencia|gargalos?|otimiz\w*)\b/],
 ];
@@ -42,5 +40,6 @@ export function selectSoftwareSkillIds(text:string):string[]{
   if(frontendIntent(text))ids.push('software-frontend');
   if(dataIntent(text))ids.push('software-dados');
   if(integrationIntent(text))ids.push('software-integracoes');
+  if(securityIntent(text))ids.push('software-seguranca');
   return ids;
 }
