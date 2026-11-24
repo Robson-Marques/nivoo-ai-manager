@@ -17,6 +17,7 @@ describe('Continuidade e memória de sessão',()=>{
     expect(result.invalid).toBe(3);
     expect(result.notes).toHaveLength(2);
     expect(result.notes[1].arquivos).toEqual(['a.md']);
+    expect(parseAgentNotes('{"conteudo":"Feito","titulo":"Passo","tipo":"PROGRESSO"}').notes[0].canonicalHash).toBe(result.notes[0].canonicalHash);
   });
   it('não lê diário por link simbólico',()=>{
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-notes-'));

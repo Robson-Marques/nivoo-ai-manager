@@ -71,14 +71,14 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
       where: { projectId: job.projectId, references: { path: ['jobId'], equals: job.id } },
       select: { references: true },
     });
-    const seen = new Set(known.map((k) => (k.references as any)?.noteHash).filter(Boolean));
-    const fresh=parsed.notes.filter(n=>{if(seen.has(n.hash))return false;seen.add(n.hash);return true;});
+    const seen=new Set(known.flatMap(k=>{const r=k.references as {noteHash?:string;canonicalNoteHash?:string}|null;return [r?.noteHash,r?.canonicalNoteHash].filter((h):h is string=>typeof h==='string');}));
+    const fresh=parsed.notes.filter(n=>{if(seen.has(n.hash)||seen.has(n.canonicalHash))return false;seen.add(n.hash);seen.add(n.canonicalHash);return true;});
     const commit = await workspace.headCommit(worktree);
     const author = `agente:${providerId}:sessao:${sessionId ?? attemptId}`;
     let count = 0;
     for (const n of fresh) {
       const {tipo,titulo,conteudo}=n;
-      const refsBase = { jobId: job.id, stepId:step.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash:n.hash, tipo };
+      const refsBase = { jobId: job.id, stepId:step.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash:n.hash, canonicalNoteHash:n.canonicalHash,tipo };
       let category: 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
       let references: Record<string, unknown> = refsBase;
       if (tipo === 'EVIDENCIA') {

@@ -132,6 +132,29 @@ export class StepExecutorService {
     }
     if(mediaRecovery.kind==='conflict')return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,mediaRecovery.detail);
 
+    // Crash between persistence of SUCESSO and the checkpoint transaction.
+    // Only the latest verified attempt, in the same execution epoch and
+    // unchanged worktree, may advance without invoking the provider again.
+    if(!orphanRows.length&&step.status==='EXECUTANDO'&&step.attemptCount>step.resumeFromAttempt){
+      const last=await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id},orderBy:{number:'desc'}});
+      if(last?.status==='SUCESSO'&&last.number===step.attemptCount&&last.treeAfter){
+        const existing=path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id);
+        if(fs.existsSync(path.join(existing,'.git'))){
+          const current=await this.workspace.snapshotHash(existing).catch(()=>null);
+          if(current===last.treeAfter){
+            const commit=await saveCheckpoint(this.prisma,this.workspace,job.id,step,existing,'finalização recuperada da tentativa '+last.number,{tentativa:last.number,recuperacao:true,notas:last.notesIngested},true);
+            if(commit){
+              await L('RECUPERAÇÃO SEM REFAZER: tentativa já verificada, estado dos arquivos idêntico; checkpoint concluído sem nova sessão.','INFO',last.id);
+              await this.queue.complete(task.id,workerId);
+              await this.orchestrator.scheduleReady(job.id);
+              return 'CONCLUIDO';
+            }
+          }
+        }
+        return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,'Tentativa anterior já verificada, mas o checkpoint ou estado dos arquivos não pôde ser confirmado. Resultado preservado; confira o diagnóstico antes de repetir.');
+      }
+    }
+
     // Corrige jobs já gravados sem dependsOn: o orquestrador só consegue
     // respeitar dependências presentes no banco. Se uma cena do juntar-videos
     // está sendo produzida por nivoo-renderizar-motion no MESMO trabalho, não
@@ -252,11 +275,12 @@ export class StepExecutorService {
 
     // Workspace isolado do job (worktree na branch job/<id>).
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
-    if(orphanRows.length){
-      const previous=[...orphanRows].sort((a,b)=>b.number-a.number)[0];
+    const previous=orphanRows.length?[...orphanRows].sort((a,b)=>b.number-a.number)[0]:
+      step.attemptCount>0?await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id,number:step.attemptCount,status:'INTERROMPIDA'}}):null;
+    if(previous){
       const recoveredNotes=await ingestNotes(this.prisma,this.workspace,this.logs,job,step,previous.id,worktree,previous.provider,previous.sessionId??undefined,[]);
       await this.prisma.attempt.update({where:{id:previous.id},data:{notesIngested:{increment:recoveredNotes}}});
-      const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção do worker',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true});
+      const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção da sessão',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true});
       await L(saved?'Checkpoint da interrupção preservado; retomando arquivos existentes.':'Git não confirmou o checkpoint da interrupção; arquivos existentes preservados no worktree.',saved?'INFO':'WARN');
     }
 

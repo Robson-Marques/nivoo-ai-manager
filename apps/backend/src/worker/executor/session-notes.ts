@@ -5,7 +5,7 @@ import { sha256 } from '../../common/hash';
 const MAX_BYTES=8*1024*1024;
 const TYPES=['DECISAO_PROPOSTA','EVIDENCIA','PENDENCIA','PROGRESSO'] as const;
 type NoteType=typeof TYPES[number];
-export interface AgentNote { tipo:NoteType;titulo:string;conteudo:string;arquivos:string[];hash:string }
+export interface AgentNote { tipo:NoteType;titulo:string;conteudo:string;arquivos:string[];hash:string;canonicalHash:string }
 
 /** Journal belongs to this worktree, not a symlink to another project. */
 export function readAgentNotes(worktree:string):{text:string;warning?:string}{
@@ -42,7 +42,7 @@ export function parseAgentNotes(text:string):{notes:AgentNote[];invalid:number}{
       // dedup within this journal prevents reordered JSON fields multiplying progress.
       const hash=sha256(line),canonical=JSON.stringify([tipo,titulo,conteudo,[...arquivos].sort()]);
       if(seen.has(canonical))continue;seen.add(canonical);
-      notes.push({tipo,titulo,conteudo,arquivos,hash});
+      notes.push({tipo,titulo,conteudo,arquivos,hash,canonicalHash:sha256(canonical)});
     }catch{invalid++;}
   }
   return {notes,invalid};
