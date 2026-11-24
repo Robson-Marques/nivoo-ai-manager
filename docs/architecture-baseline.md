@@ -57,3 +57,7 @@ Ver [Capability de produção audiovisual](architecture/capabilities/media-produ
 ## Planejador — frente 2/7
 
 `PlannerService` mantém a coordenação da sessão, fila e persistência, delegando contexto, seleção de capacidades, protocolo, composição de prompt, interpretação JSON e validação compartilhada aos módulos `src/worker/planner/`. A seleção de modelo pertence a `src/providers/project-model.ts` e não depende do executor. Contratos de interface de software e de produção audiovisual são selecionados independentemente pela área; a consulta ao Gemini só ocorre em áreas que habilitam mídia. Ver [plano de recuperação](architecture/recovery-plan.md) para evidências, fronteiras restantes e sequência de entrega.
+
+## Executor — frente 4/7
+
+O ciclo de vida do job continua em `StepExecutorService`; `worker/executor/` concentra contexto, workspace, prompt, despacho, conferência técnica e resultado operacional em módulos independentes. O contrato `ExecutionRequest` existente permanece a interface de todos os provedores. O contexto de IA é construído somente quando o provedor não é executor determinístico; a instrução real permanece registrada. A seleção de ferramentas de software é compartilhada com o planejador. Recuperação e propriedade de artefatos permanecem no escopo da frente 5. Evidências e limitações em [plano de recuperação](architecture/recovery-plan.md).
