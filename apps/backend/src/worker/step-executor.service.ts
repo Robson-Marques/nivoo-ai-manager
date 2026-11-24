@@ -53,10 +53,8 @@ import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
-export function projectModel(project: { aiModels: unknown }, providerId: string): string | undefined {
-  const m = ((project.aiModels ?? {}) as Record<string, string>)[providerId];
-  return m || undefined;
-}
+import { projectModel } from '../providers/project-model';
+export { projectModel } from '../providers/project-model';
 
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
 export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
