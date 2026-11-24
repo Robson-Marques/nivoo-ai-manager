@@ -164,7 +164,13 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
     // Não permitir que RAF autônomo apague as fotos entre captura e screenshot.
     // Executar mesmo com cache reutilizado para manter relógio e indicadores
     // de desenho sincronizados; NÃO repetir a criação dos JPEGs já válidos.
-    if (hasMediaOverlay) await page.evaluate(t => window.__nivooOverlayRenderAt(t), motionTime);
+    // A autoria nativa declara __renderAt(t). O relógio por si só não
+    // chama esse contrato: desenhar explicitamente a cena e depois o overlay
+    // antes da captura, inclusive nos quadros recuperados.
+    await page.evaluate(async t => {
+      if (typeof window.__renderAt === 'function') await window.__renderAt(t);
+      if (typeof window.__nivooOverlayRenderAt === 'function') await window.__nivooOverlayRenderAt(t);
+    }, motionTime);
     if (already[frame]) continue;
     const jpg = await page.screenshot({ type: 'jpeg', quality: 90, animations: 'allow', caret: 'hide', timeout: 120000 });
     if (!Buffer.isBuffer(jpg) || jpg.length < 100 || jpg[0] !== 0xff || jpg[1] !== 0xd8 || jpg.at(-2) !== 0xff || jpg.at(-1) !== 0xd9) {
