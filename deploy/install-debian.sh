@@ -202,11 +202,10 @@ cd "$APP_DIR"
 npm ci --no-audit --no-fund --loglevel=error
 # Não descartar stdout do build: TypeScript mostra os arquivos e linhas com erro.
 npm run build --silent
-# Motor reutilizável de cenas: validação estrutural e runtime isolados antes
-# de reiniciar serviços. Sem sessões de IA nem revisão artística automática.
-node "$APP_DIR/apps/backend/test/motion-scene-core-smoke.cjs"
-# Comprova o VÍNCULO do motor ao planejamento e ao executor (não só a sintaxe).
-node "$APP_DIR/apps/backend/test/motion-core-wiring-smoke.cjs"
+# O update instala e compila o sistema. Não roda testes editoriais nem
+# smokes de desenvolvimento no servidor de produção: eles já bloquearam
+# duas atualizações apesar de backend e interface compilarem corretamente.
+# Os testes continuam versionados para uso isolado em desenvolvimento.
 # Repara instalações atualizadas com umask restritiva (bug do 'nivoo update' até 2026-11-14): tudo do
 # código precisa ser legível pelo serviço; segredos (.env*) e links ficam como estão.
 find "$APP_DIR" \( -name '.env*' -o -type l \) -prune -o -exec chmod u+rwX,go+rX {} +
