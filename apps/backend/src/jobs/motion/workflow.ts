@@ -1,6 +1,6 @@
 import type { RawStep, MotionMode } from './types';
 import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual } from './intent';
-import { renderSource, selectSource, selectStandaloneHtml } from './source';
+import { renderSource, selectRenderMode, selectStandaloneHtml } from './source';
 import { attachAuthorContract, attachStandalone3DContract, authorOutputCheck, isComposer, originalAuthorInstructions } from './authoring';
 
 /**
@@ -71,7 +71,6 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // 3D não pode voltar silenciosamente ao scene.json de uma revisão
     // antiga. Uma entrada HTML explícita também funciona com --motor auto.
     // Retomadas sem etapa autora mantêm a fonte originalmente escolhida.
-    if (real3d) render.instructions = selectSource(command, source);
     if (real3d && !hasPhotos) {
       render.instructions=selectStandaloneHtml(command,source);
       const authorKey=String(compose.key??'');
@@ -82,8 +81,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       continue;
     }
     const mode: MotionMode = real3d ? 'hybrid' : pedeGrafismos(text) ? 'graphics' : 'scene';
-    if(mode==='graphics') render.instructions=selectStandaloneHtml(command,source);
-    else if(mode==='scene' && /\/index\.html(?=["'\s]|$)/.test(command)) render.instructions=selectSource(command,source,'scene.json');
+    render.instructions=selectRenderMode(command,source,mode==='graphics'?'html':mode);
     const authorKey=String(compose.key??'');
     if(authorKey && authorKey!==String(render.key??'')){
       render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
