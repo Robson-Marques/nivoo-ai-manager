@@ -309,6 +309,7 @@ function sceneRuntime({scene,binaries,overlay=false}) {
       }
       ctx.drawImage(img,-w/2,-h/2,w,h);
       drawnImages++;
+      if(overlay) everDrawn.add(l.id);
     } else if(l.type==='text'){
       ctx.textAlign=l.align??'center';ctx.textBaseline='middle';
       ctx.font=(l.weight??'900')+' '+(l.fontSize??48)+'px '+(l.font??'Arial, sans-serif');
@@ -345,6 +346,7 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     return {...l,z:l.type==='image'?Math.max(l.z??0,(l.supportZ??-10000)+1):l.z??0};
   }).sort((a,b)=>a.z-b.z);
   let drawnImages=0;
+  const everDrawn=new Set();
   const drawAt=(time)=>{
     const t=timeline(Number(time)||0);
     drawnImages=0;
@@ -354,6 +356,7 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     if(overlay) {
       window.__nivooOverlayStats.loaded=Object.keys(images).length;
       window.__nivooOverlayStats.drawnAtLastFrame=drawnImages;
+      window.__nivooOverlayStats.everDrawnIds=[...everDrawn];
       window.__nivooOverlayStats.lastTime=t;
     }
     if(!overlay)window.__motionFim=Number(time)>=end;
