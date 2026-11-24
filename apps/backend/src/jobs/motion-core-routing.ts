@@ -71,21 +71,10 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       return [i];
     });
     if (!candidateIndices.length) {
-      // Alterar o visual de uma cena antiga NÃO pode ser confundido com apenas
-      // recodificar o mesmo HTML. O planejador repara essa estrutura uma vez,
-      // incluindo a edição da fonte antes do render. A pessoa não precisa
-      // escrever comandos nem especificar tecnologias.
-      const revision = objective+' '+String(render.title??'')+' '+source;
-      const wantsVisualFix = /corrig|consert|recort|defeit|refaz|recri|nova vers[aã]o|falha visual|problema (?:na |de )?(?:imagem|pizza|foto|camada)/i.test(objective);
-      const visual3d = /3[\s-]*d|webgl/i.test(revision) &&
-        /pizzas?|fotos?|imagens?|produtos?|logos?|recort|camadas?/i.test(revision);
-      if (wantsVisualFix && visual3d) throw new Error(
-        'MOTION_CONTRATO: o usuário pediu corrigir o visual de um vídeo 3D. ' +
-        'Só renderizar a composição antiga repetiria o defeito. ' +
-        'O plano deve incluir uma etapa produtora que EDITE a fonte em uma NOVA pasta motion ' +
-        'com index.html e overlays.json, seguida da etapa local-shell de render. ' +
-        'Preserve a fonte e MP4 antigos. Essa decisão é do Nivo, não do usuário.');
-      continue; // render de cena antiga SEM pedido de correção visual
+      // Uma nova renderização pode corrigir um problema do MOTOR sem tocar
+      // em UMA linha do HTML/overlays.json já produzido. Não impedir o
+      // caminho local-shell nem exigir uma nova sessão de IA para refazer v4.
+      continue;
     }
 
     const matchesSource = candidateIndices.filter(i =>
