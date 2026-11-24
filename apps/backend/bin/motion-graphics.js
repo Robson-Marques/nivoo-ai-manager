@@ -13,6 +13,25 @@ function installMotionGraphics() {
   const lerp=(a,b,t)=>a+(b-a)*t;
   const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
   function mesh(positions,normals) {
+    // Both factory and renderer expose the same geometry builders. Accept the
+    // usual explicit mesh descriptor in addition to a flat triangle array.
+    const flat=v=>Array.isArray(v)&&Array.isArray(v[0])?v.flat():v;
+    if(positions&&typeof positions==='object'&&!Array.isArray(positions)&&!ArrayBuffer.isView(positions)){
+      const spec=positions;
+      positions=flat(spec.positions??spec.vertices);
+      normals=flat(normals??spec.normals);
+      const indices=flat(spec.indices);
+      if(indices!==undefined){
+        if(!positions||positions.length%3||!indices.length||indices.length%3||indices.length>180000||
+          !Array.from(indices).every(i=>Number.isInteger(i)&&i>=0&&i<positions.length/3))
+          throw Error('Índices de malha inválidos');
+        if(normals!==undefined&&normals.length!==positions.length)throw Error('Normais inválidas');
+        const expand=values=>Array.from(indices).flatMap(i=>[values[3*i],values[3*i+1],values[3*i+2]]);
+        if(normals!==undefined)normals=expand(normals);
+        positions=expand(positions);
+      }
+    }
+    positions=flat(positions);normals=flat(normals);
     if(!positions||positions.length<9||positions.length%9||positions.length>540000||
        !Array.from(positions).every(Number.isFinite))throw Error('Malha: informe triângulos XYZ válidos');
     const p=new Float32Array(positions), n=new Float32Array(p.length);
@@ -148,7 +167,7 @@ function installMotionGraphics() {
         ctx.fillStyle=color;ctx.strokeStyle=color;ctx.fill();ctx.stroke();
       }
     }
-    return {render,dispose(){},backend:'software'};
+    return {render,dispose(){},backend:'software',mesh,box,sphere,torus,cylinder,lerp,smooth};
   }
   function create(canvas) {
     const gl=canvas.getContext('webgl',{alpha:true,antialias:true,premultipliedAlpha:false,preserveDrawingBuffer:true});
@@ -186,7 +205,7 @@ function installMotionGraphics() {
       }
     }
     function dispose(){for(const g of buffers.values()){gl.deleteBuffer(g.p);gl.deleteBuffer(g.n);}buffers.clear();gl.deleteProgram(program);}
-    return {render,dispose,backend:'webgl'};
+    return {render,dispose,backend:'webgl',mesh,box,sphere,torus,cylinder,lerp,smooth};
   }
   window.NivooGraphics=Object.freeze({create,mesh,box,sphere,torus,cylinder,lerp,smooth});
 }
@@ -194,7 +213,8 @@ function installMotionGraphics() {
 function graphicsAuthorContract(){
   return [
     'FERRAMENTA NATIVA HTML: window.NivooGraphics já está disponível antes do primeiro script da página, sem import, CDN ou instalação. WebGL quando disponível, projeção 3D por software como alternativa sem GPU.',
-    'Use NivooGraphics.create(canvas) para criar um renderer 3D; crie as malhas UMA vez: box(), sphere(), torus(raio,tubo), cylinder(raioInferior,raioSuperior), mesh(triângulosXYZ,normaisXYZ opcionais).',
+    'const renderer = NivooGraphics.create(canvas); const cubo = renderer.box(); const face = renderer.mesh([0,0,0, 1,0,0, 0,1,0]); // crie malhas uma vez, fora de __renderAt.',
+    'O objeto renderer e NivooGraphics expõem as mesmas fábricas: box(), sphere(segmentos,aneis), torus(raio,tubo), cylinder(raioInferior,raioSuperior), mesh(triângulosXYZ,normaisXYZ opcionais). mesh({positions, normals?, indices?}) também é aceito, com índices inteiros de vértices. Cada fábrica retorna a geometria para a propriedade geometry, não um objeto já inserido na cena.',
     'renderer.render([{geometry,position:[x,y,z],rotation:[grausX,grausY,grausZ],scale:[x,y,z],color:"#d9a348",metal:.8,roughness:.25,emission:0}],{eye:[0,1,5],target:[0,0,0],fov:40,key:[-3,5,5],fill:[4,1,2],ambient:.22,background:null}); background:null deixa o canvas transparente.',
     'Use malhas e materiais diferentes para criar objetos, grafismos e símbolos específicos do briefing, não uma coleção genérica de formas. SVG/CSS/HTML locais podem compor grafismos, máscaras, degradês e tipografia; o canvas 3D tem profundidade e luz reais.',
     'Defina window.__motionSegundos e window.__renderAt(t) com tempo em segundos para atualizar câmera, objetos, SVG e tipografia a cada quadro; prepare as malhas fora da função. O Nivoo captura a timeline; não é necessário reimplementar a captura.',
