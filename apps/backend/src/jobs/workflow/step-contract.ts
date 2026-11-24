@@ -123,7 +123,7 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         key,
         title: optString(s, 'title', 300) ?? key,
         instructions,
-        provider,
+        provider: target ? provider ?? defaultProvider : provider,
         dependsOn: Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [],
         verifyCommand: verificacao,
         requiresApproval: s.requiresApproval === true || pol.requiresApproval || (provider ?? defaultProvider) === 'gemini-image',

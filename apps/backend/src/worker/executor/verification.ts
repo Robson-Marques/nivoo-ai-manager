@@ -54,7 +54,8 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const deliveries=mediaDeliveries(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.key);
     // Native connectors validate the physical result here, not via a second shell.
     const target=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
-    const nativeCheck=target&&step.verifyCommand=== "test -s '"+target.arquivo+"'";
+    const simple=/^test\s+-(?:s|f|e)\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))$/.exec(step.verifyCommand?.trim()??'');
+    const nativeCheck=!!target&&(!step.verifyCommand||!!simple&&(simple[1]??simple[2]??simple[3])===target.arquivo);
     const verifyCommand=nativeCheck?undefined:deliveries.length?customMediaVerification(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,deliveries.map(d=>d.path),step.verifyCommand??undefined):
       step.key===RULE_REVIEW_STEP?RULE_REVIEW_STEP_CHECK:
       conferenciaTecnicaDeVideo(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.verifyCommand??undefined);
@@ -66,6 +67,17 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const saidaMotionCorrigida=Object.entries(normalized.aliases).map(([old,next])=>old+' → '+next).join(', ');
     verifyCommandEfetivo=replaceMediaAliases(normalized.command,normalized.aliases);
     let verified = !verifyCommand;
+    // The provider already decoded the image. The worker may have applied
+    // requested file operations after that decode; never conclude with a missing output.
+    if(target&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
+      try{
+        const output=fs.lstatSync(resolveInside(worktree,target.arquivo));
+        if(!output.isFile()||output.size===0)throw new Error('PNG ausente ou vazio');
+      }catch(e){
+        verified=false;
+        result={...result,exitCode:1,error:'ImageGen: saída indisponível após a execução: '+target.arquivo,stopReason:'visual_asset_error'};
+      }
+    }
     let falhaTecnicaDaMidia: string | null = null;
     if(deliveries.length&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
       for(const delivery of deliveries){

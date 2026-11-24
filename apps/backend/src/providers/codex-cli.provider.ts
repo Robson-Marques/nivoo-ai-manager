@@ -1,5 +1,7 @@
 import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, imageEventFailure, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import { argsCodex } from '../mcp/para-ia';
 import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -113,7 +115,7 @@ export class CodexCliProvider implements AiProvider {
     const inlineImages:Buffer[]=[];
     const imageFailures:string[]=[];
     let attachedReferences:string[]=[];
-    const receipt=target?visualReceiptKey(req.jobId,req.stepId,this.id,JSON.stringify([req.instructions,req.options?.visualReferences,req.options?.model]),target):undefined;
+    let receipt:string|undefined;
     let nativeThread:string|undefined;
     const observe=(line:string)=>{
       try{
@@ -124,9 +126,14 @@ export class CodexCliProvider implements AiProvider {
       CodexCliProvider.logEvento(line,req.onLog);
     };
     try{
+      attachedReferences=[...new Set([...resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir),...(req.options?.images??[])])];
       if(target){
         if(!isCodexAccount(this.id))throw new Error('A produção nativa de imagem exige a conexão Codex por conta selecionada.');
-        if(receipt&&await reuseVisualReceipt(req.cwd,target,receipt)){
+        if(attachedReferences.length>5)throw new Error('ImageGen aceita até cinco imagens de referência por etapa.');
+        // Identity includes actual reference bytes, not merely their filenames.
+        const referenceHashes=attachedReferences.map(file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+        receipt=visualReceiptKey(req.jobId,req.stepId,this.id,JSON.stringify([req.instructions,referenceHashes,req.options?.model??process.env.NIVOO_CODEX_MODEL]),target);
+        if(await reuseVisualReceipt(req.cwd,target,receipt)){
           publishVisualPreview(req.cwd,req.outputDir,target);
           req.onLog('ImageGen: ativo já produzido nesta etapa; retomada sem nova geração.');
           return {exitCode:0,output:'Ativo visual recuperado: '+target.arquivo,stopReason:'completed'};
@@ -134,8 +141,6 @@ export class CodexCliProvider implements AiProvider {
         prepareNativeImage(req.cwd,target);
         args.unshift('--enable','image_generation');
       }
-      attachedReferences=[...new Set([...resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir),...(req.options?.images??[])])];
-      if(target&&attachedReferences.length>5)throw new Error('ImageGen aceita até cinco imagens de referência por etapa.');
       for(const img of attachedReferences)args.push('--image',img);
     }catch(e){return {exitCode:1,output:'',error:'Ativo visual: '+String((e as Error).message),stopReason:'visual_asset_error'};}
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;

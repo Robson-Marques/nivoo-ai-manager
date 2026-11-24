@@ -202,7 +202,8 @@ export class StepExecutorService {
     // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
-    if(nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset)&&!isCodexAccount(providerId))return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'A etapa de ImageGen exige a conexão Codex por conta; não substitua por outro provedor.');
+    const nativeVisual=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
+    if(nativeVisual&&!isCodexAccount(providerId))return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'A etapa de ImageGen exige a conexão Codex por conta; não substitua por outro provedor.');
     if (providerId !== 'local-shell' && providerId !== 'gemini-video' &&
         mediaEnabledForArea(job.project.area) && etapaPedeRenderizacaoMotion(step)) {
       // Compatibilidade com planos antigos: não cobrar outra sessão de IA nem
@@ -257,7 +258,7 @@ export class StepExecutorService {
     // obrigar retrabalho. A próxima etapa local renderiza a obra preservada.
     const antigoConferir = /\bnivoo-conferir-motion\s+(motion\/[A-Za-z0-9._/-]+)\s+--modo\s+(hybrid|scene)\b/
       .exec(step.verifyCommand ?? '');
-    if (this.registry.get(providerId).kind !== 'executor' && antigoConferir) {
+    if (!nativeVisual && this.registry.get(providerId).kind !== 'executor' && antigoConferir) {
       const anterior = await this.prisma.attempt.findFirst({
         where: {stepId:step.id, status:'SESSAO_ENCERRADA'},
         orderBy:{number:'desc'}, select:{error:true},
@@ -298,7 +299,7 @@ export class StepExecutorService {
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
     // permanente e devem ser extraídos pelo backend, ANTES de gastar sessões de IA.
     // A composição/renderização já aprovada não é repetida.
-    if (isAi && !nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset) && quadrosRequeridos(step.verifyCommand ?? '').length) {
+    if (isAi && !nativeVisual && quadrosRequeridos(step.verifyCommand ?? '').length) {
       const etapas = await this.prisma.step.findMany({
         where: { jobId: job.id, provider: 'local-shell' },
         orderBy: { order: 'asc' },
@@ -372,7 +373,7 @@ export class StepExecutorService {
     // Uma revisão não pode ser aprovada com os PNG anteriores à última
     // alteração no HTML. Mesmo se a IA marcar conforme=true, a composição
     // alterada precisa ser recapturada pelo local-shell antes da aprovação.
-    if (verified && /^direcao-arte-/.test(step.key)) {
+    if (verified && !nativeVisual && /^direcao-arte-/.test(step.key)) {
       const capturas = await this.prisma.step.findMany({
         where: { jobId: job.id },
         select: { key: true, provider: true, instructions: true, status: true },
