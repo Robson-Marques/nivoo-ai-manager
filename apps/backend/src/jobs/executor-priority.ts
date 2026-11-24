@@ -1,21 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
-import { hasMotionCommand, readMotionInvocations } from './motion/command';
+import { hasMotionCommand } from './motion/command';
 /**
  * Compatibilidade com planejamento em linguagem natural:
  * uma única cena pode vir como string ou campo "video"/"videoOriginal".
  * Nunca deduzir a fonte a partir do nome do arquivo de SAÍDA;
  * quando ambíguo, exigir escolha explícita em vez de inventar caminho.
  */
-export function normalizarCenasDeMontagem(o: any): unknown[] {
-  if (!o || typeof o !== 'object') return [];
-  if (Array.isArray(o.cenas)) return o.cenas;
-  if (typeof o.cenas === 'string' && o.cenas.trim()) return [o.cenas.trim()];
-  const entrada = o.videoOriginal ?? o.videoEntrada ?? o.video ?? o.cena;
-  if (typeof entrada === 'string' && entrada.trim()) return [entrada.trim()];
-  if (entrada && typeof entrada === 'object' && typeof entrada.arquivo === 'string')
-    return [entrada.arquivo.trim()];
-  return [];
-}
+export { normalizarCenasDeMontagem } from './workflow/media-dependencies';
+import { normalizarCenasDeMontagem } from './workflow/media-dependencies';
 
 
 
@@ -202,34 +194,4 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
  * nem sempre declara dependsOn, portanto o núcleo resolve pelos caminhos
  * EXATOS dos arquivos, não por semelhança de nome ou texto livre.
  */
-export function dependenciasDeMontagemPorArquivo(raw: unknown, defaultProvider: string): unknown {
-  if (!Array.isArray(raw)) return raw;
-  const etapa = raw as Array<Record<string, unknown>>;
-  const saidas = new Map<string, string>();
-  for (const s of etapa) {
-    if (!s || typeof s !== 'object') continue;
-    if (String(s.provider ?? defaultProvider) !== 'local-shell') continue;
-    const comando = String(s.instructions ?? '');
-    for (const invocation of readMotionInvocations(comando)) {
-      const arquivo = invocation.output;
-      if (!arquivo) continue;
-      const anterior = saidas.get(arquivo);
-      if (anterior && anterior !== s.key) {
-        throw new BadRequestException('Duas etapas tentam produzir o mesmo MP4 ' + arquivo + '. Use saídas distintas para não sobrescrever versões anteriores.');
-      }
-      saidas.set(arquivo, String(s.key));
-    }
-  }
-  return etapa.map((s) => {
-    if (!s || typeof s !== 'object' || String(s.provider ?? defaultProvider) !== 'juntar-videos') return s;
-    const entradas = normalizarCenasDeMontagem(s.providerOptions);
-    const originais = Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [];
-    const novas = entradas.flatMap((v) => {
-      const arquivo = typeof v === 'string' ? v : (v && typeof v === 'object' ? String((v as { arquivo?: unknown }).arquivo ?? '') : '');
-      const produtor = saidas.get(arquivo);
-      return produtor && produtor !== String(s.key) ? [produtor] : [];
-    });
-    if (!novas.some((key) => !originais.includes(key))) return s;
-    return { ...s, dependsOn: [...new Set([...originais, ...novas])] };
-  });
-}
+export { dependenciasDeMontagemPorArquivo } from './workflow/media-dependencies';
