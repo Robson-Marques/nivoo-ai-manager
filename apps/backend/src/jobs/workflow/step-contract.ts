@@ -56,7 +56,11 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       const opts = s.providerOptions ?? {};
       const providerOptions: Record<string, unknown> = {};
       if(target)providerOptions.visualAsset=target;
-      if(isCodex(provider??defaultProvider)&&opts.visualReferences!==undefined)providerOptions.visualReferences=visualReferences(opts.visualReferences);
+      if(isCodex(provider??defaultProvider)&&opts.visualReferences!==undefined){
+        const refs=visualReferences(opts.visualReferences);
+        if(target&&refs.includes(target.arquivo))throw new BadRequestException('Etapa '+key+': a própria saída não pode ser referência de entrada; preserve o original e use um novo destino.');
+        providerOptions.visualReferences=refs;
+      }
       if (opts.model !== undefined) providerOptions.model = String(opts.model).slice(0, 100);
       if (opts.maxTurns !== undefined) {
         const n = Number(opts.maxTurns);

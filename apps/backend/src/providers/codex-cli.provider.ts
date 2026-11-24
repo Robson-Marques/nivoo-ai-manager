@@ -1,4 +1,4 @@
-import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
+import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, imageEventFailure, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
 import { argsCodex } from '../mcp/para-ia';
 import { isolatedHome } from '../accounts/secrets';
@@ -111,13 +111,15 @@ export class CodexCliProvider implements AiProvider {
     const startedAt = Date.now();
     const savedPaths:string[]=[];
     const inlineImages:Buffer[]=[];
+    const imageFailures:string[]=[];
+    let attachedReferences:string[]=[];
     const receipt=target?visualReceiptKey(req.jobId,req.stepId,this.id,JSON.stringify([req.instructions,req.options?.visualReferences,req.options?.model]),target):undefined;
     let nativeThread:string|undefined;
     const observe=(line:string)=>{
       try{
         const ev=JSON.parse(line);
         if(ev.type==='thread.started'&&typeof ev.thread_id==='string')nativeThread=ev.thread_id;
-        if(target){const p=imageEventPath(ev);if(p)savedPaths.push(p);const bytes=imageEventBytes(ev);if(bytes&&!inlineImages.some(b=>b.equals(bytes))&&inlineImages.length<2)inlineImages.push(bytes);}
+        if(target){const p=imageEventPath(ev);if(p&&!savedPaths.includes(p))savedPaths.push(p);const bytes=imageEventBytes(ev);if(bytes&&!inlineImages.some(b=>b.equals(bytes))&&inlineImages.length<2)inlineImages.push(bytes);const failure=imageEventFailure(ev);if(failure&&!imageFailures.includes(failure))imageFailures.push(failure);}
       }catch{/* non-JSON log */}
       CodexCliProvider.logEvento(line,req.onLog);
     };
@@ -132,11 +134,12 @@ export class CodexCliProvider implements AiProvider {
         prepareNativeImage(req.cwd,target);
         args.unshift('--enable','image_generation');
       }
-      for(const img of resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir))args.push('--image',img);
+      attachedReferences=[...new Set([...resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir),...(req.options?.images??[])])];
+      if(target&&attachedReferences.length>5)throw new Error('ImageGen aceita até cinco imagens de referência por etapa.');
+      for(const img of attachedReferences)args.push('--image',img);
     }catch(e){return {exitCode:1,output:'',error:'Ativo visual: '+String((e as Error).message),stopReason:'visual_asset_error'};}
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
-    for (const img of req.options?.images ?? []) args.push('--image', img);
     req.onLog(`codex ${args.join(' ')} -${req.mcp?.length ? ` + ferramentas MCP: ${req.mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
     // Ferramentas MCP do projeto: só para esta execução (o config.toml da conta não muda).
     if (req.mcp?.length) args.push(...argsCodex(req.mcp));
@@ -145,7 +148,7 @@ export class CodexCliProvider implements AiProvider {
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
       env,
-      input: buildPrompt(req)+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta image_gen integrada à conta Codex para gerar UMA imagem conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'')+'Use as imagens de referência anexadas e preserve a identidade visual. Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
+      input: buildPrompt(req)+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta nativa image_gen (image_gen.imagegen nas versões novas) integrada à conta Codex para gerar UMA imagem PNG conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'Use transparent_background=false. ')+(attachedReferences.length?'As '+attachedReferences.length+' referências foram anexadas nesta sessão. Para gerar ou editar com fidelidade visual, passe num_last_images_to_include='+attachedReferences.length+' à ferramenta; não combine com referenced_image_paths. Preserve a identidade visual. ':'Gere a partir do briefing, sem inventar referências. ')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
@@ -212,8 +215,8 @@ export class CodexCliProvider implements AiProvider {
         return {exitCode:0,output:'Ativo visual produzido: '+file,sessionId:nativeThread??sessionId,inputTokens,outputTokens,stopReason:'completed'};
       }catch(e){
         const detail=String((e as Error).message);
-        const providerError=errors.join('; ')+' '+r.stderr;
-        const unavailable=looksLikeResourceProblem(providerError);
+        const providerError=[...imageFailures,...errors,r.stderr].filter(Boolean).join('; ');
+        const unavailable=looksLikeResourceProblem(providerError)||/usage.?limit.?exceeded/i.test(providerError);
         return {exitCode:1,output:lastMessage,error:'ImageGen: '+detail+(providerError.trim()?' — '+providerError.slice(0,500):''),sessionId:nativeThread??sessionId,inputTokens,outputTokens,resourceUnavailable:unavailable,stopReason:'visual_asset_error'};
       }
     }

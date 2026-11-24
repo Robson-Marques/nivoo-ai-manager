@@ -89,14 +89,37 @@ export function nativeImageCandidates(home:string,cwd:string,thread:string|undef
   }
   return [...unique.values()];
 }
-/** Codex rollout response_item and event_msg, and exec item.completed.
- * Only typed tool results, never agent text or arbitrary base64 from prompts. */
+/** Decode both the legacy image tool and the extension event shipped by
+ * newer Codex releases (event_msg.payload.item, kind=image_gen.generation).
+ * Never treat assistant text, input images or command stdout as tool results. */
+function nativeImageEvent(ev:any):Record<string,any>|undefined{
+  const payload=ev?.type==='event_msg'?ev.payload:ev;
+  const item=payload?.type==='item.completed'||payload?.type==='item_completed'?payload.item:
+    ev?.type==='response_item'?ev.payload:ev?.type==='event_msg'?payload:undefined;
+  if(!item||typeof item!=='object')return undefined;
+  if(!['image_generation','image_generation_call','image_generation_end'].includes(item.type)&&
+    !(['Extension','extension'].includes(item.type)&&item.kind==='image_gen.generation'))return undefined;
+  return item;
+}
+function successfulImageEvent(ev:any):Record<string,any>|undefined{
+  const item=nativeImageEvent(ev);
+  if(!item||item.failure||['failed','cancelled','canceled','in_progress'].includes(item.status))return undefined;
+  return item;
+}
+export function imageEventFailure(ev:any):string|undefined{
+  const item=nativeImageEvent(ev);
+  if(!item||!(item.failure||item.status==='failed'))return undefined;
+  const failure=item.failure;
+  // Only small, structured error fields; never dump the whole result.
+  const kind=typeof failure==='object'&&failure?String(failure.type??failure.kind??''):'';
+  const detail=typeof failure==='string'?failure:typeof failure?.message==='string'?failure.message:'';
+  const limit=typeof failure?.limit_id==='string'?failure.limit_id:typeof failure?.limitId==='string'?failure.limitId:'';
+  return ['ImageGen falhou',kind,limit,detail].filter(Boolean).join(': ').slice(0,500);
+}
 export function imageEventBytes(ev:any):Buffer|undefined{
-  const item=ev?.type==='item.completed'?ev.item:
-    (ev?.type==='response_item'||ev?.type==='event_msg')?ev.payload:undefined;
-  if(!item||!['image_generation','image_generation_call','image_generation_end'].includes(item.type)||
-    item.status==='failed'||item.status==='cancelled'||item.failure)return undefined;
-  const value=item.result??item.image?.result;
+  const item=successfulImageEvent(ev);
+  if(!item)return undefined;
+  const value=typeof item.result==='string'&&item.result?item.result:item.image?.result;
   if(typeof value!=='string'||value.length<44||value.length>Math.ceil(MAX_BYTES/3)*4||
     !/^[A-Za-z0-9+/]+={0,2}$/.test(value))return undefined;
   const bytes=Buffer.from(value,'base64');
@@ -106,7 +129,7 @@ export function imageEventBytes(ev:any):Buffer|undefined{
 }
 /** Look only in the current account's dated session directory, for this
  * exact thread UUID. Some CLI releases keep PNG bytes only in rollout JSONL. */
-export async function rolloutImageBytes(home:string,thread:string|undefined,startedAt:number):Promise<Buffer[]>{
+export async function rolloutImageBytes(home:string,thread:string|undefined,startedAt:number,savedPaths:string[]=[]):Promise<Buffer[]>{
   if(!thread||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(thread))return [];
   const dates=new Set<string>();
   for(const t of [startedAt,Date.now()]){
@@ -143,6 +166,8 @@ export async function rolloutImageBytes(home:string,thread:string|undefined,star
             if(!sessionMatches)break;
           }
           if(!sessionMatches)continue;
+          const saved=imageEventPath(ev);
+          if(saved&&!savedPaths.includes(saved)&&savedPaths.length<100)savedPaths.push(saved);
           const bytes=imageEventBytes(ev);
           if(bytes){
             const hash=createHash('sha256').update(bytes).digest('hex');
@@ -156,10 +181,9 @@ export async function rolloutImageBytes(home:string,thread:string|undefined,star
   return [...found.values()];
 }
 export function imageEventPath(ev:any):string|undefined{
-  const item=ev?.item;
-  if(ev?.type!=='item.completed'||!['image_generation','image_generation_call'].includes(item?.type)||
-    item.status==='failed'||item.failure)return undefined;
-  return typeof item.saved_path==='string'?item.saved_path:undefined;
+  const item=successfulImageEvent(ev);
+  const saved=item?.saved_path??item?.savedPath;
+  return typeof saved==='string'?saved:undefined;
 }
 const exec=promisify(execFile);
 /** Decode exactly once with the already installed local FFmpeg. Verify actual
@@ -183,7 +207,11 @@ export async function recoverNativeImage(env:NodeJS.ProcessEnv,cwd:string,target
   for(const file of candidates)add(fs.readFileSync(file));
   for(const bytes of inline)add(bytes);
   // The on-disk output is preferred; consult rollout if the CLI did not save it.
-  if(!blobs.size)for(const bytes of await rolloutImageBytes(home,thread,startedAt))add(bytes);
+  if(!blobs.size){
+    const rolloutPaths:string[]=[];
+    for(const bytes of await rolloutImageBytes(home,thread,startedAt,rolloutPaths))add(bytes);
+    for(const file of nativeImageCandidates(home,cwd,thread,rolloutPaths,startedAt))add(fs.readFileSync(file));
+  }
   const dataCandidates=[...blobs.values()];
   // An explicit destination copied by the agent is accepted only if it
   // matches bytes from this thread (or the native event points there).

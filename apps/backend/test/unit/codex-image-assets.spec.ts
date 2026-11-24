@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { nativeImageTarget,nativeImageCandidates,recoverNativeImage,prepareNativeImage,imageEventPath,isCodexAccount,rolloutImageBytes,visualReceiptKey,recordVisualReceipt,reuseVisualReceipt } from '../../src/providers/codex-image-assets';
+import { nativeImageTarget,nativeImageCandidates,recoverNativeImage,prepareNativeImage,imageEventPath,imageEventBytes,imageEventFailure,isCodexAccount,rolloutImageBytes,visualReceiptKey,recordVisualReceipt,reuseVisualReceipt } from '../../src/providers/codex-image-assets';
 import { compileWorkflowPlan } from '../../src/jobs/workflow/compile-plan';
 import { mediaImageGenerationRules } from '../../src/specialties/media/planner-contract';
 const thread='01234567-1234-1234-1234-0123456789ab';
@@ -72,6 +72,12 @@ describe('Codex ImageGen ligado ao Motion',()=>{
       await expect(reuseVisualReceipt(cwd,target,receipt)).resolves.toBe(true);
       await expect(reuseVisualReceipt(cwd,target,visualReceiptKey('job','other','codex-cli','brief',target))).resolves.toBe(false);
       const base64=fs.readFileSync(png).toString('base64');
+      const extension={type:'event_msg',payload:{type:'item_completed',item:{type:'Extension',kind:'image_gen.generation',status:'completed',result:base64,savedPath:png}}};
+      expect(imageEventPath(extension)).toBe(png);
+      expect(imageEventBytes(extension)?.toString('base64')).toBe(base64);
+      expect(imageEventBytes({type:'item.completed',item:{type:'extension',kind:'image_gen.generation',status:'completed',image:{result:base64}}})?.toString('base64')).toBe(base64);
+      expect(imageEventBytes({type:'event_msg',payload:{type:'item_completed',item:{type:'Extension',kind:'other',status:'completed',result:base64}}})).toBeUndefined();
+      expect(imageEventFailure({type:'item.completed',item:{type:'extension',kind:'image_gen.generation',status:'failed',failure:{type:'usage_limit_exceeded',limit_id:'image_gen'}}})).toContain('usage_limit_exceeded');
       fs.unlinkSync(png);
       expect(nativeImageCandidates(home,cwd,thread,[],Date.now()-10000)).toEqual([]);
       const dated=path.join(home,'sessions',new Date().toISOString().slice(0,10).replace(/-/g,'/'));
@@ -85,6 +91,18 @@ describe('Codex ImageGen ligado ao Motion',()=>{
       expect((await rolloutImageBytes(home,thread,Date.now()-10000)).length).toBe(1);
       await expect(recoverNativeImage({CODEX_HOME:home},cwd,fromRollout,thread,[],Date.now()-10000)).resolves.toBe(fromRollout.arquivo);
       expect(fs.readFileSync(path.join(cwd,fromRollout.arquivo)).toString('base64')).toBe(base64);
+      // Newer versions may retain just the savedPath (not the inline bytes).
+      const local=path.join(cwd,'generated_images','new.png');
+      fs.mkdirSync(path.dirname(local),{recursive:true});
+      fs.writeFileSync(local,Buffer.from(base64,'base64'));
+      fs.writeFileSync(path.join(dated,'rollout-fixture-'+thread+'.jsonl'),[
+        {type:'session_meta',payload:{id:thread}},
+        {type:'event_msg',payload:{type:'item_completed',item:{type:'Extension',kind:'image_gen.generation',status:'completed',savedPath:local}}}
+      ].map(x=>JSON.stringify(x)).join('\n'));
+      const fromPath=nativeImageTarget({arquivo:'motion/c/assets/from-path.png',transparente:true})!;
+      prepareNativeImage(cwd,fromPath);
+      await expect(recoverNativeImage({CODEX_HOME:home},cwd,fromPath,thread,[],Date.now()-10000)).resolves.toBe(fromPath.arquivo);
+      expect(fs.readFileSync(path.join(cwd,fromPath.arquivo)).toString('base64')).toBe(base64);
     }finally{fs.rmSync(root,{recursive:true,force:true});}
   });
 });
