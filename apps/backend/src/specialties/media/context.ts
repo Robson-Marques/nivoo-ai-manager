@@ -2,6 +2,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { WorkspaceService } from '../../storage/workspace.service';
 import { listarVideos } from '../../projects/midia';
 import { descreverVoz } from '../../providers/vozes';
+import { nvidiaTtsConfigurado } from '../../providers/magpie-tts.service';
 
 export interface MediaProjectContext {
   id:string;
@@ -64,7 +65,7 @@ export async function buildMediaPlannerContext(prisma: PrismaService, workspace:
       'Quando uma trilha existe mas seu nome difere do pedido, use exatamente o nome registrado na lista, ou o ID de artefato inequívoco. Não substitua por outro áudio de campanha.',
       'Se houver um único vídeo e áudios inequívocos já aprovados, proponha diretamente um plano de juntar-videos.',
       'Somente peça esclarecimento se o arquivo estiver AUSENTE do catálogo e da mídia, ou se houver versões ambíguas.',
-      `Locução deste projeto: motor ${project.motorNarracao === 'gemini' ? 'Gemini TTS paga (usa token)' : 'Kokoro local (grátis, sem token)'}, voz ${descreverVoz(project.vozNarracao)}, velocidade ${project.velocidadeNarracao}. Pronúncias: ${JSON.stringify(project.pronunciasNarracao ?? {})}. Quando houver narração por texto, copie estas escolhas para narracao.motor, narracao.voz, narracao.velocidade e narracao.pronuncias.`,
+      `Locução deste projeto: motor ${project.motorNarracao === 'gemini' ? 'Gemini TTS paga (usa token)' : project.motorNarracao==='nvidia' ? 'NVIDIA Magpie (API, sujeita a cotas)' : 'Kokoro local (grátis, sem token)'}, voz ${descreverVoz(project.vozNarracao)}, velocidade ${project.velocidadeNarracao}. Pronúncias: ${JSON.stringify(project.pronunciasNarracao ?? {})}. Quando houver narração por texto, copie estas escolhas para narracao.motor, narracao.voz, narracao.velocidade e narracao.pronuncias, salvo pedido explícito mais recente de outro motor/voz. NVIDIA Magpie: ${nvidiaTtsConfigurado()?'chave NVIDIA configurada; acesso à síntese será confirmado no uso':'sem chave NVIDIA configurada'}. Se escolher outro motor, selecione voz compatível.`,
       `Trilha padrão do projeto: ${project.modoTrilha === 'ia' ? 'gerar com IA/Lyria (paga)' : project.modoTrilha === 'arquivo' ? 'usar um arquivo de música enviado pelo usuário' : 'sem trilha no MP4 (o usuário pode adicionar música depois no Instagram)'}. Locução e trilha são independentes.`,
   ];
 }

@@ -6,11 +6,12 @@ import { minimalEnv, runProcess } from '../common/exec';
 import { publishMediaFile } from './media-file-publication';
 import { resolveInside } from '../common/path-guard';
 import { KokoroTtsError, KokoroTtsService, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
-import { VOZ_PADRAO_KOKORO } from './vozes';
+import { MotorNarracao, vozPadraoDoMotor } from './vozes';
+import { gerarNarracaoNvidia,nvidiaTtsConfigurado,roteiroFaladoNvidia } from './magpie-tts.service';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 type Frase = { texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number };
-type Opcoes = { arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Record<string,string>; fechamentoAlternativo?: string };
+type Opcoes = { motor?: MotorNarracao; conexao?: string; arquivo?: string; texto?: string; trechos?: Frase[]; voz?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Record<string,string>; fechamentoAlternativo?: string };
 function textoDaFrase(t: Frase): string {
   const frase = t.texto.trim();
   if (t.intencao === 'pergunta') return frase.replace(/[.!?]+$/, '') + '?';
@@ -22,7 +23,7 @@ function textoDaFrase(t: Frase): string {
 @Injectable()
 export class GerarNarracaoProvider implements AiProvider {
   readonly id = 'gerar-narracao';
-  readonly label = 'Prévia de narração Kokoro (MP3)';
+  readonly label = 'Prévia de narração (Kokoro / NVIDIA, MP3)';
   readonly kind = 'executor' as const;
   constructor(private readonly kokoro: KokoroTtsService) {}
   async checkAvailability(): Promise<ProviderStatus> {
@@ -30,9 +31,10 @@ export class GerarNarracaoProvider implements AiProvider {
       this.kokoro.status(),
       runProcess('ffmpeg', ['-version'], { cwd: os.tmpdir(), env: minimalEnv(), timeoutMs: 12000 }),
     ]);
-    const ok = tts.disponivel && ff.exitCode === 0 && !ff.spawnError;
+    const nvidia=nvidiaTtsConfigurado();
+    const ok = (tts.disponivel || nvidia) && ff.exitCode === 0 && !ff.spawnError;
     return { id: this.id, label: this.label, kind: this.kind, available: ok, installed: ok, authenticated: true,
-      limits: {}, capabilities: ['mp3', 'kokoro', 'trechos', 'pausas'],
+      limits: {}, capabilities: ['mp3', 'kokoro', 'trechos', 'pausas', ...(nvidia?['nvidia-magpie']:[])],
       errors: [...(!tts.disponivel ? [tts.erro ?? 'Kokoro indisponível'] : []), ...(ff.exitCode !== 0 || ff.spawnError ? ['ffmpeg indisponível'] : [])],
       checkedAt: new Date().toISOString(), isAi: false };
   }
@@ -42,7 +44,10 @@ export class GerarNarracaoProvider implements AiProvider {
     if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(nome) || nome.split('/').includes('..'))
       return { exitCode: 1, output: '', error: 'Destino de prévia deve ser out/<nome>.mp3' };
     const trechos = o.trechos?.length ? o.trechos : frasesDeLocucao(o.texto ?? '');
-    const texto = roteiroEmUmaFala(trechos, o.ritmo ?? 'natural');
+    const motor=o.motor??'kokoro';
+    if(motor!=='kokoro'&&motor!=='nvidia')return {exitCode:1,output:'',error:'Motor de prévia não suportado: '+motor};
+    const roteiro=(t:Frase[])=>motor==='nvidia'?roteiroFaladoNvidia(t):roteiroEmUmaFala(t,o.ritmo??'natural');
+    const texto = roteiro(trechos);
     if (!texto) return { exitCode: 1, output: '', error: 'Nenhuma frase para narrar' };
     // A marcação é interpretada pelo Kokoro-FastAPI durante uma única síntese.
     // Nunca separar a locução em arquivos e concatenar.
@@ -54,13 +59,14 @@ export class GerarNarracaoProvider implements AiProvider {
       // A API recebe o roteiro inteiro em uma síntese, sem recortes nem silêncios
       // colocados pelo FFmpeg. Pausas vêm da pontuação interpretada pela voz.
       const velocidade = o.velocidade ?? velocidadePadraoLocucao(o.ritmo ?? 'natural');
-      req.onLog('Gerando locução contínua em uma chamada ao Kokoro (sem cortes, velocidade ' + velocidade + ').');
+      const gerar=(t:string)=>motor==='nvidia'?gerarNarracaoNvidia(t,o.voz??vozPadraoDoMotor('nvidia'),o.pronuncias??{},req.signal,o.conexao,req.timeoutMs):this.kokoro.gerar(t,o.voz??vozPadraoDoMotor('kokoro'),velocidade,o.pronuncias??{},req.signal);
+      req.onLog(motor==='nvidia'?'Gerando locução contínua com NVIDIA Magpie (pt-BR). A API não expõe velocidade ou pausas numéricas; ritmo depende do texto. Sujeita à cota da conexão.':'Gerando locução contínua em uma chamada ao Kokoro (sem cortes, velocidade ' + velocidade + ').');
       if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
         req.onLog('Atenção: velocidade por frase foi ignorada para preservar uma só interpretação. Usando a velocidade global.', 'WARN');
-      if (trechos.some(t => t.pausaAposMs !== undefined))
+      if (motor==='kokoro' && trechos.some(t => t.pausaAposMs !== undefined))
         req.onLog('Pausas aplicadas pelo próprio Kokoro com marcadores [pause:Ns] dentro de uma única síntese.', 'INFO');
       let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
-      try { audio = await this.kokoro.gerar(texto, o.voz ?? VOZ_PADRAO_KOKORO, velocidade, o.pronuncias ?? {}, req.signal); }
+      try { audio = await gerar(texto); }
       catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: '', error: err.message, resourceUnavailable: err.indisponivel }; }
       const original = path.join(tmp, 'original.mp3');
       fs.writeFileSync(original, audio.bytes);
@@ -82,11 +88,11 @@ export class GerarNarracaoProvider implements AiProvider {
         const outrasFrases = [...trechos.slice(0, -1), {
           ...original, texto: alternativaTexto, intencao: 'chamada' as const,
         }];
-        const textoAlternativo = roteiroEmUmaFala(outrasFrases, o.ritmo ?? 'natural');
+        const textoAlternativo = roteiro(outrasFrases);
         alternativa = nome.replace(/\.mp3$/i, '-alternativa.mp3');
         req.onLog('Gerando versão B com CTA alternativo (mesma voz e ritmo), sem alterar o original.');
         let alternativaAudio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
-        try { alternativaAudio = await this.kokoro.gerar(textoAlternativo, o.voz ?? VOZ_PADRAO_KOKORO, velocidade, o.pronuncias ?? {}, req.signal); }
+        try { alternativaAudio = await gerar(textoAlternativo); }
         catch (e) { const err=e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e)); return { exitCode: 1, output: 'Prévia A preservada: ' + nome, error: 'Falha na alternativa B: ' + err.message, resourceUnavailable: err.indisponivel }; }
         const rawAlt = path.join(tmp, 'alternativa-original.mp3');
         fs.writeFileSync(rawAlt, alternativaAudio.bytes);

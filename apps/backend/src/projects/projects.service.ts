@@ -189,7 +189,7 @@ export class ProjectsService {
     // Locução é independente da trilha: Kokoro local por padrão ou Gemini paga, com voz, velocidade e pronúncias.
     if (body && 'motorNarracao' in body) {
       const motor = String(body.motorNarracao ?? '').trim().toLowerCase();
-      if (motor !== 'kokoro' && motor !== 'gemini') throw new BadRequestException('motorNarracao deve ser "kokoro" ou "gemini"');
+      if (motor !== 'kokoro' && motor !== 'gemini' && motor !== 'nvidia') throw new BadRequestException('motorNarracao deve ser "kokoro", "gemini" ou "nvidia"');
       data.motorNarracao = motor;
       if (!optString(body, 'vozNarracao', 40)) data.vozNarracao = vozPadraoDoMotor(motor as MotorNarracao);
     }

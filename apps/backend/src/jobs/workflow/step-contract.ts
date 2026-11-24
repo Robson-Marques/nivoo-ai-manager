@@ -90,7 +90,9 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         // "arquivo" em gerar-narracao é o DESTINO MP3, não um áudio de entrada.
         // O validador da locução não pode interpretá-lo como narracao.arquivo.
         const { arquivo: _saida, ...entrada } = origem;
-        const validada = narracaoValida(key, { ...entrada, motor: 'kokoro' });
+        const validada = narracaoValida(key, entrada);
+        if(validada.motor==='gemini')throw new BadRequestException(`Etapa ${key}: prévia MP3 suporta Kokoro ou NVIDIA; Gemini permanece na montagem.`);
+        validada.motor ??= 'kokoro';
         if (validada.arquivo) throw new BadRequestException(`Etapa ${key}: gerar-narracao exige texto ou trechos, não arquivo pronto`);
         const arquivo = String(opts.arquivo ?? 'out/previa-locucao.mp3');
         if (!/^out\/[a-zA-Z0-9_/-]+\.mp3$/.test(arquivo) || arquivo.split('/').includes('..'))

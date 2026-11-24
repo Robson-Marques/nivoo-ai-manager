@@ -13,7 +13,8 @@ import { escolherTrilha, FonteTrilha } from './audio-asset-recovery';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 import { aplicarPronuncias, KokoroTtsError, KokoroTtsService, Pronuncias, roteiroEmUmaFala, frasesDeLocucao, velocidadePadraoLocucao, RitmoLocucao } from './kokoro-tts.service';
-import { MotorNarracao, VOZ_PADRAO, VOZ_PADRAO_GEMINI, vozConhecida } from './vozes';
+import { MotorNarracao, vozPadraoDoMotor, vozConhecida } from './vozes';
+import { gerarNarracaoNvidia,roteiroFaladoNvidia } from './magpie-tts.service';
 
 type Trilha = { arquivo?: string; descricao?: string; volume?: number };
 
@@ -29,7 +30,7 @@ function textoLocucao(t: TrechoLocucao): string {
   return t.intencao === 'pergunta' ? frase.replace(/[!?\.]+$/, '') + '?' : 
     (t.intencao === 'chamada' || t.intencao === 'destaque') ? frase.replace(/[!?\.]+$/, '') + '!' : frase;
 }
-type Narracao = { trechos?: TrechoLocucao[]; texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Pronuncias; volumeFundoSobVoz?: number };
+type Narracao = { trechos?: TrechoLocucao[]; texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; conexao?: string; velocidade?: number; ritmo?: RitmoLocucao; pronuncias?: Pronuncias; volumeFundoSobVoz?: number };
 
 /** Modelos de música do Google (Lyria), do mais completo ao clipe de 30 s. */
 const MODELOS_MUSICA = ['lyria-3-pro-preview', 'lyria-3-clip-preview'];
@@ -347,13 +348,13 @@ export class JuntarVideosProvider implements AiProvider {
           const meta = o.arquivo.replace(/\.mp4$/i, '-narracao.txt');
           const absG = this.resolver(req, guardada);
           const absM = this.resolver(req, meta);
-          const vozEscolhida = o.narracao.voz ?? (o.narracao.motor === 'gemini' ? VOZ_PADRAO_GEMINI : VOZ_PADRAO);
+          const vozEscolhida = o.narracao.voz ?? vozPadraoDoMotor(o.narracao.motor??'kokoro');
           const motor = o.narracao.motor ?? vozConhecida(vozEscolhida)?.motor ?? 'kokoro';
           const velocidade = o.narracao.velocidade ?? velocidadePadraoLocucao(o.narracao.ritmo ?? 'natural');
           const pronuncias = o.narracao.pronuncias ?? {};
-          const trechos = motor === 'kokoro' ? (o.narracao.trechos?.length ? o.narracao.trechos : frasesDeLocucao(o.narracao.texto ?? '')) : [];
+          const trechos = motor === 'kokoro' || motor==='nvidia' ? (o.narracao.trechos?.length ? o.narracao.trechos : frasesDeLocucao(o.narracao.texto ?? '')) : [];
           const textoInteiro = (o.narracao.texto ?? trechos.map(t => t.texto).join(' ')).trim();
-          const chaveCache = JSON.stringify({ motor, voz: vozEscolhida, velocidade, ritmo: o.narracao.ritmo ?? 'natural', pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
+          const chaveCache = JSON.stringify({ motor, ...(motor==='nvidia'?{conexao:o.narracao.conexao??'padrao',roteiroVersao:1}:{}), voz: vozEscolhida, velocidade, ritmo: o.narracao.ritmo ?? 'natural', pronuncias: Object.entries(pronuncias).sort(([a], [b]) => a.localeCompare(b)), texto: textoInteiro, trechos });
           if (fs.existsSync(absG) && fs.existsSync(absM) && fs.readFileSync(absM, 'utf8').trim() === chaveCache.trim()) {
             voz = absG;
             vozInfo = `narração ${guardada} (reaproveitada)`;
@@ -374,6 +375,16 @@ export class JuntarVideosProvider implements AiProvider {
               } catch (e: any) {
                 const k = e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e?.message ?? e));
                 g = { erro: k.message, indisponivel: k.indisponivel };
+              }
+            } else if(motor==='nvidia'){
+              req.onLog('Gerando locução NVIDIA Magpie pt-BR (uma síntese; ritmo pela pontuação; cota da conexão).');
+              try{
+                const local=await gerarNarracaoNvidia(trechos.length?roteiroFaladoNvidia(trechos):textoInteiro,vozEscolhida,pronuncias,req.signal,o.narracao.conexao,req.timeoutMs);
+                // NVIDIA trial usage is not priced by the local token estimator.
+                g={bytes:local.bytes,mime:local.mime,modelo:local.modelo,custo:0};
+              }catch(e){
+                const err=e instanceof KokoroTtsError?e:new KokoroTtsError(String(e));
+                g={erro:err.message,indisponivel:err.indisponivel};
               }
             } else {
               req.onLog(`Gerando a narração paga com a Gemini (voz ${vozEscolhida}): ${textoInteiro.slice(0, 120)}`);

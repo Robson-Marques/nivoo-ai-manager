@@ -7,6 +7,7 @@ import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
 import { streamMedia } from '../common/media-stream';
 import { KokoroTtsError, KokoroTtsService } from '../providers/kokoro-tts.service';
+import { gerarNarracaoNvidia,nvidiaTtsConfigurado } from '../providers/magpie-tts.service';
 
 @Controller('projects')
 export class ProjectsController {
@@ -34,8 +35,8 @@ export class ProjectsController {
 
   /** Estado do serviço local e vozes pt-BR realmente instaladas. */
   @Get('narracao/status')
-  statusDaNarracao() {
-    return this.kokoro.status();
+  async statusDaNarracao() {
+    return {...await this.kokoro.status(),nvidia:{configurado:nvidiaTtsConfigurado()}};
   }
 
   @Get(':pid')
@@ -52,16 +53,18 @@ export class ProjectsController {
   @Post(':pid/narracao/teste')
   async testarNarracao(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any, @Res() res: Response) {
     const projeto = await this.projects.get(pid);
-    if (projeto.motorNarracao !== 'kokoro') throw new BadRequestException('A amostra local está disponível quando o motor selecionado é Kokoro');
+    if (projeto.motorNarracao !== 'kokoro' && projeto.motorNarracao !== 'nvidia') throw new BadRequestException('A amostra está disponível para Kokoro e NVIDIA');
     const texto = String(body?.texto ?? 'Olá. Esta é uma amostra da narração do seu vídeo.').trim().slice(0, 500);
     let audio: Awaited<ReturnType<KokoroTtsService['gerar']>>;
     try {
-      audio = await this.kokoro.gerar(texto, projeto.vozNarracao, projeto.velocidadeNarracao, (projeto.pronunciasNarracao ?? {}) as Record<string, string>);
+      audio = projeto.motorNarracao==='nvidia'
+        ? await gerarNarracaoNvidia(texto,projeto.vozNarracao,(projeto.pronunciasNarracao??{}) as Record<string,string>)
+        : await this.kokoro.gerar(texto, projeto.vozNarracao, projeto.velocidadeNarracao, (projeto.pronunciasNarracao ?? {}) as Record<string, string>);
     } catch (e: any) {
       if (e instanceof KokoroTtsError && e.indisponivel) throw new ServiceUnavailableException(e.message);
       throw new BadRequestException(e?.message ?? String(e));
     }
-    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Type', audio.mime);
     res.setHeader('Content-Length', String(audio.bytes.length));
     res.setHeader('Cache-Control', 'no-store');
     res.send(audio.bytes);

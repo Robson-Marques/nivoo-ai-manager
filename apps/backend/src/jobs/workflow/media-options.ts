@@ -48,7 +48,7 @@ export const TRANSICOES = ['fade', 'fadeblack', 'fadewhite', 'dissolve', 'wipele
 
 /** Trilha de fundo: um áudio do projeto ou a descrição da música que o Google (Lyria) compõe; volume 0–1. */
 /** Narração (voz): Kokoro local por padrão, Gemini paga opcional, ou um áudio pronto do projeto. */
-export function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number; ritmo?: 'calmo' | 'natural' | 'dinamico'; trechos?: Array<{ texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number }> } {
+export function narracaoValida(key: string, n: any): { texto?: string; arquivo?: string; voz?: string; motor?: MotorNarracao; conexao?: string; velocidade?: number; pronuncias?: Record<string, string>; volumeFundoSobVoz?: number; ritmo?: 'calmo' | 'natural' | 'dinamico'; trechos?: Array<{ texto: string; intencao?: 'chamada' | 'destaque' | 'pergunta' | 'natural'; velocidade?: number; pausaAposMs?: number }> } {
   if (!n || typeof n !== 'object') throw new BadRequestException(`Etapa ${key}: narracao deve ser {"texto":"..."} ou {"arquivo":"audio/voz.mp3"}`);
   const out: ReturnType<typeof narracaoValida> = {};
   if (n.arquivo !== undefined) {
@@ -89,7 +89,7 @@ export function narracaoValida(key: string, n: any): { texto?: string; arquivo?:
   if (!out.arquivo && !out.texto && !out.trechos?.length)
     throw new BadRequestException(`Etapa ${key}: narração exige texto, trechos ou arquivo`);
   const motor = n.motor === undefined ? undefined : String(n.motor).trim().toLowerCase();
-  if (motor !== undefined && motor !== 'kokoro' && motor !== 'gemini') throw new BadRequestException(`Etapa ${key}: narracao.motor deve ser "kokoro" ou "gemini"`);
+  if (motor !== undefined && motor !== 'kokoro' && motor !== 'gemini' && motor !== 'nvidia') throw new BadRequestException(`Etapa ${key}: narracao.motor deve ser "kokoro", "gemini" ou "nvidia"`);
   if (motor) out.motor = motor as MotorNarracao;
   if (n.voz !== undefined && String(n.voz).trim()) {
     const v = vozConhecida(String(n.voz).trim());
@@ -99,6 +99,11 @@ export function narracaoValida(key: string, n: any): { texto?: string; arquivo?:
     out.voz = v.id;
   } else if (out.motor) {
     out.voz = vozPadraoDoMotor(out.motor);
+  }
+  if (n.conexao !== undefined) {
+    if(out.motor!=='nvidia'||typeof n.conexao!=='string'||!/^nvidia-api(?:--[0-9a-f]{8})?$/.test(n.conexao))
+      throw new BadRequestException('Etapa '+key+': conexão de narração deve ser NVIDIA válida.');
+    out.conexao=n.conexao;
   }
   if (n.ritmo !== undefined) {
     if (!['calmo', 'natural', 'dinamico'].includes(n.ritmo))
