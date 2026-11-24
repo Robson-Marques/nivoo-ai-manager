@@ -78,9 +78,9 @@ export function nativeImageCandidates(home:string,cwd:string,thread:string|undef
   // Newer CLI can write directly under this worktree. Only paths from a
   // completed native image event are eligible, never paths from agent prose.
   for(const p of savedPaths){
-    if(!path.isAbsolute(p))continue;
-    const rel=path.relative(fs.realpathSync(cwd),p);
-    if(/^generated_images\/[A-Za-z0-9._/-]+\.png$/i.test(rel)&&!rel.split('/').includes('..'))add(cwd,rel);
+    const absolute=path.isAbsolute(p)?p:path.resolve(cwd,p);
+    const rel=path.relative(fs.realpathSync(cwd),absolute);
+    if(/^(?:generated_images|motion|out)\/[A-Za-z0-9._/-]+\.png$/i.test(rel)&&!rel.split('/').includes('..'))add(cwd,rel);
   }
   // Some CLI releases publish the same binary in the cache and worktree.
   const unique=new Map<string,string>();
@@ -128,7 +128,9 @@ export async function rolloutImageBytes(home:string,thread:string|undefined,star
         const st=fs.lstatSync(file);
         if(!st.isFile()||st.size>160*1024*1024||st.mtimeMs<startedAt-2000)continue;
       }catch{continue;}
-      const input=fs.createReadStream(file,{flags:fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW});
+      let fd:number;
+      try{fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);}catch{continue;}
+      const input=fs.createReadStream(file,{fd,autoClose:true});
       const lines=createInterface({input,crlfDelay:Infinity});
       let sessionMatches=false;
       try{

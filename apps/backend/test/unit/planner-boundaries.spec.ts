@@ -34,6 +34,16 @@ describe('Fronteiras do planejador', () => {
     expect(prompt.includes('nivoo-renderizar-motion')).toBe(media);
     expect(registry.status).toHaveBeenCalledTimes(media?2:0);
   });
+  it('oferece ImageGen apenas quando a conexão Codex anuncia a ferramenta',async()=>{
+    const id='codex-cli--450809da';
+    const registry={has:jest.fn(()=>true),status:jest.fn(async(p:string)=>({available:true,capabilities:p===id?['imagegen-native-adapter']:[]}))};
+    const enabled=await selectPlannerCapabilities({template:'design-video'},registry as any,id);
+    expect(enabled.codexImageProvider).toBe(id);
+    expect(plannerRules(enabled).join('\n')).toContain('key visual');
+    registry.status.mockImplementation(async()=>({available:true,capabilities:[]}));
+    const absent=await selectPlannerCapabilities({template:'design-video'},registry as any,id);
+    expect(absent.codexImageProvider).toBeUndefined();
+  });
   it('mantém mídia local sem Gemini',async()=>{
     const registry={has:jest.fn(()=>false),status:jest.fn()};
     const c=await selectPlannerCapabilities({template:'design-video'},registry as any);

@@ -96,7 +96,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // the HTML scene with real WebGL geometry. Do not infer the restrictive
     // hybrid overlay contract from the mere word "3D".
     const selectedMode=readMotionMode(command);
-    const real3d = imageStages.length || selectedMode==='html' ? selectedMode==='hybrid' : pedeGeometria3D(text);
+    const real3d = imageStages.length ? selectedMode==='hybrid' : pedeGeometria3D(text);
     const hasPhotos = imageStages.length > 0 || /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
