@@ -201,6 +201,35 @@ function sceneDocument(scene, binaries) {
     '<canvas id="nivoo" width="'+scene.width+'" height="'+scene.height+'"></canvas>'+
     '<script>('+sceneRuntime.toString()+')('+state+');</script></body></html>';
 }
+/**
+ * Monta fotos de produtos em Shadow DOM, independente de CSS global do HTML
+ * WebGL gerado pela IA. Executada dentro da página por Playwright page.evaluate.
+ */
+function mountMediaOverlay(size) {
+  const old=document.getElementById('nivoo-photo-overlay-host');
+  if(old)old.remove();
+  const host=document.createElement('div');
+  host.id='nivoo-photo-overlay-host';
+  host.style.setProperty('all','initial','important');
+  host.style.setProperty('position','fixed','important');
+  host.style.setProperty('inset','0','important');
+  host.style.setProperty('display','block','important');
+  host.style.setProperty('opacity','1','important');
+  host.style.setProperty('visibility','visible','important');
+  host.style.setProperty('z-index','2147483647','important');
+  host.style.setProperty('pointer-events','none','important');
+  const shadow=host.attachShadow({mode:'open'});
+  const canvas=document.createElement('canvas');
+  canvas.width=size.width;canvas.height=size.height;
+  canvas.style.cssText='all:initial!important;display:block!important;'+
+    'position:absolute!important;inset:0!important;width:100%!important;'+
+    'height:100%!important;opacity:1!important;visibility:visible!important;'+
+    'pointer-events:none!important;';
+  shadow.appendChild(canvas);
+  document.documentElement.appendChild(host);
+  window.__nivooOverlayCanvas=canvas;
+}
+
 /** O mesmo código JavaScript funciona em navegador e em Node para testes. */
 function sceneRuntime({scene,binaries,overlay=false}) {
   // Overlay transparente sobre HTML/WebGL 3D: nenhuma imagem de produto
@@ -404,4 +433,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource };
+module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
