@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { readMotionInvocation } from './motion/command';
 
 export type VideoResult = { ok: boolean; detail: string; absolutePath?: string; frames?: number; seconds?: number };
 
@@ -11,11 +12,7 @@ export type VideoResult = { ok: boolean; detail: string; absolutePath?: string; 
  * "625/625 -> MP4 salvo -> test -s não achou -> render novamente".
  */
 export function videoGeradoPorEtapa(provider: string, instructions: string, opts: Record<string, unknown>): string | null {
-  if (provider === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(instructions)) {
-    const match = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(instructions);
-    const output = match?.[1] ?? match?.[2] ?? match?.[3];
-    return output && /^midia\/saida\/[a-zA-Z0-9._-]+\.mp4$/.test(output) ? output : null;
-  }
+  if (provider === 'local-shell') return readMotionInvocation(instructions)?.output ?? null;
   if (provider === 'juntar-videos') {
     const output = opts.arquivo;
     return typeof output === 'string' && /^midia\/saida\/[a-zA-Z0-9._-]+\.mp4$/.test(output) ? output : null;
@@ -62,14 +59,12 @@ export function inspecionarVideoGerado(
   if (!video?.codec_name || !Number.isFinite(duration) || duration <= 0) {
     return { ok: false, detail: 'arquivo MP4 não contém vídeo reproduzível com duração válida' };
   }
-  const tamanho = /--tamanho\s+(\d{2,5})x(\d{2,5})/.exec(instructions);
-  if (provider === 'local-shell' && tamanho &&
-      (video.width !== Number(tamanho[1]) || video.height !== Number(tamanho[2]))) {
-    return { ok: false, detail: 'resolução incorreta: ' + video.width + 'x' + video.height + '; esperada ' + tamanho[1] + 'x' + tamanho[2] };
+  const motion = provider === 'local-shell' ? readMotionInvocation(instructions) : null;
+  if (motion?.width && motion.height && (video.width !== motion.width || video.height !== motion.height)) {
+    return { ok: false, detail: 'resolução incorreta: ' + video.width + 'x' + video.height + '; esperada ' + motion.width + 'x' + motion.height };
   }
-  const segundos = /--segundos\s+(\d+(?:\.\d+)?)/.exec(instructions);
-  if (provider === 'local-shell' && segundos && Math.abs(duration - Number(segundos[1])) > 0.6) {
-    return { ok: false, detail: 'duração incorreta: ' + duration.toFixed(2) + 's; esperada ' + segundos[1] + 's' };
+  if (motion?.seconds !== undefined && Math.abs(duration - motion.seconds) > 0.6) {
+    return { ok: false, detail: 'duração incorreta: ' + duration.toFixed(2) + 's; esperada ' + motion.seconds + 's' };
   }
   if (provider === 'juntar-videos' && !!(opts.trilha || opts.narracao) && !audio?.codec_name) {
     return { ok: false, detail: 'montagem concluída sem trilha/narração de áudio no MP4' };
