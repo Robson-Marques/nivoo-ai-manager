@@ -26,7 +26,7 @@ function run() {
   assert.equal(converted[0].verifyCommand,compose.verifyCommand,
     'não adicionar nem substituir testes por aprovador de composição');
   assert.doesNotMatch(converted[0].verifyCommand,/nivoo-conferir-motion/);
-  assert.equal(converted[1].instructions,render.instructions.replace(source,source+'/index.html'),
+  assert.equal(converted[1].instructions,render.instructions.replace(source,source+'/index.html --motor hybrid'),
     'o 3D novo deve renderizar o HTML mesmo se scene.json antigo coexistir');
   assert.deepEqual(conectarMotorMotion(converted,'codex-cli',objective),converted,
     'a prévia do plano e a criação do job devem produzir EXATAMENTE o mesmo resultado');
@@ -46,7 +46,7 @@ function run() {
   assert.ok(converted[0].instructions.includes(motionAuthorContract(true)),
     'mesmo contrato serve ao especialista híbrido');
   assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
-  assert.doesNotMatch(convertedSimple[1].instructions,/--motor\s/);
+  assert.match(convertedSimple[1].instructions,/scene\.json --motor scene/);
   assert.equal(convertedSimple.length,2);
   assert.equal(simple[0].instructions,'Escrever motion/anuncio/index.html com imagens de produtos','não alterar plano original');
 
@@ -63,7 +63,7 @@ function run() {
   ]) {
     const produced=conectarMotorMotion(simple,'codex-cli',objective2);
     assert.match(produced[0].instructions,/scene\.json/,'briefing negativo não exige WebGL: '+objective2);
-    assert.doesNotMatch(produced[1].instructions,/--motor\s/);
+    assert.match(produced[1].instructions,/scene\.json --motor scene/);
     assert.deepEqual(conectarMotorMotion(produced,'codex-cli',objective2),produced,
       'roteador deve permanecer idempotente: '+objective2);
   }
@@ -73,7 +73,7 @@ function run() {
   ],'codex-cli','Animação com geometria 3D real e fotografia');
   assert.match(real[0].instructions,/overlays\.json/,
     'pedido explícito de malhas tridimensionais deve orientar WebGL híbrido');
-  assert.doesNotMatch(real[1].instructions,/--motor\s/);
+  assert.match(real[1].instructions,/index\.html --motor hybrid/);
   assert.match(real[1].instructions,/motion\/anuncio\/index\.html\s/);
   const revised=conectarMotorMotion([
     {key:'refazer',title:'Refazer arte',provider:'codex-cli',instructions:'Criar novos elementos gráficos com o logo original'},
@@ -81,6 +81,11 @@ function run() {
   ],'codex-cli','Quero imagens premium em 3D animadas');
   assert.match(revised[1].instructions,/motion\/anuncio\/index\.html'/);
   assert.match(revised[0].instructions,/fundo opaco/);
+  assert.match(revised[1].instructions,/--motor hybrid/);
+  const priorMode=conectarMotorMotion([compose,{...render,instructions:render.instructions+' --motor scene'}],'codex-cli',objective);
+  assert.match(priorMode[1].instructions,/index\.html/);
+  assert.match(priorMode[1].instructions,/--motor hybrid/);
+  assert.doesNotMatch(priorMode[1].instructions,/--motor scene/);
   assert.ok(!motionAuthorContract(true).includes('assets/fundo.png'));
   assert.deepEqual(conectarMotorMotion(revised,'codex-cli','Quero imagens premium em 3D animadas'),revised);
 
