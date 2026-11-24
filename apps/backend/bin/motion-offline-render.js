@@ -105,6 +105,7 @@ function rendererFingerprint() {
   const files = [
     __filename,
     path.join(__dirname, 'motion-scene-core.js'),
+    ...require('./motion-scene-core').sceneRuntimeFiles,
     path.join(__dirname, 'motion-graphics.js'),
     ...require('./motion-graphics').graphicsRuntimeFiles,
     process.argv[1], // cópia executada /usr/local/bin/nivoo-renderizar-motion
