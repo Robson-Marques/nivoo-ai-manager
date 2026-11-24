@@ -49,3 +49,7 @@ A área configurada (`Area.template`, com fallback legado) determina se o contex
 - `test/unit/specialty-boundaries.spec.ts`: regressões de isolamento, workflows mistos, dependências, refação visual e disponibilidade independente.
 
 Nove cenários isolados executados a partir das funções do branch com remoção de tipos TS para o ambiente JS e dependências externas simuladas; todos passaram. Ainda não houve execução da suíte Jest, compilação completa, deploy ou aceitação no POCOU. Não confundir essa fronteira parcial com recuperação completa de todos os domínios, nem com um executor Motion tipado novo.
+
+## Capability Map e fronteira de vídeo
+
+Ver [Capability de produção audiovisual](architecture/capabilities/media-production.md). Motor declarativo segmentado em `bin/motion/scene/`, com fachada compatível e cache versionado por dependências. `src/jobs/motion/command.ts` é o adaptador tipado dos comandos legados e `src/specialties/media/failure-policy.ts` contém a decisão de falha, não o ciclo de vida do job. A frase padrão histórica que proibia 3D foi alinhada à capacidade instalada em `runtime-profile.ts`, sem mutação de regras armazenadas. O guia antigo já copiado no workspace permanece uma lacuna documental. A capacidade está `in-progress`: teste integrado versionado, ainda não executado, e build/deploy não verificados. Não declarar aceitação das demais especialidades.
