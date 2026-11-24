@@ -1243,6 +1243,14 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
           {!conferenciaFalhou(job) && <span className="muted small">Execução encerrada. O progresso está preservado; nenhuma nova tentativa será iniciada automaticamente.</span>}
           {conferenciaFalhou(job) && job.status === 'BLOQUEADO' && <RevisaoParada projetoId={projetoId} jobId={jobId} onMudou={carregar} />}
           <DetalhesDaParada job={job} />
+          <div style={{ marginTop: 12 }}>
+            <button onClick={() => acao(() => api(`/projects/${projetoId}/jobs/${jobId}/resume`, 'POST', { by: nomeUsuario() }))}>
+              Retomar trabalho
+            </button>
+            <span className="muted small" style={{ display: 'block', marginTop: 6 }}>
+              Continua no mesmo trabalho, com os arquivos e o histórico preservados. Não cria outro pedido.
+            </span>
+          </div>
         </span>
       )}
       {['EXECUTANDO', 'PENDENTE', 'AGUARDANDO_RECURSO'].includes(job.status) && (
