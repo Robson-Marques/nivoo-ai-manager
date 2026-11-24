@@ -1,5 +1,6 @@
 import { registrarErro } from '../diagnostico/erros';
-import { erroDeterministicoMotion, falhaLocalCorrigivel } from './deterministic-media-errors';
+import { falhaLocalCorrigivel } from './deterministic-media-errors';
+import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
@@ -929,50 +930,11 @@ export class StepExecutorService {
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
 
-    // Falta REAL de fotografia na renderização. Não repetir 10 vezes a
-    // captura e não chamar uma IA para redesenhar o projeto concluído.
-    // Os arquivos e JPEGs já gravados ficam preservados para recuperação.
-    const erroMidia=(result.error??'')+'\n'+(result.output??'');
-    if(attemptStatus !== 'SUCESSO' &&
-      providerId === 'local-shell' && /MOTION_MIDIA_AUSENTE:/.test(erroMidia)) {
-      const detail=erroMidia.match(/MOTION_MIDIA_AUSENTE:[^\n]*/)?.[0]??'Fotografia essencial ausente';
-      await L('RENDERIZAÇÃO: '+detail+'. Não repetir a etapa nem chamar IA.', 'ERROR', attempt.id);
-      await this.checkpoint(job.id, step, worktree,
-        'foto essencial não carregou; composição e quadros preservados',{tentativa:number});
-      return this.blockJob(task, workerId, job, step,
-        BlockedReason.CRITERIOS_NAO_ATENDIDOS,
-        'Falha real de mídia no renderizador: '+detail+
-        '. Nenhum MP4 incompleto será publicado. A composição está preservada.');
-    }
-
-    // Não repetir três vezes o MESMO erro de esquema numa composição que
-    // já foi concluída. Uma nova tentativa local-shell só volta a fazer
-    // sentido após correção do motor/arquivos, pelo comando Retomar trabalho.
-    const erroDaCena=attemptStatus!=='SUCESSO'&&providerId==='local-shell'
-      ? erroDeterministicoMotion((result.error??'')+'\n'+(result.output??'')):null;
-    if(erroDaCena){
-      await L('MOTION CORE: rejeição determinística na primeira tentativa: '+erroDaCena,'ERROR',attempt.id);
-      await this.checkpoint(job.id,step,worktree,
-        'composição preservada; renderizador rejeitou um parâmetro',{tentativa:number});
-      return this.blockJob(task,workerId,job,step,BlockedReason.CRITERIOS_NAO_ATENDIDOS,
-        'O renderizador local rejeitou um parâmetro da composição: '+erroDaCena+
-        '. A composição e os arquivos originais foram preservados. '+
-        'Não repetir comando idêntico nem chamar IA para recriar a arte.');
-    }
-
-    // Fonte motion incompatível com o motor declarado no plano é falha de
-    // contrato, não uma reprovação artística. Não abrir mais sessões nem
-    // repetir o render; o produtor precisa corrigir o FORMATO da fonte.
-    // O diagnóstico é emitido pelo mesmo núcleo que o render usa.
-    if (attemptStatus !== 'SUCESSO' && /MOTION_CONTRATO:/.test(result.error ?? '')) {
-      const causa = (result.error ?? '').slice(0, 1700);
-      await L('CONTRATO MOTION: a fonte não corresponde ao motor escolhido. Sem nova tentativa automática. ' +
-        causa, 'ERROR', attempt.id);
-      await this.checkpoint(job.id, step, worktree, 'fonte motion fora do contrato do motor', { tentativa: number });
-      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
-        'A composição ainda não foi preparada corretamente para o motor Nivoo. ' +
-        causa + '. Arquivos preservados, sem renderização nem loop de conferência. ' +
-        'O Nivo precisa corrigir a fonte da etapa, não pedir ao usuário para depurar ferramentas.');
+    const mediaFailure = classifyMediaFailure(providerId, attemptStatus, result);
+    if (mediaFailure) {
+      await L(mediaFailure.log, 'ERROR', attempt.id);
+      await this.checkpoint(job.id, step, worktree, mediaFailure.checkpoint, { tentativa: number });
+      return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, mediaFailure.detail);
     }
 
     if (attemptStatus === 'SESSAO_ENCERRADA') {
