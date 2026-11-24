@@ -74,8 +74,10 @@ async function main() {
     assert.match(carregado.warnings.join(' '),/Perfil de ritmo.*normal/);
     assert.equal(fs.readFileSync(anuncioPath,'utf8'),originalAnuncio,
       'normalização só em memória; cena pronta nunca reescrita');
-    assert.doesNotThrow(()=>new vm.Script(sceneDocument(carregado.scene,carregado.binaries)
-      .match(/<script>([\\s\\S]+)<\\/script>/)[1]));
+    const scriptAnuncio=sceneDocument(carregado.scene,carregado.binaries)
+      .match(/<script>([\s\S]+)<\/script>/)?.[1];
+    assert.ok(scriptAnuncio,'HTML do anúncio deve conter o renderizador de cena');
+    assert.doesNotThrow(()=>new vm.Script(scriptAnuncio));
     const saved=loadScene(path.join(root,'scene.json'));
     assert.equal(saved.scene.duration,20);
     assert.match(saved.binaries['assets/pizza.png'],/^data:image\/png;base64,/);
