@@ -25,10 +25,10 @@ async function main() {
   // O motor aceita UMA subida para reutilizar assets de uma pasta irmã em motion/.
   // Esse suporte foi integrado depois do teste antigo, que rejeitava qualquer ../.
   assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../antigo/assets/pizza.js'}]}));
-  // Duas subidas permitem escapar da pasta motion/: devem ser recusadas ainda
-  // na validação, antes de carregar imagens ou iniciar uma renderização.
-  assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../../secreto.png'}]}),/asset local inválido/);
-  assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'/etc/senha.png'}]}),/asset local inválido/);
+  // A sintaxe de um logo nunca reprova a composição. O carregador protege
+  // os diretórios reais e emite aviso quando um arquivo não está disponível.
+  assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../../secreto.png'}]}));
+  assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'/etc/senha.png'}]}));
   assert.throws(()=>validateScene({...scene,pacing:{openingEnd:30}}),/openingEnd/);
   assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],keys:[{at:10},{at:1}]}]}),/ordenados/);
 
@@ -115,7 +115,31 @@ async function main() {
     const bad=JSON.parse(JSON.stringify(scene));
     bad.layers[0].asset='assets/external.png';
     fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(bad));
-    assert.throws(()=>loadScene(path.join(root,'scene.json')),/fora da pasta/);
+    const impedida=loadScene(path.join(root,'scene.json'));
+    assert.equal(impedida.binaries['assets/external.png'],undefined);
+    assert.ok(impedida.warnings.some(w=>/fora das pastas permitidas/.test(w)),
+      'symlink para fora é recusado sem reprovar o vídeo inteiro');
+    // Uma referência de logo incompatível deve gerar AVISO, jamais bloquear.
+    const logoBad=JSON.parse(JSON.stringify(scene));
+    logoBad.layers.push({id:'logo',type:'image',asset:'assets/logo inexistente.svg',
+      x:540,y:80,width:300,height:120});
+    fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(logoBad));
+    const tolerante=loadScene(path.join(root,'scene.json'));
+    assert.equal(tolerante.binaries['assets/logo inexistente.svg'],undefined);
+    assert.ok(tolerante.warnings.some(w=>/logo inexistente/.test(w)));
+    assert.ok(tolerante.binaries['assets/pizza.png'],'pizza original não foi afetada');
+    // Logo em pasta com espaços e extensão SVG é recurso legítimo.
+    fs.writeFileSync(path.join(root,'assets','logo oficial.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+    logoBad.layers[4].asset='assets/logo oficial.svg';
+    fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(logoBad));
+    const legivel=loadScene(path.join(root,'scene.json'));
+    assert.match(legivel.binaries['assets/logo oficial.svg'],/^data:image\/svg\+xml;base64,/);
+    // Data URL não acessa rede e dispensa arquivo extra.
+    logoBad.layers[4].asset='data:image/png;base64,iVBORw0KGgo=';
+    fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(logoBad));
+    const incorporada=loadScene(path.join(root,'scene.json'));
+    assert.equal(incorporada.binaries[logoBad.layers[4].asset],logoBad.layers[4].asset);
   } finally { fs.rmSync(root,{recursive:true,force:true});fs.rmSync(escape,{force:true}); }
   console.log('PASS motion-core: manifest, imagem sem clonagem, z seguro, pacing, keyframes, assets confinados, sintaxe navegador');
 }
