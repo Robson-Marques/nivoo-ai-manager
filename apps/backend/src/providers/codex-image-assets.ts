@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto, resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
@@ -81,7 +81,12 @@ export function nativeImageCandidates(home:string,cwd:string,thread:string|undef
     const rel=path.relative(fs.realpathSync(cwd),p);
     if(/^generated_images\/[A-Za-z0-9._/-]+\.png$/i.test(rel)&&!rel.split('/').includes('..'))add(cwd,rel);
   }
-  return [...found];
+  // Some CLI releases publish the same binary in the cache and worktree.
+  const unique=new Map<string,string>();
+  for(const file of found){
+    try{const hash=createHash('sha256').update(fs.readFileSync(file)).digest('hex');if(!unique.has(hash))unique.set(hash,file);}catch{/* disappeared */}
+  }
+  return [...unique.values()];
 }
 export function imageEventPath(ev:any):string|undefined{
   const item=ev?.item;

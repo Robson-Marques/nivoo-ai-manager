@@ -33,6 +33,10 @@ describe('Codex ImageGen ligado ao Motion',()=>{
     expect(compiled[2].dependsOn).toContain('compor');
     expect(compiled[2].instructions).toContain('--motor html');
     expect(compileWorkflowPlan(compiled,'codex-cli--450809da','Campanha editorial profissional',{template:'design-video'})).toEqual(compiled);
+    const withPerspective=compileWorkflowPlan([art,author,render],'codex-cli--450809da','Calendário 3D com neon e imagem recortada',{template:'design-video'}) as any[];
+    expect(withPerspective[2].instructions).toContain('--motor html');
+    const explicitGeometry=compileWorkflowPlan([art,author,{...render,instructions:render.instructions+' --motor hybrid'}],'codex-cli--450809da','Calendário 3D com malhas e produto',{template:'design-video'}) as any[];
+    expect(explicitGeometry[2].instructions).toContain('--motor hybrid');
   });
   it('recupera somente o PNG da própria sessão, preservando alfa e sem sobrescrever',async()=>{
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-image-test-'));

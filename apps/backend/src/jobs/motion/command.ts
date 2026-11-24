@@ -58,6 +58,13 @@ export function readMotionInvocation(script:string):MotionInvocation|null{
   const commands=motionCommandWords(script);
   return commands.length===1?describe(commands[0]):null;
 }
+/** Explicit renderer choice, when the author has already selected a mode. */
+export function readMotionMode(script:string):'scene'|'hybrid'|'html'|undefined{
+  const commands=motionCommandWords(script);
+  if(commands.length!==1)return undefined;
+  const mode=flagWord(commands[0],'--motor')?.value;
+  return mode==='scene'||mode==='hybrid'||mode==='html'?mode:undefined;
+}
 function describe(w:Word[]):MotionInvocation|null{
   const source=sourceWord(w)?.value;
   if(!source||!validSource(source))return null;

@@ -1,6 +1,7 @@
 import { nativeImageTarget, isCodex, visualReferences } from '../../providers/codex-image-assets';
 import type { RawStep, MotionMode } from './types';
 import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual } from './intent';
+import { readMotionMode } from './command';
 import { renderSource, selectRenderMode, selectStandaloneHtml } from './source';
 import { attachAuthorContract, attachStandalone3DContract, reconcileAuthorOutput, isComposer, originalAuthorInstructions } from './authoring';
 
@@ -87,7 +88,11 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const text = [
       objective, String(compose.title ?? ''), original, String(render.title ?? ''),
     ].join(' ');
-    const real3d = imageStages.length ? pedeGeometria3D(objective) : pedeGeometria3D(text);
+    // PNG assets may themselves move in perspective (CSS 3D), or share
+    // the HTML scene with real WebGL geometry. Do not infer the restrictive
+    // hybrid overlay contract from the mere word "3D".
+    const selectedMode=readMotionMode(command);
+    const real3d = imageStages.length ? selectedMode==='hybrid' : pedeGeometria3D(text);
     const hasPhotos = imageStages.length > 0 || /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.

@@ -29,7 +29,7 @@ export function attachAuthorContract(compose: RawStep, source: string, mode: Mot
             'NÃO invente implementação de fotografia com WebGL, clones de textura ou placas escuras para simular relevo.',
           ]
         : mode === 'graphics' ? [
-            'Entregue '+source+'/index.html com grafismos, SVG/CSS e animação próprios do briefing. Use WebGL nativo quando ajudar. Não use o exemplo declarativo como arte.',
+            'Entregue '+source+'/index.html com grafismos, SVG/CSS e animação próprios do briefing. Use CSS 3D (perspective, transform-origin, rotateX/rotateY) para animar elementos PNG com alfa sem redesenhar seus pixels; sombras, luz neon, máscaras e SVG podem ter movimento próprio. Use WebGL nativo quando realmente precisar de geometria. Não use o exemplo declarativo como arte.',
           ] : [
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias de produtos e logos de primeiro plano ficam SOMENTE em overlays.json como camadas RGBA. O fundo original fica atrás da geometria, no index.html; não coloque fundo opaco no overlay que cobre a cena 3D.',
