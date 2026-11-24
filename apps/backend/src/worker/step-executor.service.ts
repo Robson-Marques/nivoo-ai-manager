@@ -498,6 +498,10 @@ export class StepExecutorService {
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
 
+    if(attemptStatus!=='SUCESSO'&&/MIDIA_DESTINO_EXISTENTE:/.test(result.error??'')){
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'conflito de destino; saída preservada',{tentativa:number});
+      return this.blockJob(task,workerId,job,step,BlockedReason.CRITERIOS_NAO_ATENDIDOS,'O destino da mídia já existe. Preserve o arquivo anterior e selecione um destino novo: '+(result.error??'').slice(-600));
+    }
     const mediaFailure = classifyMediaFailure(providerId, attemptStatus, result);
     if (mediaFailure) {
       await L(mediaFailure.log, 'ERROR', attempt.id);
