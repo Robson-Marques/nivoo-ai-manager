@@ -26,12 +26,14 @@ export function selectSource(command: string, source: string, filename = 'index.
   });
 }
 
-export function selectStandaloneHtml(command: string, source: string): string {
-  const html=selectSource(command,source);
-  // Standalone graphics owns the complete image. Ignore stale overlay from
-  // another version; only hybrid compositions use the overlay.
-  const mode=/--motor\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)/;
-  if(mode.test(html))return html.replace(mode,'--motor html');
-  return html.replace(RENDER_CALL,m=>m+' --motor html');
+/** Explicit mode is part of the author→renderer contract. */
+export function selectRenderMode(command: string, source: string, mode: 'scene' | 'hybrid' | 'html'): string {
+  const entry=selectSource(command,source,mode==='scene'?'scene.json':'index.html');
+  const flag=/--motor\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)/;
+  if(flag.test(entry))return entry.replace(flag,'--motor '+mode);
+  return entry.replace(RENDER_CALL,m=>m+' --motor '+mode);
 }
 
+export function selectStandaloneHtml(command: string, source: string): string {
+  return selectRenderMode(command,source,'html');
+}
