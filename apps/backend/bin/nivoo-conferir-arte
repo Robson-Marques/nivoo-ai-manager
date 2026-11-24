@@ -87,6 +87,7 @@ visit(root, 0);
       if (ponto < marcas.length && decorrido >= marcas[ponto]) {
         const nome = 'quadro-' + String(ponto + 1).padStart(2, '0') + '.png';
         const arquivo = path.join(dir, nome);
+        await page.evaluate(t=>typeof window.__renderAt==='function'?window.__renderAt(t):null,marcas[ponto]);
         await page.screenshot({ path: arquivo, fullPage: false, animations: 'allow' });
         quadros.push({ segundo: Number(((Date.now() - inicio) / 1000).toFixed(2)),
           arquivo: path.relative(process.cwd(), arquivo).split(path.sep).join('/') });
@@ -96,6 +97,7 @@ visit(root, 0);
       await page.waitForTimeout(100);
     }
     const frame = path.join(dir, 'quadro.png');
+    await page.evaluate(t=>typeof window.__renderAt==='function'?window.__renderAt(t):null,duracao);
     await page.screenshot({ path: frame, fullPage: false, animations: 'allow' });
     if (quadros.length < 4) errors.push('ANIMACAO_INCOMPLETA: não foi possível capturar quatro instantes distintos; conferir duração e sinal __motionFim.');
     const report = {
