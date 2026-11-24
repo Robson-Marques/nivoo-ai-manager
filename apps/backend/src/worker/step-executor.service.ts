@@ -3,7 +3,6 @@ import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
-import { looksLikeResourceProblem } from '../providers/provider.interface';
 import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import { Injectable, Logger } from '@nestjs/common';
@@ -36,10 +35,10 @@ import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
-import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey } from './executor/recovery-policy';
 import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia } from './executor/media-recovery';
+import { recordLesson,ingestNotes,saveCheckpoint } from './executor/recovery-store';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
 import { mediaEnabledForArea } from '../specialties/media/scope';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
@@ -63,17 +62,7 @@ const MAX_RESOURCE_RECHECKS_PER_STEP = 3;
 const RESOURCE_BACKOFF_MS = [30_000, 60_000, 120_000];
 export type StepOutcome = 'CONCLUIDO' | 'CONTINUA' | 'RETRY' | 'FALHOU' | 'BLOQUEADO' | 'INTERROMPIDO' | 'AGUARDANDO_RECURSO' | 'AGUARDANDO_APROVACAO' | 'IGNORADO';
 
-/** Erros que não são do trabalho da IA: não geram lição. */
-export function ehProblemaDeInfra(texto: string): boolean {
-  return /command not found|comando não encontrado|exit 127|timeout após \d+ ms|limite de \d+ sess|recusou o login|não está conectada/i.test(texto) || looksLikeResourceProblem(texto);
-}
-
-const MOTIVO_LICAO: Record<string, string> = {
-  REPETICAO_IMPRODUTIVA: 'a IA ficou repetindo sem avançar',
-  LIMITE_TENTATIVAS: 'esgotou as tentativas',
-  LIMITE_SESSOES: 'esgotou as sessões',
-  POLITICA: 'bloqueado por segurança',
-};
+export { ehProblemaDeInfra } from './executor/recovery-store';
 
 export { explicarConferencia } from './executor/verification';
 
@@ -286,7 +275,7 @@ export class StepExecutorService {
           await L('RECUPERAÇÃO SEM REFAZER: a IA já entregou a composição e os arquivos previstos. '+
             'A reprovação ocorreu somente no aprovador Motion antigo. '+
             'Avançando à renderização existente, sem outra sessão ou consumo de tokens.', 'WARN');
-          await this.checkpoint(job.id, step, worktree,
+          await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree,
             'composição recuperada; aprovador Motion removido',{recuperacao:true});
           await this.prisma.step.update({where:{id:step.id},data:{
             status:'CONCLUIDO',statusDetail:'Composição existente recuperada sem nova IA',
@@ -439,7 +428,7 @@ export class StepExecutorService {
         await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);
       }
     }
-    const notes = await this.ingestNotes(job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
+    const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
     const treeAfter = await this.workspace.snapshotHash(worktree);
 
     const classified=classifyExecutionResult(result,isAi,verified,sessionClosedNormally);
@@ -478,7 +467,7 @@ export class StepExecutorService {
 
     if (attemptStatus === 'INTERROMPIDA') {
       // Checkpoint primeiro: a etapa só volta a ser retomável depois que o estado está salvo.
-      await this.checkpoint(job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
       await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });
       await this.queue.complete(task.id, workerId);
       // Se o usuário já retomou o job enquanto abortávamos, reagenda.
@@ -492,19 +481,19 @@ export class StepExecutorService {
     }
 
     if (ambiente && attemptStatus !== 'SUCESSO') {
-      await this.checkpoint(job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência falhou por um problema do SERVIDOR do Nivoo, não do projeto (${ambiente}). O trabalho feito está salvo. Rode "nivoo update" no servidor (instala e arruma as ferramentas) e clique em "Tentar de novo"; se repetir, mande o diagnóstico`);
     }
 
     if (credencialFaltando && attemptStatus !== 'SUCESSO') {
-      await this.checkpoint(job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência não conseguiu instalar as dependências: um registro de pacotes privado recusou o acesso por falta de token (${credencialFaltando}). O trabalho feito está salvo. Guarde o token em Ajustes do projeto → "Variáveis da conferência" (ex.: GITLAB_PACKAGE_TOKEN, o mesmo nome que o .npmrc usa) e clique em "Continuar"`);
     }
 
     if (faltaPrograma && attemptStatus !== 'SUCESSO') {
-      await this.checkpoint(job.id, step, worktree, `conferência impossível na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência impossível na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
@@ -512,21 +501,21 @@ export class StepExecutorService {
     const mediaFailure = classifyMediaFailure(providerId, attemptStatus, result);
     if (mediaFailure) {
       await L(mediaFailure.log, 'ERROR', attempt.id);
-      await this.checkpoint(job.id, step, worktree, mediaFailure.checkpoint, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, mediaFailure.checkpoint, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, mediaFailure.detail);
     }
 
     if (attemptStatus === 'SESSAO_ENCERRADA') {
       const reprovacaoVisual = parecerVisualNaoAprovado(worktree, step.verifyCommand ?? '');
       if (reprovacaoVisual) {
-        await this.checkpoint(job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number });
+        await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number });
         return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, reprovacaoVisual);
       }
       return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes);
     }
 
     if (attemptStatus === 'SUCESSO') {
-      const commit = await this.checkpoint(job.id, step, worktree, `etapa ${step.key} concluída (tentativa ${number})`, {
+      const commit = await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `etapa ${step.key} concluída (tentativa ${number})`, {
         tentativa: number,
         log: logArt.id,
         artefatos: outputs.map((a) => a.id),
@@ -541,7 +530,7 @@ export class StepExecutorService {
     // cegas. Entregar diagnóstico e artefatos presentes; quem decide refazer
     // o vídeo é o usuário, após inspecionar o resultado.
     if (falhaTecnicaDaMidia) {
-      await this.checkpoint(job.id, step, worktree, 'MP4 com problema técnico, preservado para avaliação', { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, 'MP4 com problema técnico, preservado para avaliação', { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
         'A etapa produziu/esperava um vídeo, mas a inspeção técnica encontrou: ' + falhaTecnicaDaMidia +
         '. Nenhuma nova renderização será iniciada automaticamente. Consulte o vídeo já publicado e escolha se deseja corrigir.');
@@ -571,7 +560,7 @@ export class StepExecutorService {
     // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
     if (!isAi && providerId === 'local-shell' && result.exitCode === 127) {
       const mensagem = (result.error || result.output || '').trim();
-      await this.checkpoint(job.id, step, worktree, `comando local inexistente na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `comando local inexistente na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `Comando local inválido ou não instalado; não vou repetir sem alteração: ${mensagem.slice(0, 2200)}`);
     }
@@ -591,7 +580,7 @@ export class StepExecutorService {
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual,step.verifyCommand??'',providerId,isAi,diagnosticoScript);
     if(recovery.kind==='limit')return this.failStep(task,workerId,job,step,recovery.detail);
     if(recovery.kind==='repeat'){
-      await this.checkpoint(job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number});
       return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,recovery.detail);
     }
     if(recovery.kind==='repair')return this.agendarReparoDeScript(task,workerId,job,step,worktree,number,erroAtual);
@@ -613,7 +602,7 @@ export class StepExecutorService {
     task: ClaimedTask, workerId: string, job: Job, step: Step, worktree: string, number: number,
     treeBefore: string, treeAfter: string, notes: number,
   ): Promise<StepOutcome> {
-    await this.checkpoint(job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
+    await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
     });
     // Contar a mesma falha antes de agendar outra recaptura: um agente que
@@ -677,117 +666,6 @@ export class StepExecutorService {
     return 'CONTINUA';
   }
 
-  /**
-   * Lição de falha (versão determinística e auditável do "aprendizado contínuo"): o que foi tentado e
-   * por que não funcionou fica na memória DO PROJETO, com referência às tentativas, e entra com alta
-   * prioridade no contexto de sessões futuras do mesmo projeto — nunca de outros projetos.
-   */
-  private async recordLesson(job: Job, step: Step, reason: string, detail: string): Promise<void> {
-    const teaches: string[] = [BlockedReason.REPETICAO_IMPRODUTIVA, BlockedReason.LIMITE_TENTATIVAS, BlockedReason.LIMITE_SESSOES, BlockedReason.POLITICA];
-    if (!teaches.includes(reason)) return; // limites de tempo/orçamento e interrupções não dizem nada sobre a abordagem
-    const recent = await this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 3 });
-    // Problema de infraestrutura (programa faltando, IA sem crédito/login, limite do próprio sistema) não diz
-    // nada sobre o jeito de fazer: não vira lição.
-    if (ehProblemaDeInfra(`${detail} ${recent.map((a) => `${a.error ?? ''} ${(a.output ?? '').slice(-500)}`).join(' ')}`)) return;
-    // Uma lição por etapa e motivo (não uma por tentativa).
-    const ja = await this.prisma.memoryEntry.findFirst({
-      where: { projectId: job.projectId, supersededById: null, AND: [{ references: { path: ['origem'], equals: 'licao-automatica' } }, { references: { path: ['stepId'], equals: step.id } }, { references: { path: ['motivo'], equals: reason } }] },
-    });
-    if (ja) return;
-    const tried = recent
-      .reverse()
-      .map((a) => `#${a.number} ${a.status}${a.stopReason ? ` (${a.stopReason})` : ''}: ${(a.error ?? '').slice(0, 300)}${a.output ? ` — saída: ${a.output.trim().slice(-200)}` : ''}`)
-      .join(' | ');
-    await this.prisma.memoryEntry.create({
-      data: {
-        camada: 'INTERNA',
-        projectId: job.projectId,
-        category: 'PENDENCIA',
-        title: `Lição: "${step.title || step.key}" (${job.title}) — ${MOTIVO_LICAO[reason] ?? reason}`,
-        content: `O que aconteceu: ${detail}.\nInstruções da etapa: ${step.instructions.slice(0, 400)}\nTentativas: ${tried || 'nenhuma'}\nNão repita esta abordagem sem mudar algo essencial.`,
-        references: { origem: 'licao-automatica', jobId: job.id, stepId: step.id, motivo: reason, attemptIds: recent.map((a) => a.id) },
-        author: 'sistema:licoes',
-      },
-    }).catch(() => undefined);
-  }
-
-  /**
-   * Notas estruturadas deixadas pelo agente em .nivoo/notas.jsonl (uma por linha):
-   * {"tipo": "DECISAO_PROPOSTA|EVIDENCIA|PENDENCIA|PROGRESSO", "titulo": "...", "conteudo": "...", "arquivos": ["out/x"]}
-   * São versionadas no git do job e importadas para a memória do projeto. Decisões do agente
-   * entram como PENDENCIA (proposta) — só o operador aprova decisões.
-   */
-  private async ingestNotes(job: Job, step: Step, attemptId: string, worktree: string, providerId: string, sessionId: string | undefined, outputs: { id: string; name: string }[]): Promise<number> {
-    const file = path.join(worktree, '.nivoo', 'notas.jsonl');
-    if (!fs.existsSync(file)) return 0;
-    const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
-    // Deduplicação por hash do conteúdo: robusta mesmo se o agente reescrever o arquivo inteiro.
-    const known = await this.prisma.memoryEntry.findMany({
-      where: { projectId: job.projectId, references: { path: ['jobId'], equals: job.id } },
-      select: { references: true },
-    });
-    const seen = new Set(known.map((k) => (k.references as any)?.noteHash).filter(Boolean));
-    const fresh = lines.filter((l) => !seen.has(sha256(l.trim())));
-    const commit = await this.workspace.headCommit(worktree);
-    const author = `agente:${providerId}:sessao:${sessionId ?? attemptId}`;
-    let count = 0;
-    for (const line of fresh) {
-      count++;
-      let n: any;
-      try {
-        n = JSON.parse(line);
-      } catch {
-        await this.logs.log(job.id, `Nota inválida ignorada (não é JSON): ${line.slice(0, 200)}`, { stepId: step.id, level: 'WARN', source: 'worker' });
-        await this.prisma.memoryEntry.create({
-          data: { camada: 'INTERNA', projectId: job.projectId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
-        });
-        continue;
-      }
-      const tipo = String(n.tipo ?? '').toUpperCase();
-      const titulo = String(n.titulo ?? tipo).slice(0, 200);
-      const conteudo = String(n.conteudo ?? '').slice(0, 20000);
-      const refsBase = { jobId: job.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash: sha256(line.trim()) };
-      let category: 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
-      let references: Record<string, unknown> = refsBase;
-      if (tipo === 'EVIDENCIA') {
-        const wanted: string[] = Array.isArray(n.arquivos) ? n.arquivos.map((a: string) => String(a).replace(/^out\//, '')) : [];
-        const arts = await this.prisma.artifact.findMany({ where: { jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
-        if (arts.length && commit) {
-          category = 'EVIDENCIA';
-          references = { ...refsBase, artifactIds: arts.map((a) => a.id), gitCommit: commit, parameters: {} };
-        }
-      }
-      const prefix = tipo === 'DECISAO_PROPOSTA' ? '[decisão proposta pelo agente — requer aprovação] ' : tipo === 'PROGRESSO' ? '[progresso] ' : tipo === 'EVIDENCIA' && category !== 'EVIDENCIA' ? '[evidência sem artefato verificável] ' : '';
-      await this.prisma.memoryEntry.create({
-        data: { camada: 'INTERNA', projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
-      });
-    }
-    if (count) await escreverArquivosDaMemoria(this.prisma, job.projectId);
-    if (count) await this.logs.log(job.id, `${count} nota(s) do agente guardada(s) na memória interna do processo`, { stepId: step.id, source: 'worker' });
-    void outputs;
-    return count;
-  }
-
-  private async checkpoint(jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>) {
-    const commit = await this.workspace.commitCheckpoint(worktree, `checkpoint: ${label}`).catch(() => null);
-    const steps = await this.prisma.step.findMany({ where: { jobId }, select: { key: true, status: true } });
-    await this.prisma.$transaction(async (tx) => {
-      await OrchestratorService.lockJob(tx, jobId);
-      const seq = (await tx.checkpoint.count({ where: { jobId } })) + 1;
-      await tx.checkpoint.create({
-        data: {
-          jobId,
-          stepId: step.id,
-          seq,
-          label,
-          gitCommit: commit,
-          state: { etapa: step.key, etapas: Object.fromEntries(steps.map((s) => [s.key, s.status])), ...extra } as Prisma.InputJsonValue,
-        },
-      });
-    });
-    return commit;
-  }
-
   /** Ao fim do trabalho (parado/falhou): tira da pasta do trabalho dependências e caches (node_modules…). */
   private async limparAoFim(job: Job & { project?: { dirKey: string } }): Promise<void> {
     try {
@@ -813,7 +691,7 @@ export class StepExecutorService {
     await this.logs.log(job.id, `Job BLOQUEADO (${reason}) na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
     await avisarConversaQueParou(this.prisma, job.id, `${reason}: ${detail}`);
     await this.limparAoFim(job);
-    await this.recordLesson(job, step, reason, detail);
+    await recordLesson(this.prisma,job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'BLOQUEADO';
   }
@@ -824,7 +702,7 @@ export class StepExecutorService {
     task: ClaimedTask, workerId: string, job: Job, step: Step,
     worktree: string, number: number, detalhe: string,
   ): Promise<StepOutcome> {
-    await this.checkpoint(job.id, step, worktree, `aguardando trilha na etapa ${step.key}`, {
+    await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `aguardando trilha na etapa ${step.key}`, {
       tentativa: number, motivo: detalhe.slice(0, 1000),
     });
     await this.prisma.$transaction(async (tx) => {
@@ -856,7 +734,7 @@ export class StepExecutorService {
   ): Promise<StepOutcome> {
     const agente = job.project.provider;
     if (!this.registry.has(agente) || this.registry.get(agente).kind === 'executor') {
-      await this.checkpoint(job.id, step, worktree, `script falhou na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `script falhou na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         'O script precisa de reparo, mas este projeto não possui uma IA de código configurada. ' +
         diagnostico.slice(0, 850));
@@ -875,7 +753,7 @@ export class StepExecutorService {
       'registre o impedimento no relatório; NÃO invente mídia nem substitua recursos aprovados.',
       `Grave um relatório breve em ${relatorio} com os arquivos alterados, a causa corrigida e as limitações restantes.`,
     ].join('\n');
-    await this.checkpoint(job.id, step, worktree, `erro de script: agendando reparo ${chave}`, {
+    await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `erro de script: agendando reparo ${chave}`, {
       tentativa: number, diagnostico: diagnostico.slice(0, 1000),
     });
     await this.prisma.$transaction(async (tx) => {
@@ -916,7 +794,7 @@ export class StepExecutorService {
     await this.logs.log(job.id, `Job FALHOU na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
     await avisarConversaQueParou(this.prisma, job.id, detail);
     await this.limparAoFim(job);
-    await this.recordLesson(job, step, reason, detail);
+    await recordLesson(this.prisma,job, step, reason, detail);
     await this.queue.complete(task.id, workerId);
     return 'FALHOU';
   }
