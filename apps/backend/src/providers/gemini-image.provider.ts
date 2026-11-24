@@ -62,8 +62,15 @@ export class GeminiImageProvider implements AiProvider {
         body:JSON.stringify({model:MODEL,input,response_format:{type:'image',mime_type:'image/png',aspect_ratio:opts.proporcao,image_size:opts.tamanho}}),
         signal:AbortSignal.any([req.signal,AbortSignal.timeout(Math.max(1,Math.min(req.timeoutMs,180_000)))]),
       });
-      const json=await res.json().catch(()=>null);
-      if(!res.ok)return fail('Gemini imagem HTTP '+res.status+': '+String(json?.error?.message??'sem detalhe').slice(0,500));
+      // fetch().json() is unknown on the Node/TypeScript versions used by the backend.
+      // Narrow the external response before reading optional diagnostic fields.
+      const raw:unknown=await res.json().catch(()=>null);
+      const json=raw!==null&&typeof raw==='object'&&!Array.isArray(raw)
+        ? raw as Record<string,unknown> : null;
+      const apiError=json?.error;
+      const errorMessage=apiError!==null&&typeof apiError==='object'&&'message' in apiError
+        ? apiError.message : undefined;
+      if(!res.ok)return fail('Gemini imagem HTTP '+res.status+': '+String(errorMessage??'sem detalhe').slice(0,500));
       // Estimativa apenas da saída de imagem. Entrada e raciocínio podem ter custo adicional.
       cost=opts.tamanho==='2K'?0.0504:0.0336;
       const bytes=imageData(json);
