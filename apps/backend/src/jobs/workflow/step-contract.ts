@@ -9,6 +9,7 @@ import { conferenciaTecnicaDeVideo,customMediaVerification } from '../video-step
 import { mediaDeliveries } from '../../specialties/media/delivery';
 import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
+import { imageOptions } from '../../providers/image-options';
 import { operacoesDeArquivos } from './file-options';
 
 export function normalizarInstrucaoDeEtapa(texto: string, provider: string, origem: string): string {
@@ -63,6 +64,11 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         Object.assign(providerOptions, opcoesDeVideo(key, opts));
         verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
       }
+      if ((provider ?? defaultProvider) === 'gemini-image') {
+        Object.assign(providerOptions, imageOptions(key, opts));
+        // O próprio executor confere o PNG binário e publica o arquivo.
+        verificacao = verifyCommand;
+      }
       // Juntar as cenas num vídeo só (etapa do sistema, ffmpeg).
       if ((provider ?? defaultProvider) === 'juntar-videos') {
         Object.assign(providerOptions, opcoesDeJuncao(key, opts));
@@ -111,7 +117,7 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         provider,
         dependsOn: Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [],
         verifyCommand: verificacao,
-        requiresApproval: s.requiresApproval === true || pol.requiresApproval,
+        requiresApproval: s.requiresApproval === true || pol.requiresApproval || (provider ?? defaultProvider) === 'gemini-image',
         providerOptions: providerOptions as Prisma.InputJsonValue,
       };
     });

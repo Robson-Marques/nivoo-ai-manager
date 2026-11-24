@@ -41,6 +41,7 @@ export function attachAuthorContract(compose: RawStep, source: string, mode: Mot
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
         MOTION_CONTRACT_MARKER + ' Contrato técnico aplicado pelo NÚCLEO do Nivo, sem criar etapas:\n' +
         requirements.map(s => '- ' + s).join('\n') +
+        '\n- Ativos visuais reais e referências aprovadas são a base da composição. Não os substitua por livros, caixas ou polígonos genéricos inventados. Use os arquivos locais na cena, preserve a aparência, e escolha movimento compatível com a informação de profundidade disponível.' +
         '\n' + (mode === 'graphics' ? graphicsAuthorContract() : mode === 'hybrid' ? graphicsAuthorContract() + '\nO contrato seguinte vale SOMENTE para o overlay transparente.\n' + motionAuthorContract(true) : motionAuthorContract()) +
         (visualRevision ? '\nRefação visual: a versão rejeitada é referência do que corrigir, não template. Produza os novos elementos solicitados.' : '') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';

@@ -192,6 +192,7 @@ export class StepExecutorService {
       const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
       if (!approved) {
         const ops = (step.provider ?? job.defaultProvider) === 'arquivos-projeto' ? descreverOperacoes((step.providerOptions ?? {}) as never) : '';
+        if ((step.provider ?? job.defaultProvider) === 'gemini-image') return this.awaitApproval(task, workerId, job, step, ['Geração de imagem pela API Gemini, com cobrança por uso'], 'Autoriza gerar esta imagem com Nano Banana pela API paga do Gemini?');
         return this.awaitApproval(task, workerId, job, step, ops ? [ops] : pol.reasons, ops ? `Confirma ${ops}? (fica no histórico do git; dá para desfazer)` : undefined);
       }
     }
@@ -561,6 +562,12 @@ export class StepExecutorService {
         detalhe.slice(0, 1500), 'WARN', attempt.id);
     }
 
+    // Uma chamada de imagem paga pode ter sido cobrada antes de uma falha de rede.
+    // Não a repita automaticamente sem decisão do usuário.
+    if (!isAi && providerId === 'gemini-image') {
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'geração visual pendente',{tentativa:number});
+      return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(result.error??result.output??'Geração de imagem não concluída').slice(0,2200));
+    }
     // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
     if (!isAi && providerId === 'local-shell' && result.exitCode === 127) {
       const mensagem = (result.error || result.output || '').trim();

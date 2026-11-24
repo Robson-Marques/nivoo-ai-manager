@@ -7,6 +7,7 @@ export interface PlannerCapabilities {
   media:boolean;
   softwareInterface:boolean;
   paidVideo:boolean;
+  paidImage?:boolean;
 }
 
 /** Select capabilities from the configured area; only query optional providers
@@ -16,5 +17,6 @@ export async function selectPlannerCapabilities(area:AreaScope|undefined,registr
   const media=mediaEnabledForArea(area);
   const softwareInterface=softwareInterfaceEnabled(area);
   const paidVideo=media&&registry.has('gemini-video')&&(await registry.status('gemini-video',15_000)).available;
-  return {media,softwareInterface,paidVideo};
+  const paidImage=media&&registry.has('gemini-image')&&(await registry.status('gemini-image',15_000)).available;
+  return {media,softwareInterface,paidVideo,paidImage};
 }

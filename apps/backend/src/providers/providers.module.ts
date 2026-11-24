@@ -6,6 +6,7 @@ import { NvidiaApiProvider } from './nvidia-api.provider';
 import { GroqFreeProvider, OpenRouterFreeProvider } from './free-cloud-api.provider';
 import { NvidiaSpecializedService } from './nvidia-specialized.service';
 import { ArquivosProjetoProvider } from './arquivos-projeto.provider';
+import { GeminiImageProvider } from './gemini-image.provider';
 import { GeminiVideoProvider } from './gemini-video.provider';
 import { JuntarVideosProvider } from './juntar-videos.provider';
 import { GerarNarracaoProvider } from './gerar-narracao.provider';
@@ -16,7 +17,7 @@ import { KokoroTtsService } from './kokoro-tts.service';
 
 @Global()
 @Module({
-  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, NvidiaApiProvider, OpenRouterFreeProvider, GroqFreeProvider, NvidiaSpecializedService, GeminiVideoProvider, KokoroTtsService, JuntarVideosProvider, GerarNarracaoProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
+  providers: [ClaudeCodeCliProvider, ClaudeApiProvider, CodexCliProvider, CodexApiProvider, GeminiApiProvider, NvidiaApiProvider, OpenRouterFreeProvider, GroqFreeProvider, NvidiaSpecializedService, GeminiVideoProvider, GeminiImageProvider, KokoroTtsService, JuntarVideosProvider, GerarNarracaoProvider, ArquivosProjetoProvider, LocalShellProvider, ProviderRegistry, ModelCatalogService],
   exports: [ProviderRegistry, ModelCatalogService, NvidiaSpecializedService, GeminiVideoProvider, KokoroTtsService],
 })
 export class ProvidersModule {}
