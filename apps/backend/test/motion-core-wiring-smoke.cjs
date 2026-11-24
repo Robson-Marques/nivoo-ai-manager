@@ -45,7 +45,7 @@ function run() {
     'especialista recebe exemplo e unidades do motor instalado');
   assert.ok(converted[0].instructions.includes(motionAuthorContract(true)),
     'mesmo contrato serve ao especialista híbrido');
-  assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
+  assert.equal(convertedSimple[0].verifyCommand,"test -s 'motion/anuncio/scene.json'",'verificação simples acompanha a fonte efetiva');
   assert.match(convertedSimple[1].instructions,/scene\.json --motor scene/);
   assert.equal(convertedSimple.length,2);
   assert.equal(simple[0].instructions,'Escrever motion/anuncio/index.html com imagens de produtos','não alterar plano original');
