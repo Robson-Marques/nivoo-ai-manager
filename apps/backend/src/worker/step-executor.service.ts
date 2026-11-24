@@ -277,7 +277,7 @@ export class StepExecutorService {
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
     if (providerId !== 'local-shell' && providerId !== 'gemini-video' &&
-        etapaPedeRenderizacaoMotion(step)) {
+        mediaEnabledForArea(job.project.area) && etapaPedeRenderizacaoMotion(step)) {
       // Compatibilidade com planos antigos: não cobrar outra sessão de IA nem
       // aceitar vídeo velho só porque test -s encontra um arquivo antigo.
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
