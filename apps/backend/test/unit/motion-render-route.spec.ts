@@ -17,6 +17,21 @@ describe('Planejamento de renderização motion: execução real, sem aceitar MP
       'Renderizar a composição 3D v3 e montar com trilha.')).toThrow(BadRequestException);
   });
 
+  it('não confunde o reparo automático de código com o comando de render que ele cita', () => {
+    const repair = {
+      key: 'reparo-renderizar-1',
+      title: 'Corrigir o erro da etapa Renderizar o teaser vertical sem áudio',
+      provider: 'codex-cli',
+      instructions: 'REPARO AUTOMÁTICO DA ETAPA DO MESMO TRABALHO (NÃO CRIAR PROJETO OU PLANO NOVO).\n' +
+        'Comando real: nivoo-renderizar-motion motion/teaser/index.html --saida '+alvo+' --segundos 12 --tamanho 1080x1920',
+      verifyCommand: "test -s 'out/reparos/reparo-renderizar-1.md'",
+    };
+    expect(etapaPedeRenderizacaoMotion(repair)).toBe(false);
+    expect(corrigirPlanoRenderizacaoMotion([repair], 'codex-cli')).toEqual([repair]);
+    expect(etapaPedeRenderizacaoMotion({...repair,verifyCommand:'test -s '+alvo})).toBe(true);
+    expect(etapaPedeRenderizacaoMotion({...repair,key:'renderizar'})).toBe(true);
+  });
+
   it('direciona ao executor local quando fonte, nome, duração e tamanho são explícitos', () => {
     const step = {
       key: 'render_3d',
