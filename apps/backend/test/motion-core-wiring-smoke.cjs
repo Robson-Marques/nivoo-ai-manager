@@ -117,7 +117,6 @@ function run() {
   assert.match(patched[0].instructions,/NIVOO_MOTION_EDIT_V1/);
   assert.doesNotMatch(patched[0].instructions,/NIVOO_MOTION_CORE_CONTRACT_V1/);
   assert.deepEqual(conectarMotorMotion(patched,'codex-cli',patchObjective),patched);
-  assert.deepEqual(compileWorkflowPlan(patched,'codex-cli',patchObjective,{slug:'design-video',template:'design-video'}),patched);
   const dirPatch=conectarMotorMotion([patch,{...patchRender,instructions:patchRender.instructions.replace(recovered+'/index.html',recovered)}],'codex-cli',patchObjective);
   assert.equal(dirPatch[1].instructions,patchRender.instructions);
   const hybridPatch={...patchRender,instructions:patchRender.instructions+' --motor hybrid'};
@@ -126,6 +125,11 @@ function run() {
   assert.equal(graphicsRuntimeFiles.length,6);
   assert.ok(graphicsRuntimeFiles.every(file=>fs.statSync(file).isFile()));
   const {compileWorkflowPlan}=require('../dist/jobs/workflow/compile-plan');
+  const patchCompiled=compileWorkflowPlan(patched,'codex-cli',patchObjective,{slug:'design-video',template:'design-video'});
+  assert.equal(patchCompiled[1].instructions,patchRender.instructions);
+  assert.equal(patchCompiled[0].verifyCommand,patch.verifyCommand);
+  assert.doesNotMatch(patchCompiled[0].instructions,/NIVOO_REELS_SAFE_AREA_V1/);
+  assert.deepEqual(compileWorkflowPlan(patchCompiled,'codex-cli',patchObjective,{slug:'design-video',template:'design-video'}),patchCompiled);
   const compiled=compileWorkflowPlan(simple,'codex-cli','Direção de arte premium e elementos gráficos');
   assert.deepEqual(compileWorkflowPlan(compiled,'codex-cli','Direção de arte premium e elementos gráficos'),compiled,
     'prévia e criação usam o mesmo pipeline idempotente');

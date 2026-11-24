@@ -12,6 +12,7 @@ export function isComposer(step: RawStep): boolean {
   // Reports, scripts, standalone assets and speech are not Motion sources merely because their title says criar/ajustar.
   const output=String(step.verifyCommand??'');
   if(/\btest\s+-(?:s|f|e)\s+['"]?(?:out|motion)\/[\w./-]+\.(?:png|jpe?g|webp|mp3|wav|md|pdf|txt)\b/i.test(output)&&! /motion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr+' '+output))return false;
+  if(/\b(?:recuper\w*|retom\w*|edit\w*)\b/i.test(title)&&/\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json)\b/i.test(output)&&! /\bnivoo-renderizar-motion\b/.test(instr))return true;
   return (/compos|compor|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d|refazer|recriar|reformul|corrigir|ajustar/i.test(title) ||
       /\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr)) &&
     !/revis|auditor|confer|verific|valid|aprov/i.test(title) &&
