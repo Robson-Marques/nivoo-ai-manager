@@ -58,15 +58,6 @@ export function pedeGeometria3D(texto: string): boolean {
   return /\b3[\s-]*d\b|\bwebgl\b|\bextrud(?:ado|ada|idos?|idas?|ir|a(?:ç[aã]o|s))?\b/i.test(limpo);
 }
 
-function addRenderFlags(command: string, fast: boolean): string {
-  // A IA cria a composição; o renderizador detecta o formato realmente
-  // entregue, sem transformá-lo em exigência adicional após a criação.
-  // Só adicionamos controle de ritmo quando o briefing pedir.
-  if (!fast) return command;
-  return command.replace(/((?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\b[^\n;&]*)/, match =>
-    /(?:^|\s)--ritmo\s+/.test(match) ? match : match + ' --ritmo energetico');
-}
-
 /**
  * Obrigatório em ambos os caminhos: JobsService.validatePlan e create.
  * O retorno mantém exatamente a quantidade/ordem das etapas da IA.
@@ -148,12 +139,10 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
         requirements.map(s => '- ' + s).join('\n') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
-    // O resultado da IA NÃO passa mais por um segundo aprovador do Nivo.
-    // Preserva os critérios funcionais do trabalho original, sem anexar
-    // nivoo-conferir-motion nem obrigar um modo de render após a criação.
-    // O próprio render trata mídias incompatíveis com avisos, sem loop.
-    const fast = /\b(?:aceler|mais r[aá]pid|din[aâ]mic|ritmo (?:mais )?(?:r[aá]pid|aceler)|agiliz)/i.test(objective);
-    render.instructions = addRenderFlags(command, fast);
+    // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
+    // O próprio renderer seleciona o motor e respeita os movimentos criados
+    // pela IA, sem acelerar DUAS vezes o néon após a edição da composição.
+    // Critérios de entrega originais permanecem intocados.
   }
   return steps;
 }
