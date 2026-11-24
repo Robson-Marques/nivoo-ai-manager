@@ -22,7 +22,7 @@ import { softwareInterfaceEnabled } from '../../specialties/scope';
 
 /** Context assembly for agents, separate from provider execution and job state. */
 export async function buildExecutionContext(prisma:PrismaService,workspace:WorkspaceService,job: Job, step: Step, profileText: string, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
-    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts] = await Promise.all([
+    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts,stepCheckpoint] = await Promise.all([
       prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),
       prisma.acceptanceCriterion.findMany({ where: { jobId: job.id } }),
       prisma.step.findMany({ where: { jobId: job.id }, orderBy: { order: 'asc' } }),
@@ -43,6 +43,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       }),
       prisma.attempt.findMany({ where: { stepId: step.id, status: { not: 'EXECUTANDO' } }, orderBy: { number: 'desc' }, take: 5 }),
       prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } }, orderBy: { createdAt: 'desc' } }),
+      prisma.checkpoint.findFirst({where:{jobId:job.id,stepId:step.id},orderBy:{seq:'desc'}}),
     ]);
     const priorAttempts=previousSessions(attempts);
     const sessionNo = (priorAttempts[0]?.number??0) + 1;
@@ -73,7 +74,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
     if(worktree){
-      writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint));
+      writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);
     }
     if (vinculo) add('repositorio', await textoDoRepositorio(workspace.projectDirs(vinculo.dirKey).repo, vinculo));
@@ -188,7 +189,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       'Crie o arquivo de resultado LOGO NO COMEÇO e vá completando a cada parte analisada (salve com frequência);',
       'não deixe para escrever tudo no fim. Anote o progresso (o que já foi visto e o que falta) nas notas abaixo.',
       '',
-      '## Como registrar progresso (obrigatório antes de terminar a sessão)',
+      '## Como registrar progresso (quando houver informação nova útil à retomada)',
       'Acrescente linhas JSON (uma por linha) em `.nivoo/notas.jsonl` no diretório atual, por exemplo:',
       '{"tipo": "PROGRESSO", "titulo": "...", "conteudo": "o que foi feito e o que falta"}',
       'Tipos: DECISAO_PROPOSTA, EVIDENCIA (com "arquivos": ["out/..."]), PENDENCIA, PROGRESSO.',
@@ -198,6 +199,9 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     ]);
     if (checkpoint) {
       add('checkpoint', [`## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state).slice(0, 4000)], priorAttempts.length>0);
+    }
+    if(stepCheckpoint&&stepCheckpoint.id!==checkpoint?.id){
+      add('checkpoint-etapa',[`## Último checkpoint específico desta etapa #${stepCheckpoint.seq} (${stepCheckpoint.label})`,JSON.stringify(stepCheckpoint.state).slice(0,4000)],priorAttempts.length>0);
     }
     const artLines = artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`);
     const budget = Number(process.env.NIVOO_CONTEXT_MAX_CHARS ?? 60000);

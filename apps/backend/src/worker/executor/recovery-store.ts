@@ -1,7 +1,5 @@
 import { Prisma,type Job,type Step } from '@prisma/client';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { sha256 } from '../../common/hash';
+import { readAgentNotes,parseAgentNotes } from './session-notes';
 import { BlockedReason } from '../../common/status';
 import { looksLikeResourceProblem } from '../../providers/provider.interface';
 import { OrchestratorService } from '../../jobs/orchestrator.service';
@@ -63,42 +61,30 @@ export async function recordLesson(prisma:PrismaService,job: Job, step: Step, re
    * entram como PENDENCIA (proposta) — só o operador aprova decisões.
    */
 export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceService,logs:LogService,job: Job, step: Step, attemptId: string, worktree: string, providerId: string, sessionId: string | undefined, outputs: { id: string; name: string }[]): Promise<number> {
-    const file = path.join(worktree, '.nivoo', 'notas.jsonl');
-    if (!fs.existsSync(file)) return 0;
-    const lines = fs.readFileSync(file, 'utf8').split('\n').filter((l) => l.trim());
+    const journal=readAgentNotes(worktree);
+    if(journal.warning)await logs.log(job.id,journal.warning,{stepId:step.id,attemptId,level:'WARN',source:'worker'});
+    if(!journal.text)return 0;
+    const parsed=parseAgentNotes(journal.text);
+    if(parsed.invalid)await logs.log(job.id,`Notas inválidas ignoradas: ${parsed.invalid}; conteúdo bruto não importado.`,{stepId:step.id,attemptId,level:'WARN',source:'worker'});
     // Deduplicação por hash do conteúdo: robusta mesmo se o agente reescrever o arquivo inteiro.
     const known = await prisma.memoryEntry.findMany({
       where: { projectId: job.projectId, references: { path: ['jobId'], equals: job.id } },
       select: { references: true },
     });
     const seen = new Set(known.map((k) => (k.references as any)?.noteHash).filter(Boolean));
-    const fresh = lines.filter(l=>{const hash=sha256(l.trim());if(seen.has(hash))return false;seen.add(hash);return true;});
+    const fresh=parsed.notes.filter(n=>{if(seen.has(n.hash))return false;seen.add(n.hash);return true;});
     const commit = await workspace.headCommit(worktree);
     const author = `agente:${providerId}:sessao:${sessionId ?? attemptId}`;
     let count = 0;
-    for (const line of fresh) {
-      let n: any;
-      try {
-        n = JSON.parse(line);
-        if(!n||typeof n!=='object'||Array.isArray(n))throw Error('nota deve ser objeto JSON');
-      } catch {
-        await logs.log(job.id, `Nota inválida ignorada (não é JSON): ${line.slice(0, 200)}`, { stepId: step.id, level: 'WARN', source: 'worker' });
-        await prisma.memoryEntry.create({
-          data: { camada: 'INTERNA', projectId: job.projectId, category: 'PENDENCIA', title: 'nota inválida do agente', content: line.slice(0, 2000), references: { jobId: job.id, attemptId, noteHash: sha256(line.trim()), origem: 'notas-do-agente' }, author },
-        });
-        continue;
-      }
-      count++;
-      const tipo = String(n.tipo ?? '').toUpperCase();
-      const titulo = String(n.titulo ?? tipo).slice(0, 200);
-      const conteudo = String(n.conteudo ?? '').slice(0, 20000);
-      const refsBase = { jobId: job.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash: sha256(line.trim()) };
+    for (const n of fresh) {
+      const {tipo,titulo,conteudo}=n;
+      const refsBase = { jobId: job.id, stepId:step.id, attemptId, sessionId: sessionId ?? null, origem: 'notas-do-agente', noteHash:n.hash, tipo };
       let category: 'EVIDENCIA' | 'PENDENCIA' = 'PENDENCIA';
       let references: Record<string, unknown> = refsBase;
       if (tipo === 'EVIDENCIA') {
-        const wanted: string[] = Array.isArray(n.arquivos) ? n.arquivos.map((a: string) => String(a).replace(/^out\//, '')) : [];
-        const arts = await prisma.artifact.findMany({ where: { jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
-        if (arts.length && commit) {
+        const wanted=n.arquivos;
+        const arts = await prisma.artifact.findMany({ where: { projectId:job.projectId,jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
+        if (wanted.length && wanted.every(name=>arts.some(a=>a.name===name)) && commit) {
           category = 'EVIDENCIA';
           references = { ...refsBase, artifactIds: arts.map((a) => a.id), gitCommit: commit, parameters: {} };
         }
@@ -107,18 +93,28 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
       await prisma.memoryEntry.create({
         data: { camada: 'INTERNA', projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
       });
+      count++;
     }
-    if (fresh.length) await escreverArquivosDaMemoria(prisma, job.projectId);
+    if (count) await escreverArquivosDaMemoria(prisma, job.projectId);
     if (count) await logs.log(job.id, `${count} nota(s) do agente guardada(s) na memória interna do processo`, { stepId: step.id, source: 'worker' });
     void outputs;
     return count;
   }
 
-export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>) {
-    const commit = await workspace.commitCheckpoint(worktree, `checkpoint: ${label}`).catch(() => null);
-    const steps = await prisma.step.findMany({ where: { jobId }, select: { key: true, status: true } });
+export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false) {
+    let commit:string|null=null;
+    let gitError:string|null=null;
+    try {
+      commit=await workspace.commitCheckpoint(worktree,`checkpoint: ${label}`);
+      if(!commit)gitError='Git não confirmou HEAD';
+    }catch(e){gitError=String((e as Error)?.message??e).slice(0,500);}
+
     await prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      if(complete&&commit){
+        await tx.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'resultado verificado; commit '+commit.slice(0,10)}});
+      }
+      const steps=await tx.step.findMany({where:{jobId},select:{key:true,status:true}});
       const seq = (await tx.checkpoint.count({ where: { jobId } })) + 1;
       await tx.checkpoint.create({
         data: {
@@ -127,7 +123,7 @@ export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceSer
           seq,
           label,
           gitCommit: commit,
-          state: { etapa: step.key, etapas: Object.fromEntries(steps.map((s) => [s.key, s.status])), ...extra } as Prisma.InputJsonValue,
+          state: { ...extra, etapa: step.key, etapas: Object.fromEntries(steps.map((s) => [s.key, s.status])), gitPreservado:!!commit, ...(gitError?{gitError}: {}) } as Prisma.InputJsonValue,
         },
       });
     });

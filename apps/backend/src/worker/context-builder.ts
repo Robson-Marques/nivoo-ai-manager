@@ -134,7 +134,7 @@ export function fullMemoryDocument(memory: MemoryItem[], artifacts: string[]): s
   return [
     '# Memória completa do projeto (gerada pelo Nivoo a cada sessão — não edite)',
     '',
-    ...sortMemory(memory).map((m) => memoryLine(m, 20000)),
+    ...sortMemory(memory).map((m) => memoryLine(m, Number.POSITIVE_INFINITY)),
     '',
     '## Artefatos do job',
     ...artifacts,

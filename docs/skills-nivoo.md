@@ -25,3 +25,7 @@ Não importamos código ou scripts upstream. O catálogo completo continua exter
 8. Integração: compatibilidade dos provedores, testes focados e atualização pelo fluxo normal do servidor.
 
 Cada frente é uma alteração verificável no mesmo branch. Não abrir CI/PR adicional ou instalar novas APIs. Não confundir seleção de skills com suporte nativo de uma ferramenta; a skill não concede recursos ou permissões. A frente 1 inclui a orientação inicial de arquivos; a auditoria da implementação de gravação vem na frente 3. Nenhuma economia de tokens ou qualidade artística foi medida ainda.
+
+## Frente 2 — continuidade
+
+As tentativas interrompidas recuperam notas válidas do worktree. Checkpoints também são registrados antes de reagendar falhas e após indisponibilidade de recurso. A conclusão de uma etapa e seu checkpoint são persistidos juntos quando o Git confirma o commit. Erros do Git não são tratados como commit confirmado. O estado de retomada distingue o último checkpoint do job do último checkpoint específico da etapa. Notas são validadas, deduplicadas e associadas à etapa e à tentativa; não importamos texto inválido como memória. A detecção de progresso usa conteúdo de arquivos em out/, em vez de horários de modificação. Não há novos serviços, APIs, chamadas de IA ou migração de banco.

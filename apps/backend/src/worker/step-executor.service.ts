@@ -252,6 +252,13 @@ export class StepExecutorService {
 
     // Workspace isolado do job (worktree na branch job/<id>).
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    if(orphanRows.length){
+      const previous=[...orphanRows].sort((a,b)=>b.number-a.number)[0];
+      const recoveredNotes=await ingestNotes(this.prisma,this.workspace,this.logs,job,step,previous.id,worktree,previous.provider,previous.sessionId??undefined,[]);
+      await this.prisma.attempt.update({where:{id:previous.id},data:{notesIngested:{increment:recoveredNotes}}});
+      const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção do worker',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true});
+      await L(saved?'Checkpoint da interrupção preservado; retomando arquivos existentes.':'Git não confirmou o checkpoint da interrupção; arquivos existentes preservados no worktree.',saved?'INFO':'WARN');
+    }
 
     // Recuperação de composições JÁ ESCRITAS e bloqueadas pelo antigo
     // nivoo-conferir-motion: ao clicar Continuar, NÃO abrir outra IA nem
@@ -483,6 +490,7 @@ export class StepExecutorService {
     }
 
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recurso indisponível após tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes});
       this.registry.invalidate(providerId);
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs);
     }
@@ -529,9 +537,10 @@ export class StepExecutorService {
       const commit = await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `etapa ${step.key} concluída (tentativa ${number})`, {
         tentativa: number,
         log: logArt.id,
-        artefatos: outputs.map((a) => a.id),
-      });
-      await this.prisma.step.update({ where: { id: step.id }, data: { status: 'CONCLUIDO', statusDetail: `tentativa ${number}; commit ${commit?.slice(0, 10) ?? '-'}` } });
+        artefatos: [...outputs.map(a=>a.id),...videos.map(v=>v.id)],
+        notas:notes,
+      },true);
+      if(!commit)return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,'Resultado verificado, mas o Git não confirmou o checkpoint. Arquivos preservados; corrija o Git antes de retomar. Não refaça o conteúdo.');
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
@@ -595,13 +604,17 @@ export class StepExecutorService {
     });
     const erroAtual = (result.error ?? result.output ?? '').slice(0, 5000);
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual,step.verifyCommand??'',providerId,isAi,diagnosticoScript);
-    if(recovery.kind==='limit')return this.failStep(task,workerId,job,step,recovery.detail);
+    if(recovery.kind==='limit'){
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'limite de tentativas; resultado parcial preservado',{tentativa:number,log:logArt.id,notas:notes});
+      return this.failStep(task,workerId,job,step,recovery.detail);
+    }
     if(recovery.kind==='repeat'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number});
       return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,recovery.detail);
     }
     if(recovery.kind==='repair')return this.agendarReparoDeScript(task,workerId,job,step,worktree,number,erroAtual);
 
+    await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha antes da nova tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes});
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
     const motivo = (result.error || result.output || 'executor não informou a causa').trim().slice(0, 600);
     await L(`NOVA TENTATIVA EXPLICADA: a etapa "${step.key}" será repetida em ${Math.ceil(backoff / 1000)}s porque a tentativa #${number} falhou. Causa: ${motivo}. Arquivos já entregues são preservados; o motivo precisa ser corrigido antes de reexecutar conteúdo caro.`, 'WARN', attempt.id);

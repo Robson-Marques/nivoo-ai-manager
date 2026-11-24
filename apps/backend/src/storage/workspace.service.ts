@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-import { sha256 } from '../common/hash';
+import { sha256,sha256File } from '../common/hash';
 
 export interface ProjectDirs {
   root: string;
@@ -576,23 +576,24 @@ export class WorkspaceService {
    */
   async snapshotHash(worktree: string): Promise<string> {
     // Notas do agente (.nivoo/) não contam como progresso: só alterações reais no trabalho.
-    await this.git(worktree, ['add', '-A']);
-    const files = await this.git(worktree, ['ls-files', '-s']);
-    const tree = { stdout: files.stdout.split('\n').filter((l) => !/\t\.nivoo\//.test(l)).join('\n') };
+    await this.gitOk(worktree, ['add', '-A']);
+    const files = await this.gitOk(worktree, ['ls-files', '-s']);
+    const tree = { stdout: files.stdout.split('\n').filter((l) => !/\t(?:\.nivoo|contexto)\//.test(l)).join('\n') };
     const out = path.join(worktree, 'out');
     const listing: string[] = [];
-    const walk = (d: string) => {
+    const walk = async(d: string):Promise<void> => {
       if (!fs.existsSync(d)) return;
+      if(!fs.lstatSync(d).isDirectory())throw new Error('Pasta de saída inválida');
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
         const p = path.join(d, e.name);
-        if (e.isDirectory()) walk(p);
+        if (e.isDirectory()) await walk(p);
         else if (e.isFile()) {
           const st = fs.statSync(p);
-          listing.push(`${path.relative(out, p)}:${st.size}:${st.mtimeMs}`);
+          listing.push(`${path.relative(out, p)}:${st.size}:${await sha256File(p)}`);
         }
       }
     };
-    walk(out);
+    await walk(out);
     return sha256(`${tree.stdout.trim()}\n${listing.sort().join('\n')}`);
   }
 
@@ -600,9 +601,10 @@ export class WorkspaceService {
   async commitCheckpoint(worktree: string, message: string): Promise<string | null> {
     // Repositórios antigos rastreavam .nivoo/: deixa de rastrear (os arquivos continuam no disco).
     await this.git(worktree, ['rm', '-r', '--cached', '--ignore-unmatch', '-q', '.nivoo']);
-    await this.git(worktree, ['add', '-A']);
+    await this.gitOk(worktree, ['add', '-A']);
     const diff = await this.git(worktree, ['diff', '--cached', '--quiet']);
-    if (diff.exitCode !== 0) await this.gitOk(worktree, ['commit', '-q', '-m', message]);
+    if(diff.exitCode!==0&&diff.exitCode!==1)throw new Error('Git diff falhou: '+(diff.stderr||diff.spawnError||'sem detalhe'));
+    if (diff.exitCode === 1) await this.gitOk(worktree, ['commit', '-q', '-m', message]);
     const head = await this.git(worktree, ['rev-parse', 'HEAD']);
     return head.exitCode === 0 ? head.stdout.trim() : null;
   }
