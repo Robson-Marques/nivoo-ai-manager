@@ -16,7 +16,18 @@ const { motionAuthorContract } = require('../../bin/motion-scene-core') as {
 };
 
 type RawStep = Record<string, unknown>;
-type MotionMode = 'scene' | 'hybrid';
+type MotionMode = 'scene' | 'hybrid' | 'graphics';
+const { graphicsAuthorContract } = require('../../bin/motion-graphics') as { graphicsAuthorContract: () => string };
+
+// Explicit visual rejection, not an ordinary technical retry or soundtrack edit.
+export function pedeRevisaoVisual(text: string): boolean {
+  const t=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if (/\b(?:somente|apenas|so)\s+(?:o |a )?(?:audio|trilha|musica|narracao|locucao)\b/.test(t)) return false;
+  return /\b(?:veio errado|video (?:e|esta|ficou) (?:o )?mesmo|mesmo video|nao (?:criou|mudou|alterou|evoluiu)|faltam? (?:os |as )?(?:elementos graficos|grafismos|imagens|objetos|3d)|refa(?:zer|ca)|recria(?:r|cao)|faca de novo|nova composicao)\b/.test(t);
+}
+function pedeGrafismos(text: string): boolean {
+  return /\b(?:premium|grafismos|elementos gr[aá]ficos|dire[çc][aã]o de arte|identidade visual animada|ilustra[çc][aã]o animada)\b/i.test(text);
+}
 
 const pathIsMotion = (s: string) =>
   /^motion\/[A-Za-z0-9._/-]+$/.test(s) && !s.split('/').includes('..');
@@ -48,6 +59,7 @@ function selectHtmlSource(command: string, source: string): string {
 function isComposer(step: RawStep): boolean {
   const title = String(step.title ?? '') + ' ' + String(step.key ?? '');
   const instr = String(step.instructions ?? '');
+  if (instr.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]')) return true;
   return (/compos|compor|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d|refazer|recriar|reformul|corrigir|ajustar/i.test(title) ||
       /\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr)) &&
     !/revis|auditor|confer|verific|valid|aprov/i.test(title) &&
@@ -90,6 +102,20 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       if (['local-shell','juntar-videos','gemini-video','arquivos-projeto'].includes(provider)) return [];
       return [i];
     });
+    if (!candidateIndices.length && pedeRevisaoVisual(objective) &&
+        !['local-shell','juntar-videos','gemini-video','arquivos-projeto'].includes(defaultProvider)) {
+      // A rejected creative result requires an author, not a second export.
+      let key='compor-nova-arte';
+      for(let n=2;steps.some(s=>s&&s.key===key);n++)key='compor-nova-arte-'+n;
+      const author: RawStep = {
+        key, title:'Refazer composição visual', provider:defaultProvider,
+        instructions:'Crie a composição corrigida em '+source+' atendendo à última solicitação. Preserve os ativos e restrições válidos, não o visual rejeitado.',
+        dependsOn:Array.isArray(render.dependsOn)?[...render.dependsOn]:[],
+      };
+      steps.splice(ri,0,author);
+      candidateIndices.push(ri);
+      ri++;
+    }
     if (!candidateIndices.length) {
       // Uma nova renderização pode corrigir um problema do MOTOR sem tocar
       // em UMA linha do HTML/overlays.json já produzido. Não impedir o
@@ -119,13 +145,21 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // Retomadas sem etapa autora mantêm a fonte originalmente escolhida.
     if (real3d) render.instructions = selectHtmlSource(command, source);
     if (real3d && !hasPhotos) {
+      const authorKey=String(compose.key??'');
+      if(authorKey && authorKey!==String(render.key??''))
+        render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
       if (!String(compose.instructions ?? '').includes(marker)) {
         compose.instructions = String(compose.instructions ?? '') + '\n\n' + marker +
-          ' Use ' + source + '/index.html como fonte da nova animação 3D, com geometria, materiais, iluminação e movimento próprios; não reapresente a cena 2D anterior.';
+          ' Use ' + source + '/index.html como fonte da nova animação 3D, com geometria, materiais, iluminação e movimento próprios; não reapresente a cena 2D anterior.\n' + graphicsAuthorContract();
       }
       continue;
     }
-    const mode: MotionMode = real3d ? 'hybrid' : 'scene';
+    const mode: MotionMode = real3d ? 'hybrid' : pedeGrafismos(text) ? 'graphics' : 'scene';
+    if(mode==='graphics') render.instructions=selectHtmlSource(command,source);
+    const authorKey=String(compose.key??'');
+    if(authorKey && authorKey!==String(render.key??'')){
+      render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
+    }
     if (!String(compose.instructions ?? '').includes(marker)) {
       const requirements = mode === 'scene'
         ? [
@@ -133,7 +167,9 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
             'Use layers (image, text, shape, neon), z e supportZ para fotos; animações em keys, ritmo em profile/pacing.',
             'NÃO invente implementação de fotografia com WebGL, clones de textura ou placas escuras para simular relevo.',
           ]
-        : [
+        : mode === 'graphics' ? [
+            'Entregue '+source+'/index.html com grafismos, SVG/CSS e animação próprios do briefing. Use WebGL nativo quando ajudar. Não use o exemplo declarativo como arte.',
+          ] : [
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias de produtos e logos de primeiro plano ficam SOMENTE em overlays.json como camadas RGBA. O fundo original fica atrás da geometria, no index.html; não coloque fundo opaco no overlay que cobre a cena 3D.',
             'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
@@ -144,7 +180,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
         marker + ' Contrato técnico aplicado pelo NÚCLEO do Nivo, sem criar etapas:\n' +
         requirements.map(s => '- ' + s).join('\n') +
-        '\n' + (mode === 'hybrid' ? 'O contrato seguinte vale SOMENTE para o overlay transparente, nunca para a geometria, materiais, iluminação, elementos gráficos ou câmera do index.html.\n' : '') + motionAuthorContract(mode === 'hybrid') +
+        '\n' + (mode === 'graphics' ? graphicsAuthorContract() : mode === 'hybrid' ? graphicsAuthorContract() + '\nO contrato seguinte vale SOMENTE para o overlay transparente.\n' + motionAuthorContract(true) : motionAuthorContract()) +
+        (pedeRevisaoVisual(objective) ? '\nRefação visual: a versão rejeitada é referência do que corrigir, não template. Produza os novos elementos solicitados.' : '') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
     // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
