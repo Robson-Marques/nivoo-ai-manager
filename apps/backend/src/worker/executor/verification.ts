@@ -71,7 +71,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
           verified=false;
           falhaTecnicaDaMidia=check.detail;
           result={...result,exitCode:1,error:'Mídia tecnicamente inválida: '+check.detail};
-          await L(result.error,'ERROR',attempt.id);
+          await L('Mídia tecnicamente inválida: '+check.detail,'ERROR',attempt.id);
           break;
         }
         await L('ARQUIVO PRONTO — '+check.detail,'INFO',attempt.id);
