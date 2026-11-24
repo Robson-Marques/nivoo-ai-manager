@@ -3,7 +3,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { ArtifactStoreService } from '../../storage/artifact-store.service';
 import type { ExecutionResult } from '../../providers/provider.interface';
 import { mediaOutputs } from '../../jobs/workflow/media-dependencies';
-import { readMotionInvocations } from '../../jobs/motion/command';
+import { readMotionInvocations,normalizeMotionOutputs } from '../../jobs/motion/command';
 import { caminhoRealDoVideo,inspecionarVideoGerado,videoGeradoPorEtapa } from '../../jobs/native-video-result';
 import { sha256File } from '../../common/hash';
 import * as fs from 'node:fs';
@@ -17,7 +17,7 @@ export type MediaSnapshot=Map<string,string|null>;
 export function durableMediaOutputs(job:Ownership,step:OutputStep):string[]{
   const declared=mediaOutputs(step,job.defaultProvider);
   // Legacy plans sometimes rendered in the actual deterministic verification.
-  const legacy=declared.length?[]:readMotionInvocations(step.verifyCommand??'').flatMap(op=>op.output?[op.output]:[]);
+  const legacy=declared.length?[]:readMotionInvocations(normalizeMotionOutputs(step.verifyCommand??'').command).flatMap(op=>op.output?[op.output]:[]);
   return [...new Set([...declared,...legacy])].filter(p=>/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(p));
 }
 export function mediaIdentity(mediaDir:string,name:string):string|null{
