@@ -26,8 +26,8 @@ function run() {
   assert.equal(converted[0].verifyCommand,compose.verifyCommand,
     'não adicionar nem substituir testes por aprovador de composição');
   assert.doesNotMatch(converted[0].verifyCommand,/nivoo-conferir-motion/);
-  assert.equal(converted[1].instructions,render.instructions,
-    'não modificar renderizações depois da composição ficar pronta');
+  assert.equal(converted[1].instructions,render.instructions.replace(source,source+'/index.html'),
+    'o 3D novo deve renderizar o HTML mesmo se scene.json antigo coexistir');
   assert.deepEqual(conectarMotorMotion(converted,'codex-cli',objective),converted,
     'a prévia do plano e a criação do job devem produzir EXATAMENTE o mesmo resultado');
 
@@ -43,7 +43,7 @@ function run() {
   const {motionAuthorContract}=require('../bin/motion-scene-core');
   assert.ok(convertedSimple[0].instructions.includes(motionAuthorContract()),
     'especialista recebe exemplo e unidades do motor instalado');
-  assert.ok(converted[0].instructions.includes(motionAuthorContract()),
+  assert.ok(converted[0].instructions.includes(motionAuthorContract(true)),
     'mesmo contrato serve ao especialista híbrido');
   assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
   assert.doesNotMatch(convertedSimple[1].instructions,/--motor\s/);
@@ -74,6 +74,15 @@ function run() {
   assert.match(real[0].instructions,/overlays\.json/,
     'pedido explícito de malhas tridimensionais deve orientar WebGL híbrido');
   assert.doesNotMatch(real[1].instructions,/--motor\s/);
+  assert.match(real[1].instructions,/motion\/anuncio\/index\.html\s/);
+  const revised=conectarMotorMotion([
+    {key:'refazer',title:'Refazer arte',provider:'codex-cli',instructions:'Criar novos elementos gráficos com o logo original'},
+    {...simple[1],instructions:"nivoo-renderizar-motion 'motion/anuncio/scene.json' --segundos 12"},
+  ],'codex-cli','Quero imagens premium em 3D animadas');
+  assert.match(revised[1].instructions,/motion\/anuncio\/index\.html'/);
+  assert.match(revised[0].instructions,/fundo opaco/);
+  assert.ok(!motionAuthorContract(true).includes('assets/fundo.png'));
+  assert.deepEqual(conectarMotorMotion(revised,'codex-cli','Quero imagens premium em 3D animadas'),revised);
 
   const old=[render];
   assert.deepEqual(conectarMotorMotion(old,'codex-cli',objective),old,
