@@ -154,7 +154,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       if (softwareInterfaceEnabled(vinculo?.area) && worktree && fs.existsSync(path.join(worktree, 'out', 'telas-interativas', 'relatorio.md'))) {
         history.push('A última conferência rodou os ROTEIROS de interação: out/telas-interativas/relatorio.md e as fotos (inclusive a do passo que falhou). Corrija a tela no passo que falhou.');
       }
-      if (worktree && fs.existsSync(path.join(worktree, 'out', 'telas', 'relatorio.md'))) {
+      if (softwareInterfaceEnabled(vinculo?.area) && worktree && fs.existsSync(path.join(worktree, 'out', 'telas', 'relatorio.md'))) {
         history.push('A última conferência tirou FOTOS das telas: out/telas/*.png (computador e celular) e out/telas/relatorio.md. ABRA as fotos e corrija o visual (layout quebrado, texto cortado ou sobreposto, não cabe no celular) e os problemas do relatório.');
       }
       if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
