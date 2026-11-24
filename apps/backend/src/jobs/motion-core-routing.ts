@@ -23,18 +23,32 @@ const pathIsMotion = (s: string) =>
 const validSource = (s: string) =>
   pathIsMotion(s) && s !== 'motion' && !s.endsWith('/index.html') && !s.endsWith('/scene.json');
 
+// O compositor e o renderizador devem apontar para a mesma fonte.
+// Uma pasta de revisão pode conter scene.json antigo e index.html novo.
+const RENDER_CALL = /(?:^|[;\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\s+(?:"([^"]+)"|'([^']+)'|(motion\/[A-Za-z0-9._/-]+))(?=\s|$)/m;
+
 function renderSource(command: string): string | null {
-  // Somente CHAMADA REAL, não texto da IA, documentação ou verifyCommand.
-  const m = /(?:^|[;\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\s+(?:"([^"]+)"|'([^']+)'|(motion\/[A-Za-z0-9._/-]+))(?=\s|$)/m.exec(command);
+  const m = RENDER_CALL.exec(command);
   const val = m?.[1] ?? m?.[2] ?? m?.[3] ?? '';
   const source = val.replace(/\/(?:index\.html|scene\.json)$/, '');
   return validSource(source) ? source : null;
 }
 
+function selectHtmlSource(command: string, source: string): string {
+  return command.replace(RENDER_CALL, (match, double, single, bare) => {
+    const old = double !== undefined ? '"' + double + '"' :
+      single !== undefined ? "'" + single + "'" : bare;
+    const entry = source + '/index.html';
+    const next = double !== undefined ? '"' + entry + '"' :
+      single !== undefined ? "'" + entry + "'" : entry;
+    return match.slice(0, -old.length) + next;
+  });
+}
+
 function isComposer(step: RawStep): boolean {
   const title = String(step.title ?? '') + ' ' + String(step.key ?? '');
   const instr = String(step.instructions ?? '');
-  return (/compos|compor|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d/i.test(title) ||
+  return (/compos|compor|cri(ar|a[çc][aã]o)|produz|desenh|animar|anima[çc][aã]o|motion|3d|refazer|recriar|reformul|corrigir|ajustar/i.test(title) ||
       /\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr)) &&
     !/revis|auditor|confer|verific|valid|aprov/i.test(title) &&
     !/\bnivoo-renderizar-motion\b/.test(instr);
@@ -100,7 +114,17 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const hasPhotos = /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
-    if (real3d && !hasPhotos) continue;
+    // 3D não pode voltar silenciosamente ao scene.json de uma revisão
+    // antiga. Uma entrada HTML explícita também funciona com --motor auto.
+    // Retomadas sem etapa autora mantêm a fonte originalmente escolhida.
+    if (real3d) render.instructions = selectHtmlSource(command, source);
+    if (real3d && !hasPhotos) {
+      if (!String(compose.instructions ?? '').includes(marker)) {
+        compose.instructions = String(compose.instructions ?? '') + '\n\n' + marker +
+          ' Use ' + source + '/index.html como fonte da nova animação 3D, com geometria, materiais, iluminação e movimento próprios; não reapresente a cena 2D anterior.';
+      }
+      continue;
+    }
     const mode: MotionMode = real3d ? 'hybrid' : 'scene';
     if (!String(compose.instructions ?? '').includes(marker)) {
       const requirements = mode === 'scene'
@@ -111,7 +135,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
           ]
         : [
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
-            'Fotografias, pizzas, produtos e logos ficam SOMENTE em overlays.json como camadas RGBA.',
+            'Fotografias de produtos e logos de primeiro plano ficam SOMENTE em overlays.json como camadas RGBA. O fundo original fica atrás da geometria, no index.html; não coloque fundo opaco no overlay que cobre a cena 3D.',
             'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
             'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay, para não duplicar visualmente as fotografias.',
             'A duração overlays.json.duration deve acompanhar a duração ORIGINAL do relógio WebGL; diferenças são avisadas, não usadas para bloquear a entrega.',
@@ -120,7 +144,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
         marker + ' Contrato técnico aplicado pelo NÚCLEO do Nivo, sem criar etapas:\n' +
         requirements.map(s => '- ' + s).join('\n') +
-        '\n' + motionAuthorContract() +
+        '\n' + (mode === 'hybrid' ? 'O contrato seguinte vale SOMENTE para o overlay transparente, nunca para a geometria, materiais, iluminação, elementos gráficos ou câmera do index.html.\n' : '') + motionAuthorContract() +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
     // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
