@@ -44,3 +44,22 @@ export function conferenciaTecnicaDeVideo(
   // O contrato mínimo de MP4, áudio, resolução e duração não pode ser contornado.
   return `(${custom}) && ${tecnico}`;
 }
+
+/** Remove only the exact synthesized native inspection, never a custom
+ * test. The native inspector already verifies existence and stream data.
+ */
+export function customMediaVerification(provider:string,instructions:string,opts:Record<string,unknown>,outputs:string[],verifyCommand?:string):string|undefined{
+  let command=verifyCommand?.trim()??'';
+  const generated=conferenciaTecnicaDeVideo(provider,instructions,opts);
+  if(generated){
+    while(command===generated||command.endsWith(') && '+generated)){
+      if(command===generated){command='';break;}
+      if(!command.startsWith('('))break;
+      command=command.slice(1,-(') && '+generated).length).trim();
+    }
+  }
+  if(!command||/^(?:true|:)\s*;?$/.test(command))return undefined;
+  const simple=/^test\s+-(?:s|f|e)\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))$/.exec(command);
+  if(simple&&outputs.includes(simple[1]??simple[2]??simple[3]))return undefined;
+  return command;
+}
