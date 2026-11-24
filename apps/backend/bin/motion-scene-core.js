@@ -6,7 +6,7 @@ const {motionAuthorContract,motionAuthorExample}=require('./motion/scene/authori
 const {loadScene,productPhotoLayers}=require('./motion/scene/assets');
 const {sceneRuntime}=require('./motion/scene/runtime');
 const {sceneDocument,overlayScript,mountMediaOverlay}=require('./motion/scene/browser');
-const {checkMotionSource}=require('./motion/scene/source');
+const {checkMotionSource,resolveMotionSource}=require('./motion/scene/source');
 const sceneRuntimeFiles=[
   require.resolve('./motion/scene/normalization'),
   require.resolve('./motion/scene/schema'),
@@ -16,4 +16,4 @@ const sceneRuntimeFiles=[
   require.resolve('./motion/scene/browser'),
   require.resolve('./motion/scene/source'),
 ];
-module.exports={motionAuthorContract,motionAuthorExample,motionLength,normalizeLayerDimensions,normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay,sceneRuntimeFiles};
+module.exports={motionAuthorContract,motionAuthorExample,motionLength,normalizeLayerDimensions,normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,resolveMotionSource,mountMediaOverlay,sceneRuntimeFiles};
