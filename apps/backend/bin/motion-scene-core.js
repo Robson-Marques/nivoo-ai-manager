@@ -158,8 +158,10 @@ function normalizeLayerTimeline(layer,total,scene) {
   if(keys.some(k=>!k||typeof k!=='object'||Array.isArray(k)))return;
   const declared=layer.timeUnit??scene.timeUnit;
   const explicit=declared==='ms'||declared==='s';
-  const candidates=k=>[k.at,k.time,k.t,k.seconds==null?undefined:String(k.seconds)+'s',
-    k.atMs==null?undefined:String(k.atMs)+'ms',k.timeMs==null?undefined:String(k.timeMs)+'ms'].filter(v=>v!=null);
+  const withUnit=(v,u)=>v==null?undefined:
+    typeof v==='number'||/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(String(v).trim())?String(v)+u:v;
+  const candidates=k=>[k.at,k.time,k.t,withUnit(k.seconds,'s'),
+    withUnit(k.atMs,'ms'),withUnit(k.timeMs,'ms')].filter(v=>v!=null);
   const values=keys.map(k=>candidates(k)[0]);
   // Legacy compositions sometimes use bare milliseconds. Only infer this
   // when the ENTIRE nonzero series is outside the seconds timeline and fits
