@@ -1,5 +1,4 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { writeSessionContextFile } from '../../common/session-context-file';
 
 interface Stage { key:string;title:string;status:string;dependsOn:string[];verifyCommand?:string|null }
 interface Previous {number:number;status:string;error?:string|null;stopReason?:string|null}
@@ -25,7 +24,5 @@ export function stageCard(stage:Stage,stages:Stage[],attempts:Previous[],checkpo
   ].join('\n');
 }
 export function writeStageCard(worktree:string,card:string):void{
-  const dir=path.join(worktree,'contexto');
-  fs.mkdirSync(dir,{recursive:true});
-  fs.writeFileSync(path.join(dir,'estado-etapa.md'),card+'\n');
+  writeSessionContextFile(worktree,'estado-etapa.md',card+'\n');
 }

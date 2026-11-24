@@ -18,8 +18,8 @@ export function mediaPlannerRules():string[]{
 export function mediaOptionalGenerationRules(videoDisponivel:boolean):string[]{
   return videoDisponivel?generationPlannerRules():[];
 }
-export function mediaAuthorRules():string[]{
-  return ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)',...VIDEO_QUALITY_POLICY.map(s=>'- '+s),graphicsAuthorContract()];
+export function mediaAuthorRules(includeGraphics=true):string[]{
+  return ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)',...VIDEO_QUALITY_POLICY.map(s=>'- '+s),...(includeGraphics?[graphicsAuthorContract()]:[])];
 }
 
 /** Visual generation is a production capability, not a review session. */

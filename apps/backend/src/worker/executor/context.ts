@@ -16,7 +16,7 @@ import { mediaEnabledForArea,hasNativeMediaOperation } from '../../specialties/m
 import { mediaAuthorRules } from '../../specialties/media/planner-contract';
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
-import { selectSkills,skillContext } from '../../specialties/skills';
+import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -56,16 +56,20 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
     const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
     const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
-    if (etapaMidia || (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))))) {
-      add('qualidade-video', mediaAuthorRules());
-    }
+    const nativeImage=!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset;
+    const motionAuthor=step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
     const skills=selectSkills({
       phase:'execution',text:[step.key,step.title,step.instructions.split('[NIVOO_MOTION_CORE_CONTRACT_V1]')[0]].join(' '),
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
-      nativeImage:!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset,
-      motionAuthor:step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]'),
+      nativeImage,motionAuthor,
       resume:priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
     });
+    const skillIds=skills.map(s=>s.id);
+    // The compiled author contract already contains the exact engine manual.
+    // A still-image or audio step does not need another copy of WebGL docs.
+    if(etapaMidia||nativeImage||skillIds.includes('motion')||skillIds.includes('direcao-artistica')||(usaMidia&&step.key===RULE_REVIEW_STEP)){
+      add('qualidade-video',mediaAuthorRules(!nativeImage&&!motionAuthor&&skillIds.includes('motion')));
+    }
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
     if(worktree){
@@ -198,6 +202,8 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const artLines = artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`);
     const budget = Number(process.env.NIVOO_CONTEXT_MAX_CHARS ?? 60000);
     const result = assembleContext(sections, memory, artLines, budget);
+    result.stats.skillIds=skillIds;
+    result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
       fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
       fs.writeFileSync(path.join(worktree, '.nivoo', 'memoria.md'), fullMemoryDocument(memory, artLines));

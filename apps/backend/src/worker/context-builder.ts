@@ -32,6 +32,8 @@ export interface ContextStats {
   artifactsIncluded: number;
   artifactsOmitted: number;
   omittedMemoryIds: string[];
+  skillIds?: string[];
+  skillsVersion?: string;
 }
 
 /** Ordem de importância da memória para quem continua o trabalho. */

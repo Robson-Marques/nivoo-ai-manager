@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { selectSkills,skillContext } from '../../src/specialties/skills';
+import { writeSessionContextFile } from '../../src/common/session-context-file';
 import { previousSessions,stageCard,writeStageCard } from '../../src/worker/executor/stage-card';
 describe('Skills Nivoo',()=>{
   const base={phase:'execution' as const,media:true,software:false,text:''};
@@ -12,6 +13,24 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,text:'Corrigir código do encoder de vídeo',media:false,software:true})).toEqual(['execucao-enxuta','codigo']);
     expect(ids({...base,text:'Renderizar vídeo',executor:true})).toEqual([]);
     expect(ids({...base,phase:'planner',text:'Olá'})).toEqual([]);
+    expect(ids({...base,text:'imagem de referência para vídeo Reels com narração',nativeImage:true})).toEqual(['execucao-enxuta','direcao-artistica']);
+    expect(ids({...base,text:'implementar_endpoint e gravar arquivos',media:false,software:true})).toEqual(['execucao-enxuta','arquivos','codigo']);
+    expect(ids({...base,text:'preserve a marca na arte'})).toEqual(['execucao-enxuta','direcao-artistica']);
+    expect(ids({...base,text:'editar documento',media:false,software:false})).toEqual(['execucao-enxuta','arquivos']);
+  });
+  it('não segue links nem permite caminhos fora do contexto descartável',()=>{
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-skills-path-'));
+    try{
+      fs.mkdirSync(path.join(dir,'contexto'));
+      fs.writeFileSync(path.join(dir,'original.txt'),'intacto');
+      fs.symlinkSync(path.join(dir,'original.txt'),path.join(dir,'contexto','estado-etapa.md'));
+      writeSessionContextFile(dir,'estado-etapa.md','novo');
+      expect(fs.readFileSync(path.join(dir,'original.txt'),'utf8')).toBe('intacto');
+      expect(fs.readFileSync(path.join(dir,'contexto','estado-etapa.md'),'utf8')).toBe('novo');
+      fs.symlinkSync(dir,path.join(dir,'contexto','link'));
+      expect(()=>writeSessionContextFile(dir,'link/out.md','x')).toThrow();
+      expect(()=>writeSessionContextFile(dir,'../original.txt','x')).toThrow();
+    }finally{fs.rmSync(dir,{recursive:true,force:true});}
   });
   it('materializa apenas as skills selecionadas e o estado descartável',()=>{
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-skills-'));
