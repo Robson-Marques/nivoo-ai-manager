@@ -323,6 +323,46 @@ export class StepExecutorService {
 
     // Workspace isolado do job (worktree na branch job/<id>).
     const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+
+    // Recuperação de composições JÁ ESCRITAS e bloqueadas pelo antigo
+    // nivoo-conferir-motion: ao clicar Continuar, NÃO abrir outra IA nem
+    // obrigar retrabalho. A próxima etapa local renderiza a obra preservada.
+    const antigoConferir = /\bnivoo-conferir-motion\s+(motion\/[A-Za-z0-9._/-]+)\s+--modo\s+(hybrid|scene)\b/
+      .exec(step.verifyCommand ?? '');
+    if (this.registry.get(providerId).kind !== 'executor' && antigoConferir) {
+      const anterior = await this.prisma.attempt.findFirst({
+        where: {stepId:step.id, status:'SESSAO_ENCERRADA'},
+        orderBy:{number:'desc'}, select:{error:true},
+      });
+      if (anterior?.error?.includes('MOTION_CONTRATO:')) {
+        const pasta=path.resolve(worktree,antigoConferir[1]);
+        const within=pasta.startsWith(path.resolve(worktree)+path.sep);
+        const required=[...String(step.verifyCommand??'').matchAll(/\btest\s+-s\s+(?:'([^']+)'|"([^"]+)"|([A-Za-z0-9._/-]+))/g)]
+          .map(m=>m[1]??m[2]??m[3]);
+        const exists=(file:string)=>{try{return fs.statSync(file).size>0;}catch{return false;}};
+        const fontes=antigoConferir[2]==='hybrid'
+          ? ['index.html','overlays.json'] : ['scene.json'];
+        if (within && fontes.every(name=>exists(path.join(pasta,name))) &&
+          required.every(rel=>{
+            const full=path.resolve(worktree,rel);
+            return full.startsWith(path.resolve(worktree)+path.sep) && exists(full);
+          })) {
+          await L('RECUPERAÇÃO SEM REFAZER: a IA já entregou a composição e os arquivos previstos. '+
+            'A reprovação ocorreu somente no aprovador Motion antigo. '+
+            'Avançando à renderização existente, sem outra sessão ou consumo de tokens.', 'WARN');
+          await this.checkpoint(job.id, step, worktree,
+            'composição recuperada; aprovador Motion removido',{recuperacao:true});
+          await this.prisma.step.update({where:{id:step.id},data:{
+            status:'CONCLUIDO',statusDetail:'Composição existente recuperada sem nova IA',
+          }});
+          await this.queue.complete(task.id,workerId);
+          await this.orchestrator.scheduleReady(job.id);
+          return 'CONCLUIDO';
+        }
+        await L('Arquivos da composição parcialmente disponíveis; não os apagarei nem farei nova conferência artística.', 'WARN');
+      }
+    }
+
     const knowledgeDir = this.workspace.projectDirs(job.project.dirKey).knowledge;
     const outputDir = path.join(worktree, 'out');
 
