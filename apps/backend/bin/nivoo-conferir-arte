@@ -68,6 +68,9 @@ visit(root, 0);
       if (msg.type() === 'error' && /WebGL|shader|uniform|link program/i.test(line) && errors.length < 20)
         errors.push(line);
     });
+    const runtime = [path.join(__dirname,'motion-graphics.js'),
+      path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app','apps/backend/bin/motion-graphics.js')].find(p=>fs.existsSync(p));
+    if(runtime) await page.addInitScript(require(runtime).installMotionGraphics);
     await page.goto('file://' + entry, { waitUntil: 'load', timeout: 30000 });
     // Capturar a LINHA DO TEMPO real. Quadro final sozinho não revela
     // megafone invertido, neon mal direcionado nem moldura quebrada.
