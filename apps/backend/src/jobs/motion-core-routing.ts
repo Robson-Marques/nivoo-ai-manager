@@ -12,7 +12,7 @@
 // O código do motor é a fonte do contrato. O caminho é o mesmo em
 // src/jobs e dist/jobs; bin já acompanha a instalação do backend.
 const { motionAuthorContract } = require('../../bin/motion-scene-core') as {
-  motionAuthorContract: () => string;
+  motionAuthorContract: (overlay?: boolean) => string;
 };
 
 type RawStep = Record<string, unknown>;
@@ -144,7 +144,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
         marker + ' Contrato técnico aplicado pelo NÚCLEO do Nivo, sem criar etapas:\n' +
         requirements.map(s => '- ' + s).join('\n') +
-        '\n' + (mode === 'hybrid' ? 'O contrato seguinte vale SOMENTE para o overlay transparente, nunca para a geometria, materiais, iluminação, elementos gráficos ou câmera do index.html.\n' : '') + motionAuthorContract() +
+        '\n' + (mode === 'hybrid' ? 'O contrato seguinte vale SOMENTE para o overlay transparente, nunca para a geometria, materiais, iluminação, elementos gráficos ou câmera do index.html.\n' : '') + motionAuthorContract(mode === 'hybrid') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
     // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
