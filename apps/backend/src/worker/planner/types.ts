@@ -18,4 +18,5 @@ export interface PlannerRequest {
   entrega:string|null;
   providerId:string;
   resultados:string[];
+  worktree?:string;
 }

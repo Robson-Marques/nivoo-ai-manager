@@ -349,6 +349,13 @@ export class StepExecutorService {
       isAi ? buildPrompt({ context, instructions: step.instructions }) : step.instructions,
     );
     await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats ? contextStats as unknown as Prisma.InputJsonValue : Prisma.DbNull } });
+    if(isAi){
+      const selected=/^## Skills Nivoo v[^\n]+\n[^\n]+\n((?:- [^\n]+\n?)+)/m.exec(context);
+      if(selected){
+        const ids=[...selected[1].matchAll(/^- ([a-z-]+):/gm)].map(m=>m[1]);
+        if(ids.length)await L('Skills desta sessão: '+ids.join(', ')+'; sem sessões adicionais.','INFO',attempt.id);
+      }
+    }
     if (contextStats && (contextStats.memoryOmitted || contextStats.overBudget)) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) de memória omitidas do prompt (íntegras em .nivoo/memoria.md)`, 'INFO', attempt.id);
     }

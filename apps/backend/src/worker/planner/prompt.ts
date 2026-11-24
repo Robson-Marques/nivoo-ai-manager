@@ -11,6 +11,7 @@ import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
+import { selectSkills,skillContext } from '../../specialties/skills';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
 
@@ -52,6 +53,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '## Conversa até aqui',
       conversa || '(primeira mensagem)',
       '',
+      ...skillContext(selectSkills({phase:'planner',text:entrega??currentMessage.join('\n'),media:midia,software:capabilities.softwareInterface}),request.worktree),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [

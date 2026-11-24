@@ -182,7 +182,7 @@ export class PlannerService {
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,project,profileText:profile.text,anexos,entrega,providerId,resultados});
+      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;

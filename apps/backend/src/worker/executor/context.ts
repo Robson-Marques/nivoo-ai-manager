@@ -16,6 +16,8 @@ import { mediaEnabledForArea,hasNativeMediaOperation } from '../../specialties/m
 import { mediaAuthorRules } from '../../specialties/media/planner-contract';
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
+import { selectSkills,skillContext } from '../../specialties/skills';
+import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
 /** Context assembly for agents, separate from provider execution and job state. */
@@ -39,10 +41,11 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         },
         orderBy: { createdAt: 'asc' },
       }),
-      prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 5 }),
+      prisma.attempt.findMany({ where: { stepId: step.id, status: { not: 'EXECUTANDO' } }, orderBy: { number: 'desc' }, take: 5 }),
       prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } }, orderBy: { createdAt: 'desc' } }),
     ]);
-    const sessionNo = attempts.length + 1;
+    const priorAttempts=previousSessions(attempts);
+    const sessionNo = (priorAttempts[0]?.number??0) + 1;
     const sections: ContextSection[] = [];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
@@ -55,6 +58,19 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
     if (etapaMidia || (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))))) {
       add('qualidade-video', mediaAuthorRules());
+    }
+    const skills=selectSkills({
+      phase:'execution',text:[step.key,step.title,step.instructions.split('[NIVOO_MOTION_CORE_CONTRACT_V1]')[0]].join(' '),
+      media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
+      nativeImage:!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset,
+      motionAuthor:step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]'),
+      resume:priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
+    });
+    const guidance=skillContext(skills,worktree);
+    if(guidance.length)add('skills',guidance);
+    if(worktree){
+      writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint));
+      add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);
     }
     if (vinculo) add('repositorio', await textoDoRepositorio(workspace.projectDirs(vinculo.dirKey).repo, vinculo));
     const origem = await contextoDaOrigem(prisma, workspace, vinculo?.projetoOrigemId);
@@ -140,12 +156,12 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       ]);
     }
     const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
-    if (attempts.length) {
+    if (priorAttempts.length) {
       history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
       history.push('Se a conferência falha por uma causa fora do que a etapa pede (ex.: o script de teste do package.json está errado, falta uma configuração),',
         'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
         'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
-      for (const a of [...attempts].reverse()) {
+      for (const a of [...priorAttempts].reverse()) {
         const e = a.error ?? '';
         // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
         const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
@@ -177,7 +193,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       `Resultados e evidências: grave em out/ (${'$'}NIVOO_OUTPUT_DIR). Você não decide se o trabalho terminou.`,
     ]);
     if (checkpoint) {
-      add('checkpoint', [`## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state).slice(0, 4000)], false);
+      add('checkpoint', [`## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state).slice(0, 4000)], priorAttempts.length>0);
     }
     const artLines = artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`);
     const budget = Number(process.env.NIVOO_CONTEXT_MAX_CHARS ?? 60000);
