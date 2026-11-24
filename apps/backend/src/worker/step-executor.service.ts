@@ -46,8 +46,8 @@ import { ProjectProfileService } from '../projects/project-profile.service';
 import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
 import { capturasParaRecuperar, diagnosticoParecerVisual } from '../jobs/motion-capture-freshness';
-import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
-const { graphicsAuthorContract } = require('../../bin/motion-graphics') as { graphicsAuthorContract: () => string };
+import { mediaEnabledForArea, hasNativeMediaOperation } from '../specialties/media/scope';
+import { mediaAuthorRules } from '../specialties/media/planner-contract';
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
@@ -1522,13 +1522,15 @@ export class StepExecutorService {
     const sections: ContextSection[] = [];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
-    if (/\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))) {
-      add('qualidade-video', ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)', ...VIDEO_QUALITY_POLICY.map(s => '- ' + s), graphicsAuthorContract()]);
-    }
+
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
-    const vinculo = await this.prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true } });
+    const vinculo = await this.prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
+    const usaMidia = mediaEnabledForArea(vinculo?.area) || hasNativeMediaOperation(steps, job.defaultProvider);
+    if (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' ')))) {
+      add('qualidade-video', mediaAuthorRules());
+    }
     if (vinculo) add('repositorio', await textoDoRepositorio(this.workspace.projectDirs(vinculo.dirKey).repo, vinculo));
     const origem = await contextoDaOrigem(this.prisma, this.workspace, vinculo?.projetoOrigemId);
     if (origem.length) add('origem', origem);
@@ -1588,7 +1590,7 @@ export class StepExecutorService {
           : []),
       ]);
     }
-    if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'fontes-anteriores'))) {
+    if (usaMidia && worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'fontes-anteriores'))) {
       add('fontes-motion', [
         '## Fontes editáveis de animações anteriores — recursos e histórico, não aprovação',
         'Consulte contexto/fontes-anteriores/LEIA-ME.txt e as pastas <id>/motion/ antes de escrever uma composição nova.',
