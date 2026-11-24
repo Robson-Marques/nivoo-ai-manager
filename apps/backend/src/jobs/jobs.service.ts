@@ -200,7 +200,7 @@ export class JobsService {
     for (const k of map.keys()) visit(k);
   }
 
-  private parseCriteria(raw: unknown, existingKeys: string[] = []) {
+  private parseCriteria(raw: unknown, existingKeys: string[] = [], media = true) {
     if (raw === undefined) return [];
     if (!Array.isArray(raw)) throw new BadRequestException('criteria deve ser uma lista');
     const keys = new Set(existingKeys);
@@ -218,7 +218,7 @@ export class JobsService {
       }
       if (kind === 'FILE_EXISTS') {
         const destino = reqString(config, 'path');
-        if (/^out\/.+\.(?:mp4|mov|mkv|webm|m4v)$/i.test(destino)) {
+        if (media && /^out\/.+\.(?:mp4|mov|mkv|webm|m4v)$/i.test(destino)) {
           throw new BadRequestException(`Critério ${key}: vídeos devem ser verificados em midia/saida/, nunca out/`);
         }
       }
@@ -249,7 +249,7 @@ export class JobsService {
     const brutas = comPreflightVisual(compileWorkflowPlan(plan.steps, defaultProvider, objective, area), defaultProvider);
     const steps = this.parseSteps(brutas, defaultProvider);
     this.assertAcyclic(steps);
-    const criteria = this.parseCriteria(plan.criteria ?? []);
+    const criteria = this.parseCriteria(plan.criteria ?? [], [], mediaEnabledForArea(area));
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
     const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
     return { title, objective, defaultProvider, steps: brutas, criteria: plan.criteria, limits };
@@ -264,7 +264,7 @@ export class JobsService {
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     const steps = this.parseSteps(comPreflightVisual(compileWorkflowPlan(body.steps ?? [], defaultProvider, objective, project.area), defaultProvider), defaultProvider);
     this.assertAcyclic(steps);
-    const criteria = this.parseCriteria(body.criteria);
+    const criteria = this.parseCriteria(body.criteria, [], mediaEnabledForArea(project.area));
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
     // independente de IA por padrão; só se a pessoa solicitar conferência
     // explicitamente. Testes técnicos necessários permanecem nos executores.
@@ -340,7 +340,7 @@ export class JobsService {
         checkpoints: { orderBy: { seq: 'asc' } },
         artifacts: { orderBy: { createdAt: 'asc' } },
         approvals: { orderBy: { requestedAt: 'asc' } },
-        project: { select: { id: true, name: true, slug: true } },
+        project: { select: { id: true, name: true, slug: true, area: { select: { template: true, slug: true } } } },
       },
     });
     if (!job) throw new NotFoundException('Job não encontrado neste projeto');
@@ -395,7 +395,7 @@ export class JobsService {
   async addCriteria(projectId: string, jobId: string, body: any) {
     const job = await this.get(projectId, jobId);
     if (job.status === 'CONCLUIDO') throw new ConflictException('Job concluído');
-    const criteria = this.parseCriteria(body.criteria ?? [], job.criteria.map((c) => c.key));
+    const criteria = this.parseCriteria(body.criteria ?? [], job.criteria.map((c) => c.key), mediaEnabledForArea(job.project.area));
     await this.prisma.acceptanceCriterion.createMany({ data: criteria.map((c) => ({ ...c, jobId })) });
     await this.logs.log(jobId, `Critérios adicionados: ${criteria.map((c) => c.key).join(', ')}`);
     return this.get(projectId, jobId);
@@ -454,9 +454,9 @@ export class JobsService {
     // Jobs anteriores ao roteamento correto podiam "concluir" render motion
     // com nvidia-api apenas encontrando um MP4 antigo, sem executar comando.
     // Renascer o revisor não corrige isso: evitar novas sessões e gasto inútil.
-    const renderFalso = job.steps.find((s) =>
+    const renderFalso = mediaEnabledForArea(job.project.area) ? job.steps.find((s) =>
       s.status === 'CONCLUIDO' && (s.provider ?? job.defaultProvider) !== 'local-shell' &&
-      (s.provider ?? job.defaultProvider) !== 'gemini-video' && etapaPedeRenderizacaoMotion(s));
+      (s.provider ?? job.defaultProvider) !== 'gemini-video' && etapaPedeRenderizacaoMotion(s)) : undefined;
     const renderReal = job.steps.some((s) =>
       (s.provider ?? job.defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
     if (renderFalso && !renderReal) {
