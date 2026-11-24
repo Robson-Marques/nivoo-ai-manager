@@ -1,3 +1,5 @@
+import { hasMotionCommand } from '../../jobs/motion/command';
+
 /** The configured area, not words in an unrelated task, selects its domain.
  * General/legacy areas retain their historical broad capability set.
  */
@@ -20,6 +22,7 @@ export function hasNativeMediaOperation(steps: unknown, defaultProvider: string)
     const provider=String(step.provider??defaultProvider);
     if(['gemini-video','juntar-videos','gerar-narracao'].includes(provider))return true;
     if(provider!=='local-shell')return false;
-    return /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-(?:renderizar-motion|conferir-arte|analisar-video|extrair-quadros)(?:\s|$)/m.test(String(step.instructions??''));
+    const command=String(step.instructions??'');
+    return hasMotionCommand(command) || /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-(?:conferir-arte|analisar-video|extrair-quadros)(?:\s|$)/m.test(command);
   });
 }
