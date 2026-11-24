@@ -452,19 +452,21 @@ export class StepExecutorService {
         const outros = (await jobsDaConversa(this.prisma, origem.conversationId)).filter((id) => id !== job.id);
         const resultados = await this.artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
         if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
-        // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
-        const trabalhosAnteriores = await this.prisma.job.findMany({
-          where: { projectId: job.projectId, id: { in: outros } },
-          orderBy: { createdAt: 'asc' }, select: { id: true },
-        });
-        // Fontes anteriores são auxiliares: falha de leitura em um worktree antigo
-        // não pode derrubar a tentativa atual nem iniciar novas sessões para reparar cache.
-        try {
-          const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
-          if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
-          if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
-        } catch (e: any) {
-          await L(`Recuperação auxiliar das fontes motion anteriores indisponível: ${String(e?.message ?? e).slice(0, 300)}; preservando a etapa e os arquivos atuais`, 'WARN');
+        if (mediaEnabledForArea(job.project.area) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]')) {
+          // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
+          const trabalhosAnteriores = await this.prisma.job.findMany({
+            where: { projectId: job.projectId, id: { in: outros } },
+            orderBy: { createdAt: 'asc' }, select: { id: true },
+          });
+          // Fontes anteriores são auxiliares: falha de leitura em um worktree antigo
+          // não pode derrubar a tentativa atual nem iniciar novas sessões para reparar cache.
+          try {
+            const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
+            if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
+            if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
+          } catch (e: any) {
+            await L(`Recuperação auxiliar das fontes motion anteriores indisponível: ${String(e?.message ?? e).slice(0, 300)}; preservando a etapa e os arquivos atuais`, 'WARN');
+          }
         }
       }
       // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
@@ -1527,8 +1529,9 @@ export class StepExecutorService {
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
     const vinculo = await this.prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
-    const usaMidia = mediaEnabledForArea(vinculo?.area) || hasNativeMediaOperation(steps, job.defaultProvider);
-    if (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' ')))) {
+    const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
+    const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
+    if (etapaMidia || (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))))) {
       add('qualidade-video', mediaAuthorRules());
     }
     if (vinculo) add('repositorio', await textoDoRepositorio(this.workspace.projectDirs(vinculo.dirKey).repo, vinculo));
