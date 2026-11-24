@@ -93,6 +93,8 @@ async function main() {
     assert.equal(overlayWin.__motionSegundos,25);
     overlayWin.__nivooOverlayRenderAt(15);
     assert.equal(draws.length-before,1);
+    assert.equal(overlayWin.__nivooOverlayStats.drawnAtLastFrame,1);
+    assert.deepEqual([...overlayWin.__nivooOverlayStats.everDrawnIds],['pizza']);
     assert.equal(overlayWin.__motionFim,false);
 
     // Compatibilidade com assets base64 que o Studio guardava em módulos
@@ -109,6 +111,21 @@ async function main() {
     const fromLegacy=loadScene(path.join(sceneDir,'scene.json'));
     assert.equal(fromLegacy.binaries['../antigo/assets/pizza.js'],
       'data:image/png;base64,iVBORw0KGgo=');
+
+    // Correção de regressão: fotos da pizza sumiam da v4 quando a IA usava
+    // campo "src" ou diferença de capitalização no caminho dos PNGs.
+    const assetsNovo=path.join(sceneDir,'assets');
+    fs.mkdirSync(assetsNovo,{recursive:true});
+    fs.writeFileSync(path.join(assetsNovo,'pizza-peru.png'),
+      Buffer.from([137,80,78,71,13,10,26,10]));
+    const recover=JSON.parse(JSON.stringify(scene));
+    delete recover.layers[0].asset;
+    recover.layers[0].src='assets/PIZZA-PERU.png';
+    fs.writeFileSync(path.join(sceneDir,'scene.json'),JSON.stringify(recover));
+    const found=loadScene(path.join(sceneDir,'scene.json'));
+    assert.equal(found.scene.layers[0].asset,'assets/PIZZA-PERU.png');
+    assert.match(found.binaries['assets/PIZZA-PERU.png'],/^data:image\/png;base64,/);
+    assert.equal(found.warnings.length,0);
 
     fs.writeFileSync(escape,Buffer.from('outside'));
     fs.symlinkSync(escape,path.join(root,'assets','external.png'));
