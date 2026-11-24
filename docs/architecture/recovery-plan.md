@@ -10,7 +10,7 @@ Escopo fechado para a entrega: sete frentes, um PR, sem mudança de CI, sem novo
 | 4. Executor | implementada | Separar despacho, contexto e execução específica de ferramentas do ciclo de vida do trabalho. |
 | 5. Recuperação | implementada | Organizar falhas, retomada e reutilização sem misturar autoria rejeitada com recursos aprovados. |
 | 6. Audiovisual | implementada | Integrar composição, movimento, render, áudio e montagem com contratos reais. |
-| 7. Consolidação final | revisão realizada; aceite integral não executado | Revisar instalação, interfaces, regressões, entrega e integrar o PR #48. |
+| 7. Consolidação final | implementação e revisão concluídas; build na instalação | Revisar instalação, interfaces, regressões, entrega e integrar o PR #48. |
 
 ## Frente 1
 
@@ -57,3 +57,7 @@ Revisão de compatibilidade das exportações públicas de JobsService, PlannerS
 Compilação local TypeScript 5.8 em modo strict aprovada para cinco arquivos copiados do branch com SHA de blob Git idêntico: `common/path-guard.ts`, `jobs/motion/command.ts`, `specialties/media/delivery.ts`, `providers/media-file-publication.ts` e `jobs/native-video-result.ts` (apenas ForbiddenException simulada). Doze asserções reais com FFprobe/filesystem aprovadas: resolução/duração, áudio exigido, mixagem, MP3, alternativa ausente, bytes inválidos, symlink externo e publicação atômica sem sobrescrever.
 
 CI original preservada. Não houve checkout integral: DNS do ambiente de execução não resolveu github.com, e a tentativa de obter arquivo do branch também não funcionou; dependências Nest/Prisma não estão instaladas localmente. Não houve execução de `npm run build` integral nem da suíte Jest completa. A CI original é manual e não há execução para o commit revisado. Portanto a implementação está registrada, mas a aceitação integrada e o merge de liberação não estão comprovados. Nenhuma frente adicional criada, nenhuma mudança no instalador ou CI para contornar esse limite.
+
+### Encerramento da entrega
+
+Conforme o procedimento de atualização definido pelo operador, a compilação integral é realizada pelo instalador existente durante `nivoo update`. A ausência de build integral neste ambiente não constitui condição adicional de merge. As sete frentes de implementação estão encerradas; o PR único segue para a branch de produção. Os resultados de compilação e funcionamento da instalação ainda não foram observados. Nenhuma CI adicional, etapa de aprovação ou mudança no instalador.
