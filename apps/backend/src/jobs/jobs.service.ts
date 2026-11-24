@@ -7,6 +7,7 @@ import { etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLo
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { compileWorkflowPlan } from './workflow/compile-plan';
 import { hasMotionCommand } from './motion/command';
+import { validarSaidaMotion } from './workflow/media-paths';
 import { AreaScope, mediaEnabledForArea } from '../specialties/media/scope';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
@@ -38,26 +39,6 @@ const CRITERION_KINDS = ['COMMAND', 'FILE_EXISTS', 'ARTIFACT_PRESENT', 'METRIC_T
 export function comPreflightVisual(raw: unknown, _defaultProvider: string): unknown {
   return raw;
 }
-
-function validarSaidaMotion(command: string, origem: string): string {
-  if (!hasMotionCommand(command)) return command;
-  let fixed = command;
-  // Compatibilidade: corrige automaticamente planos que tentam criar MP4 em out/.
-  // Atualiza também as referências subsequentes (ex.: ffmpeg -i out/...).
-  const obsolete = [...fixed.matchAll(/--saida\s+["']?(out\/[A-Za-z0-9._-]+\.mp4)["']?/g)].map(m => m[1]);
-  for (const oldPath of obsolete) fixed = fixed.split(oldPath).join('midia/saida/' + path.basename(oldPath));
-  // Valida cada chamada, inclusive em scripts com vários renderizadores.
-  const renders = fixed.split(/\bnivoo-renderizar-motion\b/).slice(1);
-  for (const render of renders) {
-    const line = render.split('\n', 1)[0];
-    const output = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(line);
-    if (!output || !/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(output[1] ?? output[2] ?? output[3])) {
-      throw new BadRequestException(`${origem}: nivoo-renderizar-motion exige --saida midia/saida/<nome>.mp4 (nunca out/)`);
-    }
-  }
-  return fixed;
-}
-
 
 /**
  * Fronteira do planejamento: IA recebe TEXTO; local-shell recebe um COMANDO.
