@@ -115,14 +115,13 @@ function rendererFingerprint() {
   return hasher.digest('hex');
 }
 
-function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null }) {
+function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, renderVersion = rendererFingerprint() }) {
   if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error('Fonte HTML da animação não encontrada para reutilizar quadros');
   const frames = Math.round(seconds * fps);
   if (!Number.isSafeInteger(frames) || frames < 1 || frames > 300 * fps) throw new Error('Duração de vídeo inválida');
   const fingerprint = sourceFingerprint(sourcePath);
-  const engine = rendererFingerprint();
   const signature = createHash('sha256')
-    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, engine, frames, width, height, fps, pacing }))
+    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, engine:renderVersion, frames, width, height, fps, pacing }))
     .digest('hex').slice(0, 24);
   const cacheDir = path.join(path.dirname(outputPath), '.nivoo-motion-cache', signature);
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -195,7 +194,9 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
       essential:window.__nivooRequiredProductPhotoIds??[],
       shown:window.__nivooOverlayStats?.everDrawnIds??[],
     }));
-    const missing=media.essential.filter(id=>!media.shown.includes(id));
+    const essential=Array.isArray(media?.essential)?media.essential:[];
+    const shown=Array.isArray(media?.shown)?media.shown:[];
+    const missing=essential.filter(id=>!shown.includes(id));
     if(missing.length) throw new Error('MOTION_MIDIA_AUSENTE: fotografias jamais desenhadas nos quadros: '+
       missing.join(', ')+'. Nenhum MP4 incompleto foi publicado.');
   }
