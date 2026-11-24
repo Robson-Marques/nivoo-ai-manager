@@ -4,7 +4,7 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.3.7';
+export const SKILLS_VERSION='1.3.8';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -63,6 +63,8 @@ export function selectSkills(intent:SkillIntent):Skill[]{
     const specialists=selectSoftwareSkillIds(t);
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
+    // A prior failure can deepen an actual code step without routing on raw logs.
+    if(intent.phase==='execution'&&intent.previousError&&selected.has('codigo'))selected.add('software-manutencao');
   }
   // No full skill bank in the prompt. The relevant detailed guidance is
   // materialized in the already disposable, read-only session context.

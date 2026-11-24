@@ -5,6 +5,7 @@ import { DATA_SKILL,dataIntent } from './data';
 import { INTEGRATION_SKILL,integrationIntent } from './integration';
 import { SECURITY_SKILL,securityIntent } from './security';
 import { QUALITY_SKILL,qualityIntent } from './quality';
+import { MAINTENANCE_SKILL,maintenanceIntent } from './maintenance';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -20,14 +21,11 @@ export const SOFTWARE_SKILLS = [
   INTEGRATION_SKILL,
   SECURITY_SKILL,
   QUALITY_SKILL,
-  {id:'software-manutencao',domain:'software',description:'Manutenção, desempenho e observabilidade',source:upstream+'nemo-relay-plugin-observability',
-    action:'Rastreie o fluxo que falhou e meça o custo relevante antes de refatorar ou otimizar.',
-    body:'Preserve interfaces e resultados; identifique a origem do custo ou erro com evidência. Use logs estruturados e identificadores já existentes, sem duplicar instrumentação. Não adicione cache, tentativas ou verificações para mascarar defeitos. Diferencie hipótese de medição.'},
+  MAINTENANCE_SKILL,
 ] as const satisfies readonly Skill[];
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-manutencao',/\b(refator\w*|manutencao|desempenho|performance|observabilidade|telemetria|profil\w*|logs?|latencia|gargalos?|otimiz\w*)\b/],
 ];
 
 /** Input is the normalized current task, never historical conversation or
@@ -40,5 +38,6 @@ export function selectSoftwareSkillIds(text:string):string[]{
   if(integrationIntent(text))ids.push('software-integracoes');
   if(securityIntent(text))ids.push('software-seguranca');
   if(qualityIntent(text))ids.push('software-qualidade');
+  if(maintenanceIntent(text))ids.push('software-manutencao');
   return ids;
 }

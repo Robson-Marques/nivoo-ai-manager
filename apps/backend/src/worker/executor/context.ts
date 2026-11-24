@@ -26,6 +26,7 @@ import { dataEngineeringContext } from '../../specialties/software/data';
 import { integrationEngineeringContext } from '../../specialties/software/integration';
 import { securityEngineeringContext } from '../../specialties/software/security';
 import { qualityEngineeringContext } from '../../specialties/software/quality';
+import { maintenanceEngineeringContext } from '../../specialties/software/maintenance';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -70,11 +71,12 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
     const nativeImage=!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset;
     const task=[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' ');
+    const previousError=priorAttempts.some(a=>!!a.error);
     const skills=selectSkills({
       phase:'execution',text:task,
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
       nativeImage,motionAuthor,
-      resume:motionEdit||priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
+      resume:motionEdit||priorAttempts.length>0,previousError,
     });
     const skillIds=skills.map(s=>s.id);
     // The compiled author contract already contains the exact engine manual.
@@ -94,6 +96,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(skillIds.includes('software-integracoes'))add('engenharia-integracoes',integrationEngineeringContext('execution',task));
     if(skillIds.includes('software-seguranca'))add('engenharia-seguranca',securityEngineeringContext('execution',task));
     if(skillIds.includes('software-qualidade'))add('engenharia-qualidade',qualityEngineeringContext('execution',task));
+    if(skillIds.includes('software-manutencao'))add('engenharia-manutencao',maintenanceEngineeringContext('execution',task,previousError));
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);
