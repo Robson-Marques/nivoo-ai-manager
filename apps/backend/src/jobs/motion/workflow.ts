@@ -1,7 +1,7 @@
 import type { RawStep, MotionMode } from './types';
 import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual } from './intent';
 import { renderSource, selectRenderMode, selectStandaloneHtml } from './source';
-import { attachAuthorContract, attachStandalone3DContract, authorOutputCheck, isComposer, originalAuthorInstructions } from './authoring';
+import { attachAuthorContract, attachStandalone3DContract, reconcileAuthorOutput, isComposer, originalAuthorInstructions } from './authoring';
 
 /**
  * Obrigatório em ambos os caminhos: JobsService.validatePlan e create.
@@ -22,7 +22,6 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const source = renderSource(command);
     if (!source) continue;
 
-    let insertedAuthor=false;
     const candidateIndices = steps.slice(0, ri).flatMap((s, i) => {
       if (!s || typeof s !== 'object' || !isComposer(s)) return [];
       const provider = String(s.provider ?? defaultProvider);
@@ -39,7 +38,6 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
         instructions:'Crie a composição corrigida em '+source+' atendendo à última solicitação. Preserve os ativos e restrições válidos, não o visual rejeitado.',
         dependsOn:Array.isArray(render.dependsOn)?[...render.dependsOn]:[],
       };
-      insertedAuthor=true;
       steps.splice(ri,0,author);
       candidateIndices.push(ri);
       ri++;
@@ -77,7 +75,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       if(authorKey && authorKey!==String(render.key??''))
         render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
       attachStandalone3DContract(compose,source);
-      if (insertedAuthor) compose.verifyCommand=authorOutputCheck(source,'graphics');
+      reconcileAuthorOutput(compose,source,'graphics');
       continue;
     }
     const mode: MotionMode = real3d ? 'hybrid' : pedeGrafismos(text) ? 'graphics' : 'scene';
@@ -87,7 +85,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
     }
     attachAuthorContract(compose,source,mode,pedeRevisaoVisual(objective));
-    if (insertedAuthor) compose.verifyCommand=authorOutputCheck(source,mode);
+    reconcileAuthorOutput(compose,source,mode);
     // NÃO acrescentar revisores nem testes extras.
     // O próprio renderer seleciona o motor e respeita os movimentos criados
     // pela IA, sem acelerar DUAS vezes o néon após a edição da composição.
