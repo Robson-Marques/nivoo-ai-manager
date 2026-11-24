@@ -393,7 +393,10 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     img.src=binaries[key];
   }))).then(()=>{
     if(overlay)window.__nivooOverlayReady=true;
-    else window.__nivooSceneReady=true;
+    else {
+      window.__nivooSceneLoadedKeys=Object.keys(images);
+      window.__nivooSceneReady=true;
+    }
     drawAt(0);
     const beginning=performance.now();
     function tick(now){const t=Math.min(end,(now-beginning)/1000);drawAt(t);if(t<end)requestAnimationFrame(tick);}
