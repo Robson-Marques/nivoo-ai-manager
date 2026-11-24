@@ -68,6 +68,8 @@ describe('Fronteiras do planejador', () => {
     expect(result.indiceTrabalhos[0]).toContain('BLOQUEADO');
     expect(result.memTxt).toContain('regra real');
     expect(result.conversa).toContain('[plano proposto, aprovado]');
+    expect(result.conversa).not.toContain('refaça');
+    expect(result.currentMessage.join('\n')).toContain('refaça');
     expect(result.currentMessage.join('\n')).toContain('logo.png');
     await collectPlannerContext(prisma as any,workspace as any,{...request,entrega:'resultado'});
     expect(prisma.conversationMessage.findFirst).toHaveBeenCalledTimes(1);

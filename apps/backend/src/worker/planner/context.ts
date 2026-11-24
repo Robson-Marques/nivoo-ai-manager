@@ -59,7 +59,7 @@ export async function collectPlannerContext(prisma:PrismaService,workspace:Works
   const atual=request.entrega?null:await prisma.conversationMessage.findFirst({
     where:{conversationId,role:'USUARIO',...cutoff},orderBy:[{createdAt:'desc'},{id:'desc'}]
   });
-  const past=historico.filter(m=>m.id!==atual?.id&&m.content.trim()!=='');
+  const past=historico.filter(m=>m.id!==atual?.id&&(m.content.trim()!==''||m.role==='USUARIO'||anexos.some(a=>a.mensagem===m.id)));
   const archive=worktree?writeContextArchive(worktree,'conversa-planejador',[...past].reverse().map(m=>renderMessage(m,true)).join('\n\n')):null;
   const recent=past.slice(0,worktree?8:20).reverse().map(m=>renderMessage(m,!worktree));
   const conversa=[...(archive?['Histórico integral anterior à mensagem atual: '+archive+'. Em retomadas e pedidos de continuidade, consulte as páginas relevantes antes de planejar.']:[]),...recent].join('\n\n');
