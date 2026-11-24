@@ -9,7 +9,7 @@ import { inspecionarVideoGerado } from '../../src/jobs/native-video-result';
 
 jest.mock('../../src/jobs/native-video-result',()=>{
   const actual=jest.requireActual('../../src/jobs/native-video-result');
-  return {...actual,inspecionarVideoGerado:jest.fn((dir,name)=>({ok:true,absolutePath:actual.caminhoRealDoVideo(dir,name),detail:'valid'}))};
+  return {...actual,inspecionarVideoGerado:jest.fn((dir:string,name:string)=>({ok:true,absolutePath:actual.caminhoRealDoVideo(dir,name),detail:'valid'}))};
 });
 
 describe('Recuperação de trabalho',()=>{
@@ -44,7 +44,7 @@ describe('Recuperação de trabalho',()=>{
   beforeEach(()=>{dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-recovery-'));fs.mkdirSync(path.join(dir,'saida'));file=path.join(dir,'saida','a.mp4');});
   afterEach(()=>fs.rmSync(dir,{recursive:true,force:true}));
   it('arquivo antigo não é nova entrega; arquivo novo pertence à tentativa produtora',async()=>{
-    const store={registrarVideosDoTrabalho:jest.fn(async(_meta,_dir,names)=>names)};
+    const store={registrarVideosDoTrabalho:jest.fn(async(_meta:unknown,_dir:string,names:string[])=>names)};
     fs.writeFileSync(file,'old');
     const old=captureMediaOutputs(job,step,dir);
     expect(await publishAttemptMedia(store as any,job,step,'a',dir,old,{exitCode:0,output:''},true)).toEqual([]);
