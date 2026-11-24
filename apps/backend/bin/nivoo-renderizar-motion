@@ -121,9 +121,14 @@ function motionSceneCore() {
     if (declarativa) {
       // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
       // imagens RGBA, sombras, z-index e velocidade dos elementos.
-      const { loadScene, sceneDocument } = motionSceneCore();
+      const { loadScene, sceneDocument, productPhotoLayers } = motionSceneCore();
       const { scene, binaries, warnings } = loadScene(entrada);
       warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
+      const essenciais=productPhotoLayers(scene);
+      const ausentes=essenciais.filter(l=>!binaries[l.asset]);
+      if(ausentes.length) throw new Error('MOTION_MIDIA_AUSENTE: fotografias essenciais sem arquivo: '+
+        ausentes.map(l=>l.id+' ('+String(l.asset??'sem referência').slice(0,90)+')').join(', ')+
+        '. Sem chamar IA nem exportar um MP4 com produto invisível.');
       if (scene.width !== W || scene.height !== H)
         console.warn(`nivoo-renderizar-motion: tamanho de cena ${scene.width}x${scene.height} diferente da saída ${W}x${H}; renderizando e deixando avaliação visual ao usuário`);
       await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
@@ -137,7 +142,11 @@ function motionSceneCore() {
       } finally { clearTimeout(deadline); }
       const error = await pagina.evaluate(() => window.__nivooSceneError);
       if (error) throw new Error('Falha ao preparar camadas da cena: ' + error);
-      console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivoo');
+      const loadedKeys=await pagina.evaluate(()=>window.__nivooSceneLoadedKeys??[]);
+      const falhas=essenciais.filter(l=>!loadedKeys.includes(l.asset));
+      if(falhas.length) throw new Error('MOTION_MIDIA_AUSENTE: imagem não decodificou no Chromium: '+
+        falhas.map(l=>l.id).join(', '));
+      console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivo');
     } else {
       await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
       const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
@@ -145,9 +154,14 @@ function motionSceneCore() {
         // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
-        const { loadScene, overlayScript, mountMediaOverlay } = motionSceneCore();
+        const { loadScene, overlayScript, mountMediaOverlay, productPhotoLayers } = motionSceneCore();
         const { scene, binaries, warnings } = loadScene(overlayPath);
         warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
+        const essenciais=productPhotoLayers(scene);
+        const ausentes=essenciais.filter(l=>!binaries[l.asset]);
+        if(ausentes.length) throw new Error('MOTION_MIDIA_AUSENTE: fotos de produtos sem arquivo: '+
+          ausentes.map(l=>l.id+' ('+String(l.asset??'sem referência').slice(0,90)+')').join(', ')+
+          '. Não será gerado MP4 sem as fotografias.');
         if (scene.width !== W || scene.height !== H) console.warn(
           `nivoo-renderizar-motion: overlay ${scene.width}x${scene.height} e saída ${W}x${H}; mantendo render para avaliação`);
         // O relógio do overlay usa tempo de ORIGEM do WebGL; a duração
@@ -170,11 +184,13 @@ function motionSceneCore() {
           ]);
         } finally { clearTimeout(deadline); }
         const stats=await pagina.evaluate(()=>window.__nivooOverlayStats||{});
-        console.log('nivoo-renderizar-motion: fotos/produtos isolados do CSS da composição 3D; '+
-          'arquivos carregados='+String(stats.loaded??0)+', referências='+String(stats.expected??0));
-        if ((stats.expected??0)>0 && (stats.loaded??0)===0) {
-          console.warn('nivoo-renderizar-motion: nenhum arquivo fotográfico carregado; veja os avisos de mídia acima');
-        }
+        const falhas=essenciais.filter(l=>!(stats.loadedAssetKeys??[]).includes(l.asset));
+        if(falhas.length) throw new Error('MOTION_MIDIA_AUSENTE: foto não decodificou no Chromium: '+
+          falhas.map(l=>l.id+' ('+String(l.asset).slice(0,90)+')').join(', '));
+        await pagina.evaluate(ids=>{window.__nivooRequiredProductPhotoIds=ids;},
+          essenciais.map(l=>l.id));
+        console.log('nivoo-renderizar-motion: fotos/produtos carregados no WebGL; '+
+          'arquivos='+String(stats.loaded??0)+'; fotos essenciais='+essenciais.map(l=>l.id).join(', '));
       }
     }
     const segundosFonte = Math.min(300, Math.max(1,

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime } = require('../bin/motion-scene-core');
+const { validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime } = require('../bin/motion-scene-core');
 
 async function main() {
   const scene = {
@@ -21,6 +21,12 @@ async function main() {
     ]
   };
   validateScene(scene);
+  assert.deepEqual(productPhotoLayers(scene).map(x=>x.id),['pizza'],
+    'foto do produto é componente necessário do vídeo');
+  assert.equal(productPhotoLayers({...scene,layers:[
+    {id:'logo',type:'image',asset:'assets/logo.png'},
+    {id:'pizza',type:'image',asset:'assets/pizza.png'},
+  ]}).length,1,'logo opcional não deve bloquear o vídeo inteiro');
   assert.throws(()=>validateScene({...scene,layers:[scene.layers[0],scene.layers[0]]}),/duplicado/);
   // O motor aceita UMA subida para reutilizar assets de uma pasta irmã em motion/.
   // Esse suporte foi integrado depois do teste antigo, que rejeitava qualquer ../.
@@ -68,6 +74,7 @@ async function main() {
       Promise,Math,console,queueMicrotask});
     await new Promise(resolve=>setImmediate(resolve));
     assert.equal(win.__nivooSceneReady,true);
+    assert.ok(win.__nivooSceneLoadedKeys.includes('assets/pizza.png'));
     assert.ok(Math.abs(win.__motionCore.timeline(3.5)-7.15)<1e-8);
     assert.ok(Math.abs(win.__motionCore.timeline(20)-25)<1e-8);
     draws.length=0;
@@ -90,6 +97,9 @@ async function main() {
     });
     await new Promise(resolve=>setImmediate(resolve));
     assert.equal(overlayWin.__nivooOverlayReady,true);
+    assert.equal(raf.length,1,
+      'overlay não pode agendar seu próprio requestAnimationFrame: conflitaria com o relógio do vídeo');
+    assert.ok(overlayWin.__nivooOverlayStats.loadedAssetKeys.includes('assets/pizza.png'));
     assert.equal(overlayWin.__motionSegundos,25);
     overlayWin.__nivooOverlayRenderAt(15);
     assert.equal(draws.length-before,1);

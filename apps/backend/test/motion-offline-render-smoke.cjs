@@ -63,13 +63,18 @@ async function main() {
     const cacheDir = prepareFrameCache(opts).cacheDir;
     assert.notEqual(cacheDir,prepareFrameCache({...opts,pacing:ritmo}).cacheDir,
       'cache de vídeo com aceleração não pode reutilizar quadros da versão normal');
+    assert.notEqual(
+      prepareFrameCache({...opts,renderVersion:'codigo-antigo'}).cacheDir,
+      prepareFrameCache({...opts,renderVersion:'codigo-corrigido'}).cacheDir,
+      'nivoo update DEVE invalidar quadros já renderizados pelo motor antigo');
     assert.equal(fs.readdirSync(cacheDir).filter(f => f.endsWith('.jpg')).length, 5);
     let secondCalls = 0;
     const result = await renderMotionOffline({
       ...opts, page: page(async () => { secondCalls++; return sample; }, true),
     });
-    assert.equal(overlayFrames.length, 5);
-    assert.deepEqual(overlayFrames.map(t=>Math.round(t*25)), [5,6,7,8,9]);
+    assert.equal(overlayFrames.length, 10);
+    assert.deepEqual(overlayFrames.map(t=>Math.round(t*25)), [0,1,2,3,4,5,6,7,8,9],
+      'camada de foto sincroniza seu relógio mesmo quando JPEGs foram reaproveitados');
     assert.equal(firstCalls, 6);
     assert.equal(secondCalls, 5);
     assert.equal(result.reused, 5);
@@ -84,6 +89,24 @@ async function main() {
     assert.equal(probe.status, 0, probe.stderr);
     assert.deepEqual(JSON.parse(probe.stdout).streams[0],
       { width: 16, height: 16, avg_frame_rate: '25/1', nb_frames: '10' });
+    // Um trabalho não pode publicar um MP4 com as duas tábuas vazias:
+    // essa falha é de execução, detectada dentro do render sem outra IA.
+    const missingOutput=path.join(dir,'saida','foto-nao-desenhada.mp4');
+    let missingShots=0;
+    const missingPage=page(async()=>{missingShots++;return sample;},true);
+    const originalEvaluate=missingPage.evaluate;
+    missingPage.evaluate=async (fn,t) => {
+      if (t===undefined && String(fn).includes('__nivooRequiredProductPhotoIds'))
+        return {essential:['pizza_lombo','pizza_peru'],shown:[]};
+      return originalEvaluate(fn,t);
+    };
+    await assert.rejects(renderMotionOffline({
+      ...opts,outputPath:missingOutput,page:missingPage,
+    }),/MOTION_MIDIA_AUSENTE: fotografias jamais desenhadas/);
+    assert.equal(fs.existsSync(missingOutput),false,
+      'nunca publicar MP4 sem fotos essenciais mesmo que FFmpeg pudesse codificar');
+    assert.equal(missingShots,10,'quadros produzidos uma vez sem sessão extra');
+
     const before = prepareFrameCache(opts).cacheDir;
     fs.writeFileSync(sourcePath, '<html>nova versão</html>');
     const after = prepareFrameCache(opts).cacheDir;

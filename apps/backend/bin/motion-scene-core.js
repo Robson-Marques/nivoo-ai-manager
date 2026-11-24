@@ -191,6 +191,21 @@ function loadScene(scenePath) {
   return { scene, binaries, warnings, sourcePath:absolute };
 }
 function safeJSON(x) { return JSON.stringify(x).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026'); }
+/**
+ * Uma foto de produto não é decoração: se não foi carregada ou desenhada,
+ * o render é tecnicamente incompleto. Logos/fundos podem ser opcionais para
+ * não transformar um elemento decorativo em bloqueio do vídeo inteiro.
+ * `required:false` e `optional:true` continuam disponíveis ao autor.
+ */
+function productPhotoLayers(scene) {
+  return (scene.layers ?? []).filter(layer => {
+    if (layer.type !== 'image' || layer.optional === true || layer.required === false) return false;
+    if (layer.required === true) return true;
+    const label=[layer.id,layer.role,layer.asset,layer.name].filter(Boolean).join(' ').toLowerCase();
+    return !/(?:^|[^a-z])(?:logo|logomarca|fundo|background|bg|decor|ornament|sombra|shadow|icone|icon)(?:[^a-z]|$)/.test(label);
+  });
+}
+
 /** HTML para o Chromium, sem rede, fontes remotas ou dependências de IA. */
 function sceneDocument(scene, binaries) {
   validateScene(scene);
@@ -336,7 +351,8 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     window.__nivooOverlayReady=false;
     window.__nivooOverlayStats={
       expected:scene.layers.filter(l=>l.type==='image').length,
-      loaded:0,drawnAtLastFrame:0,lastTime:0,
+      loaded:0,loadedAssetKeys:[],failedAssetKeys:[],
+      drawnAtLastFrame:0,lastTime:0,
     };
   }
   window.__motionCore={version:1,mode:overlay?'webgl-overlay':'declarative',timeline};
@@ -355,6 +371,7 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     for(const l of sorted)drawLayer(l,t);
     if(overlay) {
       window.__nivooOverlayStats.loaded=Object.keys(images).length;
+      window.__nivooOverlayStats.loadedAssetKeys=Object.keys(images);
       window.__nivooOverlayStats.drawnAtLastFrame=drawnImages;
       window.__nivooOverlayStats.everDrawnIds=[...everDrawn];
       window.__nivooOverlayStats.lastTime=t;
@@ -368,15 +385,25 @@ function sceneRuntime({scene,binaries,overlay=false}) {
   // com o relógio virtual pausado, causando timeout e novas tentativas.
   const loadPromise=Promise.all(Object.keys(binaries).map(key=>new Promise(resolve=>{
     const img=new Image();img.onload=()=>{images[key]=img;resolve();};
-    img.onerror=()=>{console.warn('[NIVO_MOTION] imagem não carregou, mantendo demais camadas: '+key.slice(0,120));resolve();};
+    img.onerror=()=>{
+      if(overlay)window.__nivooOverlayStats.failedAssetKeys.push(key);
+      console.warn('[NIVO_MOTION] imagem falhou ao decodificar: '+key.slice(0,120));
+      resolve();
+    };
     img.src=binaries[key];
   }))).then(()=>{
     if(overlay)window.__nivooOverlayReady=true;
-    else window.__nivooSceneReady=true;
+    else {
+      window.__nivooSceneLoadedKeys=Object.keys(images);
+      window.__nivooSceneReady=true;
+    }
     drawAt(0);
     const beginning=performance.now();
     function tick(now){const t=Math.min(end,(now-beginning)/1000);drawAt(t);if(t<end)requestAnimationFrame(tick);}
-    requestAnimationFrame(tick);
+    // Overlay de WebGL é SEMPRE escravo do relógio de captura. O RAF
+    // autônomo apagava/redesenhava a foto no momento do screenshot, muitas
+    // vezes com t=0 (opacity=0), produzindo vídeo só com tábuas vazias.
+    if(!overlay)requestAnimationFrame(tick);
   }).catch(e=>{
     if(overlay)window.__nivooOverlayError=String(e.message||e);
     else window.__nivooSceneError=String(e.message||e);
@@ -436,4 +463,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
+module.exports={ validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };

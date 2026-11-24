@@ -926,6 +926,22 @@ export class StepExecutorService {
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
 
+    // Falta REAL de fotografia na renderização. Não repetir 10 vezes a
+    // captura e não chamar uma IA para redesenhar o projeto concluído.
+    // Os arquivos e JPEGs já gravados ficam preservados para recuperação.
+    const erroMidia=(result.error??'')+'\n'+(result.output??'');
+    if(attemptStatus !== 'SUCESSO' &&
+      providerId === 'local-shell' && /MOTION_MIDIA_AUSENTE:/.test(erroMidia)) {
+      const detail=erroMidia.match(/MOTION_MIDIA_AUSENTE:[^\n]*/)?.[0]??'Fotografia essencial ausente';
+      await L('RENDERIZAÇÃO: '+detail+'. Não repetir a etapa nem chamar IA.', 'ERROR', attempt.id);
+      await this.checkpoint(job.id, step, worktree,
+        'foto essencial não carregou; composição e quadros preservados',{tentativa:number});
+      return this.blockJob(task, workerId, job, step,
+        BlockedReason.CRITERIOS_NAO_ATENDIDOS,
+        'Falha real de mídia no renderizador: '+detail+
+        '. Nenhum MP4 incompleto será publicado. A composição está preservada.');
+    }
+
     // Fonte motion incompatível com o motor declarado no plano é falha de
     // contrato, não uma reprovação artística. Não abrir mais sessões nem
     // repetir o render; o produtor precisa corrigir o FORMATO da fonte.
