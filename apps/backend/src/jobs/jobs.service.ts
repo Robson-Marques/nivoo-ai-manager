@@ -4,7 +4,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { sha256 } from '../common/hash';
 import { etapaPedeRenderizacaoMotion } from './executor-priority';
-import { compileWorkflowPlan } from './workflow/compile-plan';
+import { compileWorkflowDefinition } from './workflow/compile-plan';
 import { hasMotionCommand } from './motion/command';
 import { parseSteps } from './workflow/step-contract';
 import { parseCriteria } from './workflow/criteria-contract';
@@ -68,13 +68,14 @@ export class JobsService {
     const defaultProvider = optString(plan, 'defaultProvider', 60) ?? 'claude-code-cli';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
     if (!Array.isArray(plan.steps) || plan.steps.length === 0) throw new BadRequestException('O plano precisa de pelo menos uma etapa');
-    const brutas = comPreflightVisual(compileWorkflowPlan(plan.steps, defaultProvider, objective, area), defaultProvider);
+    const compiled = compileWorkflowDefinition(plan.steps,plan.criteria??[],defaultProvider,objective,area);
+    const brutas = compiled.steps;
     const steps = parseSteps(this.registry,brutas, defaultProvider);
     assertAcyclic(steps);
-    const criteria = parseCriteria(plan.criteria ?? [], [], mediaEnabledForArea(area));
+    const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(area));
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
     const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
-    return { title, objective, defaultProvider, steps: brutas, criteria: plan.criteria, limits };
+    return { title, objective, defaultProvider, steps: brutas, criteria, limits };
   }
 
   async create(projectId: string, body: any) {
@@ -84,9 +85,10 @@ export class JobsService {
     const objective = reqString(body, 'objective', 50000);
     const defaultProvider = optString(body, 'defaultProvider', 60) ?? 'local-shell';
     if (!this.registry.has(defaultProvider)) throw new BadRequestException(`Conector desconhecido: ${defaultProvider}`);
-    const steps = parseSteps(this.registry,comPreflightVisual(compileWorkflowPlan(body.steps ?? [], defaultProvider, objective, project.area), defaultProvider), defaultProvider);
+    const compiled = compileWorkflowDefinition(body.steps??[],body.criteria,defaultProvider,objective,project.area);
+    const steps = parseSteps(this.registry,compiled.steps,defaultProvider);
     assertAcyclic(steps);
-    const criteria = parseCriteria(body.criteria, [], mediaEnabledForArea(project.area));
+    const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(project.area));
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
     // independente de IA por padrão; só se a pessoa solicitar conferência
     // explicitamente. Testes técnicos necessários permanecem nos executores.
