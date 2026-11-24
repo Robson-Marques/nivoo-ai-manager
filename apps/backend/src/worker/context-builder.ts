@@ -34,6 +34,9 @@ export interface ContextStats {
   omittedMemoryIds: string[];
   skillIds?: string[];
   skillsVersion?: string;
+  memoryTruncated?: number;
+  promptChars?: number;
+  profileChars?: number;
 }
 
 /** Ordem de importância da memória para quem continua o trabalho. */
@@ -72,28 +75,32 @@ export function assembleContext(
 ): { text: string; stats: ContextStats } {
   const required = sections.filter((s) => s.required);
   const optional = sections.filter((s) => !s.required);
-  let used = required.reduce((n, s) => n + s.text.length + 2, 0);
+  // Reserve room for headings and omission notices. Mandatory sections are never cut.
+  const safeBudget=Number.isFinite(budgetChars)&&budgetChars>0?Math.floor(budgetChars):60000;
+  let used = required.reduce((n, s) => n + s.text.length + 2, 0)+500;
+  let memoryTruncated=0;
 
   const memLines: string[] = [];
   const omittedMemoryIds: string[] = [];
   for (const m of sortMemory(memory)) {
     const line = memoryLine(m);
-    if (used + line.length + 1 <= budgetChars) {
+    if (used + line.length + 1 <= safeBudget) {
       memLines.push(line);
+      if(m.content.length>600)memoryTruncated++;
       used += line.length + 1;
     } else omittedMemoryIds.push(m.id);
   }
   const artLines: string[] = [];
   let artOmitted = 0;
   for (const a of artifacts) {
-    if (used + a.length + 1 <= budgetChars) {
+    if (used + a.length + 1 <= safeBudget) {
       artLines.push(a);
       used += a.length + 1;
     } else artOmitted++;
   }
   const extra: string[] = [];
   for (const s of optional) {
-    if (used + s.text.length + 2 <= budgetChars) {
+    if (used + s.text.length + 2 <= safeBudget) {
       extra.push(s.text);
       used += s.text.length + 2;
     }
@@ -109,6 +116,7 @@ export function assembleContext(
   if (omittedMemoryIds.length) {
     parts.push(`> Orçamento de contexto: ${omittedMemoryIds.length} entrada(s) de memória de menor prioridade foram omitidas deste prompt. A memória completa está em .nivoo/memoria.md — leia-a se precisar.`);
   }
+  if(memoryTruncated)parts.push('> '+memoryTruncated+' entrada(s) acima abreviadas; conteúdo integral em .nivoo/memoria.md.');
   if (artLines.length) parts.push(['## Artefatos já produzidos neste job (em out/)', ...artLines].join('\n'));
   if (artOmitted) parts.push(`> ${artOmitted} artefato(s) omitidos por orçamento de contexto (lista completa em .nivoo/memoria.md).`);
   parts.push(...extra);
@@ -117,9 +125,10 @@ export function assembleContext(
   return {
     text,
     stats: {
-      budgetChars,
+      budgetChars:safeBudget,
       totalChars: text.length,
-      overBudget: text.length > budgetChars,
+      overBudget: text.length > safeBudget,
+      memoryTruncated,
       memoryIncluded: memLines.length,
       memoryOmitted: omittedMemoryIds.length,
       artifactsIncluded: artLines.length,

@@ -20,7 +20,7 @@ describe('Fronteiras do executor',()=>{
     expect(load).toHaveBeenCalledWith('perfil');
     expect(result.context).toContain('fatos');
     expect(result.context).toContain('AGENTS.md');
-    expect(result.stats).toBe(stats);
+    expect(result.stats).toMatchObject({totalChars:result.context.length,profileChars:6});
   });
   it.each([
     [{exitCode:0,output:''},false,true,'SUCESSO'],

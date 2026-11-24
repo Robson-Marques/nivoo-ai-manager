@@ -4,6 +4,7 @@ import { SESSION_CONTEXT_DIR,WorkspaceService } from '../../storage/workspace.se
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AGENT_RULES } from '../../security/policy';
+import { writeContextArchive } from '../context-archive';
 import { assembleContext,ContextSection,ContextStats,fullMemoryDocument } from '../context-builder';
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
@@ -205,12 +206,17 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     const artLines = artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`);
     const budget = Number(process.env.NIVOO_CONTEXT_MAX_CHARS ?? 60000);
+    const full=fullMemoryDocument(memory,artLines);
+    if(worktree&&Buffer.byteLength(full)>800000){
+      const index=writeContextArchive(worktree,'memoria-execucao',full);
+      add('memoria-paginada',['Memória integral também disponível em páginas compatíveis com ferramentas de leitura: '+index]);
+    }
     const result = assembleContext(sections, memory, artLines, budget);
     result.stats.skillIds=skillIds;
     result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
       fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
-      fs.writeFileSync(path.join(worktree, '.nivoo', 'memoria.md'), fullMemoryDocument(memory, artLines));
+      fs.writeFileSync(path.join(worktree, '.nivoo', 'memoria.md'), full);
     }
     return result;
   }

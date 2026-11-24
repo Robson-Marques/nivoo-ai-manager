@@ -12,6 +12,7 @@ export type PlannerAttachment = Anexo & { mensagem:string; caminho:string };
 export interface PlannerRequest {
   conversationId:string;
   messageId:string;
+  messageCreatedAt?:Date;
   project:PlannerProject;
   profileText:string;
   anexos:PlannerAttachment[];

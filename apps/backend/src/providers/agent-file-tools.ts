@@ -7,9 +7,9 @@ const MAX_WRITE=320_000,MAX_READ=1_000_000,MAX_RESULT=23_000;
 const BLOCKED=/^(node_modules|\.git|\.env(?:\..*)?|\.claude|\.codex|\.gemini|segredos\.json|conexoes\.json|id_rsa|id_ed25519)$/i;
 const BINARY_EXT=/\.(?:png|jpe?g|webp|gif|avif|ico|pdf|docx?|xlsx?|pptx?|zip|gz|7z|rar|mp[34]|wav|m4a|ogg|webm|mov|ttf|otf|woff2?|exe|dll|so|bin)$/i;
 const INTERNAL=/^(?:contexto|\.nivoo)(?:\/|$)/;
-const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
+const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md|historico-git\.txt|publicacao-midia\.json)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
 function contextAllowed(rel:string):boolean{
-  return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos)\//.test(rel);
+  return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)\//.test(rel);
 }
 function safe(cwd:string,input:unknown,mode:'read'|'write'|'list'){
   const root=fs.realpathSync(cwd);

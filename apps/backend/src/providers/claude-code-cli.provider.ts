@@ -217,13 +217,13 @@ export class ClaudeCodeCliProvider implements AiProvider {
       'Se não conseguir ler ou editar, registre o caminho e o motivo real; não tente chamar ferramenta inexistente.',
       'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
     ].join('\n');
-    // Perfil do projeto como instrução de sistema: pesa mais que o texto do prompt (vai também no prompt).
+    // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
       env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
-      input: buildPrompt(req),
+      input: buildPrompt(req,true),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,

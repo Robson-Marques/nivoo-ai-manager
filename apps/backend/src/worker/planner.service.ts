@@ -182,7 +182,7 @@ export class PlannerService {
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
+      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -205,7 +205,7 @@ export class PlannerService {
         data: { startedAt: new Date() },
       });
       const iniciouIaMs = Date.now();
-      registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs });
+      registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs, promptBaseCaracteres:prompt.length,perfilCaracteres:profile.text.length });
       const result = await this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
@@ -304,7 +304,7 @@ export class PlannerService {
               'para forçar aprovação. Prefira um critério operacional que prove a entrega pretendida.',
               'Responda SOMENTE um bloco JSON completo de tipo plano, com job íntegro.',
               'JSON ANTERIOR:',
-              JSON.stringify(parsed).slice(0, 24000),
+              JSON.stringify(parsed),
             ].join('\n');
             const iniciouReparoMs = Date.now();
             registrarTempo('reparo_ia_inicio', { provedor: providerId });

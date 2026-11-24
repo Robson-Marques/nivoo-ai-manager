@@ -82,8 +82,29 @@ export interface AiProvider {
   execute(req: ExecutionRequest): Promise<ExecutionResult>;
 }
 
-export function buildPrompt(req: Pick<ExecutionRequest, 'context' | 'instructions'>): string {
-  return `${req.context}\n\n## Tarefa desta etapa\n${req.instructions}\n`;
+/** Profile is carried once: in the system channel when supported, otherwise
+ * in the prompt. The exact original text remains in the audit artifact. */
+export function buildPrompt(req: Pick<ExecutionRequest,'context'|'instructions'|'systemPrompt'>,profileInSystem=false):string{
+  const profile=req.systemPrompt??'';
+  let context=req.context,instructions=req.instructions;
+  function hasBlock(text:string):number{
+    if(!profile)return -1;
+    let pos=text.indexOf(profile);
+    while(pos>=0){
+      if((pos===0||text[pos-1]==='\n')&&(pos+profile.length===text.length||text[pos+profile.length]==='\n'))return pos;
+      pos=text.indexOf(profile,pos+profile.length);
+    }
+    return -1;
+  }
+  const c=hasBlock(context),i=hasBlock(instructions);
+  const remove=(text:string,pos:number)=>text.slice(0,pos)+'[Perfil integral do projeto recebido no canal de sistema.]'+text.slice(pos+profile.length);
+  if(profileInSystem&&profile){
+    if(c>=0)context=remove(context,c);
+    else if(i>=0)instructions=remove(instructions,i);
+  }else if(profile&&c<0&&i<0){
+    context=[profile,context].filter(Boolean).join('\n\n');
+  }
+  return `${context}\n\n## Tarefa desta etapa\n${instructions}\n`;
 }
 
 const RESOURCE_PATTERNS = /(usage limit|limit reached|hit your [\w -]*limit|\d+[- ]hour limit|weekly limit|session limit|limit · resets|limit will reset|rate.?limit|quota|\b429\b|overloaded|\b529\b|\b503\b|service ?unavailable|high demand|insufficient_quota|credit balance|not logged in|please run .*login|authentication_error|invalid api key|api key not valid|api_key_invalid|resource_exhausted|unauthorized|\b401\b|\bENOTFOUND\b|\bECONNREFUSED\b|\bETIMEDOUT\b|\bECONNRESET\b)/i;

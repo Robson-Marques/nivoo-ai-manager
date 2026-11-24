@@ -3,6 +3,7 @@ import { segredoDaConexao } from '../accounts/secrets';
 import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { retryAfterHeaderMs,isTransientRateLimit } from './resource-rate-limit';
+import { compactRepeatedReads } from './tool-history';
 import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
 
 /**
@@ -156,7 +157,7 @@ export class FreeCloudApiProvider implements AiProvider {
     const turnos = Math.max(1, Math.min(30, Number(req.options?.maxTurns) || 20));
     const mensagens: Array<Record<string, unknown>> = [
       { role: 'system', content: [req.systemPrompt ?? '', 'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
-      { role: 'user', content: buildPrompt(req) },
+      { role: 'user', content: buildPrompt(req,true) },
     ];
     req.onLog(this.conf.nome + ': modelo ' + model + ' — ' + this.conf.mensagem);
     try {
@@ -165,9 +166,11 @@ export class FreeCloudApiProvider implements AiProvider {
       for (let turno = 0; turno < turnos; turno++) {
         if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido' };
         const restante = req.timeoutMs - (Date.now() - inicio);
-        if (restante <= 0) return { exitCode: 1, output: '', error: 'tempo de sessão esgotado', sessionEnded: true, numTurns: turno };
+        if (restante <= 0) return { exitCode: 1, output: '', error: 'tempo de sessão esgotado', sessionEnded: true, numTurns: turno,inputTokens:entrada,outputTokens:saida };
+        const compact=compactRepeatedReads(mensagens);
+        if(compact.savedChars)req.onLog('Contexto '+this.conf.nome+': '+compact.savedChars+' caracteres de leituras idênticas não reenviados nesta chamada.');
         const resposta = await this.chamar('/chat/completions', {
-          model, messages: mensagens, tools: AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
+          model, messages: compact.messages, tools: AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal) as Resposta;
         entrada += resposta.usage?.prompt_tokens ?? 0;
         saida += resposta.usage?.completion_tokens ?? 0;

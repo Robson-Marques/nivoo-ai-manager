@@ -4,6 +4,7 @@ import { segredoDaConexao } from '../accounts/secrets';
 import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
+import { compactRepeatedReads } from './tool-history';
 import { retryAfterHeaderMs } from './resource-rate-limit';
 
 /** NVIDIA Build: APIs hospedadas de avaliação (não requer GPU no servidor Nivoo). */
@@ -150,7 +151,7 @@ export class NvidiaApiProvider implements AiProvider {
         'Não invente resultado, arquivo criado, teste executado ou imagem que não tenha sido gravado.',
         'Quando faltar evidência, indique o impedimento sem marcar como aprovado.',
       ].join('\n') },
-      { role: 'user', content: buildPrompt(req) },
+      { role: 'user', content: buildPrompt(req,true) },
     ];
     let entrada = 0, saida = 0, alteracoes = 0;
     const leiturasIguais = new Map<string, number>();
@@ -160,11 +161,13 @@ export class NvidiaApiProvider implements AiProvider {
     req.onLog('NVIDIA NIM: modelo ' + model + ' (ferramentas seguras de arquivo, sem terminal)');
     try {
       for (let volta = 0; volta < turnos; volta++) {
-        if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido' };
+        if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido',inputTokens:entrada,outputTokens:saida,numTurns:volta };
         const restante = req.timeoutMs - (Date.now() - inicio);
-        if (restante <= 0) return { exitCode: 1, output: '', error: 'tempo da sessão NVIDIA esgotado', sessionEnded: true, numTurns: volta };
+        if (restante <= 0) return { exitCode: 1, output: '', error: 'tempo da sessão NVIDIA esgotado', sessionEnded: true, numTurns: volta,inputTokens:entrada,outputTokens:saida };
+        const compact=compactRepeatedReads(messages);
+        if(compact.savedChars)req.onLog('Contexto NVIDIA: '+compact.savedChars+' caracteres de leituras idênticas não reenviados nesta chamada.');
         const json: NvidiaResponse = await this.pedir('/chat/completions', {
-          model, messages, tools: NVIDIA_TOOLS, tool_choice: 'auto', stream: false,
+          model, messages:compact.messages, tools: NVIDIA_TOOLS, tool_choice: 'auto', stream: false,
           max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal);
         entrada += json.usage?.prompt_tokens ?? 0;
