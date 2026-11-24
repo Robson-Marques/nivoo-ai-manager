@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto } from '../../common/path-guard';
-import { readMotionInvocations } from '../motion/command';
+import { mediaDeliveries } from '../../specialties/media/delivery';
 export function normalizarCenasDeMontagem(o: any): unknown[] {
   if (!o || typeof o !== 'object') return [];
   if (Array.isArray(o.cenas)) return o.cenas;
@@ -18,14 +18,7 @@ const mediaPath=(v:unknown)=>caminhoDoProjeto(v);
 
 /** Physical outputs of the official media connectors, not inferred from titles. */
 export function mediaOutputs(step:Step,defaultProvider:string):string[]{
-  const provider=step.provider??defaultProvider,opts=record(step.providerOptions);
-  if(provider==='local-shell')return readMotionInvocations(String(step.instructions??'')).flatMap(op=>op.output?[op.output]:[]);
-  const key=typeof step.key==='string'?step.key:'';
-  const target=provider==='gemini-video'?(opts.arquivo??('videos/'+key+'.mp4')):
-    provider==='juntar-videos'?opts.arquivo:
-    provider==='gerar-narracao'?(opts.arquivo??'out/previa-locucao.mp3'):null;
-  const file=mediaPath(target);
-  return file?[file]:[];
+  return mediaDeliveries(String(step.provider??defaultProvider),String(step.instructions??''),record(step.providerOptions),typeof step.key==='string'?step.key:'video').map(x=>x.path);
 }
 export function mediaInputs(step:Step,defaultProvider:string):string[]{
   const provider=step.provider??defaultProvider,opts=record(step.providerOptions);
