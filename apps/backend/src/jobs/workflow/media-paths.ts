@@ -11,8 +11,8 @@ export function replaceMediaAliases(text:string,aliases:Record<string,string>):s
   return text.replace(/(^|[^A-Za-z0-9_./-])(out\/[A-Za-z0-9._-]+\.mp4)(?![A-Za-z0-9_./-])/gi,
     (match,prefix,file)=>aliases[file]?prefix+aliases[file]:match);
 }
-export function normalizeWorkflowMediaPaths(raw:unknown,defaultProvider:string):unknown {
-  if(!Array.isArray(raw))return raw;
+export function resolveWorkflowMediaPaths(raw:unknown,defaultProvider:string):{steps:unknown;aliases:Record<string,string>} {
+  if(!Array.isArray(raw))return {steps:raw,aliases:{}};
   const aliases:Record<string,string>={};
   const steps=raw.map(s=>{
     if(!s||typeof s!=='object'||(s.provider??defaultProvider)!=='local-shell')return s;
@@ -21,8 +21,8 @@ export function normalizeWorkflowMediaPaths(raw:unknown,defaultProvider:string):
     Object.assign(aliases,result.aliases);
     return result.command===s.instructions?s:{...s,instructions:result.command};
   });
-  if(!Object.keys(aliases).length)return steps;
-  return steps.map(s=>{
+  if(!Object.keys(aliases).length)return {steps,aliases};
+  const normalized=steps.map(s=>{
     if(!s||typeof s!=='object')return s;
     const provider=s.provider??defaultProvider;
     const next={...s};
@@ -40,5 +40,17 @@ export function normalizeWorkflowMediaPaths(raw:unknown,defaultProvider:string):
       next.providerOptions=opts;
     }
     return next;
+  });
+  return {steps:normalized,aliases};
+}
+
+export function normalizeWorkflowCriteria(raw:unknown,aliases:Record<string,string>):unknown{
+  if(!Array.isArray(raw)||!Object.keys(aliases).length)return raw;
+  return raw.map(c=>{
+    if(!c||typeof c!=='object'||!c.config||typeof c.config!=='object')return c;
+    const config={...c.config};
+    if(c.kind==='FILE_EXISTS'&&typeof config.path==='string')config.path=aliases[config.path]??config.path;
+    if(c.kind==='COMMAND'&&typeof config.command==='string')config.command=replaceMediaAliases(config.command,aliases);
+    return {...c,config};
   });
 }
