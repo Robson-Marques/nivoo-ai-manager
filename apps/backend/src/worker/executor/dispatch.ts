@@ -15,8 +15,7 @@ export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'
 }
 
 /** Dispatch exactly once. The caller owns attempt creation, outcome and retry. */
-export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number):Promise<ExecutionResult>{
-  const providerId=provider.id;
+export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,providerId:string,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number):Promise<ExecutionResult>{
   const isAi=provider.kind!=='executor';
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
