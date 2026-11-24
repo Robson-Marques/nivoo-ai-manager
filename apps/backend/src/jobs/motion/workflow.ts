@@ -1,3 +1,4 @@
+import { nativeImageTarget, isCodex, visualReferences } from '../../providers/codex-image-assets';
 import type { RawStep, MotionMode } from './types';
 import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual } from './intent';
 import { renderSource, selectRenderMode, selectStandaloneHtml } from './source';
@@ -25,7 +26,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const candidateIndices = steps.slice(0, ri).flatMap((s, i) => {
       if (!s || typeof s !== 'object' || !isComposer(s)) return [];
       const provider = String(s.provider ?? defaultProvider);
-      if (['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(provider)) return [];
+      if (['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(provider)||nativeImageTarget((s.providerOptions as Record<string,unknown>|undefined)?.visualAsset)) return [];
       return [i];
     });
     if (!candidateIndices.length && pedeRevisaoVisual(objective) &&
@@ -62,14 +63,20 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // Imagens geradas são insumos reais. Vincule apenas ativos da mesma cena
     // ou caminhos/dependências explicitamente selecionados pelo planejador.
     const imageStages=steps.slice(0,ci).flatMap(s=>{
-      if(!s||typeof s!=='object'||String(s.provider??defaultProvider)!=='gemini-image')return [];
+      if(!s||typeof s!=='object')return [];
       const opts=s.providerOptions as Record<string,unknown>|undefined;
-      const file=String(opts?.arquivo??'');
+      const native=nativeImageTarget(opts?.visualAsset);
+      const file=String(native?.arquivo??(String(s.provider??defaultProvider)==='gemini-image'?opts?.arquivo:'' )??'');
       const key=String(s.key??'');
       if(!key||!/^motion\/[A-Za-z0-9._/-]+\.png$/i.test(file)||file.split('/').includes('..'))return [];
       return file.startsWith(source+'/')||original.includes(file)||(Array.isArray(compose.dependsOn)&&compose.dependsOn.includes(key))?[{key,file}]:[];
     });
     if(imageStages.length){
+      if(isCodex(String(compose.provider??defaultProvider))){
+        const opts=(compose.providerOptions??{}) as Record<string,unknown>;
+        const refs=[...new Set([...visualReferences(opts.visualReferences),...imageStages.map(a=>a.file)])].slice(0,5);
+        compose.providerOptions={...opts,visualReferences:refs};
+      }
       compose.dependsOn=[...new Set([...(Array.isArray(compose.dependsOn)?compose.dependsOn.map(String):[]),...imageStages.map(a=>a.key)])];
       if(!original.includes('[NIVOO_VISUAL_ASSETS]')){
         const marker='\n\n[NIVOO_VISUAL_ASSETS] Use os PNGs reais como base visual/ativos da composição, não os redesenhe com geometrias primitivas: '+imageStages.map(a=>a.file).join(', ')+'. Preserve enquadramento, marca, luz e qualidade; anime as camadas conforme o briefing.';

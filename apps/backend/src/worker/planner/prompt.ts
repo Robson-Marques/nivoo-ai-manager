@@ -17,7 +17,7 @@ import type { PlannerRequest } from './types';
 /** Composition root for the planner prompt. No queue, persistence or AI invocation. */
 export async function buildPlannerPrompt(prisma:PrismaService,workspace:WorkspaceService,registry:ProviderRegistry,request:PlannerRequest):Promise<string>{
   const {project,profileText,providerId,resultados,entrega}=request;
-  const capabilities=await selectPlannerCapabilities(project.area,registry);
+  const capabilities=await selectPlannerCapabilities(project.area,registry,providerId);
   const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
     return [

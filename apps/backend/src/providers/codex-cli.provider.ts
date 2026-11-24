@@ -1,3 +1,4 @@
+import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, isCodexAccount } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
 import { argsCodex } from '../mcp/para-ia';
 import { isolatedHome } from '../accounts/secrets';
@@ -74,7 +75,7 @@ export class CodexCliProvider implements AiProvider {
       installed: false,
       authenticated: false,
       limits: { observacao: 'limites do plano ChatGPT/OpenAI da conta; erros de limite causam reagendamento' },
-      capabilities: ['editar-codigo', 'executar-ferramentas', 'sandbox-workspace-write'],
+      capabilities: ['editar-codigo', 'executar-ferramentas', 'sandbox-workspace-write', ...(isCodexAccount(this.id) ? ['imagegen-native-adapter'] : [])],
       errors: [],
       checkedAt: new Date().toISOString(),
       isAi: true,
@@ -97,6 +98,27 @@ export class CodexCliProvider implements AiProvider {
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     // project_doc_max_bytes=0: não carrega AGENTS.md do workspace (canal de contexto fora do prompt auditado).
     const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-C', req.cwd];
+    const target = nativeImageTarget(req.options?.visualAsset);
+    const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId });
+    const startedAt = Date.now();
+    const savedPaths:string[]=[];
+    let nativeThread:string|undefined;
+    const observe=(line:string)=>{
+      try{
+        const ev=JSON.parse(line);
+        if(ev.type==='thread.started'&&typeof ev.thread_id==='string')nativeThread=ev.thread_id;
+        const p=imageEventPath(ev);if(p)savedPaths.push(p);
+      }catch{/* non-JSON log */}
+      CodexCliProvider.logEvento(line,req.onLog);
+    };
+    try{
+      if(target){
+        if(!isCodexAccount(this.id))throw new Error('A produção nativa de imagem exige a conexão Codex por conta selecionada.');
+        prepareNativeImage(req.cwd,target);
+        args.unshift('--enable','image_generation');
+      }
+      for(const img of resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir))args.push('--image',img);
+    }catch(e){return {exitCode:1,output:'',error:'Ativo visual: '+String((e as Error).message),stopReason:'visual_asset_error'};}
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
     for (const img of req.options?.images ?? []) args.push('--image', img);
@@ -107,8 +129,8 @@ export class CodexCliProvider implements AiProvider {
     let pendente = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId }),
-      input: buildPrompt(req),
+      env,
+      input: buildPrompt(req)+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta image_gen integrada à conta Codex para gerar UMA imagem conforme o briefing. '+(target.transparente?'Solicite fundo realmente transparente e preserve o canal alfa. ':'')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
@@ -117,12 +139,12 @@ export class CodexCliProvider implements AiProvider {
         pendente += c;
         const linhas = pendente.split('\n');
         pendente = linhas.pop() ?? '';
-        for (const l of linhas) CodexCliProvider.logEvento(l, req.onLog);
+        for (const l of linhas) observe(l);
       },
     });
-    if (pendente.trim()) CodexCliProvider.logEvento(pendente, req.onLog);
+    if (pendente.trim()) observe(pendente);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
-    if (r.timedOut) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
+    if (r.timedOut && !target) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
     let lastMessage = '';
     let sessionId: string | undefined;
@@ -165,6 +187,17 @@ export class CodexCliProvider implements AiProvider {
         inputTokens,
         outputTokens,
       };
+    }
+    if(target){
+      try{
+        const file=await recoverNativeImage(env,req.cwd,target,nativeThread??sessionId,savedPaths,startedAt);
+        req.onLog('ImageGen: PNG recuperado e decodificado em '+file);
+        return {exitCode:0,output:'Ativo visual produzido: '+file,sessionId:nativeThread??sessionId,inputTokens,outputTokens,stopReason:'completed'};
+      }catch(e){
+        const detail=String((e as Error).message);
+        const providerError=errors.join('; ')+' '+r.stderr;
+        return {exitCode:1,output:lastMessage,error:'ImageGen: '+detail+(providerError.trim()?' — '+providerError.slice(0,500):''),sessionId:nativeThread??sessionId,inputTokens,outputTokens,stopReason:'visual_asset_error'};
+      }
     }
     const failed = r.exitCode !== 0 || errors.length > 0;
     const errText = failed ? `${errors.join('; ')} ${r.stderr.slice(0, 500)}`.trim() : undefined;

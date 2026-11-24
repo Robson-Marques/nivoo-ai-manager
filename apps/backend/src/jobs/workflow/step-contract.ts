@@ -9,6 +9,7 @@ import { conferenciaTecnicaDeVideo,customMediaVerification } from '../video-step
 import { mediaDeliveries } from '../../specialties/media/delivery';
 import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
+import { nativeImageTarget, visualReferences, isCodex, isCodexAccount } from '../../providers/codex-image-assets';
 import { imageOptions } from '../../providers/image-options';
 import { operacoesDeArquivos } from './file-options';
 
@@ -40,7 +41,9 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       // erros antigos e caminhos inválidos como parte da análise.
       // Validar/normalizar comandos SOMENTE quando serão executados como Bash.
       const instructions = normalizarInstrucaoDeEtapa(rawInstructions, provider ?? defaultProvider, `Etapa ${key} (instruções)`);
-      const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : undefined;
+      const target=nativeImageTarget(s.providerOptions?.visualAsset);
+      if(target&&!isCodexAccount(provider??defaultProvider))throw new BadRequestException('Etapa '+key+': visualAsset exige a conexão Codex por conta.');
+      const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : target ? "test -s '"+target.arquivo+"'" : undefined;
       if ((provider ?? defaultProvider) === 'local-shell') {
         const invalido = erroDeComandoLocal(instructions);
         if (invalido) throw new BadRequestException(`Etapa ${key}: ${invalido}`);
@@ -52,6 +55,8 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       }
       const opts = s.providerOptions ?? {};
       const providerOptions: Record<string, unknown> = {};
+      if(target)providerOptions.visualAsset=target;
+      if(isCodex(provider??defaultProvider)&&opts.visualReferences!==undefined)providerOptions.visualReferences=visualReferences(opts.visualReferences);
       if (opts.model !== undefined) providerOptions.model = String(opts.model).slice(0, 100);
       if (opts.maxTurns !== undefined) {
         const n = Number(opts.maxTurns);

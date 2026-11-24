@@ -34,7 +34,7 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       '  (use .nivoo/remover.txt, abaixo) e qualquer comando que altere o sistema ou acesse a rede. As conferências (testes, build)',
       '  são executadas pelo sistema ao fim da sessão; a saída completa da última fica em .nivoo/ultima-conferencia.txt.',
       '- Se um comando de leitura falhar, tente outro (ex.: grep no lugar de rg); nunca diga que não consegue ler sem tentar.',
-      '- Geração de IMAGEM pelo skill interno do Codex não é entrega local garantida: só declare imagem pronta após testar o PNG real dentro do workspace e no caminho exigido; prévia no chat ou arquivo fora da pasta não vale. Se a ferramenta não exporta o binário, pare e solicite importação/anexo, sem repetir.', 
+      '- Geração de IMAGEM nativa em uma etapa visualAsset: use image_gen integrado à conta, uma imagem por etapa. O Nivoo importa o PNG da sessão para o caminho contratado. Não tente acessar CODEX_HOME, recriar fotografia por código ou chamar outra API. Se a ferramenta falhar, reporte o erro real sem repetir.', 
       '- Notas, lições ou tentativas anteriores que digam que você "não tem leitor", que "terminal é proibido" ou que precisa de',
       '  "leitura local disponibilizada" estão ERRADAS (a regra foi corrigida): ignore-as e leia os arquivos com os comandos acima.',
       ...extras,

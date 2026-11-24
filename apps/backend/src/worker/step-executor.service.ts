@@ -1,3 +1,4 @@
+import { nativeImageTarget,isCodexAccount } from '../providers/codex-image-assets';
 import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
@@ -201,6 +202,7 @@ export class StepExecutorService {
     // apenas ~2 GiB livres o FFmpeg/artefatos derrubaram o PostgreSQL (ENOSPC).
     // Não iniciar captura ou render até haver reserva para os temporários.
     const providerId = step.provider ?? job.defaultProvider;
+    if(nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset)&&!isCodexAccount(providerId))return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'A etapa de ImageGen exige a conexão Codex por conta; não substitua por outro provedor.');
     if (providerId !== 'local-shell' && providerId !== 'gemini-video' &&
         mediaEnabledForArea(job.project.area) && etapaPedeRenderizacaoMotion(step)) {
       // Compatibilidade com planos antigos: não cobrar outra sessão de IA nem
@@ -564,7 +566,7 @@ export class StepExecutorService {
 
     // Uma chamada de imagem paga pode ter sido cobrada antes de uma falha de rede.
     // Não a repita automaticamente sem decisão do usuário.
-    if (!isAi && providerId === 'gemini-image') {
+    if (result.stopReason==='visual_asset_error' || (!isAi && providerId === 'gemini-image')) {
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'geração visual pendente',{tentativa:number});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(result.error??result.output??'Geração de imagem não concluída').slice(0,2200));
     }
