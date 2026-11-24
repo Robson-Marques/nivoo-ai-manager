@@ -97,6 +97,24 @@ function normalizeLayerDimensions(layer,scene) {
   layer.width=motionLength(originalWidth,scene.width,widthFallback);
   layer.height=motionLength(originalHeight,scene.height,heightFallback);
 }
+// Time values have a single internal unit: seconds. Explicit alternate
+// representations are converted without guessing the unit of bare numbers.
+function motionTime(value, total) {
+  if (typeof value !== 'string') return value;
+  const match=value.trim().match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(ms|s|%)?$/i);
+  if (!match) return value;
+  const n=Number(match[1]), unit=(match[2]||'s').toLowerCase();
+  return unit==='ms'?n/1000:unit==='%'?n*total/100:n;
+}
+function normalizeKeyTime(key,total) {
+  const candidates=[key.at,key.time,key.t,key.seconds,key.timeMs==null?undefined:String(key.timeMs)+'ms']
+    .filter(v=>v!=null).map(v=>motionTime(v,total));
+  if (!candidates.length) return;
+  if (candidates.some(v=>v!==candidates[0])) throw new Error('keyframe: tempos conflitantes');
+  key.at=candidates[0];
+  // Canonical representation makes a second validation idempotent.
+  for (const name of ['time','t','seconds','timeMs']) delete key[name];
+}
 function validateScene(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.version !== 1)
     throw new Error('Cena deve ser um objeto com version=1');
@@ -164,6 +182,7 @@ function validateScene(raw) {
       let previous = -Infinity;
       l.keys.forEach((k) => {
         if (!k || typeof k !== 'object' || Array.isArray(k)) throw new Error(l.id+': keyframe inválido');
+        normalizeKeyTime(k,total);
         finite(k.at, l.id+'.at', 0, total);
         if (k.at <= previous) throw new Error(l.id+': keyframes devem ser ordenados sem duplicações');
         previous = k.at;
