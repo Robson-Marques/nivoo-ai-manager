@@ -7,6 +7,7 @@ export interface MotionInvocation {
   seconds?: number;
   width?: number;
   height?: number;
+  fps?: number;
 }
 type Word={value:string;start:number;end:number};
 type Edit={start:number;end:number;text:string};
@@ -71,7 +72,28 @@ function describe(w:Word[]):MotionInvocation|null{
   const target=flagWord(w,'--saida')?.value??'';
   const time=flagWord(w,'--segundos')?.value;
   const size=/^(\d{2,5})x(\d{2,5})$/.exec(flagWord(w,'--tamanho')?.value??'');
-  return {source,output:validOutput(target)?target:null,seconds:time&&/^\d+(?:\.\d+)?$/.test(time)?Number(time):undefined,width:size?Number(size[1]):undefined,height:size?Number(size[2]):undefined};
+  const rate=flagWord(w,'--fps')?.value;
+  return {source,output:validOutput(target)?target:null,...(rate!==undefined&&/^\d+$/.test(rate)?{fps:Number(rate)}:{}),seconds:time&&/^\d+(?:\.\d+)?$/.test(time)?Number(time):undefined,width:size?Number(size[1]):undefined,height:size?Number(size[2]):undefined};
+}
+/** Apply one unambiguous rate from the brief to each actual invocation
+ * that omitted it. An explicit --fps is validated, never silently replaced. */
+export function motionFpsFromText(text:string):number|undefined{
+  const values=[...new Set([...text.matchAll(/(?:\b(\d+)\s*(?:fps|quadros por segundo)\b|--fps\s+(\d+)\b)/gi)].map(m=>Number(m[1]??m[2])))];
+  return values.length===1&&Number.isInteger(values[0])&&values[0]>=1&&values[0]<=60?values[0]:undefined;
+}
+export function normalizeMotionFps(script:string,preferred?:number):{command:string;invalid:boolean}{
+  const edits:Edit[]=[];
+  for(const w of motionCommandWords(script)){
+    const entries=w.filter(x=>x.value==='--fps');
+    if(entries.length){
+      const value=flagWord(w,'--fps')?.value??'';
+      if(entries.length!==1||!/^\d+$/.test(value)||Number(value)<1||Number(value)>60)return {command:script,invalid:true};
+      continue;
+    }
+    const entry=sourceWord(w);
+    if(preferred!==undefined&&entry&&validSource(entry.value))edits.push({start:entry.end,end:entry.end,text:' --fps '+preferred});
+  }
+  return {command:applyEdits(script,edits),invalid:false};
 }
 /** Change the single recognized invocation, not a quoted example or another command's flags. */
 export function rewriteMotionSource(script:string,source:string,mode?:'scene'|'hybrid'|'html'):string{

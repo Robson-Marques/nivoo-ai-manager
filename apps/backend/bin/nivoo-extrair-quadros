@@ -51,8 +51,13 @@ try {
     fs.mkdirSync(pasta, { recursive:true });
     const disponiveis = fs.readdirSync(tmp).filter(n=>/^quadro-\d{6}\.png$/.test(n));
     const usar = indices ?? disponiveis.map(n=>Number(n.slice(7,13)));
+    const missing=usar.find(n=>!fs.existsSync(path.join(tmp,arquivo(n))));
+    if(missing!==undefined){
+      console.error('nivoo-extrair-quadros: quadro inexistente: '+missing+'; MP4 possui apenas '+disponiveis.length+' quadros decodificados (último índice '+(disponiveis.length-1)+'). Confira a taxa de FPS e a duração reais antes de repetir.');
+      process.exitCode=2;
+    }
     let gravados = 0;
-    for(const n of usar) {
+    for(const n of missing===undefined?usar:[]) {
       const src = path.join(tmp, arquivo(n));
       if(!fs.existsSync(src)) { console.error('nivoo-extrair-quadros: quadro inexistente: '+n); process.exitCode = 1; break; }
       fs.copyFileSync(src, path.join(pasta, arquivo(n))); gravados++;

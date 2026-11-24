@@ -52,13 +52,13 @@ export function inspectMediaDelivery(mediaDir:string,worktree:string,delivery:Me
   if (!stat.isFile() || stat.size < 1024) return { ok: false, detail: 'arquivo de mídia vazio ou incompleto: ' + relativePath };
   const probe = spawnSync('ffprobe', [
     '-v', 'error', '-show_entries',
-    'stream=codec_type,codec_name,width,height,nb_frames:format=duration',
+    'stream=codec_type,codec_name,width,height,nb_frames,avg_frame_rate:format=duration',
     '-of', 'json', abs,
   ], { encoding: 'utf8', timeout: 20_000, maxBuffer: 1_000_000 });
   if (probe.error || probe.status !== 0) {
     return { ok: false, detail: 'ffprobe não conseguiu ler a mídia: ' + (probe.error?.message ?? probe.stderr ?? 'erro desconhecido').slice(0, 250) };
   }
-  let info: { streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; nb_frames?: string }>; format?: { duration?: string } };
+  let info: { streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; nb_frames?: string; avg_frame_rate?: string }>; format?: { duration?: string } };
   try { info = JSON.parse(probe.stdout); }
   catch { return { ok: false, detail: 'ffprobe devolveu metadados inválidos da mídia' }; }
   const video = info.streams?.find(s => s.codec_type === 'video');
@@ -75,6 +75,10 @@ export function inspectMediaDelivery(mediaDir:string,worktree:string,delivery:Me
     return {ok:false,detail:'resolução incorreta: '+video.width+'x'+video.height+'; esperada '+delivery.width+'x'+delivery.height};
   if(delivery.seconds!==undefined&&Math.abs(duration-delivery.seconds)>0.6)
     return {ok:false,detail:'duração incorreta: '+duration.toFixed(2)+'s; esperada '+delivery.seconds+'s'};
+  const [num,den]=String(video.avg_frame_rate??'').split('/').map(Number);
+  const fps=den>0?num/den:NaN;
+  if(delivery.fps!==undefined&&(!Number.isFinite(fps)||Math.abs(fps-delivery.fps)>.001))
+    return {ok:false,detail:'FPS incorreto: '+(Number.isFinite(fps)?fps:'desconhecido')+'; esperado '+delivery.fps};
   if(delivery.requiresAudio&&!audio?.codec_name)
     return {ok:false,detail:'montagem concluída sem trilha/narração de áudio no MP4'};
   const frames = Number(video.nb_frames);
@@ -82,6 +86,7 @@ export function inspectMediaDelivery(mediaDir:string,worktree:string,delivery:Me
     ok: true,
     detail: relativePath + ' — ' + stat.size + ' bytes, ' + video.width + 'x' + video.height +
       ', ' + duration.toFixed(2) + 's' + (Number.isFinite(frames) ? ', ' + frames + ' quadros' : '') +
+      (Number.isFinite(fps) ? ', '+fps.toFixed(3).replace(/\.?0+$/,'')+' fps' : '') +
       (audio ? ', áudio presente' : ', sem áudio'),
     absolutePath: abs,
     seconds: duration,

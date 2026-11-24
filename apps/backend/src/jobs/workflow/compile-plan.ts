@@ -1,5 +1,7 @@
 import { aplicarPrioridadeDosExecutores,corrigirPlanoRenderizacaoMotion } from '../executor-priority';
 import { dependenciasDeMontagemPorArquivo } from './media-dependencies';
+import { BadRequestException } from '@nestjs/common';
+import { motionFpsFromText,normalizeMotionFps } from '../motion/command';
 import { applyReelsSafeArea } from '../motion/safe-area';
 import { conectarMotorMotion } from '../motion-core-routing';
 import { resolveWorkflowMediaPaths,normalizeWorkflowCriteria } from './media-paths';
@@ -13,7 +15,14 @@ export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultPr
   const media=mediaEnabledForArea(area);
   if(!media&&!hasNativeMediaOperation(raw,defaultProvider))return {steps:raw,criteria};
   const routed=media?corrigirPlanoRenderizacaoMotion(raw,defaultProvider,objective):raw;
-  const normalized=resolveWorkflowMediaPaths(routed,defaultProvider);
+  const withFps=Array.isArray(routed)?routed.map(s=>{
+    if(!s||typeof s!=='object'||(s.provider??defaultProvider)!=='local-shell')return s;
+    const preferred=motionFpsFromText(String(s.title??''))??motionFpsFromText(objective);
+    const result=normalizeMotionFps(String(s.instructions??''),preferred);
+    if(result.invalid)throw new BadRequestException('Etapa '+String(s.key)+': --fps deve indicar um único inteiro de 1 a 60.');
+    return result.command===s.instructions?s:{...s,instructions:result.command};
+  }):routed;
+  const normalized=resolveWorkflowMediaPaths(withFps,defaultProvider);
   const prioritized=media?aplicarPrioridadeDosExecutores(normalized.steps,defaultProvider):normalized.steps;
   const assembled=comVideoCompleto(prioritized,defaultProvider);
   const linked=dependenciasDeMontagemPorArquivo(assembled,defaultProvider);

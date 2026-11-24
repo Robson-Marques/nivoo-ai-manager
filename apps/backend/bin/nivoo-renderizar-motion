@@ -3,7 +3,7 @@
  * nivoo-renderizar-motion — transforma uma ANIMAÇÃO DE CÓDIGO (motion design: HTML/CSS/JS que a IA escreve) em vídeo,
  * capturando cada quadro no Playwright com relógio controlado e codificando com FFmpeg. SEM Veo e SEM custo.
  *
- * uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]
+ * uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080] [--fps 25]
  *   A página pode definir window.__motionSegundos (duração) e setar window.__motionFim = true quando terminar.
  *   Caminhos midia/... em --saida resolvem na pasta de mídia do projeto ($NIVOO_MIDIA_DIR).
  */
@@ -29,10 +29,10 @@ const opt = (nome, padrao) => {
   const i = args.indexOf(nome);
   return i >= 0 ? args[i + 1] : padrao;
 };
-const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo','--motor']);
+const flagsWithValue = new Set(['--saida','--segundos','--tamanho','--duracao-origem','--abertura-origem','--abertura-final','--ritmo','--motor','--fps']);
 const alvoBruto = args.find((a, i) => !a.startsWith('--') && !flagsWithValue.has(args[i - 1]));
 if (!alvoBruto) {
-  console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080]');
+  console.error('uso: nivoo-renderizar-motion <pasta|index.html> --saida midia/saida/<nome>.mp4 [--segundos 15] [--tamanho 1920x1080] [--fps 25]');
   process.exit(2);
 }
 const motorExigido = opt('--motor', 'auto');
@@ -52,6 +52,11 @@ if (!/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(saidaRel)) {
   process.exit(2);
 }
 const saida = resolver(saidaRel);
+const fps = Number(opt('--fps', '25'));
+if (!Number.isInteger(fps) || fps < 1 || fps > 60) {
+  console.error('nivoo-renderizar-motion: --fps deve ser inteiro de 1 a 60');
+  process.exit(2);
+}
 const segundosArg = Math.min(300, Math.max(1, Number(opt('--segundos', '15')) || 15));
 const [W, H] = String(opt('--tamanho', '1920x1080')).split('x').map((n) => Number(n) || 0);
 if (!Number.isInteger(W)||!Number.isInteger(H)||W<2||H<2||W%2||H%2) {
@@ -219,7 +224,7 @@ function motionSceneCore() {
       }
     }
     const result = await renderOffline({
-      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing, sourceMode:selected.mode,
+      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, fps, pacing, sourceMode:selected.mode,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
     // Relatar o que de fato foi DESENHADO durante os quadros. Isso não
