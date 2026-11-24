@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { validateFileOperations,preflightOperations,operationsNeedApproval } from '../../src/common/file-operations';
+import { validateFileOperations,preflightOperations,operationsNeedApproval,verifyFileOperations,customFileOperationCheck,fileOperationShellCheck } from '../../src/common/file-operations';
 describe('Contrato de operações de arquivos',()=>{
   let root:string;
   beforeEach(()=>root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-ops-')));
@@ -14,6 +14,18 @@ describe('Contrato de operações de arquivos',()=>{
   it('distingue arquivos fora do Git',()=>{
     expect(operationsNeedApproval(validateFileOperations({remover:['midia/saida/a.mp4']}))).toBe(true);
     expect(operationsNeedApproval(validateFileOperations({remover:['src/a.ts']}))).toBe(false);
+  });
+  it('confere mídia na pasta durável e elimina somente o shell gerado',()=>{
+    const media=path.join(root,'media');fs.mkdirSync(media);
+    fs.mkdirSync(path.join(media,'saida'));
+    const ops=validateFileOperations({mover:[{de:'midia/saida/a.mp4',para:'midia/saida/b.mp4'}]});
+    fs.writeFileSync(path.join(media,'saida/a.mp4'),'original');
+    expect(()=>verifyFileOperations(ops,root,media)).toThrow();
+    fs.renameSync(path.join(media,'saida/a.mp4'),path.join(media,'saida/b.mp4'));
+    expect(()=>verifyFileOperations(ops,root,media)).not.toThrow();
+    expect(customFileOperationCheck(ops,fileOperationShellCheck(ops))).toBeUndefined();
+    expect(customFileOperationCheck(ops,fileOperationShellCheck(ops,true))).toBeUndefined();
+    expect(customFileOperationCheck(ops,'npm test')).toBe('npm test');
   });
   it('valida lote inteiro antes de modificar e não segue links',()=>{
     fs.writeFileSync(path.join(root,'a'),'a');

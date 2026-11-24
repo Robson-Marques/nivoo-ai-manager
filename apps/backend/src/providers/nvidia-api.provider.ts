@@ -211,12 +211,12 @@ export class NvidiaApiProvider implements AiProvider {
               if (vezes >= 2) {
                 resultado = JSON.stringify({ aviso: 'Esta mesma parte do arquivo já foi lida duas vezes e não houve edição desde então. Não repita. Para a próxima parte, use inicio maior; para modificar, use substituir_texto ou escrever_arquivo.' });
               } else {
-                resultado = executarFerramentaNvidia(req.cwd, nome, args);
+                resultado = executarFerramentaNvidia(req.cwd, nome, args,req.jobId==='conversa');
                 // Falha de leitura não conta como conteúdo já entregue.
                 leiturasIguais.set(chaveLeitura, vezes + 1);
               }
             } else {
-              resultado = executarFerramentaNvidia(req.cwd, nome, args);
+              resultado = executarFerramentaNvidia(req.cwd, nome, args,req.jobId==='conversa');
             }
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) {
               alteracoes++;

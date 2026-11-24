@@ -66,7 +66,8 @@ function integer(value:unknown,def:number,max:number,min=0):number{
   return value;
 }
 function json(value:unknown):string{return JSON.stringify(value);}
-export function executeFileTool(cwd:string,name:string,args:Record<string,unknown>):string{
+export function executeFileTool(cwd:string,name:string,args:Record<string,unknown>,readOnly=false):string{
+  if(readOnly&&name!=='ler_arquivo'&&name!=='listar_arquivos')throw Error('O planejador possui somente leitura; proponha a execução no plano.');
   if(name==='registrar_progresso'){
     const parsed=parseAgentNotes(JSON.stringify(args));
     if(parsed.invalid||parsed.notes.length!==1)throw Error('Nota inválida: informe tipo, titulo e conteudo.');

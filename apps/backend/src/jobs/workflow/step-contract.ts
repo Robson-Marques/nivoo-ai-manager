@@ -13,7 +13,7 @@ import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
 import { nativeImageTarget, visualReferences, isCodex, isCodexAccount } from '../../providers/codex-image-assets';
 import { imageOptions } from '../../providers/image-options';
-import { operationsNeedApproval } from '../../common/file-operations';
+import { operationsNeedApproval,customFileOperationCheck } from '../../common/file-operations';
 import { operacoesDeArquivos } from './file-options';
 
 export function normalizarInstrucaoDeEtapa(texto: string, provider: string, origem: string): string {
@@ -127,9 +127,8 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         const ops=operacoesDeArquivos(key,opts);
         Object.assign(providerOptions,ops);
         fileApproval=operationsNeedApproval(ops);
-        const r = (providerOptions.remover as string[]).map((p) => `test ! -e '${p}'`);
-        const m = ops.mover.map(x=>`test ! -e '${x.de}' && test -e '${x.para}'`);
-        verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
+        // Physical postcondition is checked by the worker with the same resolver as the executor.
+        verificacao=customFileOperationCheck(ops,verifyCommand);
       }
       const deliveries=mediaDeliveries(provider??defaultProvider,instructions,providerOptions,key);
       verificacao=deliveries.length?customMediaVerification(provider??defaultProvider,instructions,providerOptions,deliveries.map(d=>d.path),verificacao):conferenciaTecnicaDeVideo(provider??defaultProvider,instructions,providerOptions,verificacao);

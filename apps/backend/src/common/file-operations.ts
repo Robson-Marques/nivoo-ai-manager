@@ -60,3 +60,23 @@ export function preflightOperations(o:FileOperations,root:string,mediaDir?:strin
   const removals=o.remover.map(rel=>({rel,abs:resolveOperation(root,mediaDir,rel)}));
   return {moves,removals};
 }
+
+/** Canonical generated checks from old and new plans. The physical resolver
+ * verifies these instead of Bash, which cannot see durable midia/ paths. */
+export function fileOperationShellCheck(o:FileOperations,legacy=false):string{
+  return [...o.remover.map(p=>"test ! -e '"+p+"'"),
+    ...o.mover.map(m=>(legacy?'':"test ! -e '"+m.de+"' && ")+"test -e '"+m.para+"'")].join(' && ')||'true';
+}
+export function customFileOperationCheck(o:FileOperations,command?:string|null):string|undefined{
+  const c=command?.trim();
+  return !c||c==='true'||c===fileOperationShellCheck(o)||c===fileOperationShellCheck(o,true)?undefined:c;
+}
+export function verifyFileOperations(o:FileOperations,root:string,mediaDir?:string):void{
+  for(const rel of o.remover){
+    if(exists(resolveOperation(root,mediaDir,rel)))throw Error('Exclusão não concluída: '+rel);
+  }
+  for(const m of o.mover){
+    if(exists(resolveOperation(root,mediaDir,m.de))||!exists(resolveOperation(root,mediaDir,m.para)))
+      throw Error('Movimentação não concluída: '+m.de+' → '+m.para);
+  }
+}

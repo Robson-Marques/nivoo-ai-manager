@@ -17,6 +17,7 @@ import { diagnosticoParecerVisual } from '../../jobs/motion-capture-freshness';
 import { RULE_REVIEW_STEP,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
 import { normalizeMotionOutputs } from '../../jobs/motion/command';
 import { replaceMediaAliases } from '../../jobs/workflow/media-paths';
+import { validateFileOperations,verifyFileOperations,customFileOperationCheck } from '../../common/file-operations';
 import { resolveInside } from '../../common/path-guard';
 
 /**
@@ -56,9 +57,18 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const target=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
     const simple=/^test\s+-(?:s|f|e)\s+(?:'([^']+)'|"([^"]+)"|([^\s]+))$/.exec(step.verifyCommand?.trim()??'');
     const nativeCheck=!!target&&(!step.verifyCommand||!!simple&&(simple[1]??simple[2]??simple[3])===target.arquivo);
-    const verifyCommand=nativeCheck?undefined:deliveries.length?customMediaVerification(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,deliveries.map(d=>d.path),step.verifyCommand??undefined):
+    let verifyCommand=nativeCheck?undefined:deliveries.length?customMediaVerification(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,deliveries.map(d=>d.path),step.verifyCommand??undefined):
       step.key===RULE_REVIEW_STEP?RULE_REVIEW_STEP_CHECK:
       conferenciaTecnicaDeVideo(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.verifyCommand??undefined);
+    if(providerId==='arquivos-projeto'&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
+      try{
+        const ops=validateFileOperations(step.providerOptions);
+        verifyCommand=customFileOperationCheck(ops,verifyCommand);
+        verifyFileOperations(ops,worktree,mediaDir);
+      }catch(e){
+        result={...result,exitCode:1,stopReason:'file_operation_postcondition',error:'Operação de arquivos não confirmada: '+String((e as Error).message)};
+      }
+    }
     let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
     // O renderizador motion grava exclusivamente em midia/saida/. Planos antigos
     // podem pedir --saida out/*.mp4 em verifyCommand; corrigir aqui evita abrir
@@ -66,7 +76,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const normalized=normalizeMotionOutputs(verifyCommandEfetivo);
     const saidaMotionCorrigida=Object.entries(normalized.aliases).map(([old,next])=>old+' → '+next).join(', ');
     verifyCommandEfetivo=replaceMediaAliases(normalized.command,normalized.aliases);
-    let verified = !verifyCommand;
+    let verified = !verifyCommand&&result.stopReason!=='file_operation_postcondition';
     // The provider already decoded the image. The worker may have applied
     // requested file operations after that decode; never conclude with a missing output.
     if(target&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){

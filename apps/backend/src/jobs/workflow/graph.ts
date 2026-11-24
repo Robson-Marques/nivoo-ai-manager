@@ -7,7 +7,10 @@ export function assertAcyclic(all: Array<{ key: string; dependsOn: string[] }>):
       if (state.get(k) === 2) return;
       if (state.get(k) === 1) throw new BadRequestException(`Dependência cíclica envolvendo ${k}`);
       state.set(k, 1);
-      for (const d of map.get(k) ?? []) visit(d);
+      for (const d of map.get(k) ?? []) {
+        if(!map.has(d))throw new BadRequestException(`Etapa ${k} depende de etapa inexistente: ${d}`);
+        visit(d);
+      }
       state.set(k, 2);
     };
     for (const k of map.keys()) visit(k);

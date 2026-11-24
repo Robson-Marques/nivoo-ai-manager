@@ -17,6 +17,13 @@ describe('Ferramentas compartilhadas de arquivo',()=>{
     expect(call('registrar_progresso',note).alterado).toBe(false);
     expect(fs.readFileSync(path.join(root,'.nivoo/notas.jsonl'),'utf8').trim().split('\n')).toHaveLength(1);
   });
+  it('planejador tem somente leitura',()=>{
+    fs.writeFileSync(path.join(root,'a.txt'),'original');
+    expect(JSON.parse(executeFileTool(root,'ler_arquivo',{caminho:'a.txt'},true)).conteudo).toBe('original');
+    expect(()=>executeFileTool(root,'escrever_arquivo',{caminho:'a.txt',conteudo:'x'},true)).toThrow();
+    expect(()=>executeFileTool(root,'registrar_progresso',{tipo:'PROGRESSO',titulo:'x',conteudo:'x'},true)).toThrow();
+    expect(fs.readFileSync(path.join(root,'a.txt'),'utf8')).toBe('original');
+  });
   it('paginação não trunca JSON escapado',()=>{
     fs.writeFileSync(path.join(root,'a.txt'),'\n'.repeat(18000));
     const r=call('ler_arquivo',{caminho:'a.txt'});

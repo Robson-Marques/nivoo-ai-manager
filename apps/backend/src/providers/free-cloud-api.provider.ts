@@ -191,7 +191,7 @@ export class FreeCloudApiProvider implements AiProvider {
           try {
             const args = JSON.parse(String(call.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
-            resultado = executeFileTool(req.cwd, nome, args);
+            resultado = executeFileTool(req.cwd, nome, args,req.jobId==='conversa');
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) escritas++;
             req.onLog('[ferramenta segura] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 100));
           } catch (e: any) {

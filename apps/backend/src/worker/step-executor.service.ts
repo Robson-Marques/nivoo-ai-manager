@@ -39,7 +39,7 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey,isRepairStep } from './executor/recovery-policy';
-import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia } from './executor/media-recovery';
+import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia,durableMediaOutputs } from './executor/media-recovery';
 import { recordLesson,ingestNotes,saveCheckpoint } from './executor/recovery-store';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
 import { mediaEnabledForArea } from '../specialties/media/scope';
@@ -50,12 +50,14 @@ import { projectModel } from '../providers/project-model';
 export { projectModel } from '../providers/project-model';
 
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
-export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'>): string {
+export function stepHash(step: Pick<Step, 'instructions' | 'verifyCommand' | 'provider'> & Partial<Pick<Step,'providerOptions'>>): string {
   // Trocar de uma IA para outra (IA reserva) não muda o que a etapa faz: a aprovação continua valendo.
   // Trocar para um executor do sistema (comandos, arquivos) muda, e pede aprovação de novo.
   const p = step.provider ?? null;
   const quem = p === null || tipoDe(p) ? 'ia' : p;
-  return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, quem]));
+  const canonical=(v:unknown):unknown=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)])):v;
+  // Exact executor options are part of the approval, not just its description.
+  return sha256(JSON.stringify([step.instructions, step.verifyCommand ?? null, quem,...(quem==='ia'?[]:[canonical(step.providerOptions??{})])]));
 }
 
 // Erros corrigíveis diferentes não compartilham teto de sessões.
@@ -136,10 +138,13 @@ export class StepExecutorService {
     // Crash between persistence of SUCESSO and the checkpoint transaction.
     // Only the latest verified attempt, in the same execution epoch and
     // unchanged worktree, may advance without invoking the provider again.
-    if(!orphanRows.length&&step.status==='EXECUTANDO'&&step.attemptCount>step.resumeFromAttempt){
+    if(!orphanRows.length&&(step.status==='EXECUTANDO'||task.recovered)&&step.attemptCount>step.resumeFromAttempt){
       const last=await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id},orderBy:{number:'desc'}});
       if(last?.status==='SUCESSO'&&last.number===step.attemptCount&&last.treeAfter){
         const existing=path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id);
+        if(durableMediaOutputs(job,step).length||(step.provider??job.defaultProvider)==='arquivos-projeto'){
+          return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'Tentativa anterior registrada; o estado do resultado durável não foi confirmado. Arquivos preservados; não repetir automaticamente.');
+        }
         if(fs.existsSync(path.join(existing,'.git'))){
           const current=await this.workspace.snapshotHash(existing).catch(()=>null);
           if(current===last.treeAfter){
@@ -219,7 +224,7 @@ export class StepExecutorService {
     }
     if (step.requiresApproval || pol.requiresApproval || durableFileApproval) {
       // A aprovação vale só para o conteúdo exato que foi aprovado (hash das instruções + verificação).
-      const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
+      const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash({...step,provider:step.provider??job.defaultProvider}) } });
       if (!approved) {
         const ops = (step.provider ?? job.defaultProvider) === 'arquivos-projeto' ? descreverOperacoes((step.providerOptions ?? {}) as never) : '';
         if ((step.provider ?? job.defaultProvider) === 'gemini-image') return this.awaitApproval(task, workerId, job, step, ['Geração de imagem pela API Gemini, com cobrança por uso'], 'Autoriza gerar esta imagem com Nano Banana pela API paga do Gemini?');
@@ -644,7 +649,7 @@ export class StepExecutorService {
     });
     const erroAtual=(result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
-    if(result.stopReason==='repair_no_change'||recovery.kind==='blocked'){
+    if(result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,recovery.kind==='blocked'?recovery.detail:erroAtual);
     }
@@ -883,7 +888,7 @@ export class StepExecutorService {
           projectId: job.projectId,
           kind: 'ACAO_DESTRUTIVA',
           subjectId: step.id,
-          subjectHash: stepHash(step),
+          subjectHash: stepHash({...step,provider:step.provider??job.defaultProvider}),
           description: descricao ?? `Etapa "${step.key}" contém ação potencialmente destrutiva: ${reasons.join('; ') || 'marcada como requer aprovação'}`,
         },
       });
