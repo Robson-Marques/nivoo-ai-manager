@@ -58,14 +58,13 @@ export function pedeGeometria3D(texto: string): boolean {
   return /\b3[\s-]*d\b|\bwebgl\b|\bextrud(?:ado|ada|idos?|idas?|ir|a(?:ç[aã]o|s))?\b/i.test(limpo);
 }
 
-function addRenderFlags(command: string, mode: MotionMode, fast: boolean): string {
-  // Preserva "set -e;", nova linha e comandos adjacentes; injeta somente
-  // no segmento de invocação. Idempotente em validatePlan() e create().
-  return command.replace(/((?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\b[^\n;&]*)/, match => {
-    const motor = /(?:^|\s)--motor\s+/.test(match) ? '' : ' --motor ' + mode;
-    const ritmo = fast && !/(?:^|\s)--ritmo\s+/.test(match) ? ' --ritmo energetico' : '';
-    return match + motor + ritmo;
-  });
+function addRenderFlags(command: string, fast: boolean): string {
+  // A IA cria a composição; o renderizador detecta o formato realmente
+  // entregue, sem transformá-lo em exigência adicional após a criação.
+  // Só adicionamos controle de ritmo quando o briefing pedir.
+  if (!fast) return command;
+  return command.replace(/((?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\b[^\n;&]*)/, match =>
+    /(?:^|\s)--ritmo\s+/.test(match) ? match : match + ' --ritmo energetico');
 }
 
 /**
@@ -123,10 +122,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const text = [
       objective, String(compose.title ?? ''), original, String(render.title ?? ''),
     ].join(' ');
-    const priorMode = String(compose.instructions ?? '').includes(marker)
-      ? /(?:^|\s)--motor\s+(scene|hybrid)(?=\s|$)/.exec(command)?.[1] as MotionMode | undefined
-      : undefined;
-    const real3d = priorMode ? priorMode === 'hybrid' : pedeGeometria3D(text);
+    const real3d = pedeGeometria3D(text);
     const hasPhotos = /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
@@ -152,13 +148,12 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
         requirements.map(s => '- ' + s).join('\n') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
-    const verify = String(compose.verifyCommand ?? '');
-    compose.verifyCommand = [...existingCheck(verify, source),
-      'nivoo-conferir-motion ' + source + ' --modo ' + mode].join(' && ');
-
-    const fast = mode === 'hybrid' &&
-      /\b(?:aceler|mais r[aá]pid|din[aâ]mic|ritmo (?:mais )?(?:r[aá]pid|aceler)|agiliz)/i.test(objective);
-    render.instructions = addRenderFlags(command, mode, fast);
+    // O resultado da IA NÃO passa mais por um segundo aprovador do Nivo.
+    // Preserva os critérios funcionais do trabalho original, sem anexar
+    // nivoo-conferir-motion nem obrigar um modo de render após a criação.
+    // O próprio render trata mídias incompatíveis com avisos, sem loop.
+    const fast = /\b(?:aceler|mais r[aá]pid|din[aâ]mic|ritmo (?:mais )?(?:r[aá]pid|aceler)|agiliz)/i.test(objective);
+    render.instructions = addRenderFlags(command, fast);
   }
   return steps;
 }
