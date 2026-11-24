@@ -41,12 +41,17 @@ async function main() {
     const outputPath = path.join(dir, 'saida', 'motion.mp4');
     const opts = { outputPath, sourcePath, seconds: 0.4, width: 16, height: 16 };
     let firstCalls = 0;
-    const overlayFrames = [];
+    const overlayFrames = [], baseFrames = [], drawOrder = [];
     function page(screenshot, hasOverlay = false) {
       return {
         clock: { pauseAt: async () => { throw new Error('helper não deve pausar relógio após goto'); }, runFor: async () => {} },
         evaluate: async (_fn, frameSec) => {
-          if (frameSec !== undefined) { overlayFrames.push(frameSec); return null; }
+          if (frameSec !== undefined) {
+            const previous=global.window;
+            global.window={__renderAt:t=>{baseFrames.push(t);drawOrder.push('base');}};
+            if(hasOverlay)global.window.__nivooOverlayRenderAt=t=>{overlayFrames.push(t);drawOrder.push('overlay');};
+            try{return await _fn(frameSec);}finally{global.window=previous;}
+          }
           return hasOverlay;
         },
         screenshot,
@@ -68,10 +73,14 @@ async function main() {
       prepareFrameCache({...opts,renderVersion:'codigo-corrigido'}).cacheDir,
       'nivoo update DEVE invalidar quadros já renderizados pelo motor antigo');
     assert.equal(fs.readdirSync(cacheDir).filter(f => f.endsWith('.jpg')).length, 5);
+    assert.equal(baseFrames.length,6,'timeline base desenha antes da captura interrompida');
+    baseFrames.length=0;drawOrder.length=0;
     let secondCalls = 0;
     const result = await renderMotionOffline({
       ...opts, page: page(async () => { secondCalls++; return sample; }, true),
     });
+    assert.equal(baseFrames.length,10,'timeline base executada também nos quadros recuperados');
+    assert.deepEqual(drawOrder,Array.from({length:10},()=>['base','overlay']).flat());
     assert.equal(overlayFrames.length, 10);
     assert.deepEqual(overlayFrames.map(t=>Math.round(t*25)), [0,1,2,3,4,5,6,7,8,9],
       'camada de foto sincroniza seu relógio mesmo quando JPEGs foram reaproveitados');

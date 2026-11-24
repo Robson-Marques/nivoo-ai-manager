@@ -47,6 +47,7 @@ import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '..
 import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
 import { capturasParaRecuperar, diagnosticoParecerVisual } from '../jobs/motion-capture-freshness';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
+const { graphicsAuthorContract } = require('../../bin/motion-graphics') as { graphicsAuthorContract: () => string };
 import { evidenciasDeVideo } from '../jobs/media-review-evidence';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
@@ -1522,7 +1523,7 @@ export class StepExecutorService {
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
     if (/\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))) {
-      add('qualidade-video', ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)', ...VIDEO_QUALITY_POLICY.map(s => '- ' + s)]);
+      add('qualidade-video', ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)', ...VIDEO_QUALITY_POLICY.map(s => '- ' + s), graphicsAuthorContract()]);
     }
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
@@ -1589,10 +1590,10 @@ export class StepExecutorService {
     }
     if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'fontes-anteriores'))) {
       add('fontes-motion', [
-        '## Fontes editáveis de animações anteriores — NÃO recriar sem necessidade',
+        '## Fontes editáveis de animações anteriores — recursos e histórico, não aprovação',
         'Consulte contexto/fontes-anteriores/LEIA-ME.txt e as pastas <id>/motion/ antes de escrever uma composição nova.',
-        'São cópias de LEITURA das fontes originais de outros jobs; compare com motion/ atual e reutilize o código e os ativos existentes.',
-        'Escreva somente a versão corrigida em motion/ do trabalho atual. Não altere cópias nem trabalhos anteriores.',
+        'São cópias de LEITURA das fontes originais de outros jobs. Reutilize ativos, infraestrutura e partes aprovadas; quando o usuário rejeitou o visual, a composição anterior serve para entender o erro, não como molde obrigatório. Leia a última solicitação completa antes de produzir; faça a mudança criativa pedida, não apenas renomeie ou reexporte o MP4.',
+        'Escreva a versão corrigida em motion/ do trabalho atual. Use a fonte destinada à etapa de render, preservando arquivos dos trabalhos anteriores. Em refação visual, crie os grafismos/objetos pedidos e mantenha a identidade, duração e áudio que não foram rejeitados.',
       ]);
     }
     // Versão declarada × última etiqueta do Git: a IA sobe o número certo (o mesmo que o Nivoo vai publicar).

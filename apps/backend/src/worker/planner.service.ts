@@ -25,6 +25,7 @@ import { infoDeVersao, textoDaVersao } from '../git/versao';
 import { bancoDeTesteDisponivel, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
 import { TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
 import { VIDEO_QUALITY_POLICY } from '../jobs/video-quality-policy';
+const { graphicsAuthorContract } = require('../../bin/motion-graphics') as { graphicsAuthorContract: () => string };
 import { historicoGit, textoDoRepositorio } from '../git/contexto-git';
 import { projectModel } from './step-executor.service';
 import { ProjectProfileService } from '../projects/project-profile.service';
@@ -634,7 +635,7 @@ export class PlannerService {
       ...(indiceTrabalhos.length ? indiceTrabalhos : ['(nenhum trabalho anterior)']),
       'Estes estados são fatos do banco: CONCLUIDO confirma a etapa; BLOQUEADO/FALHOU não confirma entrega. Não invente que um arquivo existe só porque uma etapa diz CONCLUIDO.',
       'Ao ouvir "terminar", "continuar", "ajustar", "refazer" ou pedido curto, leia primeiro o objetivo atual, os trabalhos recentes, os arquivos principais e o catálogo antes de decidir se deve preservar ou criar algo.',
-      'Reutilize somente artefatos e composições realmente acessíveis ao NOVO trabalho. Se a composição estiver exclusivamente no worktree de um trabalho anterior, reconheça a dependência; não finja que já está na pasta principal.',
+      'Reutilize somente ativos e composições realmente acessíveis. Uma criação visual rejeitada não é aprovada: preserve fundo, logo, fotos, conteúdo e identidade válidos, mas crie a composição visual corrigida. "Veio errado", "é o mesmo", "faltam elementos gráficos/3D" ou "faça de novo" após rejeição exigem autoria visual e renderização da nova fonte, não somente exportação. Inclua a solicitação mais recente no objetivo do job e use saída distinta.',
       ...textoDosVideos(listarVideos(this.workspace.projectDirs(project.dirKey).midia)),
       '## Arquivos de mídia reutilizáveis dos trabalhos anteriores (catálogo REAL do projeto)',
       arquivosDeMidia.length
@@ -715,14 +716,15 @@ export class PlannerService {
       '  Não prometa sincronização por frase usando o juntar-videos.',
       'Regras do plano:',
       ...VIDEO_QUALITY_POLICY.map(line => '- ' + line),
+      graphicsAuthorContract(),
       '- COMPOSIÇÃO: quem produz a cena deve respeitar profundidade, camadas e ritmo do briefing. A validação técnica do render é automática; a aprovação artística é do usuário.',
       '  NÃO criar etapa separada de IA para revisão visual, parecer ou comparação de quadros, salvo pedido explícito do usuário.',
       '  Evite segundo render MP4 só para verificar cor ou tamanho: quando necessário, o próprio autor pode inspecionar um quadro PNG antes da entrega.',
-      '  ARQUITETURA PADRÃO para NOVOS motion designs com imagens de produtos, fotos, logos, placas, néon e textos: criar motion/<nome>/scene.json (version:1) usando o MOTOR DETERMINÍSTICO de camadas Nivoo, não WebGL arbitrário. O renderizador detecta scene.json automaticamente.',
+      '  ARQUITETURA MOTION: escolha scene.json para composição 2D simples; index.html para grafismos SVG/CSS personalizados, direção de arte premium e 3D com câmera, luz e materiais. Em revisão visual use uma fonte nova ou efetivamente alterada e um novo nome de MP4. Não use um exemplo de contrato como template artístico.',
       '  Estrutura scene.json: {version:1,width,height,duration,profile,background,pacing,layers}. Camadas: image (asset,x,y,width,height,z,supportZ,shadow), text (text,fontSize,color), shape (shape:rect|ellipse|roundRect,fill) e neon (points:[[x,y],...],start,end,color). Todos podem ter keys:[{at,x,y,opacity,scale,rotation,easing}].',
       '  O NÚCLEO desenha fotos como UMA camada RGBA, organiza por z e garante que imagens fiquem à frente do supportZ. NÃO clonar imagens escurecidas nem inclinar fotografias através de suportes.',
       '  Ritmo de anúncio energético: pacing:{sourceDuration,openingEnd,openingSeconds} comprime a abertura sem acelerar artificialmente a locução. Exemplo: duration:20,profile:"energetic",pacing:{sourceDuration:25,openingEnd:7.15,openingSeconds:3.5}.',
-      '  Para geometria 3D REAL use index.html WebGL com as malhas e crie overlays.json na MESMA pasta para produtos/fotos/logos que devem permanecer na frente. overlays.json usa exatamente o mesmo contrato scene.json (version,width,height,duration,layers) e o Nivoo o sobrepõe sem colisão com a profundidade WebGL.',
+      '  Para geometria 3D REAL use index.html com o runtime WebGL nativo e crie overlays.json na MESMA pasta para produtos/fotos/logos que devem permanecer na frente. overlays.json usa exatamente o mesmo contrato scene.json (version,width,height,duration,layers) e o Nivoo o sobrepõe sem colisão com a profundidade WebGL.',
       '  Para pedido de ACELERAR um vídeo HTML/WebGL que já está composto, o renderer possui --ritmo energetico, sem alterar o index.html. Use --segundos <duracao final> e, quando houver marcação temporal da abertura, --duracao-origem <segundos originais> --abertura-origem <fim original> --abertura-final <fim novo>. O cache é separado por ritmo e os arquivos antigos são preservados.',
       '  Exemplo GENÉRICO: nivoo-renderizar-motion motion/<nome> --saida midia/saida/<nome>-rapido.mp4 --segundos 20 --tamanho 1080x1920 --ritmo energetico --duracao-origem 25 --abertura-origem 7.15 --abertura-final 3.5. Não pedir ao usuário para editar keyframes manualmente.',
       '  Em WebGL+overlays.json, NÃO desenhe novamente as fotos sobre as malhas 3D no HTML; elas devem estar SOMENTE em overlays.json. A camada de produto será renderizada sincronizada aos quadros exatos, acima das malhas, com transparência e sombra próprias.',
@@ -927,7 +929,7 @@ export class PlannerService {
             '  PROIBIDOS blocos pretos opacos, recortes de texto do pôster, textos escondidos sob máscaras,',
             '  conteúdo cortado e resultado que só fica legível nos últimos segundos.',
             '  Preserve o arquivo para o usuário avaliar o ritmo e a imagem; o núcleo verifica integridade técnica sem análise artística automática.',
-            '  MOTION DESIGN DE FOTOS, TEXTOS, NÉON E FORMAS: por padrão gere scene.json v1 em motion/<nome>; não programe shaders de imagens do zero.',
+            '  MOTION DESIGN: scene.json v1 para layout simples; HTML/SVG/CSS/WebGL com NivooGraphics para criação gráfica e 3D. Não programe shaders de imagens do zero nem reduza direção de arte premium à cena declarativa básica.',
             '  O núcleo renderiza scene.json e garante composição RGBA, ordem z, sombras e velocidade da abertura. Use assets locais com caminhos relativos à pasta da cena.',
             '  Use uma etapa local-shell para executar: nivoo-renderizar-motion motion/<nome> --saida midia/saida/<novo>.mp4 --segundos 20 --tamanho 1080x1920.',
             '  Não inclua etapa de inspeção artística por IA. O resultado é entregue ao usuário para revisão. Para 3D de geometria livre, mantenha a geometria no index.html e crie overlays.json para fotos/produtos, evitando oclusão e fotos duplicadas.',

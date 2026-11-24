@@ -68,6 +68,9 @@ visit(root, 0);
       if (msg.type() === 'error' && /WebGL|shader|uniform|link program/i.test(line) && errors.length < 20)
         errors.push(line);
     });
+    const runtime = [path.join(__dirname,'motion-graphics.js'),
+      path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app','apps/backend/bin/motion-graphics.js')].find(p=>fs.existsSync(p));
+    if(runtime) await page.addInitScript(require(runtime).installMotionGraphics);
     await page.goto('file://' + entry, { waitUntil: 'load', timeout: 30000 });
     // Capturar a LINHA DO TEMPO real. Quadro final sozinho não revela
     // megafone invertido, neon mal direcionado nem moldura quebrada.
@@ -84,6 +87,7 @@ visit(root, 0);
       if (ponto < marcas.length && decorrido >= marcas[ponto]) {
         const nome = 'quadro-' + String(ponto + 1).padStart(2, '0') + '.png';
         const arquivo = path.join(dir, nome);
+        await page.evaluate(t=>typeof window.__renderAt==='function'?window.__renderAt(t):null,marcas[ponto]);
         await page.screenshot({ path: arquivo, fullPage: false, animations: 'allow' });
         quadros.push({ segundo: Number(((Date.now() - inicio) / 1000).toFixed(2)),
           arquivo: path.relative(process.cwd(), arquivo).split(path.sep).join('/') });
@@ -93,6 +97,7 @@ visit(root, 0);
       await page.waitForTimeout(100);
     }
     const frame = path.join(dir, 'quadro.png');
+    await page.evaluate(t=>typeof window.__renderAt==='function'?window.__renderAt(t):null,duracao);
     await page.screenshot({ path: frame, fullPage: false, animations: 'allow' });
     if (quadros.length < 4) errors.push('ANIMACAO_INCOMPLETA: não foi possível capturar quatro instantes distintos; conferir duração e sinal __motionFim.');
     const report = {

@@ -84,6 +84,36 @@ function run() {
   assert.ok(!motionAuthorContract(true).includes('assets/fundo.png'));
   assert.deepEqual(conectarMotorMotion(revised,'codex-cli','Quero imagens premium em 3D animadas'),revised);
 
+  assert.ok(converted[1].dependsOn.includes(compose.key),'render não pode iniciar antes da autoria');
+  const refacao='O vídeo é o mesmo. Faça de novo com elementos gráficos premium em 3D e logo';
+  const revisao=conectarMotorMotion([{...simple[1],instructions:'nivoo-renderizar-motion motion/anuncio --segundos 12'}],'codex-cli',refacao);
+  assert.equal(revisao.length,2,'refação visual sem autoria precisa da etapa produtora, não de revisor');
+  assert.match(revisao[0].instructions,/NivooGraphics/);
+  assert.match(revisao[1].instructions,/motion\/anuncio\/index\.html/);
+  assert.ok(revisao[1].dependsOn.includes(revisao[0].key));
+  assert.deepEqual(conectarMotorMotion(revisao,'codex-cli',refacao),revisao);
+  const premium=conectarMotorMotion(simple,'codex-cli','Direção de arte premium e elementos gráficos');
+  assert.match(premium[1].instructions,/index\.html --motor html/);
+  assert.match(premium[0].instructions,/NivooGraphics/);
+  assert.deepEqual(conectarMotorMotion(premium,'codex-cli','Direção de arte premium e elementos gráficos'),premium);
+  assert.equal(conectarMotorMotion([render],'codex-cli','Refazer a renderização sem recriar a composição').length,1);
+  const {installMotionGraphics}=require('../bin/motion-graphics');
+  const graphicsWindow={};
+  new Function('window','('+installMotionGraphics.toString()+')()')(graphicsWindow);
+  const G=graphicsWindow.NivooGraphics;
+  const coordinates=[];
+  const ctx={clearRect(){},fillRect(){},beginPath(){},moveTo(x,y){coordinates.push([x,y]);},lineTo(x,y){coordinates.push([x,y]);},closePath(){},fill(){},stroke(){}};
+  const soft=G.create({width:360,height:640,getContext:type=>type==='2d'?ctx:null});
+  const mesh=G.torus();
+  soft.render([{geometry:mesh,color:'#d9a348',rotation:[20,0,0]}]);
+  const first=JSON.stringify(coordinates);
+  assert.ok(coordinates.length>0);
+  assert.ok(coordinates.every(p=>p.every(Number.isFinite)));
+  coordinates.length=0;
+  soft.render([{geometry:mesh,color:'#d9a348',rotation:[50,60,0]}]);
+  assert.notEqual(JSON.stringify(coordinates),first,'geometria 3D altera os quadros sem WebGL');
+  assert.equal(soft.backend,'software');
+
   const old=[render];
   assert.deepEqual(conectarMotorMotion(old,'codex-cli',objective),old,
     'renderizar composição existente não exige migrar obra do usuário');
