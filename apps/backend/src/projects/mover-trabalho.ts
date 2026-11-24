@@ -68,15 +68,18 @@ export async function trocarParaReserva(
 ): Promise<{ id: string; nome: string; anterior: string } | null> {
   marcarSemCredito(indisponivel);
   const p = await prisma.project.findUnique({ where: { id: projectId }, select: { provider: true, aiReserva: true } });
-  if (!p || p.provider !== indisponivel) return null;
-  const reserva = (Array.isArray(p.aiReserva) ? p.aiReserva : []).map(String).filter((id) => id !== indisponivel && registry.has(id) && !estaSemCredito(id));
+  if (!p || (!jobId && p.provider !== indisponivel)) return null;
+  const candidates=[...(jobId&&p.provider!==indisponivel?[p.provider]:[]),...(Array.isArray(p.aiReserva)?p.aiReserva.map(String):[])];
+  const reserva=[...new Set(candidates)].filter(id=>id!==indisponivel&&aiConnectionIds().includes(id)&&registry.has(id)&&!estaSemCredito(id));
   for (const id of reserva) {
     const st = await registry.status(id, 0);
     if (!st.available) continue;
     const anterior = (await registry.status(indisponivel, 60_000)).label;
     // Só troca se ninguém trocou antes (worker e conversa podem perceber ao mesmo tempo).
-    const r = await prisma.project.updateMany({ where: { id: projectId, provider: indisponivel }, data: { provider: id } });
-    if (!r.count) return null;
+    if(p.provider===indisponivel){
+      const r=await prisma.project.updateMany({where:{id:projectId,provider:indisponivel},data:{provider:id}});
+      if(!r.count&&!jobId)return null;
+    }
     // A reserve changes the project preference for future work, not unrelated jobs.
     if(jobId)await moverTrabalhoParaIa(prisma,projectId,id,{from:indisponivel,jobId});
     return { id, nome: st.label, anterior };
