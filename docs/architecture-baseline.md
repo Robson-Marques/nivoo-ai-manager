@@ -37,3 +37,15 @@ A fonte de verdade é o código completo do componente, seus contratos e consumi
 ## Estado de aceitação
 
 A recuperação é **parcial**. Não afirmar prontidão global nem substituir arquitetura real por um índice. A frente inicial separa o Motion e unifica o compilador de novos jobs. Validação global e aceite do comportamento integrado ainda pendentes. O próximo recorte deve usar este mapa para ler contratos reais e consumidores antes de extrair responsabilidades, sem criar outro orquestrador concorrente.
+
+## Isolamento por especialidade (implementado nesta frente)
+
+A área configurada (`Area.template`, com fallback legado) determina se o contexto audiovisual entra no planejamento. Software, Studio Workflow e atendimento não recebem o contrato de mídia nem suas heurísticas de roteamento. Projetos gerais preservam compatibilidade; operações nativas explicitamente selecionadas em um projeto não audiovisual conservam seus contratos de execução e dependências por arquivo, sem reclassificar as demais etapas.
+
+- `src/specialties/media/scope.ts`: seleção da capacidade pela configuração real; invocação explícita de ferramentas legadas.
+- `src/specialties/media/context.ts`: catálogo e preferências de mídia, consultados apenas quando aplicáveis.
+- `src/specialties/media/planner-contract.ts`: composição dos contratos de planejamento; cada ferramenta tem seu próprio módulo (`motion-planner.ts`, `audio-planner.ts`, `assembly-planner.ts`, `generation-planner.ts`). Locução local e montagem não dependem da disponibilidade do Gemini Omni.
+- `src/jobs/workflow/compile-plan.ts`: fronteira compartilhada de planejamento, aprovação e criação; não interpreta regras de mídia em software/atendimento. `PlannerService`, `ConversationsService`, `JobsService` e `StepExecutorService` usam a mesma configuração de área.
+- `test/unit/specialty-boundaries.spec.ts`: regressões de isolamento, workflows mistos, dependências, refação visual e disponibilidade independente.
+
+Nove cenários isolados executados a partir das funções do branch com remoção de tipos TS para o ambiente JS e dependências externas simuladas; todos passaram. Ainda não houve execução da suíte Jest, compilação completa, deploy ou aceitação no POCOU. Não confundir essa fronteira parcial com recuperação completa de todos os domínios, nem com um executor Motion tipado novo.
