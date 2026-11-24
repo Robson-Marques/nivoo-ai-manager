@@ -4,7 +4,7 @@ import type { ArtifactStoreService } from '../../storage/artifact-store.service'
 import type { ExecutionResult } from '../../providers/provider.interface';
 import { mediaOutputs } from '../../jobs/workflow/media-dependencies';
 import { readMotionInvocations,normalizeMotionOutputs } from '../../jobs/motion/command';
-import { caminhoRealDoVideo,inspecionarVideoGerado,videoGeradoPorEtapa } from '../../jobs/native-video-result';
+import { caminhoRealDoVideo,inspecionarVideoGerado } from '../../jobs/native-video-result';
 import { sha256File } from '../../common/hash';
 import * as fs from 'node:fs';
 
@@ -46,21 +46,25 @@ export async function publishAttemptMedia(artifacts:ArtifactStoreService,job:Own
 export async function recoverRenderedOutput(prisma:PrismaService,job:Ownership,step:OutputStep,mediaDir:string){
   const provider=step.provider??job.defaultProvider;
   const opts=(step.providerOptions??{}) as Record<string,unknown>;
-  const name=videoGeradoPorEtapa(provider,step.instructions,opts);
-  if(provider!=='local-shell'||!name)return {kind:'none' as const};
-  const absolute=caminhoRealDoVideo(mediaDir,name);
-  if(!absolute)return {kind:'none' as const};
-  const artifact=await prisma.artifact.findFirst({
-    where:{projectId:job.projectId,jobId:job.id,stepId:step.id,name,kind:'FILE',mimeType:'video/mp4'},
-    orderBy:{createdAt:'desc'},
-  });
-  if(artifact?.attemptId){
-    const attempt=await prisma.attempt.findFirst({where:{id:artifact.attemptId,jobId:job.id,stepId:step.id,provider,status:{in:['SUCESSO','INTERROMPIDA']}}});
-    if(attempt){
-      const check=inspecionarVideoGerado(mediaDir,name,provider,step.instructions,opts);
-      if(check.ok&&check.absolutePath&&await sha256File(check.absolutePath)===artifact.sha256)
-        return {kind:'recovered' as const,detail:check.detail};
+  if(!['local-shell','juntar-videos','gemini-video'].includes(provider))return {kind:'none' as const};
+  const names=mediaOutputs(step,job.defaultProvider).filter(name=>/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(name));
+  const existing=names.filter(name=>caminhoRealDoVideo(mediaDir,name));
+  if(!existing.length)return {kind:'none' as const};
+  const details:string[]=[];
+  for(const name of existing){
+    const artifact=await prisma.artifact.findFirst({
+      where:{projectId:job.projectId,jobId:job.id,stepId:step.id,name,kind:'FILE',mimeType:'video/mp4'},
+      orderBy:{createdAt:'desc'},
+    });
+    if(artifact?.attemptId){
+      const attempt=await prisma.attempt.findFirst({where:{id:artifact.attemptId,jobId:job.id,stepId:step.id,provider,status:{in:['SUCESSO','INTERROMPIDA']}}});
+      if(attempt){
+        const check=inspecionarVideoGerado(mediaDir,name,provider,step.instructions,opts);
+        if(check.ok&&check.absolutePath&&await sha256File(check.absolutePath)===artifact.sha256){details.push(check.detail);continue;}
+      }
     }
+    return {kind:'conflict' as const,detail:'O MP4 de saída já existe em '+name+', mas não há prova íntegra de que foi produzido por esta etapa deste trabalho. O vídeo foi preservado. Escolha uma nova saída ou retome a origem correta.'};
   }
-  return {kind:'conflict' as const,detail:'O MP4 de saída já existe em '+name+', mas não há prova íntegra de que foi produzido por esta etapa deste trabalho. O vídeo foi preservado. Escolha uma nova saída ou retome a origem correta.'};
+  if(details.length===names.length)return {kind:'recovered' as const,detail:details.join('; ')};
+  return {kind:'conflict' as const,detail:'Parte das saídas desta etapa já foi publicada. Os arquivos foram preservados; retome apenas os destinos restantes em uma etapa separada.'};
 }
