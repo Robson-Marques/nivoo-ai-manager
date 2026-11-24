@@ -5,7 +5,8 @@
  * devolver outro HTML e o executor gastaria 625 quadros com geometria errada.
  *
  * Aqui o NÚCLEO recomenda o formato na etapa autora e preserva o
- * render oficial. Não acrescenta revisores, testes finais nem etapas.
+ * render oficial. Não acrescenta revisores nem testes finais; refação
+ * visual inclui autoria somente quando o plano a omitiu.
  * Renderizações de composições antigas SEM etapa produtora seguem compatíveis.
  */
 
@@ -23,7 +24,10 @@ const { graphicsAuthorContract } = require('../../bin/motion-graphics') as { gra
 export function pedeRevisaoVisual(text: string): boolean {
   const t=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   if (/\b(?:somente|apenas|so)\s+(?:o |a )?(?:audio|trilha|musica|narracao|locucao)\b/.test(t)) return false;
-  return /\b(?:veio errado|video (?:e|esta|ficou) (?:o )?mesmo|mesmo video|nao (?:criou|mudou|alterou|evoluiu)|faltam? (?:os |as )?(?:elementos graficos|grafismos|imagens|objetos|3d)|refa(?:zer|ca)|recria(?:r|cao)|faca de novo|nova composicao)\b/.test(t);
+  const rejection=/\b(?:veio errado|video (?:e|esta|ficou) (?:o )?(?:mesmo|ruim|errado)|mesmo video|nao (?:criou|mudou|alterou|evoluiu)|faltam? (?:os |as )?(?:elementos graficos|grafismos|imagens|objetos|3d))\b/;
+  if(rejection.test(t))return true;
+  const request=t.replace(/\b(?:nao|sem|evitar)\s+(?:refazer|refaca|recriar|recriacao|fazer de novo)\b/g,'').replace(/\brefazer (?:a |o )?(?:renderizacao|render|exportacao)\b/g,'');
+  return /\b(?:refa(?:zer|ca)|recria(?:r|cao)|faca de novo|nova composicao)\b/.test(request);
 }
 function pedeGrafismos(text: string): boolean {
   return /\b(?:premium|grafismos|elementos gr[aá]ficos|dire[çc][aã]o de arte|identidade visual animada|ilustra[çc][aã]o animada)\b/i.test(text);
@@ -36,7 +40,7 @@ const validSource = (s: string) =>
 
 // O compositor e o renderizador devem apontar para a mesma fonte.
 // Uma pasta de revisão pode conter scene.json antigo e index.html novo.
-const RENDER_CALL = /(?:^|[;\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\s+(?:"([^"]+)"|'([^']+)'|(motion\/[A-Za-z0-9._/-]+))(?=\s|$)/m;
+const RENDER_CALL = /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\s+(?:"([^"]+)"|'([^']+)'|(motion\/[A-Za-z0-9._/-]+))(?=\s|$)/m;
 
 function renderSource(command: string): string | null {
   const m = RENDER_CALL.exec(command);
@@ -89,7 +93,8 @@ export function pedeGeometria3D(texto: string): boolean {
 
 /**
  * Obrigatório em ambos os caminhos: JobsService.validatePlan e create.
- * O retorno mantém exatamente a quantidade/ordem das etapas da IA.
+ * Preserva a ordem original e liga autoria ao render; apenas uma revisão
+ * visual sem autoria recebe a etapa produtora que estava faltando.
  */
 export function conectarMotorMotion(raw: unknown, defaultProvider: string, objective = ''): unknown {
   if (!Array.isArray(raw) || !raw.length) return raw;
@@ -195,7 +200,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
         (pedeRevisaoVisual(objective) ? '\nRefação visual: a versão rejeitada é referência do que corrigir, não template. Produza os novos elementos solicitados.' : '') +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
-    // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
+    // NÃO acrescentar revisores nem testes extras.
     // O próprio renderer seleciona o motor e respeita os movimentos criados
     // pela IA, sem acelerar DUAS vezes o néon após a edição da composição.
     // Critérios de entrega originais permanecem intocados.
