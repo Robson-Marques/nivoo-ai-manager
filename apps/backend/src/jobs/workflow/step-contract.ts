@@ -5,7 +5,8 @@ import { optString,reqString } from '../../common/validate';
 import { evaluatePolicy } from '../../security/policy';
 import { RULE_REVIEW_STEP } from '../rule-review';
 import { erroDeComandoLocal } from '../executor-priority';
-import { conferenciaTecnicaDeVideo } from '../video-step-verification';
+import { conferenciaTecnicaDeVideo,customMediaVerification } from '../video-step-verification';
+import { mediaDeliveries } from '../../specialties/media/delivery';
 import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
 import { operacoesDeArquivos } from './file-options';
@@ -96,7 +97,9 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         const m = (providerOptions.mover as Array<{ para: string }>).map((x) => `test -e '${x.para}'`);
         verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
       }
-      verificacao = conferenciaTecnicaDeVideo(provider ?? defaultProvider, instructions, providerOptions, verificacao);
+      const deliveries=mediaDeliveries(provider??defaultProvider,instructions,providerOptions,key);
+      verificacao=deliveries.length?customMediaVerification(provider??defaultProvider,instructions,providerOptions,deliveries.map(d=>d.path),verificacao):conferenciaTecnicaDeVideo(provider??defaultProvider,instructions,providerOptions,verificacao);
+      if(deliveries.length&&(provider??defaultProvider)==='gemini-video'&&!verificacao)verificacao='true';
       // Política sobre o que vai RODAR: comandos (verificação; instruções só de etapa de comando). Instrução de IA é texto
       // — "não use rm -rf" ou um achado citando DELETE FROM não é uma ação destrutiva.
       const ehComando = (provider ?? defaultProvider) === 'local-shell';
