@@ -1,9 +1,7 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
-import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
+import { executeFileTool } from './agent-file-tools';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
 import { retryAfterHeaderMs } from './resource-rate-limit';
@@ -13,8 +11,6 @@ export const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
 export const NVIDIA_DEFAULT_MODEL = 'nvidia/nemotron-3.5-bolt-e4b';
 const DEFAULT_TURNS = 24;
 const MAX_TURNS = 40;
-const MAX_FILE_BYTES = 320_000;
-const MAX_READ_BYTES = 1_000_000;
 const MAX_TOOL_OUTPUT = 24_000;
 const MIN_COOLDOWN_MS = 2 * 60_000;
 // Evita mandar requisições adicionais para a mesma chave durante o Retry-After.
@@ -30,44 +26,23 @@ type NvidiaResponse = { choices?: Array<{ message?: { content?: unknown; tool_ca
 
 export const NVIDIA_TOOLS: Array<Record<string, unknown>> = [
   { type: 'function', function: {
-    name: 'listar_arquivos', description: 'Liste arquivos do diretório do trabalho. Não acessa caminhos externos.',
-    parameters: { type: 'object', properties: { pasta: { type: 'string', description: 'Pasta relativa, ou "."' } }, required: ['pasta'] },
+    name: 'listar_arquivos', description: 'Liste uma pasta de trabalho por vez; use proximo como inicio para paginar. Não acessa caminhos externos.',
+    parameters: { type: 'object', properties: { pasta: { type: 'string', description: 'Pasta relativa, ou "."' }, inicio:{type:'integer'},limite:{type:'integer'} }, required: ['pasta'] },
   } },
   { type: 'function', function: {
-    name: 'ler_arquivo', description: 'Leia um arquivo de texto relativo ao trabalho, para entender o código antes de modificá-lo.',
+    name: 'ler_arquivo', description: 'Leia texto UTF-8 do trabalho ou contexto autorizado; use proximo para continuar. Retorna sha256 para edições.',
     parameters: { type: 'object', properties: { caminho: { type: 'string' }, inicio: { type: 'integer', description: 'Posição inicial em caracteres (padrão 0)' }, limite: { type: 'integer', description: 'Máximo de caracteres (padrão 18000)' } }, required: ['caminho'] },
   } },
   { type: 'function', function: {
     name: 'escrever_arquivo', description: 'Crie ou substitua um arquivo de texto do trabalho, sem acessar diretórios protegidos.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' }, conteudo: { type: 'string' } }, required: ['caminho', 'conteudo'] },
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, conteudo: { type: 'string' },sha256:{type:'string',description:'Hash retornado pela leitura para evitar sobrescrever alterações'} }, required: ['caminho', 'conteudo'] },
   } },
   { type: 'function', function: {
     name: 'substituir_texto', description: 'Troque UMA ocorrência exata de texto em um arquivo já lido. Não permite substituição ambígua.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' }, antes: { type: 'string' }, depois: { type: 'string' } }, required: ['caminho', 'antes', 'depois'] },
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, antes: { type: 'string' }, depois: { type: 'string' },sha256:{type:'string'} }, required: ['caminho', 'antes', 'depois'] },
   } },
+  {type:'function',function:{name:'registrar_progresso',description:'Registre uma nota nova útil à retomada no diário interno; não é entrega nem aprovação.',parameters:{type:'object',properties:{tipo:{type:'string',enum:['PROGRESSO','PENDENCIA','EVIDENCIA','DECISAO_PROPOSTA']},titulo:{type:'string'},conteudo:{type:'string'},arquivos:{type:'array',items:{type:'string'}}},required:['tipo','titulo','conteudo']}}},
 ];
-
-/** Não enviar arquivos secretos do servidor nem entregar à IA acesso a comandos do host. */
-function caminhoSeguro(cwd: string, relativo: unknown): string {
-  let nome = String(relativo ?? '').trim().replace(/\\/g, '/');
-  if (nome === '.' || !nome) return resolveInside(cwd, '.');
-  // Alguns modelos retornam o caminho absoluto completo da própria pasta
-  // do trabalho. Aceitar SOMENTE se estiver dentro do worktree: sem acesso ao host.
-  if (path.isAbsolute(nome)) {
-    const relativa = path.relative(fs.realpathSync(cwd), path.resolve(nome));
-    if (!relativa || relativa.startsWith('..') || path.isAbsolute(relativa)) {
-      throw new Error('Caminho externo ao trabalho. Use o caminho RELATIVO dentro do projeto.');
-    }
-    nome = relativa.replace(/\\/g, '/');
-  }
-  const nomeValido = caminhoDoProjeto(nome);
-  if (!nomeValido) throw new Error('Caminho inválido. Informe um caminho RELATIVO ao projeto, sem ../ nem caminhos absolutos.');
-  if (nomeValido.split('/').some((p) =>
-    /^(node_modules|\.env(?:\..*)?|\.git|\.nivoo|contexto|segredos\.json|conexoes\.json)$/i.test(p))) {
-    throw new Error('Pasta protegida. Leia/edite somente arquivos do projeto, como apps/api/src/..., scripts/... ou out/...; não use .git, .nivoo, contexto, .env ou node_modules.');
-  }
-  return resolveInside(cwd, nomeValido);
-}
 
 function textoDaResposta(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -80,76 +55,8 @@ function erroSemChave(texto: string, chave: string): string {
   return limpo.replace(/nvapi-[A-Za-z0-9_-]+/g, '[chave ocultada]').slice(0, 900);
 }
 
-/** Apenas leitura/escrita de arquivos do worktree; o verificador do Nivoo executa os testes depois. */
-export function executarFerramentaNvidia(cwd: string, name: string, args: Record<string, unknown>): string {
-  const caminho = caminhoSeguro(cwd, args.caminho ?? args.pasta ?? '.');
-  if (name === 'listar_arquivos') {
-    const arquivos: string[] = [];
-    const listar = (pasta: string, nivel: number) => {
-      if (nivel > 3 || arquivos.length >= 150) return;
-      for (const e of fs.readdirSync(pasta, { withFileTypes: true })) {
-        if (arquivos.length >= 150) break;
-        if (e.isSymbolicLink() || /^(node_modules|\.git|\.nivoo|contexto|\.env(?:\..*)?)$/i.test(e.name)) continue;
-        const arquivo = path.join(pasta, e.name);
-        const relativo = path.relative(cwd, arquivo);
-        if (e.isDirectory()) {
-          arquivos.push(relativo + '/');
-          listar(arquivo, nivel + 1);
-        } else if (e.isFile()) arquivos.push(relativo);
-      }
-    };
-    if (!fs.statSync(caminho).isDirectory()) throw new Error('Não é uma pasta');
-    listar(caminho, 0);
-    return JSON.stringify({ arquivos });
-  }
-  if (name === 'ler_arquivo') {
-    // Repositórios TypeScript não têm o .js compilado no worktree. Para LEITURA
-    // apenas, resolver .js -> .ts quando o correspondente existe e é autorizado.
-    if (!fs.existsSync(caminho) && typeof args.caminho === 'string' && /\.js$/i.test(args.caminho)) {
-      const alternativa = args.caminho.replace(/\.js$/i, '.ts');
-      const possivel = caminhoSeguro(cwd, alternativa);
-      if (fs.existsSync(possivel) && fs.statSync(possivel).isFile()) {
-        const leitura = JSON.parse(executarFerramentaNvidia(cwd, name, { ...args, caminho: alternativa }));
-        return JSON.stringify({ ...leitura, aviso: 'O arquivo .js não existe no código-fonte; foi lido o arquivo TypeScript .ts correspondente.' });
-      }
-    }
-    const stat = fs.statSync(caminho);
-    if (!stat.isFile() || stat.size > MAX_READ_BYTES) throw new Error('Arquivo não é texto ou é muito grande (limite 1 MB)');
-    const buffer = fs.readFileSync(caminho);
-    if (buffer.includes(0)) throw new Error('Arquivo binário; somente texto é permitido');
-    const conteudo = buffer.toString('utf8');
-    const inicio = Math.max(0, Math.min(conteudo.length, Number(args.inicio) || 0));
-    const limite = Math.max(1, Math.min(18000, Number(args.limite) || 18000));
-    return JSON.stringify({ caminho: args.caminho, inicio, total: conteudo.length,
-      conteudo: conteudo.slice(inicio, inicio + limite), temMais: inicio + limite < conteudo.length });
-  }
-  if (name === 'escrever_arquivo' || name === 'substituir_texto') {
-    if (typeof args.caminho !== 'string' || args.caminho.trim() === '') throw new Error('Informe o arquivo relativo');
-    if (caminho === fs.realpathSync(cwd)) throw new Error('Não é um arquivo');
-    let conteudo: string;
-    if (name === 'substituir_texto') {
-      if (typeof args.antes !== 'string' || !args.antes || typeof args.depois !== 'string') throw new Error('Texto de substituição inválido');
-      const stat = fs.statSync(caminho);
-      if (!stat.isFile() || stat.size > MAX_FILE_BYTES) throw new Error('Arquivo inválido ou grande demais');
-      const atual = fs.readFileSync(caminho, 'utf8');
-      const primeira = atual.indexOf(args.antes);
-      if (primeira < 0) throw new Error('Texto original não encontrado; leia o arquivo novamente');
-      if (atual.indexOf(args.antes, primeira + args.antes.length) >= 0) throw new Error('Texto ocorre mais de uma vez; use trecho mais específico');
-      conteudo = atual.slice(0, primeira) + args.depois + atual.slice(primeira + args.antes.length);
-    } else {
-      if (typeof args.conteudo !== 'string') throw new Error('Conteúdo inválido');
-      conteudo = args.conteudo;
-    }
-    if (Buffer.byteLength(conteudo) > MAX_FILE_BYTES) throw new Error('Arquivo muito grande (limite 320 KB)');
-    fs.mkdirSync(path.dirname(caminho), { recursive: true });
-    // Nunca seguir symlink criado entre validação e a gravação.
-    const real = resolveInside(cwd, path.relative(cwd, caminho));
-    if (real !== caminho) throw new Error('Arquivo mudou durante a operação');
-    fs.writeFileSync(real, conteudo, { encoding: 'utf8', flag: 'w' });
-    return JSON.stringify({ ok: true, caminho: args.caminho, caracteres: conteudo.length });
-  }
-  throw new Error('Ferramenta não autorizada: ' + name);
-}
+/** Compatibility export; all hosted text agents use the same implementation. */
+export const executarFerramentaNvidia=executeFileTool;
 
 @Injectable()
 export class NvidiaApiProvider implements AiProvider {
@@ -254,8 +161,8 @@ export class NvidiaApiProvider implements AiProvider {
         'Use as ferramentas de arquivo para ler e modificar o projeto. Sem terminal, sem rede ou acesso a segredos.',
         'Leia antes de alterar. Preserve as mudanças existentes e registre de forma clara o que fez.',
         'As ferramentas aceitam SOMENTE caminhos relativos à pasta do trabalho (ex.: apps/api/src/routes/official-whatsapp.ts).',
-        'Não leia nem escreva .nivoo/, contexto/, node_modules/ ou .git/. Para notas próprias use out/notas.jsonl.',
-        'Não repita a mesma leitura sem novo início: ler_arquivo entrega até 18000 caracteres; use inicio para ler a parte seguinte.',
+        'Leia Skills e estado em contexto/ e memória autorizada em .nivoo/memoria.md; não edite contexto ou arquivos internos. Para notas de progresso use registrar_progresso. Não acesse segredos, node_modules ou .git.',
+        'Não repita a mesma leitura sem novo início: ler_arquivo entrega até 18000 caracteres; use proximo retornado como inicio para ler a parte seguinte.',
         'Depois de entender o código, edite os arquivos solicitados em vez de repetir leituras sem avanço.',
         'As verificações e builds são responsabilidade do executor Nivoo, após sua sessão.',
         'Não invente resultado, arquivo criado, teste executado ou imagem que não tenha sido gravado.',
@@ -305,6 +212,7 @@ export class NvidiaApiProvider implements AiProvider {
           return { exitCode: 0, output: texto || 'Alterações concluídas: ' + alteracoes + ' arquivo(s).',
             inputTokens: entrada, outputTokens: saida, numTurns: volta + 1, stopReason: json.choices?.[0]?.finish_reason ?? 'completed' };
         }
+        if(calls.length>12)throw new Error('Modelo enviou comandos demais em uma única resposta (máximo 12)');
         messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: calls });
         for (const call of calls.slice(0, 12)) {
           const nome = String(call?.function?.name ?? '');
@@ -325,7 +233,7 @@ export class NvidiaApiProvider implements AiProvider {
             } else {
               resultado = executarFerramentaNvidia(req.cwd, nome, args);
             }
-            if (nome === 'escrever_arquivo' || nome === 'substituir_texto') {
+            if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) {
               alteracoes++;
               leiturasIguais.clear();
             }

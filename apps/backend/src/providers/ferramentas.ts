@@ -23,7 +23,7 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
     '  do projeto e podem ser origem ou destino. Ajuste as referências (imports, índices) você mesmo.',
   );
   const tipo = tipoDe(providerId);
-  const titulo = '## Suas ferramentas nesta sessão (vale sobre qualquer regra do perfil ou instrução da etapa que proíba "terminal" ou "comandos")';
+  const titulo = '## Suas ferramentas nesta sessão (respeite a política de segurança e o escopo autorizado)';
   if (tipo === 'codex-cli' || tipo === 'codex-api') {
     return [
       titulo,
@@ -49,13 +49,13 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
       ...extras,
     ];
   }
-  if (tipo === 'nvidia-api') {
+  if (tipo === 'nvidia-api'||tipo==='openrouter-free-api'||tipo==='groq-free-api') {
     return [
       titulo,
-      '- NVIDIA NIM: ferramentas listar_arquivos, ler_arquivo, escrever_arquivo e substituir_texto no worktree.',
+      '- Ferramentas de texto: listar_arquivos, ler_arquivo, escrever_arquivo, substituir_texto e registrar_progresso. Leia os arquivos de contexto autorizados, inclusive SKILL.md; use proximo para paginar e sha256 para edições seguras.',
       '- Sem terminal ou MCP nesta primeira versão. Testes/builds são executados pelo Nivoo na conferência.',
-      '- A API NVIDIA pode ter limite de créditos e modelos sem suporte a ferramentas: use modelo compatível.',
-      '- Integrações MCP do projeto não estão disponíveis para o provedor NVIDIA nesta versão.',
+      '- A API pode ter cotas e modelos sem suporte a ferramentas: use modelo compatível. Não escreva binários com ferramentas de texto.',
+      '- MCP e terminal não estão disponíveis nesta conexão. Para notas use registrar_progresso; para entregar resultados use out/ ou o destino contratado. Não invente um comando executado.',
     ];
   }
   if (tipo === 'gemini-api') {

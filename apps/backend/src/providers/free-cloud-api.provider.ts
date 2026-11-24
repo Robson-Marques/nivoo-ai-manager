@@ -153,7 +153,7 @@ export class FreeCloudApiProvider implements AiProvider {
     const inicio = Date.now();
     const turnos = Math.max(1, Math.min(30, Number(req.options?.maxTurns) || 20));
     const mensagens: Array<Record<string, unknown>> = [
-      { role: 'system', content: [req.systemPrompt ?? '', 'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
+      { role: 'system', content: [req.systemPrompt ?? '', 'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
       { role: 'user', content: buildPrompt(req) },
     ];
     req.onLog(this.conf.nome + ': modelo ' + model + ' — ' + this.conf.mensagem);
@@ -187,7 +187,7 @@ export class FreeCloudApiProvider implements AiProvider {
             const args = JSON.parse(String(call.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
             resultado = executarFerramentaNvidia(req.cwd, nome, args);
-            if (nome === 'escrever_arquivo' || nome === 'substituir_texto') escritas++;
+            if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) escritas++;
             req.onLog('[ferramenta segura] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 100));
           } catch (e: any) {
             resultado = JSON.stringify({ erro: String(e?.message ?? e).slice(0, 500) });
