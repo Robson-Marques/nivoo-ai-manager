@@ -88,6 +88,8 @@ function run() {
   const refacao='O vídeo é o mesmo. Faça de novo com elementos gráficos premium em 3D e logo';
   const revisao=conectarMotorMotion([{...simple[1],instructions:'nivoo-renderizar-motion motion/anuncio --segundos 12'}],'codex-cli',refacao);
   assert.equal(revisao.length,2,'refação visual sem autoria precisa da etapa produtora, não de revisor');
+  assert.equal(revisao[0].verifyCommand,"test -s 'motion/anuncio/index.html' && test -s 'motion/anuncio/overlays.json'",
+    'a autoria criada pelo workflow deve satisfazer o contrato obrigatório do JobsService');
   assert.match(revisao[0].instructions,/NivooGraphics/);
   assert.match(revisao[1].instructions,/motion\/anuncio\/index\.html/);
   assert.ok(revisao[1].dependsOn.includes(revisao[0].key));
@@ -97,7 +99,13 @@ function run() {
   assert.match(premium[0].instructions,/NivooGraphics/);
   assert.deepEqual(conectarMotorMotion(premium,'codex-cli','Direção de arte premium e elementos gráficos'),premium);
   assert.equal(conectarMotorMotion([render],'codex-cli','Refazer a renderização sem recriar a composição').length,1);
-  const {installMotionGraphics}=require('../bin/motion-graphics');
+  const {installMotionGraphics,graphicsRuntimeFiles}=require('../bin/motion-graphics');
+  assert.equal(graphicsRuntimeFiles.length,6);
+  assert.ok(graphicsRuntimeFiles.every(file=>fs.statSync(file).isFile()));
+  const {compileWorkflowPlan}=require('../dist/jobs/workflow/compile-plan');
+  const compiled=compileWorkflowPlan(simple,'codex-cli','Direção de arte premium e elementos gráficos');
+  assert.deepEqual(compileWorkflowPlan(compiled,'codex-cli','Direção de arte premium e elementos gráficos'),compiled,
+    'prévia e criação usam o mesmo pipeline idempotente');
   const graphicsWindow={};
   new Function('window','('+installMotionGraphics.toString()+')()')(graphicsWindow);
   const G=graphicsWindow.NivooGraphics;
