@@ -103,6 +103,12 @@ export function etapaPedeRenderizacaoMotion(step: { key?: unknown; title?: unkno
   const title = String(step.title ?? '').toLowerCase();
   const verify = String(step.verifyCommand ?? '');
   const instr = String(step.instructions ?? '');
+  // A etapa corretiva criada pelo worker cita o comando que FALHOU,
+  // mas entrega um relatório de reparo, nunca o MP4. Não confundir
+  // a citação com uma solicitação de execução pela IA.
+  if (/^reparo-[a-z0-9_-]+-\d+$/.test(key) &&
+      instr.startsWith('REPARO AUTOMÁTICO DA ETAPA DO MESMO TRABALHO') &&
+      verify.trim() === "test -s 'out/reparos/" + key + ".md'") return false;
   const entregaMp4 = /midia\/saida\/[A-Za-z0-9._-]+\.mp4/.test(verify) ||
     /--saida\s+midia\/saida\/[A-Za-z0-9._-]+\.mp4/.test(instr);
   return entregaMp4 && (/^render(?:_|-|$)/.test(key) || /\brenderiz(?:ar|a(?:ção|cao))\b/i.test(title)) &&
