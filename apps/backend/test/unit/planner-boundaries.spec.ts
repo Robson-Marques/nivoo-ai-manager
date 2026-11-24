@@ -2,7 +2,8 @@ import { extractJson, normalizarPerguntas } from '../../src/worker/planner/respo
 import { selectPlannerCapabilities } from '../../src/worker/planner/capabilities';
 import { plannerRules } from '../../src/worker/planner/contract';
 import { validatedPlannerJob } from '../../src/worker/planner/validated-job';
-import type { PlannerAttachment } from '../../src/worker/planner/types';
+import { collectPlannerContext } from '../../src/worker/planner/context';
+import type { PlannerRequest, PlannerAttachment } from '../../src/worker/planner/types';
 
 describe('Fronteiras do planejador', () => {
   it('interpreta o plano completo mesmo com código cercado no texto', () => {
@@ -41,6 +42,25 @@ describe('Fronteiras do planejador', () => {
     expect(prompt).toContain('juntar-videos');
     expect(prompt).toContain('nivoo-renderizar-motion');
     expect(registry.status).not.toHaveBeenCalled();
+  });
+  it('preserva fatos, anexos e histórico; entrega não consulta mensagem atual desnecessariamente',async()=>{
+    const messages=[{id:'m2',role:'USUARIO',content:'refaça',kind:'normal'},{id:'m1',role:'ASSISTENTE',content:'plano',kind:'plano',jobId:'j'}];
+    const prisma={
+      memoryEntry:{findMany:async()=>[{id:'mem',category:'DECISAO_APROVADA',title:'Regra',content:'regra real',author:'usuário',createdAt:new Date(),references:{}}]},
+      conversationMessage:{findMany:async()=>[...messages],findFirst:jest.fn(async()=>messages[0])},
+      job:{findMany:async()=>[{id:'j',title:'Projeto',status:'BLOQUEADO',blockedReason:'ERRO',steps:[{key:'render',status:'FALHOU'}]}]},
+    };
+    const workspace={listMainFiles:async()=>[{path:'.hidden'},{path:'docs/architecture.md'},{path:'src/app.ts'}]};
+    const request={conversationId:'c',messageId:'m3',project:{id:'p',dirKey:'p'},anexos:[{mensagem:'m2',caminho:'contexto/anexos/logo.png',nome:'logo.png',tipo:'imagem',bytes:12}],entrega:null} as PlannerRequest;
+    const result=await collectPlannerContext(prisma as any,workspace as any,request);
+    expect(result.fileIndex).toContain('docs/architecture.md');
+    expect(result.fileIndex).not.toContain('.hidden');
+    expect(result.indiceTrabalhos[0]).toContain('BLOQUEADO');
+    expect(result.memTxt).toContain('regra real');
+    expect(result.conversa).toContain('[plano proposto, aprovado]');
+    expect(result.currentMessage.join('\n')).toContain('logo.png');
+    await collectPlannerContext(prisma as any,workspace as any,{...request,entrega:'resultado'});
+    expect(prisma.conversationMessage.findFirst).toHaveBeenCalledTimes(1);
   });
   it('valida plano e anexos pela mesma fronteira',()=>{
     const jobs={validatePlan:jest.fn(()=>({title:'A',defaultProvider:'codex-cli'}))};
