@@ -6,6 +6,7 @@ import { sha256 } from '../common/hash';
 import { etapaPedeRenderizacaoMotion, normalizarCenasDeMontagem, erroDeComandoLocal } from './executor-priority';
 import { conferenciaTecnicaDeVideo } from './video-step-verification';
 import { compileWorkflowPlan } from './workflow/compile-plan';
+import { hasMotionCommand } from './motion/command';
 import { AreaScope, mediaEnabledForArea } from '../specialties/media/scope';
 import { caminhoDoProjeto } from '../common/path-guard';
 import { appConfig } from '../config';
@@ -39,7 +40,7 @@ export function comPreflightVisual(raw: unknown, _defaultProvider: string): unkn
 }
 
 function validarSaidaMotion(command: string, origem: string): string {
-  if (!/\bnivoo-renderizar-motion\b/.test(command)) return command;
+  if (!hasMotionCommand(command)) return command;
   let fixed = command;
   // Compatibilidade: corrige automaticamente planos que tentam criar MP4 em out/.
   // Atualiza também as referências subsequentes (ex.: ffmpeg -i out/...).
@@ -275,7 +276,7 @@ export class JobsService {
     // renderizador e dos critérios de vídeo do plano. Revisão editorial extra
     // pode ser pedida explicitamente como outra tarefa, não forçada pelo motor.
     const motionDireto = steps.some((s) =>
-      (s.provider ?? defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
+      (s.provider ?? defaultProvider) === 'local-shell' && hasMotionCommand(s.instructions));
     if (aiProviders.length && body.conferencia === true && !motionDireto) {
       const reviewer = aiProviders.includes(project.provider) ? project.provider : aiProviders[0];
       steps.push({ ...ruleReviewStep(steps.map((s) => s.key), reviewer), requiresApproval: false, providerOptions: {} });
@@ -458,7 +459,7 @@ export class JobsService {
       s.status === 'CONCLUIDO' && (s.provider ?? job.defaultProvider) !== 'local-shell' &&
       (s.provider ?? job.defaultProvider) !== 'gemini-video' && etapaPedeRenderizacaoMotion(s)) : undefined;
     const renderReal = job.steps.some((s) =>
-      (s.provider ?? job.defaultProvider) === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(s.instructions));
+      (s.provider ?? job.defaultProvider) === 'local-shell' && hasMotionCommand(s.instructions));
     if (renderFalso && !renderReal) {
       throw new ConflictException(
         `O plano antigo marcou "${renderFalso.key}" como renderizado pela IA sem executar o renderizador; ` +
@@ -494,7 +495,7 @@ export class JobsService {
     // Isso NÃO equivale a certificar a qualidade artística do vídeo.
     const motionLegadoBloqueado = job.blockedReason === BlockedReason.CRITERIOS_NAO_ATENDIDOS &&
       job.steps.some((s) => (s.provider ?? job.defaultProvider) === 'local-shell' &&
-        /\bnivoo-renderizar-motion\b/.test(s.instructions)) &&
+        hasMotionCommand(s.instructions)) &&
       job.steps.some((s) => /^direcao-arte-/.test(s.key) && s.status === 'BLOQUEADO');
     // A revisão final compulsória também era uma sessão EXTRA de IA.
     // Ela só pode ser dispensada se o trabalho JÁ tiver critério técnico
