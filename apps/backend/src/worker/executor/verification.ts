@@ -9,7 +9,8 @@ import { getGitAccount } from '../../git/git-accounts';
 import { ambienteDaConferencia,portaLivre,faltaCredencial,problemaDoAmbiente,runProcess,semLockfile } from '../../common/exec';
 import { prepararBancoDeTeste } from '../../common/banco-de-teste';
 import { conferenciaTecnicaDeVideo } from '../../jobs/video-step-verification';
-import { inspecionarVideoGerado,videoGeradoPorEtapa } from '../../jobs/native-video-result';
+import { inspectMediaDelivery } from '../../jobs/native-video-result';
+import { mediaDeliveries } from '../../specialties/media/delivery';
 import { conferenciaGrepAlternativasLegada } from '../../jobs/verification-legacy-grep';
 import { diagnosticoParecerVisual } from '../../jobs/motion-capture-freshness';
 import { RULE_REVIEW_STEP,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
@@ -49,15 +50,11 @@ export function explicarConferencia(comando: string, pasta: string): string {
 export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:boolean,result:ExecutionResult,worktree:string,outputDir:string,mediaDir:string,attempt:{id:string},signal:AbortSignal,L:ExecutionLog){
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
-    const saidaVideo = videoGeradoPorEtapa(providerId, step.instructions,
-      (step.providerOptions ?? {}) as Record<string, unknown>);
-    // Render e montagem já possuem executores concretos. Com saída MP4
-    // conhecida, a única conferência automática é ffprobe no caminho REAL
-    // da mídia: não rodar "test -s midia/..." no worktree nem revisão de IA.
-    const verifyCommand = saidaVideo ? undefined :
-      step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK :
-      conferenciaTecnicaDeVideo(providerId, step.instructions,
-        (step.providerOptions ?? {}) as Record<string, unknown>, step.verifyCommand ?? undefined);
+    const deliveries=mediaDeliveries(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.key);
+    // Native connectors validate the physical result here, not via a second shell.
+    const verifyCommand=deliveries.length?undefined:
+      step.key===RULE_REVIEW_STEP?RULE_REVIEW_STEP_CHECK:
+      conferenciaTecnicaDeVideo(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.verifyCommand??undefined);
     let verifyCommandEfetivo = verifyCommand ?? ''; // o que realmente roda (o sistema pode curar npm ci sem lockfile)
     // O renderizador motion grava exclusivamente em midia/saida/. Planos antigos
     // podem pedir --saida out/*.mp4 em verifyCommand; corrigir aqui evita abrir
@@ -67,18 +64,17 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     verifyCommandEfetivo=replaceMediaAliases(normalized.command,normalized.aliases);
     let verified = !verifyCommand;
     let falhaTecnicaDaMidia: string | null = null;
-    if (saidaVideo && result.exitCode === 0 && !result.interrupted && !result.resourceUnavailable) {
-      const check = inspecionarVideoGerado(mediaDir,
-        saidaVideo, providerId, step.instructions, (step.providerOptions ?? {}) as Record<string, unknown>);
-      verified = check.ok;
-      if (check.ok) {
-        await L('ARQUIVO PRONTO — conferência TÉCNICA mínima, sem análise visual nem IA: ' +
-          check.detail + '. Não é necessário renderizar novamente; será entregue para você analisar.', 'INFO', attempt.id);
-      } else {
-        falhaTecnicaDaMidia = check.detail;
-        result = { ...result, exitCode: 1, error: 'MP4 tecnicamente inválido: ' + check.detail };
-        await L('MP4 não passou na inspeção técnica mínima: ' + check.detail +
-          '. O sistema NÃO deve repetir 625 quadros automaticamente. Preservar os arquivos e explicar a falha.', 'ERROR', attempt.id);
+    if(deliveries.length&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
+      for(const delivery of deliveries){
+        const check=inspectMediaDelivery(mediaDir,worktree,delivery);
+        if(!check.ok){
+          verified=false;
+          falhaTecnicaDaMidia=check.detail;
+          result={...result,exitCode:1,error:'Mídia tecnicamente inválida: '+check.detail};
+          await L(result.error,'ERROR',attempt.id);
+          break;
+        }
+        await L('ARQUIVO PRONTO — '+check.detail,'INFO',attempt.id);
       }
     }
     let faltaPrograma: string | null = null;
