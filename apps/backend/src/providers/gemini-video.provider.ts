@@ -229,7 +229,7 @@ export class GeminiVideoProvider implements AiProvider {
     const segundos = Number(parameters.durationSeconds ?? 8);
     // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
     // geração em vez de pagar outra.
-    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, escolhido ?? 'automatico', destino, descricao, o.imagem ?? null, parameters])).digest('hex');
+    const pedido = createHash('sha256').update(JSON.stringify([req.jobId,req.stepId,k.conexao, escolhido ?? 'automatico', destino, instancia, parameters])).digest('hex');
     const anterior = OPERACOES.get(pedido);
     let operacao: string;
     let op: any;
