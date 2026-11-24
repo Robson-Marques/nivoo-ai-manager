@@ -7,6 +7,7 @@ import { sha256, sha256File } from '../common/hash';
 import { resolveInside } from '../common/path-guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { tipoMidia, TipoMidia } from './media-kind';
+import { publishArtifactBlob } from './artifact-publication';
 
 export interface ArtifactMeta {
   projectId: string;
@@ -26,6 +27,11 @@ const MIME: Record<string, string> = {
   '.log': 'text/plain',
   '.py': 'text/x-python',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg':'image/svg+xml',
+  '.pdf':'application/pdf', '.zip':'application/zip', '.mp4':'video/mp4', '.webm':'video/webm',
+  '.docx':'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx':'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
   '.html': 'text/html',
@@ -46,10 +52,7 @@ export class ArtifactStoreService {
     const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
     const hash = sha256(buf);
     const { abs, rel } = this.target(meta.projectId, hash);
-    if (!fs.existsSync(abs)) {
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, buf);
-    }
+    await publishArtifactBlob(abs,hash,buf);
     return this.prisma.artifact.create({
       data: {
         projectId: meta.projectId,
@@ -61,19 +64,16 @@ export class ArtifactStoreService {
         storagePath: rel,
         sha256: hash,
         sizeBytes: buf.length,
-        mimeType: meta.mimeType ?? MIME[path.extname(meta.name)] ?? 'application/octet-stream',
+        mimeType: meta.mimeType ?? MIME[path.extname(meta.name).toLowerCase()] ?? 'application/octet-stream',
       },
     });
   }
 
-  async storeFile(meta: ArtifactMeta, file: string): Promise<Artifact> {
-    const hash = await sha256File(file);
+  async storeFile(meta: ArtifactMeta, file: string, expectedHash?:string): Promise<Artifact> {
+    if(!fs.lstatSync(file).isFile())throw new Error('Artefato de origem não é arquivo regular.');
+    const hash = expectedHash??await sha256File(file);
     const { abs, rel } = this.target(meta.projectId, hash);
-    if (!fs.existsSync(abs)) {
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.copyFileSync(file, abs);
-    }
-    const size = fs.statSync(file).size;
+    const size = await publishArtifactBlob(abs,hash,file);
     return this.prisma.artifact.create({
       data: {
         projectId: meta.projectId,
@@ -85,7 +85,7 @@ export class ArtifactStoreService {
         storagePath: rel,
         sha256: hash,
         sizeBytes: size,
-        mimeType: meta.mimeType ?? MIME[path.extname(meta.name)] ?? 'application/octet-stream',
+        mimeType: meta.mimeType ?? MIME[path.extname(meta.name).toLowerCase()] ?? 'application/octet-stream',
       },
     });
   }
@@ -96,6 +96,7 @@ export class ArtifactStoreService {
    */
   async collectOutputs(meta: Omit<ArtifactMeta, 'name' | 'kind'>, outDir: string): Promise<Artifact[]> {
     if (!fs.existsSync(outDir)) return [];
+    if(!fs.lstatSync(outDir).isDirectory())throw new Error('Diretório de entregas não é pasta regular.');
     const files: string[] = [];
     const walk = (d: string) => {
       for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -113,9 +114,16 @@ export class ArtifactStoreService {
       const existing = await this.prisma.artifact.findFirst({
         where: { projectId: meta.projectId, jobId: meta.jobId ?? null, name, sha256: hash },
       });
-      if (existing) continue;
+      if (existing) {
+        // Repair a missing physical blob from the identical source, without
+        // creating a second database record. A corrupt existing blob is never overwritten.
+        const target=this.target(meta.projectId,hash).abs;
+        if(!fs.existsSync(target)||!fs.lstatSync(target).isFile()||fs.statSync(target).size!==existing.sizeBytes)
+          await publishArtifactBlob(target,hash,f);
+        continue;
+      }
       const kind = name === 'metrics.json' || name.endsWith('.metrics.json') ? 'METRICS' : 'FILE';
-      created.push(await this.storeFile({ ...meta, name, kind }, f));
+      created.push(await this.storeFile({ ...meta, name, kind }, f,hash));
     }
     return created;
   }

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
-import { executeFileTool } from './agent-file-tools';
+import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
 import { retryAfterHeaderMs } from './resource-rate-limit';
@@ -24,25 +24,7 @@ function erro429(delayMs: number): Error & { retryAfterMs: number } {
 type ChatMessage = { role: string; content: unknown; tool_calls?: any[]; tool_call_id?: string };
 type NvidiaResponse = { choices?: Array<{ message?: { content?: unknown; tool_calls?: any[] }; finish_reason?: string }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
 
-export const NVIDIA_TOOLS: Array<Record<string, unknown>> = [
-  { type: 'function', function: {
-    name: 'listar_arquivos', description: 'Liste uma pasta de trabalho por vez; use proximo como inicio para paginar. Não acessa caminhos externos.',
-    parameters: { type: 'object', properties: { pasta: { type: 'string', description: 'Pasta relativa, ou "."' }, inicio:{type:'integer'},limite:{type:'integer'} }, required: ['pasta'] },
-  } },
-  { type: 'function', function: {
-    name: 'ler_arquivo', description: 'Leia texto UTF-8 do trabalho ou contexto autorizado; use proximo para continuar. Retorna sha256 para edições.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' }, inicio: { type: 'integer', description: 'Posição inicial em caracteres (padrão 0)' }, limite: { type: 'integer', description: 'Máximo de caracteres (padrão 18000)' } }, required: ['caminho'] },
-  } },
-  { type: 'function', function: {
-    name: 'escrever_arquivo', description: 'Crie ou substitua um arquivo de texto do trabalho, sem acessar diretórios protegidos.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' }, conteudo: { type: 'string' },sha256:{type:'string',description:'Hash retornado pela leitura para evitar sobrescrever alterações'} }, required: ['caminho', 'conteudo'] },
-  } },
-  { type: 'function', function: {
-    name: 'substituir_texto', description: 'Troque UMA ocorrência exata de texto em um arquivo já lido. Não permite substituição ambígua.',
-    parameters: { type: 'object', properties: { caminho: { type: 'string' }, antes: { type: 'string' }, depois: { type: 'string' },sha256:{type:'string'} }, required: ['caminho', 'antes', 'depois'] },
-  } },
-  {type:'function',function:{name:'registrar_progresso',description:'Registre uma nota nova útil à retomada no diário interno; não é entrega nem aprovação.',parameters:{type:'object',properties:{tipo:{type:'string',enum:['PROGRESSO','PENDENCIA','EVIDENCIA','DECISAO_PROPOSTA']},titulo:{type:'string'},conteudo:{type:'string'},arquivos:{type:'array',items:{type:'string'}}},required:['tipo','titulo','conteudo']}}},
-];
+export const NVIDIA_TOOLS=AGENT_FILE_TOOLS;
 
 function textoDaResposta(content: unknown): string {
   if (typeof content === 'string') return content;

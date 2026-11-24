@@ -29,6 +29,7 @@ describe('Ferramentas compartilhadas de arquivo',()=>{
     fs.writeFileSync(path.join(root,'secret.txt'),'original',{mode:0o755});
     fs.symlinkSync(path.join(root,'secret.txt'),path.join(root,'alias.txt'));
     expect(()=>call('escrever_arquivo',{caminho:'binary.png',conteudo:'x'})).toThrow();
+    expect(()=>call('escrever_arquivo',{caminho:'out/novo.pdf',conteudo:'PDF fictício'})).toThrow();
     expect(()=>call('escrever_arquivo',{caminho:'alias.txt',conteudo:'x'})).toThrow();
     expect(()=>call('ler_arquivo',{caminho:'alias.txt'})).toThrow();
     const old=call('ler_arquivo',{caminho:'secret.txt'});

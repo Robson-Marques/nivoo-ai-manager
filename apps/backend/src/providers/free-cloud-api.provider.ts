@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
 import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
-import { executarFerramentaNvidia, NVIDIA_TOOLS } from './nvidia-api.provider';
+import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
 
 /**
  * Integrações INDEPENDENTES do free-claude-code (AGPL): nenhuma linha do projeto
@@ -165,7 +165,7 @@ export class FreeCloudApiProvider implements AiProvider {
         const restante = req.timeoutMs - (Date.now() - inicio);
         if (restante <= 0) return { exitCode: 1, output: '', error: 'tempo de sessão esgotado', sessionEnded: true, numTurns: turno };
         const resposta = await this.chamar('/chat/completions', {
-          model, messages: mensagens, tools: NVIDIA_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
+          model, messages: mensagens, tools: AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal) as Resposta;
         entrada += resposta.usage?.prompt_tokens ?? 0;
         saida += resposta.usage?.completion_tokens ?? 0;
@@ -186,7 +186,7 @@ export class FreeCloudApiProvider implements AiProvider {
           try {
             const args = JSON.parse(String(call.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
-            resultado = executarFerramentaNvidia(req.cwd, nome, args);
+            resultado = executeFileTool(req.cwd, nome, args);
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) escritas++;
             req.onLog('[ferramenta segura] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 100));
           } catch (e: any) {

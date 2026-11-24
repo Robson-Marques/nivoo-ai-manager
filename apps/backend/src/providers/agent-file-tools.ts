@@ -5,10 +5,11 @@ import { parseAgentNotes } from '../worker/executor/session-notes';
 
 const MAX_WRITE=320_000,MAX_READ=1_000_000,MAX_RESULT=23_000;
 const BLOCKED=/^(node_modules|\.git|\.env(?:\..*)?|\.claude|\.codex|\.gemini|segredos\.json|conexoes\.json|id_rsa|id_ed25519)$/i;
+const BINARY_EXT=/\.(?:png|jpe?g|webp|gif|avif|ico|pdf|docx?|xlsx?|pptx?|zip|gz|7z|rar|mp[34]|wav|m4a|ogg|webm|mov|ttf|otf|woff2?|exe|dll|so|bin)$/i;
 const INTERNAL=/^(?:contexto|\.nivoo)(?:\/|$)/;
-const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
+const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
 function contextAllowed(rel:string):boolean{
-  return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores)\//.test(rel);
+  return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos)\//.test(rel);
 }
 function safe(cwd:string,input:unknown,mode:'read'|'write'|'list'){
   const root=fs.realpathSync(cwd);
@@ -117,6 +118,7 @@ export function executeFileTool(cwd:string,name:string,args:Record<string,unknow
       limite=Math.max(1,Math.floor(limite/2));
     }
   }
+  if(BINARY_EXT.test(p.rel))throw Error('Formato binário exige executor apropriado; não grave texto com esta extensão.');
   let old:{text:string;mode:number;hash:string}|undefined;
   try{old=readText(p.abs,MAX_WRITE);}catch(e){if((e as NodeJS.ErrnoException).code!=='ENOENT')throw e;}
   if(args.sha256!==undefined&&(!old||args.sha256!==old.hash))throw Error('Arquivo mudou desde a leitura; leia novamente.');
@@ -134,3 +136,24 @@ export function executeFileTool(cwd:string,name:string,args:Record<string,unknow
   if(changed){safe(cwd,p.rel,'write');atomicText(p.abs,text,old?.mode);}
   return json({ok:true,alterado:changed,caminho:p.rel,caracteres:text.length,sha256:sha256(text)});
 }
+
+/** Shared tool contract; independent of the hosted provider. */
+export const AGENT_FILE_TOOLS: Array<Record<string, unknown>> = [
+  { type: 'function', function: {
+    name: 'listar_arquivos', description: 'Liste uma pasta de trabalho por vez; use proximo como inicio para paginar. Não acessa caminhos externos.',
+    parameters: { type: 'object', properties: { pasta: { type: 'string', description: 'Pasta relativa, ou "."' }, inicio:{type:'integer'},limite:{type:'integer'} }, required: ['pasta'] },
+  } },
+  { type: 'function', function: {
+    name: 'ler_arquivo', description: 'Leia texto UTF-8 do trabalho ou contexto autorizado; use proximo para continuar. Retorna sha256 para edições.',
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, inicio: { type: 'integer', description: 'Posição inicial em caracteres (padrão 0)' }, limite: { type: 'integer', description: 'Máximo de caracteres (padrão 18000)' } }, required: ['caminho'] },
+  } },
+  { type: 'function', function: {
+    name: 'escrever_arquivo', description: 'Crie ou substitua um arquivo de texto do trabalho, sem acessar diretórios protegidos.',
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, conteudo: { type: 'string' },sha256:{type:'string',description:'Hash retornado pela leitura para evitar sobrescrever alterações'} }, required: ['caminho', 'conteudo'] },
+  } },
+  { type: 'function', function: {
+    name: 'substituir_texto', description: 'Troque UMA ocorrência exata de texto em um arquivo já lido. Não permite substituição ambígua.',
+    parameters: { type: 'object', properties: { caminho: { type: 'string' }, antes: { type: 'string' }, depois: { type: 'string' },sha256:{type:'string'} }, required: ['caminho', 'antes', 'depois'] },
+  } },
+  {type:'function',function:{name:'registrar_progresso',description:'Registre uma nota nova útil à retomada no diário interno; não é entrega nem aprovação.',parameters:{type:'object',properties:{tipo:{type:'string',enum:['PROGRESSO','PENDENCIA','EVIDENCIA','DECISAO_PROPOSTA']},titulo:{type:'string'},conteudo:{type:'string'},arquivos:{type:'array',items:{type:'string'}}},required:['tipo','titulo','conteudo']}}},
+];
