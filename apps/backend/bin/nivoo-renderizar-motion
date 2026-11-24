@@ -145,7 +145,7 @@ function motionSceneCore() {
         // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
-        const { loadScene, overlayScript } = motionSceneCore();
+        const { loadScene, overlayScript, mountMediaOverlay } = motionSceneCore();
         const { scene, binaries, warnings } = loadScene(overlayPath);
         warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
         if (scene.width !== W || scene.height !== H) console.warn(
@@ -159,17 +159,7 @@ function motionSceneCore() {
             's) diferente da composição ('+sourceDuration+
             's); preservando saída e permitindo revisão visual');
         }
-        await pagina.evaluate((size) => {
-          const canvas = document.createElement('canvas');
-          canvas.id = 'nivoo-overlay';
-          canvas.width = size.width;
-          canvas.height = size.height;
-          Object.assign(canvas.style, {
-            position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh',
-            zIndex:'2147483647', pointerEvents:'none',
-          });
-          document.body.appendChild(canvas);
-        }, { width: W, height: H });
+        await pagina.evaluate(mountMediaOverlay, { width: W, height: H });
         await pagina.addScriptTag({ content: overlayScript(scene, binaries) });
         let deadline;
         try {
@@ -179,7 +169,12 @@ function motionSceneCore() {
               () => reject(new Error('Tempo limite de 30s carregando fotos da camada WebGL')), 30_000); }),
           ]);
         } finally { clearTimeout(deadline); }
-        console.log('nivoo-renderizar-motion: fotos/produtos em camada segura sobre WebGL (overlays.json)');
+        const stats=await pagina.evaluate(()=>window.__nivooOverlayStats||{});
+        console.log('nivoo-renderizar-motion: fotos/produtos isolados do CSS da composição 3D; '+
+          'arquivos carregados='+String(stats.loaded??0)+', referências='+String(stats.expected??0));
+        if ((stats.expected??0)>0 && (stats.loaded??0)===0) {
+          console.warn('nivoo-renderizar-motion: nenhum arquivo fotográfico carregado; veja os avisos de mídia acima');
+        }
       }
     }
     const segundosFonte = Math.min(300, Math.max(1,
@@ -213,6 +208,16 @@ function motionSceneCore() {
       page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
+    // Relatar o que de fato foi DESENHADO durante os quadros. Isso não
+    // cria aprovador nem tenta reescrever o trabalho; o MP4 é entregue.
+    const photoResult=await pagina.evaluate(()=>window.__nivooOverlayStats??null).catch(()=>null);
+    if(photoResult?.expected) {
+      const drawn=photoResult.everDrawnIds??[];
+      console.log('nivoo-renderizar-motion: imagens efetivamente desenhadas no vídeo: '+
+        drawn.length+'/'+photoResult.expected+' ('+drawn.join(', ')+')');
+      if(drawn.length<photoResult.expected)
+        console.warn('nivoo-renderizar-motion: AVISO — algumas imagens de overlays.json não aparecem nos quadros; confira os caminhos das fotos e a animação das camadas');
+    }
     if (erros.length) console.error(`nivoo-renderizar-motion: aviso — erro de script na animação: ${erros[0]}`);
     console.log(`nivoo-renderizar-motion: ${saidaRel} (${W}x${H}, ${segundos.toFixed(1)} s, ${(result.bytes / 1024 / 1024).toFixed(1)} MB, ${result.frames} quadros a ${result.fps} fps)`);
   } finally {

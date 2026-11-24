@@ -57,10 +57,13 @@ function validateScene(raw) {
       finite(l.height, l.id+'.height', 1, 12000);
     }
     if (l.type === 'image') {
-      // Uma imagem pode vir de arquivo local, anexo recuperado, SVG do logo
-      // ou data:image base64. Formato do NOME não reprova um trabalho pronto.
-      // Somente o carregador decide se consegue ler a mídia, sem rede e com
-      // as raízes do workspace restritas. Se não conseguir, AVISA e entrega.
+      // Suportar formatos de composição existentes, sem exigir que uma IA
+      // refaça o JSON apenas porque escreveu "src" em vez de "asset".
+      // Normalização é apenas EM MEMÓRIA, não reescreve a composição pronta.
+      if (!(typeof l.asset === 'string' && l.asset.trim())) {
+        const alias=[l.src,l.image,l.file,l.path].find(v=>typeof v==='string'&&v.trim());
+        if(alias) l.asset=alias;
+      }
       if (typeof l.asset === 'string' && l.asset.trim()) assets.add(l.asset);
       else console.warn('[NIVO_MOTION] camada sem referência de mídia: '+l.id);
       if (l.supportZ !== undefined) finite(l.supportZ, l.id+'.supportZ', -10000, 10000);
@@ -114,6 +117,40 @@ function loadScene(scenePath) {
   const motionParent = path.basename(path.dirname(dir)) === 'motion' ? path.dirname(dir) : dir;
   const projectRoot = motionParent !== dir ? path.dirname(motionParent) : dir;
   const allowed = [motionParent, path.join(projectRoot,'contexto')];
+  const withinAllowed = file => allowed.some(root=>file.startsWith(root+path.sep));
+  function resolveLocalMedia(relative) {
+    const expected=relative.startsWith('contexto/')
+      ? path.resolve(projectRoot,relative):path.resolve(dir,relative);
+    try {
+      const found=fs.realpathSync(expected);
+      if (!withinAllowed(found)) throw new Error('arquivo fora das pastas permitidas');
+      return {file:found,recovered:false};
+    } catch(error) {
+      // Uma referência a um caminho proibido continua PROIBIDA, sem fallback.
+      if (/fora das pastas permitidas/.test(String(error?.message??error)) ||
+          path.isAbsolute(relative) || relative.split('/').filter(x=>x==='..').length>1)
+        throw error;
+      // O Nivo já copiou as fotografias para motion/<versão>/assets.
+      // Recuperar pelo nome EXATO (sem adivinhar imagem por semelhança).
+      const base=path.basename(relative);
+      if(!/^[\w. -]{1,160}\.(?:png|jpe?g|webp|svg|js)$/i.test(base)) throw error;
+      const dirs=[path.join(dir,'assets'),dir];
+      const annexRoot=path.join(projectRoot,'contexto','anexos');
+      if(fs.existsSync(annexRoot)) {
+        for(const entry of fs.readdirSync(annexRoot,{withFileTypes:true}).slice(0,80))
+          if(entry.isDirectory())dirs.push(path.join(annexRoot,entry.name));
+      }
+      for(const candidateDir of dirs) {
+        let entries;
+        try { entries=fs.readdirSync(candidateDir,{withFileTypes:true}); } catch { continue; }
+        const names=entries.filter(e=>e.isFile() && e.name.toLowerCase()===base.toLowerCase());
+        if(names.length!==1)continue;
+        const found=fs.realpathSync(path.join(candidateDir,names[0].name));
+        if(withinAllowed(found)) return {file:found,recovered:true};
+      }
+      throw error;
+    }
+  }
   for (const relative of assets) {
     try {
       if (relative.length > 28*1024*1024) throw new Error('referência grande demais');
@@ -124,11 +161,9 @@ function loadScene(scenePath) {
       }
       if (/^[a-z][a-z\d+.-]*:/i.test(relative)) throw new Error('referência remota não suportada');
       if (relative.includes('\0') || /[\x00-\x1f]/.test(relative)) throw new Error('nome com caracteres de controle');
-      const candidate = relative.startsWith('contexto/') ?
-        path.resolve(projectRoot, relative) : path.resolve(dir, relative);
-      const file = fs.realpathSync(candidate);
-      if (!allowed.some(root=>file.startsWith(root+path.sep)))
-        throw new Error('arquivo fora das pastas permitidas');
+      const {file,recovered} = resolveLocalMedia(relative);
+      if(recovered) console.warn('[NIVO_MOTION] recurso localizado nos assets existentes: '+
+        path.basename(relative));
       const size=fs.statSync(file).size;
       if (size > 20*1024*1024 || (totalBytes += size) > 60*1024*1024)
         throw new Error('limite de tamanho da mídia excedido');
@@ -166,12 +201,44 @@ function sceneDocument(scene, binaries) {
     '<canvas id="nivoo" width="'+scene.width+'" height="'+scene.height+'"></canvas>'+
     '<script>('+sceneRuntime.toString()+')('+state+');</script></body></html>';
 }
+/**
+ * Monta fotos de produtos em Shadow DOM, independente de CSS global do HTML
+ * WebGL gerado pela IA. Executada dentro da página por Playwright page.evaluate.
+ */
+function mountMediaOverlay(size) {
+  const old=document.getElementById('nivoo-photo-overlay-host');
+  if(old)old.remove();
+  const host=document.createElement('div');
+  host.id='nivoo-photo-overlay-host';
+  host.style.setProperty('all','initial','important');
+  host.style.setProperty('position','fixed','important');
+  host.style.setProperty('inset','0','important');
+  host.style.setProperty('display','block','important');
+  host.style.setProperty('opacity','1','important');
+  host.style.setProperty('visibility','visible','important');
+  host.style.setProperty('z-index','2147483647','important');
+  host.style.setProperty('pointer-events','none','important');
+  const shadow=host.attachShadow({mode:'open'});
+  const canvas=document.createElement('canvas');
+  canvas.width=size.width;canvas.height=size.height;
+  canvas.style.cssText='all:initial!important;display:block!important;'+
+    'position:absolute!important;inset:0!important;width:100%!important;'+
+    'height:100%!important;opacity:1!important;visibility:visible!important;'+
+    'pointer-events:none!important;';
+  shadow.appendChild(canvas);
+  document.documentElement.appendChild(host);
+  window.__nivooOverlayCanvas=canvas;
+}
+
 /** O mesmo código JavaScript funciona em navegador e em Node para testes. */
 function sceneRuntime({scene,binaries,overlay=false}) {
   // Overlay transparente sobre HTML/WebGL 3D: nenhuma imagem de produto
   // atravessa malhas da cena 3D. O WebGL só desenha geometria própria.
-  const canvas=document.getElementById(overlay?'nivoo-overlay':'nivoo'),
-    ctx=canvas.getContext('2d',{alpha:overlay});
+  const canvas=overlay
+    ? (window.__nivooOverlayCanvas || document.getElementById('nivoo-overlay'))
+    : document.getElementById('nivoo');
+  if(!canvas)throw new Error('Canvas do motor Nivo ausente');
+  const ctx=canvas.getContext('2d',{alpha:overlay});
   if (!ctx) throw new Error('Canvas 2D indisponível');
   const images={}, end=scene.duration;
   const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
@@ -241,6 +308,8 @@ function sceneRuntime({scene,binaries,overlay=false}) {
         ctx.shadowOffsetY=l.shadow?.dy??12;
       }
       ctx.drawImage(img,-w/2,-h/2,w,h);
+      drawnImages++;
+      if(overlay) everDrawn.add(l.id);
     } else if(l.type==='text'){
       ctx.textAlign=l.align??'center';ctx.textBaseline='middle';
       ctx.font=(l.weight??'900')+' '+(l.fontSize??48)+'px '+(l.font??'Arial, sans-serif');
@@ -263,18 +332,33 @@ function sceneRuntime({scene,binaries,overlay=false}) {
     ctx.restore();
   }
   if(!overlay){window.__motionSegundos=end;window.__motionFim=false;window.__nivooSceneReady=false;}
-  else {window.__nivooOverlayReady=false;}
+  else {
+    window.__nivooOverlayReady=false;
+    window.__nivooOverlayStats={
+      expected:scene.layers.filter(l=>l.type==='image').length,
+      loaded:0,drawnAtLastFrame:0,lastTime:0,
+    };
+  }
   window.__motionCore={version:1,mode:overlay?'webgl-overlay':'declarative',timeline};
   const sorted=scene.layers.map(l=>{
     // Fotos nunca interpenetram o suporte: sem rotação inclinada no eixo de
     // profundidade e sempre pelo menos 1 unidade à frente do supportZ.
     return {...l,z:l.type==='image'?Math.max(l.z??0,(l.supportZ??-10000)+1):l.z??0};
   }).sort((a,b)=>a.z-b.z);
+  let drawnImages=0;
+  const everDrawn=new Set();
   const drawAt=(time)=>{
     const t=timeline(Number(time)||0);
+    drawnImages=0;
     if(overlay){ctx.clearRect(0,0,canvas.width,canvas.height);}
     else {ctx.fillStyle=scene.background??'#090402';ctx.fillRect(0,0,canvas.width,canvas.height);}
     for(const l of sorted)drawLayer(l,t);
+    if(overlay) {
+      window.__nivooOverlayStats.loaded=Object.keys(images).length;
+      window.__nivooOverlayStats.drawnAtLastFrame=drawnImages;
+      window.__nivooOverlayStats.everDrawnIds=[...everDrawn];
+      window.__nivooOverlayStats.lastTime=t;
+    }
     if(!overlay)window.__motionFim=Number(time)>=end;
   };
   if(overlay)window.__nivooOverlayRenderAt=drawAt;
@@ -352,4 +436,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource };
+module.exports={ validateScene,loadScene,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
