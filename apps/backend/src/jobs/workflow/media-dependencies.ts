@@ -27,7 +27,6 @@ export function mediaInputs(step:Step,defaultProvider:string):string[]{
   const provider=step.provider??defaultProvider,opts=record(step.providerOptions);
   if(isCodex(String(provider)))return visualReferences(opts.visualReferences);
   if(provider==='gemini-image')return Array.isArray(opts.referencias)?opts.referencias.map(mediaPath).filter((x):x is string=>!!x):[];
-  if(provider==='nvidia-media'){const r=mediaPath(opts.referencia);return r?[r]:[];}
   if(provider!=='juntar-videos')return [];
   return [...normalizarCenasDeMontagem(opts),record(opts.narracao).arquivo,record(opts.trilha).arquivo]
     .flatMap(value=>{

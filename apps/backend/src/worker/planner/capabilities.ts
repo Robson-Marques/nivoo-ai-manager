@@ -9,7 +9,6 @@ export interface PlannerCapabilities {
   softwareInterface:boolean;
   paidVideo:boolean;
   paidImage?:boolean;
-  nvidiaMedia?:boolean;
   codexImageProvider?:string;
 }
 
@@ -21,8 +20,7 @@ export async function selectPlannerCapabilities(area:AreaScope|undefined,registr
   const softwareInterface=softwareInterfaceEnabled(area);
   const paidVideo=media&&registry.has('gemini-video')&&(await registry.status('gemini-video',15_000)).available;
   const paidImage=media&&registry.has('gemini-image')&&(await registry.status('gemini-image',15_000)).available;
-  const nvidiaMedia=media&&registry.has('nvidia-media')&&(await registry.status('nvidia-media',15_000)).available;
   const selected=media&&providerId&&isCodexAccount(providerId)&&registry.has(providerId)?await registry.status(providerId,15_000):undefined;
   const codexImageProvider=selected?.available&&selected.capabilities?.includes('imagegen-native-adapter')?providerId:undefined;
-  return {media,softwareInterface,paidVideo,paidImage,...(nvidiaMedia?{nvidiaMedia}:{}),...(codexImageProvider?{codexImageProvider}:{})};
+  return {media,softwareInterface,paidVideo,paidImage,...(codexImageProvider?{codexImageProvider}:{})};
 }

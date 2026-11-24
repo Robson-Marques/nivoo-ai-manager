@@ -27,11 +27,11 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const candidateIndices = steps.slice(0, ri).flatMap((s, i) => {
       if (!s || typeof s !== 'object' || !isComposer(s)) return [];
       const provider = String(s.provider ?? defaultProvider);
-      if (['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto','nvidia-media'].includes(provider)||nativeImageTarget((s.providerOptions as Record<string,unknown>|undefined)?.visualAsset)) return [];
+      if (['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(provider)||nativeImageTarget((s.providerOptions as Record<string,unknown>|undefined)?.visualAsset)) return [];
       return [i];
     });
     if (!candidateIndices.length && pedeRevisaoVisual(objective) &&
-        !['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto','nvidia-media'].includes(defaultProvider)) {
+        !['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(defaultProvider)) {
       // A rejected creative result requires an author, not a second export.
       let key='compor-nova-arte';
       for(let n=2;steps.some(s=>s&&s.key===key);n++)key='compor-nova-arte-'+n;

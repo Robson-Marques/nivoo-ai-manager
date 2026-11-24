@@ -20,7 +20,7 @@ export function hasNativeMediaOperation(steps: unknown, defaultProvider: string)
   return steps.some(step=>{
     if(!step||typeof step!=='object')return false;
     const provider=String(step.provider??defaultProvider);
-    if(['gemini-video','gemini-image','juntar-videos','gerar-narracao','nvidia-media'].includes(provider))return true;
+    if(['gemini-video','gemini-image','juntar-videos','gerar-narracao'].includes(provider))return true;
     if(provider!=='local-shell')return false;
     const command=String(step.instructions??'');
     return hasMotionCommand(command) || /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-(?:conferir-arte|analisar-video|extrair-quadros)(?:\s|$)/m.test(command);

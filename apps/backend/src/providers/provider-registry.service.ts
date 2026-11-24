@@ -5,7 +5,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ClaudeApiProvider, ClaudeCodeCliProvider } from './claude-code-cli.provider';
 import { CodexApiProvider, CodexCliProvider } from './codex-cli.provider';
 import { GeminiApiProvider } from './gemini-api.provider';
-import { NvidiaMediaProvider } from './nvidia-media.provider';
 import { NvidiaApiProvider } from './nvidia-api.provider';
 import { GroqFreeProvider, OpenRouterFreeProvider } from './free-cloud-api.provider';
 import { GeminiImageProvider } from './gemini-image.provider';
@@ -37,9 +36,8 @@ export class ProviderRegistry {
     gerarNarracao: GerarNarracaoProvider,
     arquivos: ArquivosProjetoProvider,
     shell: LocalShellProvider,
-    nvidiaMedia: NvidiaMediaProvider,
   ) {
-    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, nvidiaApi, openRouterFree, groqFree, video, image, juntar, gerarNarracao, arquivos, shell, nvidiaMedia]) this.providers.set(p.id, p);
+    for (const p of [claude, claudeApi, codex, codexApi, geminiApi, nvidiaApi, openRouterFree, groqFree, video, image, juntar, gerarNarracao, arquivos, shell]) this.providers.set(p.id, p);
   }
 
   /** Usado apenas pelos testes (NIVOO_ENABLE_TEST_PROVIDER=1). */
