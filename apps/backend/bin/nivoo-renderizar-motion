@@ -36,8 +36,8 @@ if (!alvoBruto) {
   process.exit(2);
 }
 const motorExigido = opt('--motor', 'auto');
-if (!['auto','scene','hybrid'].includes(motorExigido)) {
-  console.error('MOTION_CONTRATO: --motor precisa ser auto, scene ou hybrid');
+if (!['auto','scene','hybrid','html'].includes(motorExigido)) {
+  console.error('MOTION_CONTRATO: --motor precisa ser auto, scene, hybrid ou html');
   process.exit(2);
 }
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
@@ -154,7 +154,7 @@ function motionSceneCore() {
       await pagina.addInitScript(require(runtime).installMotionGraphics);
       await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
       const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
-      if (fs.existsSync(overlayPath)) {
+      if (motorExigido !== 'html' && fs.existsSync(overlayPath)) {
         // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
