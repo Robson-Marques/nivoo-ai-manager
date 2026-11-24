@@ -1,3 +1,5 @@
+import { readMotionInvocation } from './command';
+
 const pathIsMotion = (s: string) =>
   /^motion\/[A-Za-z0-9._/-]+$/.test(s) && !s.split('/').includes('..');
 const validSource = (s: string) =>
@@ -8,8 +10,7 @@ const validSource = (s: string) =>
 const RENDER_CALL = /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion\s+(?:"([^"]+)"|'([^']+)'|(motion\/[A-Za-z0-9._/-]+))(?=\s|$)/m;
 
 export function renderSource(command: string): string | null {
-  const m = RENDER_CALL.exec(command);
-  const val = m?.[1] ?? m?.[2] ?? m?.[3] ?? '';
+  const val = readMotionInvocation(command)?.source ?? '';
   const source = val.replace(/\/(?:index\.html|scene\.json)$/, '');
   return validSource(source) ? source : null;
 }
