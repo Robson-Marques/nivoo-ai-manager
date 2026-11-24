@@ -59,6 +59,13 @@ async function main() {
     {id:'fundo',type:'image',asset:'assets/fundo.png',width:'auto',height:0}
   ]}))).scene.layers[0];
   assert.deepEqual([duplicada.width,duplicada.height],[1080,1920]);
+  const timeScene={...anuncio,layers:[{...anuncio.layers[1],keys:[
+    {time:0,opacity:0},{at:'500ms',opacity:.5},{t:'25%',opacity:1},{seconds:'12s',opacity:1}
+  ]}]};
+  assert.deepEqual(validateScene(timeScene).scene.layers[0].keys.map(k=>k.at),[0,.5,3,12]);
+  assert.deepEqual(validateScene(timeScene).scene.layers[0].keys.map(k=>k.at),[0,.5,3,12]);
+  assert.throws(()=>validateScene({...anuncio,layers:[{...anuncio.layers[1],keys:[{at:12000}]}]}),/logo.at/);
+  assert.throws(()=>validateScene({...anuncio,layers:[{...anuncio.layers[1],keys:[{at:1,time:2}]}]}),/conflitantes/);
   const aceite=validateScene(JSON.parse(JSON.stringify(anuncio)));
   assert.equal(aceite.scene.profile,'normal','perfil artístico não impede o render');
   assert.equal(aceite.scene.duration,12,'duração original preservada');
