@@ -8,6 +8,8 @@ import { copiarAnexosParaSessao } from '../../conversations/attachments';
 import { jobsDaConversa } from '../../conversations/jobs-da-conversa';
 import { mediaEnabledForArea,type AreaScope } from '../../specialties/media/scope';
 import { conversaComoTexto } from './conversation';
+import { restoreMotionResume,validMotionResumeId } from '../../jobs/motion/fps-resume';
+import { resolveInside } from '../../common/path-guard';
 import type { ExecutionLog } from './types';
 
 type SessionJob=Job&{project:{dirKey:string;area:AreaScope&{slug:string}}};
@@ -95,6 +97,17 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
       }
       const planted = workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !docsPendentes.has(f) && !f.startsWith('contexto/'));
       if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
+    }
+    const sourceJob=(step.providerOptions as Record<string,unknown>|null)?.motionSourceJobId;
+    if(!isAi&&providerId==='local-shell'&&sourceJob!==undefined){
+      if(!validMotionResumeId(sourceJob)||sourceJob===job.id)throw new Error('Origem Motion de retomada inválida.');
+      const origin=await prisma.conversationMessage.findFirst({where:{jobId:job.id},select:{conversationId:true}});
+      const allowed=origin?await jobsDaConversa(prisma,origin.conversationId):[];
+      const prior=await prisma.job.findFirst({where:{id:sourceJob,projectId:job.projectId},select:{id:true,status:true}});
+      if(!prior||!allowed.includes(sourceJob)||!['BLOQUEADO','FALHOU','CONCLUIDO'].includes(prior.status))throw new Error('Origem Motion não pertence a um trabalho anterior desta conversa e projeto.');
+      const original=resolveInside(workspace.projectDirs(job.project.dirKey).worktrees,sourceJob);
+      restoreMotionResume(original,worktree,sourceJob,step.instructions);
+      await L('Composição original recuperada do trabalho '+sourceJob.slice(0,8)+'; renderização local sem nova sessão de IA.');
     }
     // As etapas locais também podem consumir arquivos de trabalhos anteriores.
     // Antes só as sessões de IA recebiam contexto/resultados/, portanto um plano

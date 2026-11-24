@@ -2,6 +2,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { WorkspaceService } from '../../storage/workspace.service';
 import { descreverAnexo } from '../../conversations/attachments';
 import { memoryLine,sortMemory } from '../context-builder';
+import { readMotionInvocation } from '../../jobs/motion/command';
 import type { PlannerRequest } from './types';
 
 const MAX_MEMORIA=15_000;
@@ -26,12 +27,15 @@ export async function collectPlannerContext(prisma:PrismaService,workspace:Works
         id: true, title: true, status: true, blockedReason: true,
         createdAt: true, steps: {
           orderBy: { order: 'asc' },
-          select: { key: true, title: true, status: true, provider: true },
+          select: { key: true, title: true, status: true, provider: true, instructions:true },
         },
       },
     });
     const indiceTrabalhos = trabalhosRecentes.map(j => {
-      const etapas = j.steps.map(e => `${e.key}:${e.status}`).join(', ');
+      const etapas = j.steps.map(e => {
+        const op=e.provider==='local-shell'?readMotionInvocation(e.instructions):null;
+        return `${e.key}:${e.status}${op?.output?' [Motion: '+JSON.stringify(op)+']':''}`;
+      }).join(', ');
       return `- ${j.title} [${j.id}] ${j.status}${j.blockedReason ? ` (${j.blockedReason})` : ''}; etapas: ${etapas}`;
     });
     let memTxt = '';

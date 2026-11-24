@@ -4,6 +4,8 @@ import type { ProviderRegistry } from '../../providers/provider-registry.service
 import { optString,reqString } from '../../common/validate';
 import { evaluatePolicy } from '../../security/policy';
 import { RULE_REVIEW_STEP } from '../rule-review';
+import { validMotionResumeId } from '../motion/fps-resume';
+import { readMotionInvocation } from '../motion/command';
 import { erroDeComandoLocal } from '../executor-priority';
 import { conferenciaTecnicaDeVideo,customMediaVerification } from '../video-step-verification';
 import { mediaDeliveries } from '../../specialties/media/delivery';
@@ -56,6 +58,13 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       const opts = s.providerOptions ?? {};
       const providerOptions: Record<string, unknown> = {};
       if(target)providerOptions.visualAsset=target;
+      if(opts.motionSourceJobId!==undefined){
+        const origin=opts.motionSourceJobId;
+        const op=readMotionInvocation(instructions);
+        if((provider??defaultProvider)!=='local-shell'||!validMotionResumeId(origin)||!op?.source.startsWith('motion/retomada-'+origin.slice(0,8)+'/'))
+          throw new BadRequestException('Etapa '+key+': origem de retomada Motion inválida.');
+        providerOptions.motionSourceJobId=origin;
+      }
       if(isCodex(provider??defaultProvider)&&opts.visualReferences!==undefined){
         const refs=visualReferences(opts.visualReferences);
         if(target&&refs.includes(target.arquivo))throw new BadRequestException('Etapa '+key+': a própria saída não pode ser referência de entrada; preserve o original e use um novo destino.');

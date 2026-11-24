@@ -1,3 +1,4 @@
+import { planFpsResume } from './planner/fps-resume';
 import { validatedPlannerJob } from './planner/validated-job';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
@@ -101,6 +102,26 @@ export class PlannerService {
       const gasto = Number(jobs._sum.costSpentUsd ?? 0) + Number(conversa._sum.costUsd ?? 0);
       if (gasto >= Number(project.maxCostUsd)) {
         return fail(`O projeto atingiu o limite de gasto (US$ ${gasto.toFixed(2)} de US$ ${Number(project.maxCostUsd).toFixed(2)}). Aumente o limite em Ajustes para continuar.`);
+      }
+    }
+
+    // Explicit FPS-only recovery is a deterministic continuation, not a
+    // request for a language model to invent another assembly plan.
+    if(msg.kind!=='entrega'){
+      const userMessage=await this.prisma.conversationMessage.findFirst({
+        where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},
+        orderBy:{createdAt:'desc'},select:{content:true},
+      });
+      const recovery=await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??'');
+      if(recovery){
+        const plan=this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue;
+        const saved=await this.prisma.conversationMessage.updateMany({
+          where:{id:msg.id,status:'PENDENTE'},
+          data:{status:'PRONTA',kind:'plano',content:'Vou recuperar a composição do trabalho anterior e renderizar somente na taxa de quadros solicitada. O vídeo anterior será preservado.',plan,completedAt:new Date(),costUsd:0},
+        });
+        if(saved.count)await this.seguirSozinho(project.id,msg.conversationId,msg.id,true);
+        await this.queue.complete(task.id,workerId);
+        return;
       }
     }
 

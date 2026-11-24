@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { hasMotionCommand } from './motion/command';
+import { hasMotionCommand,readMotionInvocation,motionFpsFromText } from './motion/command';
 /**
  * Compatibilidade com planejamento em linguagem natural:
  * uma única cena pode vir como string ou campo "video"/"videoOriginal".
@@ -27,6 +27,8 @@ export function aplicarPrioridadeDosExecutores(raw: unknown, defaultProvider: st
     if (provider !== 'local-shell') return step;
     const instr = String(step.instructions ?? '');
     const opts = step.providerOptions ?? {};
+    // Explicit Motion render is never a join, even if the planner included obsolete assembly options.
+    if(hasMotionCommand(instr))return step;
     const cenas = normalizarCenasDeMontagem(opts);
     const temEntradasDeMontagem = cenas.length > 0 &&
       typeof opts.arquivo === 'string' && /\.mp4$/i.test(opts.arquivo);
@@ -120,23 +122,28 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
     const step = item as Record<string, unknown>;
     const provider = String(step.provider ?? defaultProvider);
-    if (!etapaPedeRenderizacaoMotion(step) || provider === 'juntar-videos' || provider === 'gemini-video') return item;
+    if(provider==='gemini-video')return item;
 
     const instr = String(step.instructions ?? '').trim();
     // Comando de render real, inclusive depois de "set -e;" ou em linha
     // seguinte. A conferência técnica do MP4 é independente disso.
     const comandoReal = hasMotionCommand(instr);
     if (provider === 'local-shell' && comandoReal) return item;
+    if(comandoReal&&provider==='juntar-videos'&&readMotionInvocation(instr)?.source)return {...step,provider:'local-shell'};
 
     const opts = step.providerOptions && typeof step.providerOptions === 'object' && !Array.isArray(step.providerOptions)
       ? step.providerOptions as Record<string, unknown> : {};
     const texto = instr + ' ' + objective;
+    const fps=motionFpsFromText(String(step.title??'')+' '+instr)??motionFpsFromText(objective);
+    const motionSource=typeof (opts.fonte??opts.entrada??opts.source??opts.sourcePath)==='string'&&/^motion\//.test(String(opts.fonte??opts.entrada??opts.source??opts.sourcePath));
+    const wrongJoin=provider==='juntar-videos'&&!normalizarCenasDeMontagem(opts).length&&!!fps&&(motionSource||/\bmotion\/[A-Za-z0-9._/-]+/.test(instr));
+    if(!wrongJoin&&(!etapaPedeRenderizacaoMotion(step)||provider==='juntar-videos'))return item;
     const escolher = (items: string[]): string | null => {
       const unicos = [...new Set(items.filter(Boolean))];
       return unicos.length === 1 ? unicos[0] : null;
     };
     const caminhoFonte = (value: unknown): string => {
-      const text = String(value ?? '').trim().replace(/^['"]|['"]$/g, '').replace(/\/index\.html$/, '');
+      const text = String(value ?? '').trim().replace(/^['"]|['"]$/g, '');
       return /^motion\/[A-Za-z0-9._/-]+$/.test(text) && !text.split('/').includes('..') ? text : '';
     };
     const fontesInstrucao = [...instr.matchAll(/\bmotion\/[A-Za-z0-9._/-]+/g)]
@@ -170,7 +177,7 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     if (source && target && Number(seconds) > 0 && Number(seconds) <= 300 &&
         /^\d{3,5}x\d{3,5}$/.test(size)) {
       const command = 'nivoo-renderizar-motion ' + source +
-        ' --saida ' + target + ' --segundos ' + seconds + ' --tamanho ' + size;
+        ' --saida ' + target + ' --segundos ' + seconds + ' --tamanho ' + size + (fps?' --fps '+fps:'');
       return { ...step, provider: 'local-shell', instructions: command };
     }
 

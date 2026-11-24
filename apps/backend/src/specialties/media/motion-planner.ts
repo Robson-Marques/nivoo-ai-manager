@@ -19,6 +19,7 @@ export function motionPlannerRules():string[]{
       '  SEPARAÇÃO DE ETAPAS: compor HTML/CSS/JS não deve executar renderização no verifyCommand;',
       '  uma etapa local-shell distinta renderiza com nivoo-renderizar-motion --saida midia/saida/<nome>.mp4.',
       '  FPS: nivoo-renderizar-motion aceita --fps N (inteiro 1 a 60, padrão 25). Quando o briefing pede 30 fps, inclua --fps 30; use a mesma taxa ao calcular índices de quadros (25s a 30 fps = 750 quadros, índices 0 a 749). Para vídeo existente, use os metadados reais do MP4, nunca o FPS presumido. Não acrescente extração de quadros só para revisão não solicitada.',
+      '  RETOMADA DE FPS: se a composição existe e o usuário só pede corrigir FPS, use a fonte Motion já produzida e o comando nivoo-renderizar-motion com --fps solicitado, mantendo duração, resolução e motor; saída MP4 com nome novo. NÃO use juntar-videos para renderizar HTML/scene.json nem passe caminho Motion como cenas. A junção só recebe MP4/MOV/WEBM reais.',
       '  A etapa de IA confere somente seus arquivos fonte; a etapa local-shell produz o vídeo.',
       '  Para capturar prévia use instructions: "nivoo-conferir-arte motion/<nome> --saida out/qualidade/<id> --segundos 25 --tamanho 1080x1920", não "Retome a captura..." ou "Confira a prévia".',
       '  Prévia é opcional; para comparação artística, apresente-a ao usuário. O executor técnico não cria revisão extra nem reinicia a renderização por parecer visual.',
