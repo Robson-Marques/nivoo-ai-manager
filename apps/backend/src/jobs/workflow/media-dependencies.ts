@@ -43,7 +43,7 @@ export function dependenciasDeMontagemPorArquivo(raw:unknown,defaultProvider:str
     if(!s||typeof s!=='object'||typeof s.key!=='string')continue;
     for(const file of mediaOutputs(s,defaultProvider)){
       const previous=outputs.get(file);
-      if(previous&&previous!==s.key)throw new BadRequestException('Duas etapas tentam produzir o mesmo arquivo '+file+'. Use saídas distintas para não sobrescrever versões anteriores.');
+      if(previous&&previous!==s.key)throw new BadRequestException('Duas etapas tentam produzir o mesmo '+(/\.mp4$/i.test(file)?'MP4 ':'arquivo ')+file+'. Use saídas distintas para não sobrescrever versões anteriores.');
       outputs.set(file,s.key);
     }
   }
