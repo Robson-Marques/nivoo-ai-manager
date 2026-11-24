@@ -31,6 +31,9 @@ import { buildExecutionContext } from './executor/context';
 import { prepareExecutionWorkspace } from './executor/workspace';
 import { dispatchExecution,executionTimeoutMs } from './executor/dispatch';
 import { verifyExecution } from './executor/verification';
+import { prepareExecutionPrompt } from './executor/prompt';
+import { normalizeSessionResult,classifyExecutionResult } from './executor/outcome';
+import { hasMotionCommand,readMotionInvocations } from '../jobs/motion/command';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
@@ -251,7 +254,7 @@ export class StepExecutorService {
         'Use uma etapa local-shell com nivoo-renderizar-motion e fonte real motion/<pasta>. ' +
         'O vídeo e os arquivos existentes foram preservados.');
     }
-    if (providerId === 'local-shell' && /\bnivoo-(?:conferir-arte|renderizar-motion)\b/.test(step.instructions)) {
+    if (providerId === 'local-shell' && (hasMotionCommand(step.instructions)||/\bnivoo-conferir-arte\b/.test(step.instructions))) {
       const espaco = armazenamentoDisponivel(['/', this.workspace.projectDirs(job.project.dirKey).root, appConfig().artifactsRoot], MIN_FREE_VIDEO_BYTES);
       if (!espaco.ok) {
         const gb = ((espaco.livre ?? 0) / (1024 ** 3)).toFixed(2);
@@ -336,16 +339,13 @@ export class StepExecutorService {
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
     // permanente e devem ser extraídos pelo backend, ANTES de gastar sessões de IA.
     // A composição/renderização já aprovada não é repetida.
-    if (isAi && quadrosRequeridos(step.verifyCommand ?? '').length) {
+    if (isAi && mediaEnabledForArea(job.project.area) && quadrosRequeridos(step.verifyCommand ?? '').length) {
       const etapas = await this.prisma.step.findMany({
         where: { jobId: job.id, provider: 'local-shell' },
         orderBy: { order: 'asc' },
         select: { instructions: true },
       });
-      const saidas = etapas.flatMap(s => {
-        const linhas = [...s.instructions.matchAll(/\bnivoo-renderizar-motion\b[^\n]*?--saida\s+['"]?(midia\/saida\/[A-Za-z0-9._-]+\.mp4)/g)];
-        return linhas.map(m => m[1]);
-      });
+      const saidas=etapas.flatMap(s=>readMotionInvocations(s.instructions).flatMap(op=>op.output?[op.output]:[]));
       const publicadas = await this.prisma.artifact.findMany({
         where: { jobId: job.id, mimeType: 'video/mp4' },
         orderBy: { createdAt: 'asc' },
@@ -379,24 +379,22 @@ export class StepExecutorService {
     });
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
-    const profile = await this.profiles.build(job.projectId);
-    const { text: contextBase, stats: contextStats } = await this.buildContext(job, step, profile.text, isAi ? worktree : undefined);
-    const docsDoRepo = isAi ? [...this.workspace.docsEditaveis(repoHarness), ...docsPendentes.keys()] : [];
-    const context = docsDoRepo.length
-      ? `${contextBase}\n\n## Documentos de instrução do repositório\nNesta sessão ${docsDoRepo.join(', ')} ficam fora da pasta (cópia para ler em contexto/repositorio/, com "_" no nome). Se o trabalho pede para alterar um deles, escreva o arquivo no caminho original (ex.: ${docsDoRepo[0]}) com o conteúdo COMPLETO atualizado (parta da cópia): essa versão entra no trabalho.`
-      : contextBase;
+    const {profileText,context,stats:contextStats}=await prepareExecutionPrompt(isAi,
+      async()=> (await this.profiles.build(job.projectId)).text,
+      profile=>this.buildContext(job,step,profile,worktree),
+      ()=>[...this.workspace.docsEditaveis(repoHarness),...docsPendentes.keys()]);
     // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).
     const promptArt = await this.artifacts.storeContent(
       { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `prompts/${step.key}/tentativa-${number}.md`, kind: 'PROMPT' },
       isAi ? buildPrompt({ context, instructions: step.instructions }) : step.instructions,
     );
-    await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats as unknown as Prisma.InputJsonValue } });
-    if (contextStats.memoryOmitted || contextStats.overBudget) {
+    await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats ? contextStats as unknown as Prisma.InputJsonValue : Prisma.DbNull } });
+    if (contextStats && (contextStats.memoryOmitted || contextStats.overBudget)) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) de memória omitidas do prompt (íntegras em .nivoo/memoria.md)`, 'INFO', attempt.id);
     }
     const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
     const started = Date.now();
-    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profile.text,timeoutMs,signal,started);
+    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started);
 
     if (isAi && !result.interrupted) {
       // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
@@ -404,14 +402,9 @@ export class StepExecutorService {
       if (rem.feitos.length) await L(`Pedido da IA: ${rem.feitos.length} item(ns) apagado(s)/movido(s): ${rem.feitos.slice(0, 50).join(', ')}`, 'INFO', attempt.id);
       if (rem.recusados.length) await L(`Pedidos de remoção recusados (caminho inválido, protegido ou inexistente): ${rem.recusados.slice(0, 30).join('; ')}`, 'WARN', attempt.id);
     }
-    // Sessão de IA que esgotou o tempo = sessão encerrada (não falha): confere, salva o que foi feito e continua
-    // numa nova sessão. Antes contava como falha: sem conferência, sem checkpoint, e dois tempos esgotados seguidos
-    // bloqueavam o trabalho como "repetição improdutiva".
-    if (isAi && !result.interrupted && !result.resourceUnavailable && /^timeout após \d+ ms/.test(result.error ?? '')) {
-      result = { ...result, sessionEnded: true, stopReason: result.stopReason ?? 'tempo da sessão esgotado' };
-    }
-    // O agente terminou a sessão normalmente (ou por limite de turnos)? Guardado antes da verificação.
-    const sessionClosedNormally = !result.interrupted && !result.resourceUnavailable && (result.exitCode === 0 || !!result.sessionEnded);
+    const normalizedSession=normalizeSessionResult(result,isAi);
+    result=normalizedSession.result;
+    const {sessionClosedNormally}=normalizedSession;
     const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L);
     result=verification.result;
     let {verified}=verification;
@@ -491,19 +484,9 @@ export class StepExecutorService {
     const notes = await this.ingestNotes(job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
     const treeAfter = await this.workspace.snapshotHash(worktree);
 
-    // Classificação: interrupção, limite do provedor, sucesso verificado, fim de sessão sem concluir, falha.
-    const attemptStatus = result.interrupted
-      ? 'INTERROMPIDA'
-      : result.resourceUnavailable
-        ? 'RECURSO_INDISPONIVEL'
-        : result.exitCode === 0 && verified
-          ? 'SUCESSO'
-          : isAi && sessionClosedNormally
-            ? 'SESSAO_ENCERRADA'
-            : 'FALHA';
-    if (attemptStatus === 'SESSAO_ENCERRADA' && !result.error) {
-      result = { ...result, error: `sessão encerrada (${result.stopReason ?? 'sem motivo'}) sem concluir a etapa` };
-    }
+    const classified=classifyExecutionResult(result,isAi,verified,sessionClosedNormally);
+    result=classified.result;
+    const {attemptStatus}=classified;
     const outputHash = normalizedOutputHash(result.output ?? '', result.error);
     await this.prisma.$transaction([
       this.prisma.attempt.update({
