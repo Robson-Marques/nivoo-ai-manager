@@ -1,3 +1,4 @@
+import { publishMediaFile } from './media-file-publication';
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
@@ -194,6 +195,7 @@ export class GeminiVideoProvider implements AiProvider {
     } catch {
       return { exitCode: 1, output: '', error: `caminho inválido para o vídeo: ${arquivo}` };
     }
+    if(arquivo.startsWith('midia/')&&fs.existsSync(destino))return {exitCode:1,output:'',error:'MIDIA_DESTINO_EXISTENTE: '+arquivo};
     // Modelo escolhido no projeto; em "automático", os da lista da chave e, se a lista do Google não trouxer
     // nenhum Veo (acontece mesmo com cobrança ativa), os conhecidos, do mais barato ao mais caro.
     // Modelo escolhido que a chave não tem (ou que o Google desligou) cai para os outros, avisando.
@@ -227,7 +229,7 @@ export class GeminiVideoProvider implements AiProvider {
     const segundos = Number(parameters.durationSeconds ?? 8);
     // Mesmo pedido já aceito pelo Google numa tentativa anterior (a etapa caiu no meio): acompanha a mesma
     // geração em vez de pagar outra.
-    const pedido = createHash('sha256').update(JSON.stringify([k.conexao, escolhido ?? 'automatico', destino, descricao, o.imagem ?? null, parameters])).digest('hex');
+    const pedido = createHash('sha256').update(JSON.stringify([req.jobId,req.stepId,k.conexao, escolhido ?? 'automatico', destino, instancia, parameters])).digest('hex');
     const anterior = OPERACOES.get(pedido);
     let operacao: string;
     let op: any;
@@ -327,8 +329,15 @@ export class GeminiVideoProvider implements AiProvider {
     } catch (e: any) {
       return { exitCode: 1, output: '', error: `não foi possível baixar o vídeo: ${e?.message}; a próxima tentativa baixa de novo, sem gerar outro`, interrupted: req.signal.aborted, ...cobrado };
     }
-    fs.mkdirSync(path.dirname(destino), { recursive: true });
-    fs.writeFileSync(destino, bytes);
+    if(req.signal.aborted)return {exitCode:1,output:'',error:'interrompido',interrupted:true,...cobrado};
+    fs.mkdirSync(path.dirname(destino),{recursive:true});
+    const staging=fs.mkdtempSync(path.join(path.dirname(destino),'.nivoo-gemini-'));
+    try{
+      const file=path.join(staging,'download.mp4');
+      fs.writeFileSync(file,bytes);
+      publishMediaFile(file,destino,arquivo.startsWith('midia/'));
+    }catch(e){return {exitCode:1,output:'',error:String((e as Error).message??e),...cobrado};}
+    finally{fs.rmSync(staging,{recursive:true,force:true});}
     OPERACOES.delete(pedido);
     req.onLog(`Omni: vídeo salvo em ${arquivo} (${(bytes.length / 1024 / 1024).toFixed(1)} MB); custo estimado US$ ${custo.toFixed(2)}${anterior ? ' (já contado na tentativa anterior)' : ''}`);
     return {

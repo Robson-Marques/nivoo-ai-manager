@@ -243,7 +243,8 @@ export class WorkspaceService {
       fs.writeFileSync(path.join(destino, 'LEIA-ME.txt'),
         'Fontes originais de motion de trabalhos anteriores (somente referência).\n' +
         'Edite/COPIE apenas os arquivos necessários para motion/ do trabalho atual.\n' +
-        'As fontes originais permanecem preservadas; não reconstrua do zero sem necessidade.\n' +
+        'As fontes originais permanecem preservadas. Nenhuma composição antiga é considerada aprovada apenas por existir.\n' +
+        'Se o pedido atual rejeita a composição anterior, use-a somente para entender o problema e aproveitar ativos autorizados; crie a composição nova no trabalho atual.\n' +
         'Trabalhos: ' + trabalhos.join(', ') + '\n');
     }
     return { arquivos, bytes, ignorados, trabalhos };

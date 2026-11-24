@@ -105,7 +105,9 @@ function rendererFingerprint() {
   const files = [
     __filename,
     path.join(__dirname, 'motion-scene-core.js'),
+    ...require('./motion-scene-core').sceneRuntimeFiles,
     path.join(__dirname, 'motion-graphics.js'),
+    ...require('./motion-graphics').graphicsRuntimeFiles,
     process.argv[1], // cópia executada /usr/local/bin/nivoo-renderizar-motion
   ];
   for (const name of new Set(files.filter(Boolean).map(p=>path.resolve(p)))) {
@@ -116,13 +118,13 @@ function rendererFingerprint() {
   return hasher.digest('hex');
 }
 
-function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, renderVersion = rendererFingerprint() }) {
+function prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, sourceMode = 'auto', renderVersion = rendererFingerprint() }) {
   if (!sourcePath || !fs.existsSync(sourcePath)) throw new Error('Fonte HTML da animação não encontrada para reutilizar quadros');
   const frames = Math.round(seconds * fps);
   if (!Number.isSafeInteger(frames) || frames < 1 || frames > 300 * fps) throw new Error('Duração de vídeo inválida');
   const fingerprint = sourceFingerprint(sourcePath);
   const signature = createHash('sha256')
-    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, engine:renderVersion, frames, width, height, fps, pacing }))
+    .update(JSON.stringify({ outputPath: path.resolve(outputPath), sourcePath: path.resolve(sourcePath), fingerprint, engine:renderVersion, frames, width, height, fps, pacing, sourceMode }))
     .digest('hex').slice(0, 24);
   const cacheDir = path.join(path.dirname(outputPath), '.nivoo-motion-cache', signature);
   fs.mkdirSync(cacheDir, { recursive: true });
@@ -143,8 +145,8 @@ function execute(cmd, args, onProgress = () => {}) {
   });
 }
 
-async function renderMotionOffline({ page, outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, onProgress = () => {} }) {
-  const { cacheDir, frames, fingerprint } = prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps, pacing });
+async function renderMotionOffline({ page, outputPath, sourcePath, seconds, width, height, fps = FRAME_RATE, pacing = null, sourceMode = 'auto', onProgress = () => {} }) {
+  const { cacheDir, frames, fingerprint } = prepareFrameCache({ outputPath, sourcePath, seconds, width, height, fps, pacing, sourceMode });
   const already = Array.from({ length: frames }, (_, frame) =>
     validJpeg(path.join(cacheDir, `${String(frame).padStart(6, '0')}.jpg`)));
   const reused = already.filter(Boolean).length;

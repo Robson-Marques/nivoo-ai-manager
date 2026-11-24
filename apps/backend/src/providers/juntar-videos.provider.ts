@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { publishMediaFile } from './media-file-publication';
 import { minimalEnv, runProcess } from '../common/exec';
 import { sha256File } from '../common/hash';
 import { appConfig } from '../config';
@@ -192,9 +193,10 @@ export class JuntarVideosProvider implements AiProvider {
     const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao; sincronizarVideoComNarracao?: boolean };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
+    if(o.arquivo.startsWith('midia/')&&fs.existsSync(this.resolver(req,o.arquivo)))return {exitCode:1,output:'',error:'MIDIA_DESTINO_EXISTENTE: '+o.arquivo};
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-juntar-'));
     const ff = (args: string[], timeoutMs = 600_000) => runProcess('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { cwd: tmp, env: minimalEnv(), timeoutMs, signal: req.signal });
-    const probe = (arq: string, args: string[]) => runProcess('ffprobe', ['-v', 'error', ...args, arq], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 });
+    const probe = (arq: string, args: string[]) => runProcess('ffprobe', ['-v', 'error', ...args, arq], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000,signal:req.signal });
     try {
       // Validar ENTRADAS DE ÁUDIO antes de copiar/processar vídeos. Se o
       // plano errou o nome, a recuperação do catálogo ocorre aqui, sem
@@ -284,9 +286,13 @@ export class JuntarVideosProvider implements AiProvider {
           '-map', `[${v}]`, '-map', `[${a}]`,
           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', saida,
         ], 1_800_000);
+        if(req.signal.aborted)return {exitCode:1,output:'',error:'interrompido',interrupted:true};
         if (r.exitCode !== 0) req.onLog(`transição suave não deu certo (${r.stderr.trim().slice(-200)}); emendando sem transição`, 'WARN');
       }
       if (!r || r.exitCode !== 0) {
+        // Sem transição real, as legendas seguem o tempo real da concatenação.
+        inicios=duracoes.map((_,i)=>duracoes.slice(0,i).reduce((x,y)=>x+y,0));
+        durT.fill(0);
         const lista = path.join(tmp, 'lista.txt');
         fs.writeFileSync(lista, partes.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join('\n'));
         r = await ff(['-f', 'concat', '-safe', '0', '-i', lista, '-c', 'copy', '-movflags', '+faststart', saida]);
@@ -303,7 +309,7 @@ export class JuntarVideosProvider implements AiProvider {
         const durDe = async (f: string) => Number((await probe(f, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim()) || 0;
         const temAudio = async (f: string) => Boolean((await probe(f, ['-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0'])).stdout.trim());
         const vDur = await durDe(saida);
-        const videoTemAudio = await temAudio(saida);
+        let videoTemAudio = await temAudio(saida);
         // 1) MÚSICA de fundo: um áudio do projeto, ou gerada pelo Lyria (reaproveitada quando a descrição não muda).
         let musica: string | null = null;
         if (o.trilha?.arquivo) {
@@ -404,9 +410,11 @@ export class JuntarVideosProvider implements AiProvider {
           }
           if (Math.abs(vDur - alvoVoz) > 0.18) {
             const sincronizado = path.join(tmp, 'sincronizado.mp4');
-            const sync = await ff(['-i', saida, '-an', '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=24`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
+            const preservarSom=videoTemAudio&&(o.volumeCenas??1)>0;
+            const sync = await ff(['-i', saida, ...(preservarSom?['-af',filtroVelocidadeAudio(fator),'-c:a','aac']:['-an']), '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=24`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
             if (sync.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('Sincronização do vídeo com a narração', sync), costUsd: custo, costEstimated: !!custo };
             fs.renameSync(sincronizado, saida);
+            videoTemAudio=preservarSom;
             req.onLog(`Sincronização da imagem: ${vDur.toFixed(2)}s → ${alvoVoz.toFixed(2)}s (${fator.toFixed(2)}x); a voz natural foi preservada.`);
           }
           duracaoFinalAlvo = await durDe(saida);
@@ -472,6 +480,11 @@ export class JuntarVideosProvider implements AiProvider {
           const m = await ff([...inputs, '-filter_complex', filtros.join(';'), '-map', '0:v', '-map', `[${rotuloFinal}]`, '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-t', alvo.toFixed(2), '-movflags', '+faststart', comAudio], 1_800_000);
           if (m.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('Mixagem de vídeo, locução e trilha', m), costUsd: custo, costEstimated: !!custo };
           fs.renameSync(comAudio, saida);
+        } else if(videoTemAudio&&volC===0){
+          const mudo=path.join(tmp,'mudo.mp4');
+          const m=await ff(['-i',saida,'-map','0:v:0','-c:v','copy','-an','-movflags','+faststart',mudo]);
+          if(m.exitCode!==0)return {exitCode:1,output:'',error:explicarFalhaMidia('Remoção do áudio original',m),interrupted:req.signal.aborted,costUsd:custo,costEstimated:!!custo};
+          fs.renameSync(mudo,saida);
         }
         if (!trilhaInfo && videoTemAudio && volC !== 1) trilhaInfo = `som das cenas em ${Math.round(volC * 100)}%`;
         if (trilhaInfo) req.onLog(`Áudio: ${trilhaInfo}${musica ? '; música abaixa sob as falas' : ''}`);
@@ -499,9 +512,10 @@ export class JuntarVideosProvider implements AiProvider {
           legendado = true;
         } else req.onLog(`não consegui gravar as legendas no vídeo (${l.stderr.trim().slice(-200)}); ficam só no arquivo .srt`, 'WARN');
       }
+      if(req.signal.aborted)return {exitCode:1,output:'',error:'interrompido',interrupted:true,costUsd:custo,costEstimated:!!custo};
       const destino = this.resolver(req, o.arquivo);
-      fs.mkdirSync(path.dirname(destino), { recursive: true });
-      fs.copyFileSync(saida, destino);
+      publishMediaFile(saida,destino,o.arquivo.startsWith('midia/'));
+
       const srtArquivo = srtTexto ? o.arquivo.replace(/\.mp4$/i, '.srt') : null;
       if (srtArquivo && srtTexto) fs.writeFileSync(this.resolver(req, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());

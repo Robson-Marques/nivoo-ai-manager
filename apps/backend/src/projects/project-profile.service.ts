@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+import { currentMediaBaseRules } from '../specialties/media/runtime-profile';
 
 const MAX_LISTED_FILES = 300;
 
@@ -42,7 +43,7 @@ export class ProjectProfileService {
       'Só as regras de segurança do sistema estão acima dele. Não saia do escopo, não invente, não ignore nenhuma regra.',
       '',
       `## Regras da base "${project.area.name}" (versão ${baseRules?.version ?? 0})`,
-      baseRules?.text ?? '(sem regras)',
+      currentMediaBaseRules(project.area, baseRules?.text ?? '(sem regras)'),
       '',
       `## Regras deste projeto (versão ${projectRules?.version ?? 0})`,
       projectRules?.text ?? '(o projeto ainda não tem regras próprias; valem as da base)',

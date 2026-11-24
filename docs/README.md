@@ -28,6 +28,8 @@ Um documento por assunto. Leia na ordem indicada para o seu papel.
 | [`../README.md`](../README.md) | Visão geral, componentes, instalação rápida e testes. |
 | [`ESTADO.md`](ESTADO.md) | Situação atual com evidências; ponto de retomada para quem continua o trabalho. |
 | [`ARQUITETURA.md`](ARQUITETURA.md) | Como o sistema funciona por dentro. |
+| [`architecture-baseline.md`](architecture-baseline.md) | Recuperação estrutural e lacunas reais. |
+| [`architecture/modules/motion.md`](architecture/modules/motion.md) | Blueprint, contratos, dependências e UML do Motion. |
 | [`GUIA-DESENVOLVEDOR.md`](GUIA-DESENVOLVEDOR.md) | Onde fica cada coisa no código e como trabalhar nele. |
 | [`API.md`](API.md) | Referência das rotas HTTP. |
 | [`DECISOES.md`](DECISOES.md) | Registro de decisões de arquitetura (ADR), com data e motivo. |

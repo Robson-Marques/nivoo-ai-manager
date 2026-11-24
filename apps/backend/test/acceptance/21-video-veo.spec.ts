@@ -20,7 +20,15 @@ const ctl = (name: string, value: string | null) => {
   else fs.writeFileSync(path.join(CTL, name), value);
 };
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-const VIDEO = Buffer.from('\x00\x00\x00\x18ftypmp42 VIDEO-FALSO-DO-TESTE');
+// The mock HTTP service returns a real MP4, so the production inspector is exercised.
+const VIDEO = (() => {
+  const dir=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'veo-fixture-'));
+  try{
+    const file=path.join(dir,'video.mp4');
+    execFileSync('ffmpeg',['-v','error','-y','-f','lavfi','-i','testsrc2=size=160x240:rate=25','-t','8','-c:v','libx264','-pix_fmt','yuv420p',file]);
+    return fs.readFileSync(file);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+})();
 const CHAVE = 'AIzaSy-CHAVE-DE-TESTE-VEO-0123456789';
 
 const MUSICA = (() => {

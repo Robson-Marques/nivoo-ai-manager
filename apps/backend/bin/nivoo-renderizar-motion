@@ -42,28 +42,19 @@ if (!['auto','scene','hybrid','html'].includes(motorExigido)) {
 }
 const midiaDir = process.env.NIVOO_MIDIA_DIR || '';
 const resolver = (rel) => (/^midia\//.test(rel) && midiaDir ? path.join(midiaDir, rel.replace(/^midia\//, '')) : path.resolve(rel));
-let entrada = path.resolve(alvoBruto);
-if (fs.existsSync(entrada) && fs.statSync(entrada).isDirectory()) {
-  const manifest = path.join(entrada, 'scene.json');
-  // Projetos novos usam cenas estruturadas pelo núcleo. Projetos HTML
-  // anteriores continuam compatíveis sem migração ou alteração dos arquivos.
-  entrada = motorExigido === 'scene' || (motorExigido === 'auto' && fs.existsSync(manifest))
-    ? manifest : path.join(entrada, 'index.html');
-}
-if (!fs.existsSync(entrada)) {
-  // Fonte não gerada é falha REAL de execução; não um parecer da composição.
-  console.error(`nivoo-renderizar-motion: fonte não encontrada: ${entrada}`);
-  process.exit(2);
-}
+let selected;
+try { selected=motionSceneCore().resolveMotionSource(alvoBruto,motorExigido); }
+catch(e){ console.error(String(e?.message??e)); process.exit(2); }
+const entrada=selected.entry;
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
-if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
+if (!/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(saidaRel)) {
   console.error('nivoo-renderizar-motion: --saida deve ser midia/saida/<nome>.mp4');
   process.exit(2);
 }
 const saida = resolver(saidaRel);
 const segundosArg = Math.min(300, Math.max(1, Number(opt('--segundos', '15')) || 15));
 const [W, H] = String(opt('--tamanho', '1920x1080')).split('x').map((n) => Number(n) || 0);
-if (!W || !H) {
+if (!Number.isInteger(W)||!Number.isInteger(H)||W<2||H<2||W%2||H%2) {
   console.error('nivoo-renderizar-motion: --tamanho deve ser como 1920x1080');
   process.exit(2);
 }
@@ -117,7 +108,7 @@ function motionSceneCore() {
     // Playwright recusa a tentativa de voltar ao passado.
     const inicioVirtual = fs.statSync(entrada).mtimeMs;
     await prepareMotionClock(pagina, inicioVirtual);
-    const declarativa = path.basename(entrada) === 'scene.json';
+    const declarativa = selected.mode === 'scene';
     if (declarativa) {
       // A IA cria dados, não shaders arbitrários. O motor oficial compõe as
       // imagens RGBA, sombras, z-index e velocidade dos elementos.
@@ -153,8 +144,8 @@ function motionSceneCore() {
       if(!runtime) throw new Error('biblioteca gráfica Motion não instalada');
       await pagina.addInitScript(require(runtime).installMotionGraphics);
       await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
-      const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
-      if (motorExigido !== 'html' && fs.existsSync(overlayPath)) {
+      const overlayPath = selected.overlayPath;
+      if (overlayPath) {
         // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
@@ -199,7 +190,9 @@ function motionSceneCore() {
     }
     const segundosFonte = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
-    let segundos = segundosFonte, pacing = null;
+    // Duração explícita pertence ao contrato de entrega, inclusive no motor declarativo.
+    let segundos = args.includes('--segundos') ? segundosArg : segundosFonte;
+    let pacing = Math.abs(segundos-segundosFonte)>0.001 ? {sourceDuration:segundosFonte} : null;
     const modoRitmo = opt('--ritmo','normal');
     if (!['normal','energetico'].includes(modoRitmo)) throw new Error('--ritmo deve ser normal ou energetico');
     const temRitmoExplicit = ['--duracao-origem','--abertura-origem','--abertura-final'].some(f=>args.includes(f));
@@ -211,6 +204,7 @@ function motionSceneCore() {
       // total, aplicar um segundo timewarp faria a abertura de 3,5s virar
       // ~1,7s. Não remodelar uma composição pronta só por flag automática.
       if (!temRitmoExplicit && Math.abs(segundos-segundosFonte)<.1) {
+        pacing=null;
         console.log('nivoo-renderizar-motion: mantendo ritmo da composição pronta; sem aceleração duplicada');
       } else {
         const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
@@ -225,7 +219,7 @@ function motionSceneCore() {
       }
     }
     const result = await renderOffline({
-      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
+      page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing, sourceMode:selected.mode,
       onProgress: ({ message }) => console.log(`nivoo-renderizar-motion: ${message}`),
     });
     // Relatar o que de fato foi DESENHADO durante os quadros. Isso não

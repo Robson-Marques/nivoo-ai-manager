@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const {conectarMotorMotion} = require('../dist/jobs/motion-core-routing');
-const {checkMotionSource}=require('../bin/motion-scene-core');
+const {checkMotionSource,resolveMotionSource}=require('../bin/motion-scene-core');
 
 function run() {
   const source='motion/promocao-v5';
@@ -26,7 +26,7 @@ function run() {
   assert.equal(converted[0].verifyCommand,compose.verifyCommand,
     'não adicionar nem substituir testes por aprovador de composição');
   assert.doesNotMatch(converted[0].verifyCommand,/nivoo-conferir-motion/);
-  assert.equal(converted[1].instructions,render.instructions.replace(source,source+'/index.html'),
+  assert.equal(converted[1].instructions,render.instructions.replace(source,source+'/index.html --motor hybrid'),
     'o 3D novo deve renderizar o HTML mesmo se scene.json antigo coexistir');
   assert.deepEqual(conectarMotorMotion(converted,'codex-cli',objective),converted,
     'a prévia do plano e a criação do job devem produzir EXATAMENTE o mesmo resultado');
@@ -45,8 +45,8 @@ function run() {
     'especialista recebe exemplo e unidades do motor instalado');
   assert.ok(converted[0].instructions.includes(motionAuthorContract(true)),
     'mesmo contrato serve ao especialista híbrido');
-  assert.equal(convertedSimple[0].verifyCommand,simple[0].verifyCommand);
-  assert.doesNotMatch(convertedSimple[1].instructions,/--motor\s/);
+  assert.equal(convertedSimple[0].verifyCommand,"test -s 'motion/anuncio/scene.json'",'verificação simples acompanha a fonte efetiva');
+  assert.match(convertedSimple[1].instructions,/scene\.json --motor scene/);
   assert.equal(convertedSimple.length,2);
   assert.equal(simple[0].instructions,'Escrever motion/anuncio/index.html com imagens de produtos','não alterar plano original');
 
@@ -63,7 +63,7 @@ function run() {
   ]) {
     const produced=conectarMotorMotion(simple,'codex-cli',objective2);
     assert.match(produced[0].instructions,/scene\.json/,'briefing negativo não exige WebGL: '+objective2);
-    assert.doesNotMatch(produced[1].instructions,/--motor\s/);
+    assert.match(produced[1].instructions,/scene\.json --motor scene/);
     assert.deepEqual(conectarMotorMotion(produced,'codex-cli',objective2),produced,
       'roteador deve permanecer idempotente: '+objective2);
   }
@@ -73,7 +73,7 @@ function run() {
   ],'codex-cli','Animação com geometria 3D real e fotografia');
   assert.match(real[0].instructions,/overlays\.json/,
     'pedido explícito de malhas tridimensionais deve orientar WebGL híbrido');
-  assert.doesNotMatch(real[1].instructions,/--motor\s/);
+  assert.match(real[1].instructions,/index\.html --motor hybrid/);
   assert.match(real[1].instructions,/motion\/anuncio\/index\.html\s/);
   const revised=conectarMotorMotion([
     {key:'refazer',title:'Refazer arte',provider:'codex-cli',instructions:'Criar novos elementos gráficos com o logo original'},
@@ -81,6 +81,11 @@ function run() {
   ],'codex-cli','Quero imagens premium em 3D animadas');
   assert.match(revised[1].instructions,/motion\/anuncio\/index\.html'/);
   assert.match(revised[0].instructions,/fundo opaco/);
+  assert.match(revised[1].instructions,/--motor hybrid/);
+  const priorMode=conectarMotorMotion([compose,{...render,instructions:render.instructions+' --motor scene'}],'codex-cli',objective);
+  assert.match(priorMode[1].instructions,/index\.html/);
+  assert.match(priorMode[1].instructions,/--motor hybrid/);
+  assert.doesNotMatch(priorMode[1].instructions,/--motor scene/);
   assert.ok(!motionAuthorContract(true).includes('assets/fundo.png'));
   assert.deepEqual(conectarMotorMotion(revised,'codex-cli','Quero imagens premium em 3D animadas'),revised);
 
@@ -88,6 +93,8 @@ function run() {
   const refacao='O vídeo é o mesmo. Faça de novo com elementos gráficos premium em 3D e logo';
   const revisao=conectarMotorMotion([{...simple[1],instructions:'nivoo-renderizar-motion motion/anuncio --segundos 12'}],'codex-cli',refacao);
   assert.equal(revisao.length,2,'refação visual sem autoria precisa da etapa produtora, não de revisor');
+  assert.equal(revisao[0].verifyCommand,"test -s 'motion/anuncio/index.html' && test -s 'motion/anuncio/overlays.json'",
+    'a autoria criada pelo workflow deve satisfazer o contrato obrigatório do JobsService');
   assert.match(revisao[0].instructions,/NivooGraphics/);
   assert.match(revisao[1].instructions,/motion\/anuncio\/index\.html/);
   assert.ok(revisao[1].dependsOn.includes(revisao[0].key));
@@ -97,7 +104,13 @@ function run() {
   assert.match(premium[0].instructions,/NivooGraphics/);
   assert.deepEqual(conectarMotorMotion(premium,'codex-cli','Direção de arte premium e elementos gráficos'),premium);
   assert.equal(conectarMotorMotion([render],'codex-cli','Refazer a renderização sem recriar a composição').length,1);
-  const {installMotionGraphics}=require('../bin/motion-graphics');
+  const {installMotionGraphics,graphicsRuntimeFiles}=require('../bin/motion-graphics');
+  assert.equal(graphicsRuntimeFiles.length,6);
+  assert.ok(graphicsRuntimeFiles.every(file=>fs.statSync(file).isFile()));
+  const {compileWorkflowPlan}=require('../dist/jobs/workflow/compile-plan');
+  const compiled=compileWorkflowPlan(simple,'codex-cli','Direção de arte premium e elementos gráficos');
+  assert.deepEqual(compileWorkflowPlan(compiled,'codex-cli','Direção de arte premium e elementos gráficos'),compiled,
+    'prévia e criação usam o mesmo pipeline idempotente');
   const graphicsWindow={};
   new Function('window','('+installMotionGraphics.toString()+')()')(graphicsWindow);
   const G=graphicsWindow.NivooGraphics;
@@ -147,6 +160,15 @@ function run() {
     fs.writeFileSync(source+'/index.html','<html><body><canvas></canvas></body></html>');
     fs.writeFileSync(source+'/overlays.json',JSON.stringify(standard));
     assert.equal(checkMotionSource(source,'hybrid').mode,'hybrid');
+    // Mesmo diretório, três motores possíveis. A fonte explícita prevalece.
+    assert.equal(resolveMotionSource(source,'auto').mode,'scene');
+    assert.equal(resolveMotionSource(source+'/index.html','auto').mode,'hybrid');
+    assert.equal(checkMotionSource(source+'/index.html','auto').mode,'hybrid');
+    assert.equal(resolveMotionSource(source,'html').mode,'html');
+    assert.equal(resolveMotionSource(source,'html').overlayPath,null);
+    assert.equal(checkMotionSource(source,'html').mode,'html');
+    assert.throws(()=>resolveMotionSource(source+'/index.html','scene'),/MOTION_CONTRATO/);
+    assert.throws(()=>resolveMotionSource(source+'/scene.json','hybrid'),/MOTION_CONTRATO/);
     // O mesmo produto não pode ser desenhado dentro do HTML e no overlay.
     fs.writeFileSync(source+'/index.html','<script src="assets/pizza.png"></script>');
     assert.throws(()=>checkMotionSource(source,'hybrid'),/MOTION_CONTRATO:.*referenciada no index.html/);

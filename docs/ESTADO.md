@@ -1,5 +1,9 @@
 # Estado do desenvolvimento (checkpoint para retomada)
 
+## Recuperação arquitetural do Motion (2026-11-24)
+
+Primeira frente de recuperação estrutural: biblioteca gráfica separada em módulos, fronteiras de autoria/roteamento extraídas e compilador de workflow compartilhado entre prévia e criação. Veja [Baseline](architecture-baseline.md) e [Blueprint Motion](architecture/modules/motion.md). Comparações diretas do comportamento anterior e novo passaram; build completo, instalação no POCOU e aceitação integrada ainda não comprovados. A recuperação de PlannerService, StepExecutorService e operações tipadas permanece aberta.
+
 > Atualizado em 2026-11-18. Código na `main`. Procedimento das IAs reais: `docs/PROCEDIMENTO-CLI.md`.
 > Evidências brutas: `docs/evidencias/<data>/`.
 

@@ -1,6 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { mediaDeliveries,type MediaDelivery } from '../specialties/media/delivery';
+import { resolveMidiaOuTrabalho } from '../common/path-guard';
 
 export type VideoResult = { ok: boolean; detail: string; absolutePath?: string; frames?: number; seconds?: number };
 
@@ -11,16 +13,8 @@ export type VideoResult = { ok: boolean; detail: string; absolutePath?: string; 
  * "625/625 -> MP4 salvo -> test -s não achou -> render novamente".
  */
 export function videoGeradoPorEtapa(provider: string, instructions: string, opts: Record<string, unknown>): string | null {
-  if (provider === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(instructions)) {
-    const match = /--saida\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|]+))/.exec(instructions);
-    const output = match?.[1] ?? match?.[2] ?? match?.[3];
-    return output && /^midia\/saida\/[a-zA-Z0-9._-]+\.mp4$/.test(output) ? output : null;
-  }
-  if (provider === 'juntar-videos') {
-    const output = opts.arquivo;
-    return typeof output === 'string' && /^midia\/saida\/[a-zA-Z0-9._-]+\.mp4$/.test(output) ? output : null;
-  }
-  return null;
+  const outputs=mediaDeliveries(provider,instructions,opts).filter(d=>d.kind==='video'&&/^midia\/saida\/[a-zA-Z0-9._-]+\.mp4$/.test(d.path));
+  return outputs.length===1?outputs[0].path:null;
 }
 
 export function caminhoRealDoVideo(mediaDir: string, relativePath: string): string | null {
@@ -41,39 +35,48 @@ export function inspecionarVideoGerado(
   instructions: string,
   opts: Record<string, unknown> = {},
 ): VideoResult {
-  const abs = caminhoRealDoVideo(mediaDir, relativePath);
-  if (!abs) return { ok: false, detail: 'arquivo MP4 não encontrado na pasta de mídia do projeto: ' + relativePath };
-  const stat = fs.statSync(abs);
-  if (!stat.isFile() || stat.size < 1024) return { ok: false, detail: 'arquivo MP4 vazio ou incompleto: ' + relativePath };
+  const delivery=mediaDeliveries(provider,instructions,opts).find(d=>d.path===relativePath)??{path:relativePath,kind:'video' as const,requiresAudio:provider==='juntar-videos'&&!!(opts.trilha||opts.narracao)};
+  return inspectMediaDelivery(mediaDir,mediaDir,delivery);
+}
+
+/** One technical inspection at the existing verification boundary, for all
+ * declared video/audio outputs, including worktree and durable paths. */
+export function inspectMediaDelivery(mediaDir:string,worktree:string,delivery:MediaDelivery):VideoResult{
+  const relativePath=delivery.path;
+  let abs:string;
+  try{abs=resolveMidiaOuTrabalho(mediaDir,worktree,relativePath);}
+  catch{return {ok:false,detail:'caminho de mídia inválido: '+relativePath};}
+  let stat:fs.Stats;
+  try{stat=fs.statSync(abs);}
+  catch{return {ok:false,detail:'arquivo de mídia não encontrado: '+relativePath};}
+  if (!stat.isFile() || stat.size < 1024) return { ok: false, detail: 'arquivo de mídia vazio ou incompleto: ' + relativePath };
   const probe = spawnSync('ffprobe', [
     '-v', 'error', '-show_entries',
     'stream=codec_type,codec_name,width,height,nb_frames:format=duration',
     '-of', 'json', abs,
   ], { encoding: 'utf8', timeout: 20_000, maxBuffer: 1_000_000 });
   if (probe.error || probe.status !== 0) {
-    return { ok: false, detail: 'ffprobe não conseguiu ler o MP4: ' + (probe.error?.message ?? probe.stderr ?? 'erro desconhecido').slice(0, 250) };
+    return { ok: false, detail: 'ffprobe não conseguiu ler a mídia: ' + (probe.error?.message ?? probe.stderr ?? 'erro desconhecido').slice(0, 250) };
   }
   let info: { streams?: Array<{ codec_type?: string; codec_name?: string; width?: number; height?: number; nb_frames?: string }>; format?: { duration?: string } };
   try { info = JSON.parse(probe.stdout); }
-  catch { return { ok: false, detail: 'ffprobe devolveu metadados inválidos do MP4' }; }
+  catch { return { ok: false, detail: 'ffprobe devolveu metadados inválidos da mídia' }; }
   const video = info.streams?.find(s => s.codec_type === 'video');
   const audio = info.streams?.find(s => s.codec_type === 'audio');
   const duration = Number(info.format?.duration);
-  if (!video?.codec_name || !Number.isFinite(duration) || duration <= 0) {
-    return { ok: false, detail: 'arquivo MP4 não contém vídeo reproduzível com duração válida' };
+  if(!Number.isFinite(duration)||duration<=0)return {ok:false,detail:'mídia sem duração válida: '+relativePath};
+  if(delivery.kind==='audio'){
+    return audio?.codec_name
+      ? {ok:true,detail:relativePath+' — áudio '+duration.toFixed(2)+'s',absolutePath:abs,seconds:duration}
+      : {ok:false,detail:'arquivo sem áudio reproduzível: '+relativePath};
   }
-  const tamanho = /--tamanho\s+(\d{2,5})x(\d{2,5})/.exec(instructions);
-  if (provider === 'local-shell' && tamanho &&
-      (video.width !== Number(tamanho[1]) || video.height !== Number(tamanho[2]))) {
-    return { ok: false, detail: 'resolução incorreta: ' + video.width + 'x' + video.height + '; esperada ' + tamanho[1] + 'x' + tamanho[2] };
-  }
-  const segundos = /--segundos\s+(\d+(?:\.\d+)?)/.exec(instructions);
-  if (provider === 'local-shell' && segundos && Math.abs(duration - Number(segundos[1])) > 0.6) {
-    return { ok: false, detail: 'duração incorreta: ' + duration.toFixed(2) + 's; esperada ' + segundos[1] + 's' };
-  }
-  if (provider === 'juntar-videos' && !!(opts.trilha || opts.narracao) && !audio?.codec_name) {
-    return { ok: false, detail: 'montagem concluída sem trilha/narração de áudio no MP4' };
-  }
+  if(!video?.codec_name)return {ok:false,detail:'arquivo MP4 não contém vídeo reproduzível'};
+  if(delivery.width&&delivery.height&&(video.width!==delivery.width||video.height!==delivery.height))
+    return {ok:false,detail:'resolução incorreta: '+video.width+'x'+video.height+'; esperada '+delivery.width+'x'+delivery.height};
+  if(delivery.seconds!==undefined&&Math.abs(duration-delivery.seconds)>0.6)
+    return {ok:false,detail:'duração incorreta: '+duration.toFixed(2)+'s; esperada '+delivery.seconds+'s'};
+  if(delivery.requiresAudio&&!audio?.codec_name)
+    return {ok:false,detail:'montagem concluída sem trilha/narração de áudio no MP4'};
   const frames = Number(video.nb_frames);
   return {
     ok: true,
