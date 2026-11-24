@@ -1,6 +1,6 @@
 import { readMotionInvocation } from './command';
 import type { RawStep } from './types';
-import { isComposer } from './authoring';
+import { isComposer,MOTION_EDIT_MARKER } from './authoring';
 import { nativeImageTarget } from '../../providers/codex-image-assets';
 
 /** Compact editorial margins for organic Reels, not a guarantee about changing UI.
@@ -64,6 +64,8 @@ export function applyReelsSafeArea(raw:unknown,defaultProvider:string,objective:
     if(Math.abs(w/h-9/16)>.025||!(reelsIntent(text)||portraitSocialIntent(text)))continue;
     const contract=reelsSafeContract(w,h);
     for(const author of authors){
+      // A scoped correction must not move approved text or logo to satisfy a new layout guide.
+      if(String(author.instructions??'').includes(MOTION_EDIT_MARKER)&&!/\b(?:margens?|safe.area|zona segura|reposicion\w*)\b/i.test(objective))continue;
       append(author,contract);
       const seen=new Set<string>();
       const queue=deps(author);

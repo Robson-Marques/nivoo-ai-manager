@@ -104,6 +104,24 @@ function run() {
   assert.match(premium[0].instructions,/NivooGraphics/);
   assert.deepEqual(conectarMotorMotion(premium,'codex-cli','Direção de arte premium e elementos gráficos'),premium);
   assert.equal(conectarMotorMotion([render],'codex-cli','Refazer a renderização sem recriar a composição').length,1);
+  const recovered='motion/retomada-d32757d6/anuncio-3d';
+  const patch={key:'recuperar',title:'Recuperar composição com as três poses da pizza',
+    provider:'codex-cli',instructions:'Corrija somente a animação da pizza e preserve o relógio e fundo em '+recovered,
+    verifyCommand:'test -s '+recovered+'/index.html && test -s '+recovered+'/timeline.js'};
+  const patchRender={...render,instructions:'nivoo-renderizar-motion '+recovered+'/index.html --saida midia/saida/ajuste.mp4 --segundos 25 --tamanho 1080x1920 --fps 30',dependsOn:['recuperar']};
+  const patchObjective='Corrigir somente a pizza, preservar o relógio aprovado e a composição do anúncio.';
+  const patched=conectarMotorMotion([patch,patchRender],'codex-cli',patchObjective);
+  assert.equal(patched.length,2);
+  assert.equal(patched[1].instructions,patchRender.instructions);
+  assert.equal(patched[0].verifyCommand,patch.verifyCommand);
+  assert.match(patched[0].instructions,/NIVOO_MOTION_EDIT_V1/);
+  assert.doesNotMatch(patched[0].instructions,/NIVOO_MOTION_CORE_CONTRACT_V1/);
+  assert.deepEqual(conectarMotorMotion(patched,'codex-cli',patchObjective),patched);
+  assert.deepEqual(compileWorkflowPlan(patched,'codex-cli',patchObjective,{slug:'design-video',template:'design-video'}),patched);
+  const dirPatch=conectarMotorMotion([patch,{...patchRender,instructions:patchRender.instructions.replace(recovered+'/index.html',recovered)}],'codex-cli',patchObjective);
+  assert.equal(dirPatch[1].instructions,patchRender.instructions);
+  const hybridPatch={...patchRender,instructions:patchRender.instructions+' --motor hybrid'};
+  assert.equal(conectarMotorMotion([patch,hybridPatch],'codex-cli',patchObjective)[1].instructions,hybridPatch.instructions);
   const {installMotionGraphics,graphicsRuntimeFiles}=require('../bin/motion-graphics');
   assert.equal(graphicsRuntimeFiles.length,6);
   assert.ok(graphicsRuntimeFiles.every(file=>fs.statSync(file).isFile()));
@@ -160,6 +178,9 @@ function run() {
     fs.writeFileSync(source+'/index.html','<html><body><canvas></canvas></body></html>');
     fs.writeFileSync(source+'/overlays.json',JSON.stringify(standard));
     assert.equal(checkMotionSource(source,'hybrid').mode,'hybrid');
+    fs.writeFileSync(source+'/overlays.json',JSON.stringify({...standard,layers:[]}));
+    assert.equal(checkMotionSource(source,'hybrid').layers,0);
+    fs.writeFileSync(source+'/overlays.json',JSON.stringify(standard));
     // Mesmo diretório, três motores possíveis. A fonte explícita prevalece.
     assert.equal(resolveMotionSource(source,'auto').mode,'scene');
     assert.equal(resolveMotionSource(source+'/index.html','auto').mode,'hybrid');

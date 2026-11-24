@@ -1,9 +1,9 @@
 import { nativeImageTarget, isCodex, visualReferences } from '../../providers/codex-image-assets';
 import type { RawStep, MotionMode } from './types';
-import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual } from './intent';
-import { readMotionMode } from './command';
-import { renderSource, selectRenderMode, selectStandaloneHtml } from './source';
-import { attachAuthorContract, attachStandalone3DContract, reconcileAuthorOutput, isComposer, originalAuthorInstructions } from './authoring';
+import { pedeGeometria3D, pedeGrafismos, pedeRevisaoVisual,pedeEdicaoPontual } from './intent';
+import { readMotionMode,readMotionInvocation } from './command';
+import { renderSource, selectRenderMode, selectStandaloneHtml,selectSource } from './source';
+import { attachAuthorContract, attachStandalone3DContract, reconcileAuthorOutput, isComposer, originalAuthorInstructions,attachEditContract,MOTION_EDIT_MARKER } from './authoring';
 
 /**
  * Obrigatório em ambos os caminhos: JobsService.validatePlan e create.
@@ -30,7 +30,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       if (['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(provider)||nativeImageTarget((s.providerOptions as Record<string,unknown>|undefined)?.visualAsset)) return [];
       return [i];
     });
-    if (!candidateIndices.length && pedeRevisaoVisual(objective) &&
+    if (!candidateIndices.length && pedeRevisaoVisual(objective) && !pedeEdicaoPontual(objective) &&
         !['local-shell','juntar-videos','gemini-video','gemini-image','gerar-narracao','arquivos-projeto'].includes(defaultProvider)) {
       // A rejected creative result requires an author, not a second export.
       let key='compor-nova-arte';
@@ -96,6 +96,26 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // the HTML scene with real WebGL geometry. Do not infer the restrictive
     // hybrid overlay contract from the mere word "3D".
     const selectedMode=readMotionMode(command);
+    const entry=readMotionInvocation(command)?.source??source;
+    const check=String(compose.verifyCommand??'');
+    const identifiedSource=entry.endsWith('/index.html')||entry.endsWith('/scene.json')||!!selectedMode||check.includes(source+'/index.html')||check.includes(source+'/scene.json');
+    const scopedEdit=String(compose.instructions??'').includes(MOTION_EDIT_MARKER)||((identifiedSource||source.startsWith('motion/retomada-'))&&pedeEdicaoPontual(objective+' '+String(compose.title??'')+' '+original));
+    if(scopedEdit){
+      // Keep the selected source, explicit motor and all existing output options.
+      // If the command only names a directory, use the uniquely declared source
+      // instead of letting a stale scene.json replace an HTML composition.
+      const html=check.includes(source+'/index.html'),scene=check.includes(source+'/scene.json');
+      let actualEntry=entry;
+      if(entry===source&&!selectedMode&&html!==scene){
+        actualEntry=source+(html?'/index.html':'/scene.json');
+        render.instructions=html?selectSource(command,source):selectSource(command,source,'scene.json');
+      }
+      const authorKey=String(compose.key??'');
+      if(authorKey&&authorKey!==String(render.key??''))render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
+      attachEditContract(compose,source,actualEntry,selectedMode??'auto');
+      if(!check&&actualEntry!==source)compose.verifyCommand="test -s '"+actualEntry+"'";
+      continue;
+    }
     const alreadyCompiled=String(compose.instructions??'').includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
     const customCanvas=/\bcanvas\b|\b(?:deformar|deforma[çc][aã]o|morphing)\b/i.test(original+' '+objective);
     const real3d = selectedMode==='hybrid'||(selectedMode!=='html'&&!customCanvas&&!imageStages.length&&pedeGeometria3D(text));

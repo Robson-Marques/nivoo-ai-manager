@@ -3,11 +3,12 @@ const { motionAuthorContract } = require('../../../bin/motion-scene-core') as { 
 const { graphicsAuthorContract } = require('../../../bin/motion-graphics') as { graphicsAuthorContract: () => string };
 
 export const MOTION_CONTRACT_MARKER = '[NIVOO_MOTION_CORE_CONTRACT_V1]';
+export const MOTION_EDIT_MARKER='[NIVOO_MOTION_EDIT_V1]';
 
 export function isComposer(step: RawStep): boolean {
   const title = String(step.title ?? '') + ' ' + String(step.key ?? '');
   const instr = String(step.instructions ?? '');
-  if (instr.includes(MOTION_CONTRACT_MARKER)) return true;
+  if (instr.includes(MOTION_CONTRACT_MARKER)||instr.includes(MOTION_EDIT_MARKER)) return true;
   // Reports, scripts, standalone assets and speech are not Motion sources merely because their title says criar/ajustar.
   const output=String(step.verifyCommand??'');
   if(/\btest\s+-(?:s|f|e)\s+['"]?(?:out|motion)\/[\w./-]+\.(?:png|jpe?g|webp|mp3|wav|md|pdf|txt)\b/i.test(output)&&! /motion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr+' '+output))return false;
@@ -19,7 +20,7 @@ export function isComposer(step: RawStep): boolean {
 
 
 export function originalAuthorInstructions(compose: RawStep): string {
-  return String(compose.instructions ?? '').split('\n\n'+MOTION_CONTRACT_MARKER)[0];
+  return String(compose.instructions ?? '').split('\n\n'+MOTION_CONTRACT_MARKER)[0].split('\n\n'+MOTION_EDIT_MARKER)[0];
 }
 
 /** Only supplies the author with the contract for the chosen production mode. */
@@ -81,4 +82,17 @@ export function reconcileAuthorOutput(compose:RawStep,source:string,mode:MotionM
     return ['scene.json','index.html','overlays.json'].some(name=>file===source+'/'+name);
   });
   if(isSourceCheck)compose.verifyCommand=authorOutputCheck(source,mode);
+}
+
+/** Edit a real source without imposing a new artistic or rendering format. */
+export function attachEditContract(compose:RawStep,source:string,entry:string,mode:string):void{
+  const original=originalAuthorInstructions(compose);
+  compose.instructions=original+'\n\n'+MOTION_EDIT_MARKER+
+    ' Edite a composição existente em '+source+'. Entrada do render: '+entry+'; motor: '+mode+'. '+
+    'Localize a versão realmente aprovada no trabalho de origem, leia as fontes e copie os arquivos necessários, inclusive JS, CSS, imagens e máscaras. '+
+    'Altere exclusivamente os elementos solicitados, preservando os demais pixels, textos, relógio, fundo, posição, tempo, dimensões e ativos. '+
+    'Não migre o motor nem recrie uma arte aprovada por causa de instruções genéricas. Preserve overlays não vazios e não duplique no HTML os elementos que eles já desenham. '+
+    'Para imagem nova ou correção de pixels que não se resolve por máscara/transformação, use o editor de imagem compatível e autorizado numa etapa de ativo, com referência real; não simule PNG com texto. '+
+    'Se a correção é de movimento, máscara ou encaixe, edite o código responsável. Não invente uma camada para preencher overlays.json: um overlay explicitamente vazio e válido é permitido. '+
+    'A etapa deve produzir os arquivos fonte corrigidos, não só um relato; o render local existente exportará o MP4. Sem nova sessão de revisão.';
 }

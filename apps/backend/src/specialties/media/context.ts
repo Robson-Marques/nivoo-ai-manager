@@ -49,6 +49,7 @@ export async function buildMediaPlannerContext(prisma: PrismaService, workspace:
       arquivosPorNome.set(nome, hashes);
     }
   return [
+      'Uma correção pontual em composição aprovada é edição, não refação geral. Preserve todo elemento não solicitado e o formato de autoria existente; localize o arquivo exato da versão selecionada. Não transforme uma alteração de pizza, relógio ou texto em criação de novo anúncio.',
       'Reutilize somente ativos e composições realmente acessíveis. Uma criação visual rejeitada não é aprovada: preserve fundo, logo, fotos, conteúdo e identidade válidos, mas crie a composição visual corrigida. "Veio errado", "é o mesmo", "faltam elementos gráficos/3D" ou "faça de novo" após rejeição exigem autoria visual e renderização da nova fonte, não somente exportação. Inclua a solicitação mais recente no objetivo do job e use saída distinta.',
       ...textoDosVideos(listarVideos(workspace.projectDirs(project.dirKey).midia)),
       '## Arquivos de mídia reutilizáveis dos trabalhos anteriores (catálogo REAL do projeto)',

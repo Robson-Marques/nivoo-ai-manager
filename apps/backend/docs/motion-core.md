@@ -65,3 +65,7 @@ Checagens técnicas (arquivo MP4, áudio quando solicitado, duração, resoluç�
 ### Composição HTML com overlay vazio
 
 `scene.json` continua exigindo de 1 a 180 camadas. `overlays.json` é complementar: uma lista `layers: []` explicitamente vazia, com metadados v1 válidos, não monta canvas adicional e não impede o render do HTML. Isso permite deformação de fotos no Canvas e reaproveitamento de composições anteriores sem duplicar a pizza/queijo. JSON ausente quando exigido, lista inválida e excesso de camadas continuam sendo erros. O diagnóstico identifica o arquivo e o número recebido. O modo HTML explícito é respeitado, e instruções de deformação/Canvas favorecem autoria gráfica em vez de impor uma cena declarativa. A qualidade dos pixels e os insumos do HTML continuam dependentes da composição real.
+
+### Edição pontual de uma composição existente
+
+O contrato NIVOO_MOTION_EDIT_V1 conserva o tipo de entrada e o motor da fonte recuperada, sem converter HTML/Canvas em cena declarativa por causa de palavras como 3D. A autoria recebe instruções para editar apenas o elemento solicitado. As margens editoriais não reposicionam elementos de uma composição aprovada sem pedido. O render existente permanece local e mantém seus parâmetros. As verificações técnicas permanecem; não há chamada de IA adicional. O overlay vazio é permitido apenas como complemento, e os overlays não vazios continuam presentes e validados.

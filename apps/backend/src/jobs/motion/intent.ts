@@ -23,3 +23,12 @@ export function pedeGeometria3D(texto: string): boolean {
   return /\b3[\s-]*d\b|\bwebgl\b|\bextrud(?:ado|ada|idos?|idas?|ir|a(?:ç[aã]o|s))?\b/i.test(limpo);
 }
 
+
+/** Only a known existing composition plus a preservation request qualifies.
+ * A general request to redo an artwork remains a creative revision. */
+export function pedeEdicaoPontual(text:string):boolean{
+  const t=text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if(/\b(?:nova composicao|do zero|recrie tudo|refaca tudo|redesenhe tudo|troque o motor|migre para)\b/.test(t))return false;
+  return /\b(?:corrig\w*|corr[eé]c\w*|ajust\w*|alter\w*|edit\w*|recuper\w*|substitu\w*|troqu\w*|retom\w*)\b/.test(t)&&
+    /\b(?:preserv\w*|mantenh\w*|manter|reaproveit\w*|sem recriar|sem refazer|mesma composicao|mesma animacao|composicao existente|ja aprovad\w*|apenas|somente|so)\b/.test(t);
+}
