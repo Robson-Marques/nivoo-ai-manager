@@ -47,14 +47,14 @@ try { selected=motionSceneCore().resolveMotionSource(alvoBruto,motorExigido); }
 catch(e){ console.error(String(e?.message??e)); process.exit(2); }
 const entrada=selected.entry;
 const saidaRel = opt('--saida', 'midia/saida/motion.mp4');
-if (!/^midia\/saida\/[^/]+\.mp4$/.test(saidaRel)) {
+if (!/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(saidaRel)) {
   console.error('nivoo-renderizar-motion: --saida deve ser midia/saida/<nome>.mp4');
   process.exit(2);
 }
 const saida = resolver(saidaRel);
 const segundosArg = Math.min(300, Math.max(1, Number(opt('--segundos', '15')) || 15));
 const [W, H] = String(opt('--tamanho', '1920x1080')).split('x').map((n) => Number(n) || 0);
-if (!W || !H) {
+if (!Number.isInteger(W)||!Number.isInteger(H)||W<2||H<2||W%2||H%2) {
   console.error('nivoo-renderizar-motion: --tamanho deve ser como 1920x1080');
   process.exit(2);
 }
@@ -190,7 +190,9 @@ function motionSceneCore() {
     }
     const segundosFonte = Math.min(300, Math.max(1,
       Number(await pagina.evaluate(() => window.__motionSegundos).catch(() => 0)) || segundosArg));
-    let segundos = segundosFonte, pacing = null;
+    // Duração explícita pertence ao contrato de entrega, inclusive no motor declarativo.
+    let segundos = args.includes('--segundos') ? segundosArg : segundosFonte;
+    let pacing = Math.abs(segundos-segundosFonte)>0.001 ? {sourceDuration:segundosFonte} : null;
     const modoRitmo = opt('--ritmo','normal');
     if (!['normal','energetico'].includes(modoRitmo)) throw new Error('--ritmo deve ser normal ou energetico');
     const temRitmoExplicit = ['--duracao-origem','--abertura-origem','--abertura-final'].some(f=>args.includes(f));
@@ -202,6 +204,7 @@ function motionSceneCore() {
       // total, aplicar um segundo timewarp faria a abertura de 3,5s virar
       // ~1,7s. Não remodelar uma composição pronta só por flag automática.
       if (!temRitmoExplicit && Math.abs(segundos-segundosFonte)<.1) {
+        pacing=null;
         console.log('nivoo-renderizar-motion: mantendo ritmo da composição pronta; sem aceleração duplicada');
       } else {
         const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
