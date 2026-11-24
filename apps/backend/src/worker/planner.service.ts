@@ -1,4 +1,4 @@
-import { caminhoDoProjeto } from '../common/path-guard';
+import { validatedPlannerJob } from './planner/validated-job';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -259,15 +259,8 @@ export class PlannerService {
         registrarTempo('validacao_plano_inicio', { etapas: Array.isArray(parsed.job?.steps) ? parsed.job.steps.length : 0 });
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
-          const validado = this.jobs.validatePlan({ ...parsed.job, defaultProvider: providerId }, project.area);
+          plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos);
           registrarTempo('validacao_plano_aprovada');
-          // Anexos que o plano coloca no projeto (o sistema copia ao aprovar; só anexos desta conversa).
-          const noProjeto = Array.isArray(parsed.job?.anexosNoProjeto)
-            ? parsed.job.anexosNoProjeto
-                .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && caminhoDoProjeto(x?.para))
-                .map((x: any) => ({ anexo: String(x.anexo), para: caminhoDoProjeto(x.para) as string }))
-            : [];
-          plan = { ...validado, ...(noProjeto.length ? { anexosNoProjeto: noProjeto } : {}) } as unknown as Prisma.InputJsonValue;
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
         } catch (e: any) {
@@ -319,14 +312,8 @@ export class PlannerService {
             const corrigido = extractJson(reparo.output);
             registrarTempo('reparo_json_interpretado', { tipo: corrigido?.tipo ?? 'sem_json', temPlano: !!corrigido?.job });
             if (corrigido?.tipo !== 'plano' || !corrigido.job) throw new Error('A correção não retornou um plano estruturado');
-            const validado = this.jobs.validatePlan({ ...corrigido.job, defaultProvider: providerId }, project.area);
+            plan = validatedPlannerJob(this.jobs,corrigido,providerId,project.area,anexos);
             registrarTempo('reparo_plano_aprovado');
-            const noProjeto = Array.isArray(corrigido.job?.anexosNoProjeto)
-              ? corrigido.job.anexosNoProjeto
-                  .filter((x: any) => anexos.some((a) => a.caminho === String(x?.anexo ?? '')) && caminhoDoProjeto(x?.para))
-                  .map((x: any) => ({ anexo: String(x.anexo), para: caminhoDoProjeto(x.para) as string }))
-              : [];
-            plan = { ...validado, ...(noProjeto.length ? { anexosNoProjeto: noProjeto } : {}) } as unknown as Prisma.InputJsonValue;
             parsed = corrigido;
             kind = 'plano';
             content = String(corrigido.texto ?? parsed.texto ?? 'Plano conferido e corrigido.');
