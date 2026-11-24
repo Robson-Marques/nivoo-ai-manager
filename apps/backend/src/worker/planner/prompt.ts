@@ -8,7 +8,7 @@ import { mcpDoProjeto } from '../../mcp/mcp';
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
-import { mediaEnabledForArea } from '../../specialties/media/scope';
+import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
 import { plannerRules } from './contract';
@@ -17,8 +17,8 @@ import type { PlannerRequest } from './types';
 /** Composition root for the planner prompt. No queue, persistence or AI invocation. */
 export async function buildPlannerPrompt(prisma:PrismaService,workspace:WorkspaceService,registry:ProviderRegistry,request:PlannerRequest):Promise<string>{
   const {project,profileText,providerId,resultados,entrega}=request;
-  const midia=mediaEnabledForArea(project.area);
-  const videoDisponivel=midia&&registry.has('gemini-video')&&(await registry.status('gemini-video',15_000)).available;
+  const capabilities=await selectPlannerCapabilities(project.area,registry);
+  const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
     return [
       '# Você é a IA deste projeto no Nivoo',
@@ -52,7 +52,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '## Conversa até aqui',
       conversa || '(primeira mensagem)',
       '',
-      ...plannerRules(midia,videoDisponivel),
+      ...plannerRules(capabilities),
       ...(resultados.length
         ? [
             '- RESULTADOS dos trabalhos desta conversa (relatórios, inventários, planos que a IA gravou em out/; ficam fora da pasta',
