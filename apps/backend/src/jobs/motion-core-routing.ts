@@ -114,6 +114,9 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
         marker + ' Contrato técnico aplicado pelo NÚCLEO do Nivo, sem criar etapas:\n' +
         requirements.map(s => '- ' + s).join('\n') +
+        '\n- Formato nativo: version=1, width/height em pixels, duration em segundos. Cada camada tem id único, type, x/y (centro em pixels), width/height, z. Imagens usam asset relativo à cena; textos usam text/fontSize.' +
+        '\n- Exemplo de animação de logo: {"id":"logo","type":"image","asset":"assets/logo.png","x":540,"y":390,"width":500,"height":260,"keys":[{"at":0,"opacity":0},{"at":1,"opacity":1}]}. Use keys com at numérico em segundos, crescente, sem duplicações e dentro de 0..duration (ou pacing.sourceDuration quando explícito). Opacity 0..1, scale 0.01..20, easing linear/smooth/out/back. Campos omitidos usam os padrões do motor.' +
+        '\n- Para shape use shape=rect/ellipse/roundRect; para neon use points [[x,y],...] e start/end em segundos. Profile normal/energetic/calm. Preserve as imagens solicitadas com required:true.' +
         '\n- Não execute render de MP4 nesta etapa; a ferramenta local do Nivo faz isso na etapa já prevista.';
     }
     // NÃO transformar o trabalho feito e NÃO acrescentar testes extras.
