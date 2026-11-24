@@ -37,9 +37,28 @@ function objetoJsonEm(texto: string, inicio: number): string | null {
   return null;
 }
 
+/** Remove only syntactic trailing commas, never text inside JSON strings. */
+function removeTrailingCommas(json:string):string {
+  let out='', quoted=false, escaped=false;
+  for(let i=0;i<json.length;i++){
+    const c=json[i];
+    if(quoted){
+      out+=c;
+      if(escaped)escaped=false;
+      else if(c==='\\')escaped=true;
+      else if(c==='"')quoted=false;
+      continue;
+    }
+    if(c==='"')quoted=true;
+    if(c===','&&/^\s*[}\]]/.test(json.slice(i+1)))continue;
+    out+=c;
+  }
+  return out;
+}
+
 function tentar(json: string | null): any | null {
   if (!json) return null;
-  for (const v of [json, json.replace(/,\s*([}\]])/g, '$1')]) {
+  for (const v of [json, removeTrailingCommas(json)]) {
     try {
       const o = JSON.parse(v);
       // Só a resposta principal ({"tipo":"resposta"|"plano"}); um item de memória ({"tipo":"FATO"}) não é a resposta.
