@@ -66,6 +66,9 @@ async function main() {
       }),
     }), /interrupção simulada/);
     const cacheDir = prepareFrameCache(opts).cacheDir;
+    assert.notEqual(prepareFrameCache({...opts,sourceMode:'html'}).cacheDir,
+      prepareFrameCache({...opts,sourceMode:'hybrid'}).cacheDir,
+      'mesmo HTML não deve reutilizar quadros capturados com outro modo de composição');
     assert.notEqual(cacheDir,prepareFrameCache({...opts,pacing:ritmo}).cacheDir,
       'cache de vídeo com aceleração não pode reutilizar quadros da versão normal');
     assert.notEqual(
