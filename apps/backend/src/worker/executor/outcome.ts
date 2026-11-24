@@ -1,3 +1,4 @@
+import type { AttemptStatus } from '@prisma/client';
 import type { ExecutionResult } from '../../providers/provider.interface';
 
 /** Result semantics independent of the queue and persistence. */
@@ -13,9 +14,9 @@ export function normalizeSessionResult(result:ExecutionResult,isAi:boolean){
 
   return {result,sessionClosedNormally};
 }
-export function classifyExecutionResult(result:ExecutionResult,isAi:boolean,verified:boolean,sessionClosedNormally:boolean){
+export function classifyExecutionResult(result:ExecutionResult,isAi:boolean,verified:boolean,sessionClosedNormally:boolean): { attemptStatus: AttemptStatus; result: ExecutionResult } {
     // Classificação: interrupção, limite do provedor, sucesso verificado, fim de sessão sem concluir, falha.
-    const attemptStatus = result.interrupted
+    const attemptStatus: AttemptStatus = result.interrupted
       ? 'INTERROMPIDA'
       : result.resourceUnavailable
         ? 'RECURSO_INDISPONIVEL'
