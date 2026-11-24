@@ -90,8 +90,8 @@ function normalizeLayerDimensions(layer,scene) {
   const originalHeight=layer.height??layer.h;
   // Informações de tamanho ausentes são marcadas apenas em memória para
   // preservar proporções naturais de logomarcas no navegador.
-  layer.__autoWidth=!bg&&(originalWidth==null||originalWidth==='auto');
-  layer.__autoHeight=!bg&&(originalHeight==null||originalHeight==='auto');
+  layer.__autoWidth=!bg&&(layer.__autoWidth===true||originalWidth==null||originalWidth==='auto');
+  layer.__autoHeight=!bg&&(layer.__autoHeight===true||originalHeight==null||originalHeight==='auto');
   layer.width=motionLength(originalWidth,scene.width,widthFallback);
   layer.height=motionLength(originalHeight,scene.height,heightFallback);
 }
