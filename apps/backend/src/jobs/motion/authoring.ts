@@ -36,7 +36,8 @@ export function attachAuthorContract(compose: RawStep, source: string, mode: Mot
           ] : [
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias de produtos e logos de primeiro plano ficam SOMENTE em overlays.json como camadas RGBA. O fundo original fica atrás da geometria, no index.html; não coloque fundo opaco no overlay que cobre a cena 3D.',
-            'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
+            'Exceção: uma foto que precisa de máscara dinâmica, deformação de pixels, morphing ou animação de tecido/queijo pode ser desenhada diretamente no Canvas do HTML, sem duplicação no overlay. Se todas as mídias já pertencem ao HTML, overlays.json pode declarar layers:[]; preserve width, height, duration e version:1. Não invente uma camada só para preencher o JSON.',
+            'NÃO duplique as fotos que estão no overlay no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
             'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay, para não duplicar visualmente as fotografias.',
             'A duração overlays.json.duration deve acompanhar a duração ORIGINAL do relógio WebGL; diferenças são avisadas, não usadas para bloquear a entrega.',
             'As imagens locais podem ser PNG/WebP/JPG ou módulos JS base64 legados na pasta motion; o próprio motor as carrega.',

@@ -61,3 +61,7 @@ O destino deve ser novo; os MP4 anteriores não são sobrescritos. O motor utili
 Checagens técnicas (arquivo MP4, áudio quando solicitado, duração, resolução e codec) são responsabilidade do Nivoo. Avaliação de estética, ritmo, legibilidade, composição ou necessidade de regravar é do usuário. Não gerar parecer artístico de IA obrigatório nem recomeçar um MP4 devido a resultado visual subjetivo.
 
 **Limite explícito:** motor v1 cobre motion design estruturado e overlays sobre WebGL. Não substitui modelador 3D geral nem garante que código WebGL arbitrário não contenha erros de geometria. O objetivo é reduzir a necessidade de gerar esse código nos casos que o motor nativo suporta.
+
+### Composição HTML com overlay vazio
+
+`scene.json` continua exigindo de 1 a 180 camadas. `overlays.json` é complementar: uma lista `layers: []` explicitamente vazia, com metadados v1 válidos, não monta canvas adicional e não impede o render do HTML. Isso permite deformação de fotos no Canvas e reaproveitamento de composições anteriores sem duplicar a pizza/queijo. JSON ausente quando exigido, lista inválida e excesso de camadas continuam sendo erros. O diagnóstico identifica o arquivo e o número recebido. O modo HTML explícito é respeitado, e instruções de deformação/Canvas favorecem autoria gráfica em vez de impor uma cena declarativa. A qualidade dos pixels e os insumos do HTML continuam dependentes da composição real.

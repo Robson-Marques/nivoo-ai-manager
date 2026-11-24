@@ -155,8 +155,11 @@ function motionSceneCore() {
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
         const { loadScene, overlayScript, mountMediaOverlay, productPhotoLayers } = motionSceneCore();
-        const { scene, binaries, warnings } = loadScene(overlayPath);
+        const { scene, binaries, warnings } = loadScene(overlayPath,{overlay:true});
         warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
+        if(!scene.layers.length){
+          console.log('nivoo-renderizar-motion: overlays.json sem camadas; usando a composição HTML/Canvas existente, sem criar overlay vazio.');
+        }else{
         const essenciais=productPhotoLayers(scene);
         const ausentes=essenciais.filter(l=>!binaries[l.asset]);
         if(ausentes.length) throw new Error('MOTION_MIDIA_AUSENTE: fotos de produtos sem arquivo: '+
@@ -191,6 +194,7 @@ function motionSceneCore() {
           essenciais.map(l=>l.id));
         console.log('nivoo-renderizar-motion: fotos/produtos carregados no WebGL; '+
           'arquivos='+String(stats.loaded??0)+'; fotos essenciais='+essenciais.map(l=>l.id).join(', '));
+        }
       }
     }
     const segundosFonte = Math.min(300, Math.max(1,

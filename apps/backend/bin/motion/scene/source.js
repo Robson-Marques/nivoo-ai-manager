@@ -38,7 +38,8 @@ function checkMotionSource(source, mode = 'auto') {
       return {mode:'scene',layers:scene.layers.length,width:scene.width,height:scene.height,warnings};
     }
     if (sourceMode==='hybrid') {
-      const {scene,warnings}=loadScene(overlayPath);
+      const {scene,warnings}=loadScene(overlayPath,{overlay:true});
+      if(!scene.layers.length)return {mode:'hybrid',layers:0,width:scene.width,height:scene.height,warnings:[...warnings,'Overlay vazio explícito; conteúdo visual pertence ao HTML.']};
       const photos=scene.layers.filter(layer=>layer.type==='image');
       if (!photos.length)
         throw new Error('overlays.json deve conter pelo menos uma imagem de produto/logo');

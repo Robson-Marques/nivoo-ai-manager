@@ -97,7 +97,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // hybrid overlay contract from the mere word "3D".
     const selectedMode=readMotionMode(command);
     const alreadyCompiled=String(compose.instructions??'').includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
-    const real3d = selectedMode==='hybrid'||(!imageStages.length&&pedeGeometria3D(text));
+    const customCanvas=/\bcanvas\b|\b(?:deformar|deforma[çc][aã]o|morphing)\b/i.test(original+' '+objective);
+    const real3d = selectedMode==='hybrid'||(selectedMode!=='html'&&!customCanvas&&!imageStages.length&&pedeGeometria3D(text));
     const hasPhotos = imageStages.length > 0 || /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
@@ -113,7 +114,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       reconcileAuthorOutput(compose,source,'graphics');
       continue;
     }
-    const mode: MotionMode = alreadyCompiled&&selectedMode ? (selectedMode==='html'?'graphics':selectedMode) : selectedMode==='hybrid'?'hybrid':real3d ? 'hybrid' : imageStages.length || selectedMode==='html' || pedeGrafismos(text) ? 'graphics' : 'scene';
+    const mode: MotionMode = alreadyCompiled&&selectedMode ? (selectedMode==='html'?'graphics':selectedMode) : selectedMode==='hybrid'?'hybrid':real3d ? 'hybrid' : imageStages.length || selectedMode==='html' || customCanvas || pedeGrafismos(text) ? 'graphics' : 'scene';
     render.instructions=selectRenderMode(command,source,mode==='graphics'?'html':mode);
     const authorKey=String(compose.key??'');
     if(authorKey && authorKey!==String(render.key??'')){

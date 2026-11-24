@@ -73,6 +73,11 @@ async function main() {
     {id:'pizza',type:'image',asset:'assets/pizza.png'},
   ]}).length,1,'logo opcional não deve bloquear o vídeo inteiro');
   assert.throws(()=>validateScene({...scene,layers:[scene.layers[0],scene.layers[0]]}),/duplicado/);
+  const empty={version:1,width:1080,height:1920,duration:25,layers:[]};
+  assert.throws(()=>validateScene({...empty}),/1 a 180.*recebido: 0/);
+  assert.equal(validateScene({...empty},{overlay:true}).scene.layers.length,0);
+  assert.throws(()=>validateScene({...empty,layers:null},{overlay:true}),/não é uma lista/);
+  assert.throws(()=>validateScene({...empty,layers:Array(181).fill({})},{overlay:true}),/recebido: 181/);
   // O motor aceita UMA subida para reutilizar assets de uma pasta irmã em motion/.
   // Esse suporte foi integrado depois do teste antigo, que rejeitava qualquer ../.
   assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'../antigo/assets/pizza.js'}]}));

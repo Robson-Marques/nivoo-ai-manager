@@ -1,14 +1,16 @@
 'use strict';
 const {finite,color,normalizeMotionProfile,normalizeLayerDimensions,numericRepresentation,motionSeconds,normalizeLayerState,normalizeLayerTimeline}=require('./normalization');
-function validateScene(raw) {
+function validateScene(raw, {overlay=false}={}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.version !== 1)
     throw new Error('Cena deve ser um objeto com version=1');
   raw.width=numericRepresentation(raw.width,'px');raw.height=numericRepresentation(raw.height,'px');
   raw.duration=motionSeconds(raw.duration);
   finite(raw.width, 'width', 120, 4096); finite(raw.height, 'height', 120, 4096);
   finite(raw.duration, 'duration', .1, 300);
-  if (!Array.isArray(raw.layers) || !raw.layers.length || raw.layers.length > 180)
-    throw new Error('layers deve conter 1 a 180 camadas');
+  // An overlay is an optional complement to a complete HTML composition.
+  // A standalone declarative scene still requires at least one real layer.
+  if (!Array.isArray(raw.layers) || (!overlay && !raw.layers.length) || raw.layers.length > 180)
+    throw new Error('layers deve conter '+(overlay?'0':'1')+' a 180 camadas (recebido: '+(Array.isArray(raw.layers)?raw.layers.length:'não é uma lista')+')');
   if (raw.background !== undefined) color(raw.background, 'background');
   if(raw.pacing&&typeof raw.pacing==='object'){
     for(const k of ['sourceDuration','openingEnd','openingSeconds'])

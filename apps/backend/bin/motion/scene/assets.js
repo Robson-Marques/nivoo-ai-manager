@@ -1,12 +1,15 @@
 'use strict';
 const fs=require('node:fs');const path=require('node:path');
 const {validateScene}=require('./schema');
-function loadScene(scenePath) {
+function loadScene(scenePath, options={}) {
   const absolute = fs.realpathSync(scenePath);
   const dir = path.dirname(absolute);
   const parsed = JSON.parse(fs.readFileSync(absolute,'utf8'));
   const requestedProfile=parsed.profile;
-  const { scene, assets } = validateScene(parsed);
+  let validated;
+  try{validated=validateScene(parsed,options);}
+  catch(e){throw new Error(path.basename(scenePath)+': '+String(e?.message??e));}
+  const {scene,assets}=validated;
   const binaries = {}, warnings = [];
   if (requestedProfile !== undefined && requestedProfile !== scene.profile) {
     const label=typeof requestedProfile==='string' ? requestedProfile.slice(0,80) : typeof requestedProfile;
