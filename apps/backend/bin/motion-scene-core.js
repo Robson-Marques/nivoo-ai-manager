@@ -131,15 +131,16 @@ function numericRepresentation(value, unit, reference) {
   if(suffix==='%'&&reference!==undefined)return n*reference/100;
   return value;
 }
-function motionSeconds(value, unit='s') {
+function motionSeconds(value, unit='s', total) {
   if(typeof value==='number')return unit==='ms'?value/1000:value;
   if(typeof value!=='string')return value;
   const v=value.trim().replace(',', '.');
   const clock=v.match(/^(?:(\d+):)?(\d{1,2}):(\d{2}(?:\.\d+)?)$/);
   if(clock&&Number(clock[2])<60&&Number(clock[3])<60)
     return Number(clock[1]??0)*3600+Number(clock[2])*60+Number(clock[3]);
-  const m=v.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(ms|s|sec|seconds?)?$/i);
+  const m=v.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(ms|s|sec|seconds?|%)?$/i);
   if(!m)return value;
+  if(m[2]==='%')return total===undefined?value:Number(m[1])*total/100;
   return Number(m[1])/((m[2]?.toLowerCase()??unit)==='ms'?1000:1);
 }
 function normalizeLayerState(target,scene) {
@@ -157,20 +158,23 @@ function normalizeLayerTimeline(layer,total,scene) {
   if(keys.some(k=>!k||typeof k!=='object'||Array.isArray(k)))return;
   const declared=layer.timeUnit??scene.timeUnit;
   const explicit=declared==='ms'||declared==='s';
-  const values=keys.map(k=>k.at??k.time??k.t??(k.atMs===undefined?undefined:String(k.atMs)+'ms'));
+  const candidates=k=>[k.at,k.time,k.t,k.seconds==null?undefined:String(k.seconds)+'s',
+    k.atMs==null?undefined:String(k.atMs)+'ms',k.timeMs==null?undefined:String(k.timeMs)+'ms'].filter(v=>v!=null);
+  const values=keys.map(k=>candidates(k)[0]);
   // Legacy compositions sometimes use bare milliseconds. Only infer this
   // when the ENTIRE nonzero series is outside the seconds timeline and fits
   // in milliseconds; never reinterpret a mixed/ambiguous seconds series.
   const bare=values.map(v=>typeof v==='number'?v:
     typeof v==='string'&&/^[+]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(v.trim())?Number(v.trim().replace(',','.')):NaN);
   const positive=bare.filter(v=>v>0);
-  const legacyMs=!explicit&&bare.every(Number.isFinite)&&positive.length>0&&
+  const legacyMs=!explicit&&bare.every(Number.isFinite)&&positive.length>=2&&
     positive.every(v=>v>total&&v<=total*1000)&&Math.max(...positive)>=100;
   const unit=declared==='ms'||legacyMs?'ms':'s';
-  keys.forEach((k,i)=>{
-    k.at=motionSeconds(values[i],unit);
-    // Explicit aliases are removed only after successful conversion so the
-    // second pass cannot reapply ms to canonical numeric seconds.
+  keys.forEach(k=>{
+    const times=candidates(k).map(v=>motionSeconds(v,unit,total));
+    if(times.some(v=>v!==times[0]))throw new Error(layer.id+': tempos de keyframe conflitantes');
+    k.at=times[0];
+    for(const name of ['time','t','seconds','atMs','timeMs'])delete k[name];
     normalizeLayerState(k,scene);
     const easingAliases={'ease':'smooth','ease-in-out':'smooth','ease-out':'out'};
     if(typeof k.easing==='string'&&Object.hasOwn(easingAliases,k.easing))k.easing=easingAliases[k.easing];
