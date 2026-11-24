@@ -93,6 +93,7 @@ async function main() {
     {keys:[{at:'0'},{at:'0.9'},{at:'12'}],expected:[0,.9,12]},
     {keyframes:[{time:0},{atMs:900},{t:'12s'}],expected:[0,.9,12]},
     {timeUnit:'ms',keys:[{at:0},{at:10},{at:12000}],expected:[0,.01,12]},
+    {keys:[{time:0},{at:'500ms'},{t:'25%'},{seconds:'12s'}],expected:[0,.5,3,12]},
   ];
   for(const {expected,...properties} of timelineVariants){
     const draft=JSON.parse(JSON.stringify(anuncio));
@@ -102,11 +103,14 @@ async function main() {
     assert.deepEqual(validateScene(parsed).scene.layers[1].keys.map(k=>k.at),expected);
     assert.equal(parsed.duration,12);
   }
-  for(const times of [[0,1,12000],[0,13],[1,0],[0,0]]){
+  for(const times of [[12000],[0,1,12000],[0,13],[1,0],[0,0]]){
     const draft=JSON.parse(JSON.stringify(anuncio));
     draft.layers[1].keys=times.map(at=>({at}));
     assert.throws(()=>validateScene(draft),/logo\.at|ordenados/);
   }
+  const conflicting=JSON.parse(JSON.stringify(anuncio));
+  conflicting.layers[1].keys=[{at:1,time:2}];
+  assert.throws(()=>validateScene(conflicting),/conflitantes/);
   const presentation=JSON.parse(JSON.stringify(anuncio));
   presentation.layers[1].x='50%';
   presentation.layers[1].keys=[{at:0,opacity:'0%',scale:'90%'},
