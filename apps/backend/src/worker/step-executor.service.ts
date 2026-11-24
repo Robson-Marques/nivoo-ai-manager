@@ -1,4 +1,3 @@
-import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
@@ -12,12 +11,11 @@ import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
-import { normalizedOutputHash, sha256File } from '../common/hash';
+import { normalizedOutputHash } from '../common/hash';
 import { killProcessGroup } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
-import { caminhoRealDoVideo, inspecionarVideoGerado, videoGeradoPorEtapa } from '../jobs/native-video-result';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -40,7 +38,8 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
-import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
+import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey } from './executor/recovery-policy';
+import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia } from './executor/media-recovery';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
 import { mediaEnabledForArea } from '../specialties/media/scope';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
@@ -133,47 +132,15 @@ export class StepExecutorService {
       return 'IGNORADO';
     }
 
-    // RECUPERAÇÃO DURÁVEL: se o mesmo job já produziu e publicou o MP4
-    // desta etapa, a conferência antiga não pode exigir outro render inteiro.
-    // Só aceita arquivo com hash idêntico ao artefato desta etapa (nunca um
-    // vídeo antigo de outro trabalho nem apenas "test -s arquivo").
-    const provedorDaEtapa = step.provider ?? job.defaultProvider;
-    const videoDestaEtapa = videoGeradoPorEtapa(provedorDaEtapa, step.instructions,
-      (step.providerOptions ?? {}) as Record<string, unknown>);
-    if (provedorDaEtapa === 'local-shell' && videoDestaEtapa) {
-      const gravado = await this.prisma.artifact.findFirst({
-        where: { projectId: job.projectId, jobId: job.id, stepId: step.id,
-          name: videoDestaEtapa, kind: 'FILE', mimeType: 'video/mp4' },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (gravado) {
-        const check = inspecionarVideoGerado(this.pastaDeMidia(job.project.dirKey),
-          videoDestaEtapa, provedorDaEtapa, step.instructions, (step.providerOptions ?? {}) as Record<string, unknown>);
-        if (check.ok && check.absolutePath && await sha256File(check.absolutePath) === gravado.sha256) {
-          await L('RECUPERAÇÃO SEM REFAZER: o MP4 desta etapa já foi gerado na tentativa anterior e seu hash corresponde ao artefato do mesmo trabalho. ' +
-            check.detail + '. Marcando render como concluído e liberando a próxima etapa; revisão visual cabe ao usuário.', 'WARN');
-          await this.prisma.step.update({
-            where: { id: step.id },
-            data: { status: 'CONCLUIDO', statusDetail: 'MP4 recuperado de tentativa anterior; sem rerenderizar' },
-          });
-          await this.queue.complete(task.id, workerId);
-          await this.orchestrator.scheduleReady(job.id);
-          return 'CONCLUIDO';
-        }
-        await L('MP4 de tentativa anterior localizado, mas não corresponde ao hash/contrato técnico registrado: ' +
-          check.detail + '. Não será aceito como render válido.', 'WARN');
-      }
-      if (caminhoRealDoVideo(this.pastaDeMidia(job.project.dirKey), videoDestaEtapa)) {
-        // O renderizador publica com hard-link exclusivo; nunca sobrescreve.
-        // Mesmo que se esperasse 17 minutos, falharia com EEXIST. Impedir
-        // esse desperdício e explicar ao usuário o conflito ANTES de iniciar.
-        return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
-          'O MP4 de saída já existe em ' + videoDestaEtapa +
-          ', mas não há prova íntegra de que foi produzido por esta etapa deste trabalho. ' +
-          'Não recomecei a renderização nem sobrescrevi o vídeo. Consulte os arquivos existentes ' +
-          'e escolha um novo nome de saída ou retome a origem correta.');
-      }
+    const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
+    if(mediaRecovery.kind==='recovered'){
+      await L('RECUPERAÇÃO SEM REFAZER: MP4 do mesmo produtor e tentativa, hash e contrato técnico válidos. '+mediaRecovery.detail,'WARN');
+      await this.prisma.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'MP4 recuperado de tentativa anterior; sem rerenderizar'}});
+      await this.queue.complete(task.id,workerId);
+      await this.orchestrator.scheduleReady(job.id);
+      return 'CONCLUIDO';
     }
+    if(mediaRecovery.kind==='conflict')return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,mediaRecovery.detail);
 
     // Corrige jobs já gravados sem dependsOn: o orquestrador só consegue
     // respeitar dependências presentes no banco. Se uma cena do juntar-videos
@@ -393,6 +360,7 @@ export class StepExecutorService {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) de memória omitidas do prompt (íntegras em .nivoo/memoria.md)`, 'INFO', attempt.id);
     }
     const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
+    const mediaBefore=captureMediaOutputs(job,step,this.pastaDeMidia(job.project.dirKey));
     const started = Date.now();
     let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started);
 
@@ -433,18 +401,8 @@ export class StepExecutorService {
     );
     const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir);
     if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
-    // Um MP4 entregue não desaparece porque a revisão visual ou outro critério
-    // ficou pendente. Publica o vídeo como resultado assim que ele existe.
-    const expected = await this.prisma.acceptanceCriterion.findMany({
-      where: { jobId: job.id, kind: 'FILE_EXISTS' }, select: { config: true },
-    });
-    const fromCriteria = expected.map(c => (c.config as { path?: unknown } | null)?.path).filter((v): v is string => typeof v === 'string');
-    const fromStep = [step.instructions, step.verifyCommand ?? ''].flatMap(t => [...t.matchAll(/midia\/saida\/[A-Za-z0-9._-]+\.mp4/g)].map(m => m[0]));
-    const videos = await this.artifacts.registrarVideosDoTrabalho(
-      { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id },
-      this.pastaDeMidia(job.project.dirKey), [...fromCriteria, ...fromStep],
-    );
-    if (videos.length) await L(`Vídeo(s) disponível(is) para assistir e baixar, mesmo com conferência pendente: ${videos.map(v => v.name).join(', ')}`, 'INFO', attempt.id);
+    const videos=await publishAttemptMedia(this.artifacts,job,step,attempt.id,this.pastaDeMidia(job.project.dirKey),mediaBefore,result,verified);
+    if(videos.length)await L('Vídeo(s) disponível(is) para assistir e baixar: '+videos.map(v=>v.name).join(', '),'INFO',attempt.id);
 
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
@@ -625,35 +583,18 @@ export class StepExecutorService {
     // Falha nova: a IA continua. A mesma falha (inclusive intercalada por
     // outras) na terceira ocorrência impede outra sessão improdutiva.
     const errosDaEtapa = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'FALHA' },
+      where: { stepId: step.id, status: 'FALHA', number: { gt: step.resumeFromAttempt } },
       select: { error: true },
       orderBy: { number: 'desc' },
     });
     const erroAtual = (result.error ?? result.output ?? '').slice(0, 5000);
-    const repeticoes = repeticoesDoMesmoErro(errosDaEtapa.map((a) => a.error), erroAtual, step.verifyCommand ?? '');
-    // Respeitar uma configuração EXPLÍCITA mais restritiva (ex.: 1 tentativa
-    // para scripts determinísticos), aplicada à mesma falha, não ao total
-    // de erros diferentes que a IA foi descobrindo e corrigindo.
-    if (erroAtual.trim() && job.maxAttemptsPerStep > 0 &&
-        job.maxAttemptsPerStep < MAX_OCORRENCIAS_MESMA_FALHA &&
-        repeticoes >= job.maxAttemptsPerStep) {
-      return this.failStep(task, workerId, job, step,
-        `limite configurado de ${job.maxAttemptsPerStep} tentativa(s) para o mesmo erro atingido`);
+    const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual,step.verifyCommand??'',providerId,isAi,diagnosticoScript);
+    if(recovery.kind==='limit')return this.failStep(task,workerId,job,step,recovery.detail);
+    if(recovery.kind==='repeat'){
+      await this.checkpoint(job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number});
+      return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,recovery.detail);
     }
-    if (erroAtual.trim() && repeticoes >= MAX_OCORRENCIAS_MESMA_FALHA) {
-      await this.checkpoint(job.id, step, worktree, `erro idêntico repetido na etapa ${step.key}`, { tentativa: number });
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `o mesmo erro ocorreu ${repeticoes} vezes nesta etapa; interrompido para não repetir indefinidamente: ${erroAtual.slice(-700)}`);
-    }
-    // Corrigir código automaticamente SEM abrir outro trabalho. A etapa de
-    // reparo é filha das dependências já aprovadas, e a etapa local original
-    // só volta a rodar DEPOIS de o reparo terminar. Erros NOVOS seguem
-    // recebendo reparos; o MESMO erro é interrompido na terceira ocorrência.
-    const codigoCorrigivel = !isAi && providerId === 'local-shell' &&
-      falhaLocalCorrigivel(diagnosticoScript);
-    if (codigoCorrigivel) {
-      return this.agendarReparoDeScript(task, workerId, job, step, worktree, number, erroAtual);
-    }
+    if(recovery.kind==='repair')return this.agendarReparoDeScript(task,workerId,job,step,worktree,number,erroAtual);
 
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
     const motivo = (result.error || result.output || 'executor não informou a causa').trim().slice(0, 600);
@@ -681,15 +622,8 @@ export class StepExecutorService {
       where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
-    const conferenciaAtual = sessions[0]?.error ?? '';
-    const conferencias = sessions
-      .map((a) => a.error)
-      .filter((erro): erro is string => !!erro && erro.startsWith('verificação da etapa falhou'));
-    if (conferenciaAtual.startsWith('verificação da etapa falhou') &&
-        repeticoesDoMesmoErro(conferencias, conferenciaAtual, step.verifyCommand ?? '') >= MAX_OCORRENCIAS_MESMA_FALHA) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `a mesma conferência da etapa falhou três vezes (sem contar erros distintos): ${conferenciaAtual.slice(-600)}`);
-    }
+    const repeatedVerification=repeatedSessionVerification(sessions,step.verifyCommand??'');
+    if(repeatedVerification)return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,repeatedVerification);
     // Se a direção de arte mudou HTML/JS após as capturas, a IA NÃO pode
     // aprovar um quadro obsoleto. Voltar aos executores locais automaticamente,
     // preservando a composição e as outras etapas concluídas.
@@ -729,27 +663,9 @@ export class StepExecutorService {
       await this.orchestrator.scheduleReady(job.id);
       return 'CONTINUA';
     }
-    // Uma sessão nova é válida quando existe progresso ou erro corrigível novo.
-    // Só paramos após repetir a mesma falha ou não haver progresso.
-    const recent = sessions.slice(0, MAX_OCORRENCIAS_MESMA_FALHA);
-    // Avanço = arquivo do trabalho alterado OU progresso anotado pela IA (tarefas longas de leitura e análise
-    // passam sessões inteiras lendo antes de escrever). O limite de sessões por etapa segura o resto.
-    if (recent.length >= MAX_OCORRENCIAS_MESMA_FALHA && recent.every((a) => a.treeBefore === a.treeAfter && a.notesIngested === 0)) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `as últimas ${recent.length} sessões terminaram sem alterar nenhum arquivo e sem anotar progresso`);
-    }
-    // A conferência da etapa falhando sempre igual, sessão após sessão: a IA mexe em arquivos (parece avanço),
-    // mas não resolve o que a conferência cobra. Para e explica, em vez de girar sem fim.
-    // Só anotações, sessão após sessão, sem nunca mexer num arquivo: depois de uma janela longa também para
-    // (sem limite de sessões, nada mais seguraria uma IA que só escreve "ainda analisando").
-    const janelaLonga = Math.max(8, job.repetitionWindow * 4);
-    if (sessions.length >= janelaLonga && sessions.slice(0, janelaLonga).every((a) => a.treeBefore === a.treeAfter)) {
-      return this.blockJob(task, workerId, job, step, BlockedReason.REPETICAO_IMPRODUTIVA,
-        `as últimas ${janelaLonga} sessões só anotaram progresso, sem alterar nenhum arquivo do trabalho`);
-    }
-    if (job.maxSessionsPerStep > 0 && sessions.length >= job.maxSessionsPerStep) {
-      return this.failStep(task, workerId, job, step, `limite de ${job.maxSessionsPerStep} sessões sem concluir a etapa`, BlockedReason.LIMITE_SESSOES);
-    }
+    const decision=decideSessionContinuation(job,sessions);
+    if(decision.kind==='repeat')return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,decision.detail);
+    if(decision.kind==='limit')return this.failStep(task,workerId,job,step,decision.detail,BlockedReason.LIMITE_SESSOES);
     await this.prisma.step.update({
       where: { id: step.id },
       data: { status: 'PENDENTE', statusDetail: `sessão ${number} encerrada sem concluir; continuação automática agendada` },
@@ -945,7 +861,7 @@ export class StepExecutorService {
         'O script precisa de reparo, mas este projeto não possui uma IA de código configurada. ' +
         diagnostico.slice(0, 850));
     }
-    const chave = `reparo-${step.key.slice(0, 31)}-${number}`;
+    const chave = repairKey(step.key,number);
     const relatorio = `out/reparos/${chave}.md`;
     const instrucoes = [
       'REPARO AUTOMÁTICO DA ETAPA DO MESMO TRABALHO (NÃO CRIAR PROJETO OU PLANO NOVO).',
@@ -964,12 +880,13 @@ export class StepExecutorService {
     });
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
-      await tx.step.create({
-        data: {
+      await tx.step.upsert({
+        where:{jobId_key:{jobId:job.id,key:chave}},update:{},
+        create: {
           jobId: job.id, key: chave, order: step.order,
           title: `Corrigir o erro da etapa ${step.title}`.slice(0, 300),
           instructions: instrucoes, provider: agente,
-          dependsOn: [...step.dependsOn], verifyCommand: `test -s '${relatorio}'`,
+          dependsOn: step.dependsOn.filter(k=>k!==chave), verifyCommand: `test -s '${relatorio}'`,
           providerOptions: {}, requiresApproval: false,
         },
       });
@@ -1041,7 +958,7 @@ export class StepExecutorService {
       await this.queue.requeue(task.id, workerId, new Date(), `continua com ${reserva.id}`);
       return 'CONTINUA';
     }
-    const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL' } });
+    const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL',number:{gt:step.resumeFromAttempt} } });
     const rateLimit = isTransientRateLimit(detail);
     // HTTP 429 pode significar cota diária esgotada: não é defeito permanente.
     // Fica na fila com runAt persistido, sem insistir nas chamadas nem bloquear
