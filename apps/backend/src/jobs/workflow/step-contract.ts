@@ -13,6 +13,7 @@ import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
 import { nativeImageTarget, visualReferences, isCodex, isCodexAccount } from '../../providers/codex-image-assets';
 import { imageOptions } from '../../providers/image-options';
+import { operationsNeedApproval } from '../../common/file-operations';
 import { operacoesDeArquivos } from './file-options';
 
 export function normalizarInstrucaoDeEtapa(texto: string, provider: string, origem: string): string {
@@ -43,20 +44,25 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       // erros antigos e caminhos inválidos como parte da análise.
       // Validar/normalizar comandos SOMENTE quando serão executados como Bash.
       const instructions = normalizarInstrucaoDeEtapa(rawInstructions, provider ?? defaultProvider, `Etapa ${key} (instruções)`);
+      if(!registry.has(provider??defaultProvider))throw new BadRequestException('Conector desconhecido: '+(provider??defaultProvider));
+      if(s.providerOptions!=null&&(typeof s.providerOptions!=='object'||Array.isArray(s.providerOptions)))throw new BadRequestException('Etapa '+key+': providerOptions deve ser objeto.');
+      if(s.dependsOn!==undefined&&(!Array.isArray(s.dependsOn)||s.dependsOn.some((d:unknown)=>typeof d!=='string'||!d.trim())))throw new BadRequestException('Etapa '+key+': dependsOn deve ser lista de chaves.');
       const target=nativeImageTarget(s.providerOptions?.visualAsset);
+      if(s.providerOptions?.visualAsset!==undefined&&!target)throw new BadRequestException('Etapa '+key+': visualAsset inválido.');
       if(target&&!isCodexAccount(provider??defaultProvider))throw new BadRequestException('Etapa '+key+': visualAsset exige a conexão Codex por conta.');
       const verifyCommand = rawVerifyCommand ? validarSaidaMotion(rawVerifyCommand, `Etapa ${key} (conferência)`) : target ? "test -s '"+target.arquivo+"'" : undefined;
       if ((provider ?? defaultProvider) === 'local-shell') {
         const invalido = erroDeComandoLocal(instructions);
         if (invalido) throw new BadRequestException(`Etapa ${key}: ${invalido}`);
       }
-      if (provider && !registry.has(provider)) throw new BadRequestException(`Conector desconhecido: ${provider}`);
+
       // Etapas executadas por IA precisam de verificação determinística: o agente não encerra a etapa sozinho.
       if (registry.get(provider ?? defaultProvider).kind !== 'executor' && !verifyCommand) {
         throw new BadRequestException(`Etapa ${key} usa conector de IA e exige verifyCommand (verificação determinística)`);
       }
       const opts = s.providerOptions ?? {};
       const providerOptions: Record<string, unknown> = {};
+      let fileApproval=false;
       if(target)providerOptions.visualAsset=target;
       if(opts.motionSourceJobId!==undefined){
         const origin=opts.motionSourceJobId;
@@ -118,9 +124,11 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       // Apagar/mover arquivos (etapa do sistema): lista validada. O "Fazer" do plano já é a confirmação, e o
       // git guarda tudo (dá para voltar qualquer arquivo) — não pede uma segunda confirmação.
       if ((provider ?? defaultProvider) === 'arquivos-projeto') {
-        Object.assign(providerOptions, operacoesDeArquivos(key, opts));
+        const ops=operacoesDeArquivos(key,opts);
+        Object.assign(providerOptions,ops);
+        fileApproval=operationsNeedApproval(ops);
         const r = (providerOptions.remover as string[]).map((p) => `test ! -e '${p}'`);
-        const m = (providerOptions.mover as Array<{ para: string }>).map((x) => `test -e '${x.para}'`);
+        const m = ops.mover.map(x=>`test ! -e '${x.de}' && test -e '${x.para}'`);
         verificacao = verifyCommand ?? ([...r, ...m].join(' && ') || 'true');
       }
       const deliveries=mediaDeliveries(provider??defaultProvider,instructions,providerOptions,key);
@@ -135,9 +143,9 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
         title: optString(s, 'title', 300) ?? key,
         instructions,
         provider: target ? provider ?? defaultProvider : provider,
-        dependsOn: Array.isArray(s.dependsOn) ? s.dependsOn.map(String) : [],
+        dependsOn: Array.isArray(s.dependsOn) ? [...new Set<string>(s.dependsOn)] : [],
         verifyCommand: verificacao,
-        requiresApproval: s.requiresApproval === true || pol.requiresApproval || (provider ?? defaultProvider) === 'gemini-image',
+        requiresApproval: s.requiresApproval === true || fileApproval || pol.requiresApproval || (provider ?? defaultProvider) === 'gemini-image',
         providerOptions: providerOptions as Prisma.InputJsonValue,
       };
     });

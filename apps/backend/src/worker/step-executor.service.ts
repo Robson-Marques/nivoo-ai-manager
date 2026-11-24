@@ -3,6 +3,7 @@ import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
+import { operationsNeedApproval,validateFileOperations } from '../common/file-operations';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
 import { trocarParaReserva } from '../projects/mover-trabalho';
@@ -211,13 +212,18 @@ export class StepExecutorService {
     // Política: ações destrutivas só com aprovação do usuário.
     // Só o que roda como comando: instrução de IA é texto ("não use rm -rf" não é ação destrutiva).
     const pol = evaluatePolicy(`${(step.provider ?? job.defaultProvider) === "local-shell" ? step.instructions : ""}\n${step.verifyCommand ?? ''}`);
-    if (step.requiresApproval || pol.requiresApproval) {
+    let durableFileApproval=false;
+    if((step.provider??job.defaultProvider)==='arquivos-projeto'){
+      try{durableFileApproval=operationsNeedApproval(validateFileOperations(step.providerOptions));}
+      catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.POLITICA,'Operações de arquivo inválidas: '+String((e as Error).message));}
+    }
+    if (step.requiresApproval || pol.requiresApproval || durableFileApproval) {
       // A aprovação vale só para o conteúdo exato que foi aprovado (hash das instruções + verificação).
       const approved = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'APROVADO', subjectHash: stepHash(step) } });
       if (!approved) {
         const ops = (step.provider ?? job.defaultProvider) === 'arquivos-projeto' ? descreverOperacoes((step.providerOptions ?? {}) as never) : '';
         if ((step.provider ?? job.defaultProvider) === 'gemini-image') return this.awaitApproval(task, workerId, job, step, ['Geração de imagem pela API Gemini, com cobrança por uso'], 'Autoriza gerar esta imagem com Nano Banana pela API paga do Gemini?');
-        return this.awaitApproval(task, workerId, job, step, ops ? [ops] : pol.reasons, ops ? `Confirma ${ops}? (fica no histórico do git; dá para desfazer)` : undefined);
+        return this.awaitApproval(task, workerId, job, step, ops ? [ops] : pol.reasons, ops ? `Confirma ${ops}? ${durableFileApproval?'Inclui arquivos fora do Git; exclusões podem ser irreversíveis.':'O histórico Git preserva arquivos versionados.'}` : undefined);
       }
     }
 

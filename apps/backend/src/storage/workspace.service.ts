@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { minimalEnv, runProcess } from '../common/exec';
+import { operationPath,outsideGit,resolveOperation } from '../common/file-operations';
 import { caminhoDoProjeto, resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -487,20 +488,21 @@ export class WorkspaceService {
     const feitos: string[] = [];
     const recusados: string[] = [];
     if (!fs.existsSync(arq)) return { feitos, recusados };
+    if(!fs.lstatSync(path.dirname(arq)).isDirectory()||!fs.lstatSync(arq).isFile()||fs.statSync(arq).size>512*1024)return {feitos,recusados:['Diário de operações inválido; original preservado.']};
     const linhas = fs.readFileSync(arq, 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
     fs.rmSync(arq, { force: true });
     for (const linha of linhas.slice(0, 2000)) {
       try {
         const mv = /^mover\s+(.+?)\s*->\s*(.+)$/i.exec(linha);
         if (mv) {
-          const de = caminhoDoProjeto(mv[1]);
-          const para = caminhoDoProjeto(mv[2]);
-          const origem = de ? resolveMidiaOuTrabalho(midiaDir, worktree, de) : null;
+          const de=operationPath(mv[1]),para=operationPath(mv[2]);
+          if(outsideGit(de)||outsideGit(para)||de===para||para.startsWith(de+'/'))throw Error('Movimentação exige etapa explícita de arquivos.');
+          const origem=resolveOperation(worktree,undefined,de);
           if (!de || !para || !origem || !fs.existsSync(origem)) {
             recusados.push(linha);
             continue;
           }
-          const destino = resolveMidiaOuTrabalho(midiaDir, worktree, para);
+          const destino = resolveOperation(worktree,undefined,para);
           if (fs.existsSync(destino)) {
             recusados.push(`${linha} (destino já existe)`);
             continue;
@@ -517,8 +519,9 @@ export class WorkspaceService {
           feitos.push(`${de} → ${para}`);
           continue;
         }
-        const alvo = caminhoDoProjeto(linha.replace(/^apagar\s+/i, ''));
-        const abs = alvo ? resolveMidiaOuTrabalho(midiaDir, worktree, alvo) : null;
+        const alvo=operationPath(linha.replace(/^apagar\s+/i,''));
+        if(outsideGit(alvo))throw Error('Arquivo fora do Git exige etapa explícita e aprovação.');
+        const abs=resolveOperation(worktree,undefined,alvo);
         if (!alvo || !abs || !fs.existsSync(abs)) {
           recusados.push(linha);
           continue;
@@ -530,6 +533,8 @@ export class WorkspaceService {
         recusados.push(linha);
       }
     }
+    if(linhas.length>2000)recusados.push('Limite de 2000 operações excedido.');
+    void midiaDir;
     return { feitos, recusados };
   }
 

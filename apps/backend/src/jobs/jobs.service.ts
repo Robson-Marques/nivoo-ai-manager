@@ -8,6 +8,7 @@ import { compileWorkflowDefinition } from './workflow/compile-plan';
 import { hasMotionCommand } from './motion/command';
 import { parseSteps } from './workflow/step-contract';
 import { parseCriteria } from './workflow/criteria-contract';
+import { dependenciasDeMontagemPorArquivo } from './workflow/media-dependencies';
 import { assertAcyclic } from './workflow/graph';
 export { normalizarInstrucaoDeEtapa } from './workflow/step-contract';
 export type { StepInput } from './workflow/step-contract';
@@ -199,18 +200,32 @@ export class JobsService {
   async addSteps(projectId: string, jobId: string, body: any) {
     const job = await this.get(projectId, jobId);
     if (job.status === 'CONCLUIDO') throw new ConflictException('Job concluído');
-    const steps = parseSteps(this.registry,body.steps ?? [], job.defaultProvider, job.steps.map((s) => s.key));
-    assertAcyclic([...job.steps, ...steps]);
-    const base = job.steps.length;
-    await this.prisma.step.createMany({ data: steps.map((s, i) => ({ ...s, jobId, order: base + i })) });
-    // A conferência das regras continua sendo a última etapa e passa a cobrir as etapas novas.
-    const review = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
-    if (review) {
-      await this.prisma.step.update({
-        where: { id: review.id },
-        data: { dependsOn: [...review.dependsOn, ...steps.map((s) => s.key)], order: base + steps.length, status: 'PENDENTE', statusDetail: 'novas etapas: conferir de novo' },
-      });
-    }
+    const objective=job.objectives.at(-1)?.text??job.title;
+    const compiled=compileWorkflowDefinition(body.steps??[],undefined,job.defaultProvider,objective,job.project.area,{append:true});
+    const parsed=parseSteps(this.registry,compiled.steps,job.defaultProvider,job.steps.map(s=>s.key));
+    if(!parsed.length)throw new BadRequestException('Informe pelo menos uma nova etapa.');
+    const steps=await this.prisma.$transaction(async tx=>{
+      await OrchestratorService.lockJob(tx,jobId);
+      const current=await tx.job.findUniqueOrThrow({where:{id:jobId},include:{steps:true}});
+      if(current.status==='CONCLUIDO')throw new ConflictException('Job concluído');
+      const existing=current.steps;
+      const keys=new Set(existing.map(s=>s.key));
+      if(parsed.some(s=>keys.has(s.key)))throw new ConflictException('Etapa já existente; recarregue o trabalho.');
+      const linked=dependenciasDeMontagemPorArquivo([...existing,...parsed],current.defaultProvider) as Array<{key:string;dependsOn:string[]}>;
+      for(const old of existing){
+        const next=linked.find(s=>s.key===old.key)!;
+        if(next.dependsOn.some(d=>!old.dependsOn.includes(d)))throw new BadRequestException('A nova etapa mudaria dependências de '+old.key+' já persistida. Crie uma continuação explícita, sem reescrever etapas existentes.');
+      }
+      const additions=parsed.map(s=>({...s,dependsOn:linked.find(x=>x.key===s.key)!.dependsOn}));
+      const base=Math.max(-1,...existing.map(s=>s.order))+1;
+      const review=existing.find(s=>s.key===RULE_REVIEW_STEP);
+      if(review?.status==='EXECUTANDO')throw new ConflictException('Aguarde a etapa de revisão em execução antes de acrescentar etapas.');
+      const graph=existing.map(s=>s.key===RULE_REVIEW_STEP?{...s,dependsOn:[...new Set([...s.dependsOn,...additions.map(a=>a.key)])]}:s);
+      assertAcyclic([...graph,...additions]);
+      await tx.step.createMany({data:additions.map((s,i)=>({...s,jobId,order:base+i}))});
+      if(review)await tx.step.update({where:{id:review.id},data:{dependsOn:graph.find(s=>s.id===review.id)!.dependsOn,order:base+additions.length,status:'PENDENTE',statusDetail:'novas etapas: conferir de novo'}});
+      return additions;
+    });
     await this.logs.log(jobId, `Etapas adicionadas: ${steps.map((s) => s.key).join(', ')}`);
     await this.orchestrator.scheduleReady(jobId);
     return this.get(projectId, jobId);

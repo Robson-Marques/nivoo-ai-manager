@@ -30,7 +30,7 @@ export function resolveWorkflowMediaPaths(raw:unknown,defaultProvider:string):{s
     if(typeof next.verifyCommand==='string')next.verifyCommand=replaceMediaAliases(next.verifyCommand,aliases);
     if(provider==='juntar-videos'&&next.providerOptions&&typeof next.providerOptions==='object'){
       const opts={...next.providerOptions};
-      const replace=(v:unknown)=>typeof v==='string'?(aliases[v]??v):v;
+      const replace=(v:unknown):unknown=>typeof v==='string'?(aliases[v]??v):v&&typeof v==='object'&&'arquivo' in v?{...v,arquivo:replace(v.arquivo)}:v;
       for(const k of ['cenas','videoOriginal','videoEntrada','video','cena']){
         const v=opts[k];
         if(Array.isArray(v))opts[k]=v.map(replace);

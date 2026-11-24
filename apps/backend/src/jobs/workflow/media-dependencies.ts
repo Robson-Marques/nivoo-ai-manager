@@ -1,6 +1,7 @@
 import { nativeImageTarget,visualReferences,isCodex } from '../../providers/codex-image-assets';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto } from '../../common/path-guard';
+import { readMotionInvocations } from '../motion/command';
 import { mediaDeliveries } from '../../specialties/media/delivery';
 export function normalizarCenasDeMontagem(o: any): unknown[] {
   if (!o || typeof o !== 'object') return [];
@@ -26,7 +27,9 @@ export function mediaOutputs(step:Step,defaultProvider:string):string[]{
 export function mediaInputs(step:Step,defaultProvider:string):string[]{
   const provider=step.provider??defaultProvider,opts=record(step.providerOptions);
   if(isCodex(String(provider)))return visualReferences(opts.visualReferences);
+  if(provider==='gemini-video'){const img=mediaPath(opts.imagem);return img?[img]:[];}
   if(provider==='gemini-image')return Array.isArray(opts.referencias)?opts.referencias.map(mediaPath).filter((x):x is string=>!!x):[];
+  if(provider==='local-shell')return readMotionInvocations(String(step.instructions??'')).map(op=>mediaPath(op.source)).filter((x):x is string=>!!x);
   if(provider!=='juntar-videos')return [];
   return [...normalizarCenasDeMontagem(opts),record(opts.narracao).arquivo,record(opts.trilha).arquivo]
     .flatMap(value=>{
@@ -51,7 +54,8 @@ export function dependenciasDeMontagemPorArquivo(raw:unknown,defaultProvider:str
     const inputs=mediaInputs(s,defaultProvider);
     const extra=inputs.flatMap(file=>{
       const producer=outputs.get(file);
-      return producer&&producer!==s.key?[producer]:[];
+      if(producer===s.key)throw new BadRequestException('Etapa '+s.key+': entrada e saída não podem ser o mesmo arquivo: '+file);
+      return producer?[producer]:[];
     });
     return extra.some(key=>!before.includes(key))?{...s,dependsOn:[...new Set([...before,...extra])]}:s;
   });

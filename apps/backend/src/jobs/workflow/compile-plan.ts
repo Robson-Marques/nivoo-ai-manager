@@ -11,7 +11,7 @@ import { AreaScope,mediaEnabledForArea,hasNativeMediaOperation } from '../../spe
 /** A single compilation boundary for the preview and the persisted job.
  * Transform the plan before validation; no new execution or AI sessions.
  */
-export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultProvider:string,objective:string,area?:AreaScope):{steps:unknown;criteria:unknown}{
+export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultProvider:string,objective:string,area?:AreaScope,options:{append?:boolean}={}):{steps:unknown;criteria:unknown}{
   const media=mediaEnabledForArea(area);
   if(!media&&!hasNativeMediaOperation(raw,defaultProvider))return {steps:raw,criteria};
   const routed=media?corrigirPlanoRenderizacaoMotion(raw,defaultProvider,objective):raw;
@@ -24,7 +24,7 @@ export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultPr
   }):routed;
   const normalized=resolveWorkflowMediaPaths(withFps,defaultProvider);
   const prioritized=media?aplicarPrioridadeDosExecutores(normalized.steps,defaultProvider):normalized.steps;
-  const assembled=comVideoCompleto(prioritized,defaultProvider);
+  const assembled=options.append?prioritized:comVideoCompleto(prioritized,defaultProvider);
   const linked=dependenciasDeMontagemPorArquivo(assembled,defaultProvider);
   return {steps:media?applyReelsSafeArea(dependenciasDeMontagemPorArquivo(conectarMotorMotion(linked,defaultProvider,objective),defaultProvider),defaultProvider,objective):linked,criteria:normalizeWorkflowCriteria(criteria,normalized.aliases)};
 }

@@ -97,7 +97,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
       '- APAGAR OU MOVER arquivos/pastas do projeto: use esta etapa do sistema (executa direto; o git guarda tudo):',
       '  {"key":"limpar1","title":"Apagar arquivos mortos","provider":"arquivos-projeto","instructions":"por que cada item sai (resumo)",',
       '   "providerOptions":{"remover":["caminho/arquivo.ts","pasta/inteira"],"mover":[{"de":"antigo.md","para":"docs/antigo.md"}]}}',
-      '  Sem verifyCommand (o sistema confere). Edição de conteúdo continua em etapas da IA (referências, imports, índices).',
+      '  Sem verifyCommand (o sistema confere). Use caminhos exatos, sem sobreposição; operações em out/ ou midia/ exigem confirmação explícita, pois não estão no Git. Não misture origem e destino de uma mesma operação em outras movimentações da etapa. Edição de conteúdo continua em etapas da IA (referências, imports, índices).',
       '  No "texto" do plano diga o que vai sair. Depois de apagar, ajuste referências (imports, índices) numa etapa da IA.',
       ...(midia ? mediaOptionalGenerationRules(videoDisponivel) : []),
   ];

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { caminhoDoProjeto, resolveInside } from '../common/path-guard';
+import { validateFileOperations,preflightOperations } from '../common/file-operations';
 import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from './provider.interface';
 
 /**
@@ -10,7 +10,6 @@ import { AiProvider, ExecutionRequest, ExecutionResult, ProviderStatus } from '.
  * histórico do git (commit do trabalho; no GitHub/GitLab, se ligado) — dá para voltar qualquer arquivo.
  * Nunca mexe em .git, contexto/, .nivoo/ ou fora da pasta do trabalho.
  */
-const PROTEGIDOS = /^(\.git|contexto|\.nivoo)(\/|$)/;
 
 export function descreverOperacoes(o: { remover?: string[]; mover?: Array<{ de: string; para: string }> }): string {
   const partes: string[] = [];
@@ -33,42 +32,25 @@ export class ArquivosProjetoProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { remover?: string[]; mover?: Array<{ de: string; para: string }> };
-    const feitos: string[] = [];
-    const avisos: string[] = [];
-    const alvo = (rel: string) => {
-      const r = caminhoDoProjeto(rel);
-      if (!r) throw new Error(`caminho protegido ou vazio: ${rel}`);
-      const abs = resolveInside(req.cwd, r);
-      // Conferência final no caminho já resolvido: nunca a própria pasta do trabalho nem área protegida.
-      const relFinal = path.relative(fs.realpathSync(req.cwd), abs).split(path.sep).join('/');
-      if (!relFinal || PROTEGIDOS.test(relFinal)) throw new Error(`caminho protegido ou vazio: ${rel}`);
-      return abs;
-    };
-    try {
-      for (const m of o.mover ?? []) {
-        const de = alvo(m.de);
-        const para = alvo(m.para);
-        if (!fs.existsSync(de)) {
-          avisos.push(`não existe (mover): ${m.de}`);
-          continue;
-        }
-        if (fs.existsSync(para)) throw new Error(`destino já existe: ${m.para}`);
-        fs.mkdirSync(path.dirname(para), { recursive: true });
-        fs.renameSync(de, para);
-        feitos.push(`movido: ${m.de} → ${m.para}`);
+    const feitos:string[]=[],avisos:string[]=[];
+    try{
+      const ops=validateFileOperations(req.options);
+      const {moves,removals}=preflightOperations(ops,req.cwd,req.projectMediaDir);
+      // Check the whole batch before its first mutation; no invented success.
+      for(const m of moves){
+        if(req.signal.aborted)return {exitCode:-1,output:feitos.join('\n'),interrupted:true,error:'interrompido'};
+        fs.mkdirSync(path.dirname(m.dest),{recursive:true});
+        fs.renameSync(m.source,m.dest);
+        feitos.push('movido: '+m.de+' → '+m.para);
       }
-      for (const rel of o.remover ?? []) {
-        const a = alvo(rel);
-        if (!fs.existsSync(a)) {
-          avisos.push(`já não existia: ${rel}`);
-          continue;
-        }
-        fs.rmSync(a, { recursive: true, force: true });
-        feitos.push(`apagado: ${rel}`);
+      for(const r of removals){
+        if(req.signal.aborted)return {exitCode:-1,output:feitos.join('\n'),interrupted:true,error:'interrompido'};
+        if(!fs.existsSync(r.abs)){avisos.push('já não existia: '+r.rel);continue;}
+        fs.rmSync(r.abs,{recursive:true,force:true});
+        feitos.push('apagado: '+r.rel);
       }
-    } catch (e: any) {
-      return { exitCode: 1, output: feitos.join('\n'), error: String(e?.message ?? e) };
+    }catch(e){
+      return {exitCode:1,output:feitos.join('\n'),error:String((e as Error).message)};
     }
     for (const l of [...feitos, ...avisos]) req.onLog(l);
     return { exitCode: 0, output: [...feitos, ...avisos].join('\n') || 'nada a fazer', stopReason: 'completed' };

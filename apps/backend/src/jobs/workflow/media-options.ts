@@ -161,7 +161,7 @@ function transicaoValida(key: string, t: unknown): string {
 
 export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
   const cenas: string[] = normalizarCenasDeMontagem(o).map((c: unknown): string => {
-    const caminho = caminhoDoProjeto(c);
+    const caminho = caminhoDoProjeto(c&&typeof c==='object'&&'arquivo' in c?c.arquivo:c);
     if (!caminho || !/\.(mp4|mov|webm)$/i.test(caminho))
       throw new BadRequestException(`Etapa ${key}: "cenas" deve ser a lista de vídeos do projeto, na ordem`);
     return caminho;
@@ -193,7 +193,7 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
       const fim = n(c.fim);
       const velocidade = n(c.velocidade);
       if (inicio !== undefined && inicio < 0) throw new BadRequestException(`Etapa ${key}: corte ${i + 1} tem início negativo`);
-      if (fim !== undefined && inicio !== undefined && fim <= inicio) throw new BadRequestException(`Etapa ${key}: corte ${i + 1} tem fim menor ou igual ao início`);
+      if (fim !== undefined && fim <= (inicio??0)) throw new BadRequestException(`Etapa ${key}: corte ${i + 1} tem fim menor ou igual ao início`);
       if (velocidade !== undefined && !(velocidade >= 0.25 && velocidade <= 8)) throw new BadRequestException(`Etapa ${key}: velocidade do corte ${i + 1} deve ser entre 0.25 e 8`);
       const r: { inicio?: number; fim?: number; velocidade?: number } = {};
       if (inicio) r.inicio = inicio;
