@@ -18,7 +18,11 @@ export function mediaPlannerRules():string[]{
 export function mediaOptionalGenerationRules(videoDisponivel:boolean):string[]{
   return videoDisponivel?generationPlannerRules():[];
 }
-export function mediaAuthorRules(includeGraphics=true):string[]{
+export function mediaAuthorRules(includeGraphics=true,scopedEdit=false):string[]{
+  if(scopedEdit)return ['## Edição audiovisual delimitada',
+    '- O contrato de edição da etapa tem prioridade sobre sugestões estéticas de criação nova. Leia a fonte e seus consumidores reais antes de alterar.',
+    '- Preserve tudo que o pedido não mandou mudar, inclusive ritmo, margens, motor, textos, logomarca e ativos aprovados. Não imponha nova direção de arte, camada ou reposicionamento.',
+    '- Corrija apenas o elemento solicitado; use as ferramentas autorizadas e deixe a exportação e a conferência técnica ao executor existente. Não crie revisão de IA independente.'];
   return ['## Acabamento audiovisual obrigatório (o estilo depende do briefing)',...VIDEO_QUALITY_POLICY.map(s=>'- '+s),...(includeGraphics?[graphicsAuthorContract()]:[])];
 }
 

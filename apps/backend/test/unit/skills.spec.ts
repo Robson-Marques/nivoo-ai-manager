@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { selectSkills,skillContext } from '../../src/specialties/skills';
+import { mediaAuthorRules } from '../../src/specialties/media/planner-contract';
 import { writeSessionContextFile } from '../../src/common/session-context-file';
 import { previousSessions,stageCard,writeStageCard } from '../../src/worker/executor/stage-card';
 describe('Skills Nivoo',()=>{
@@ -17,6 +18,14 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,text:'implementar_endpoint e gravar arquivos',media:false,software:true})).toEqual(['execucao-enxuta','arquivos','codigo']);
     expect(ids({...base,text:'preserve a marca na arte'})).toEqual(['execucao-enxuta','direcao-artistica']);
     expect(ids({...base,text:'editar documento',media:false,software:false})).toEqual(['execucao-enxuta','arquivos']);
+  });
+  it('edição pontual não recebe regras de criação ou reposicionamento',()=>{
+    const text=mediaAuthorRules(true,true).join('\n');
+    expect(text).toContain('Edição audiovisual delimitada');
+    expect(text).toContain('preserve tudo'.replace(/^p/,'P'));
+    expect(text).not.toContain('PUBLICAÇÃO REELS:');
+    expect(text).not.toContain('NivooGraphics');
+    expect(ids({...base,text:'Recuperar pizza',motionAuthor:true,resume:true})).toEqual(['retomada','execucao-enxuta','motion']);
   });
   it('não segue links nem permite caminhos fora do contexto descartável',()=>{
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-skills-path-'));

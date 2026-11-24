@@ -9,6 +9,7 @@ import { jobsDaConversa } from '../../conversations/jobs-da-conversa';
 import { mediaEnabledForArea,type AreaScope } from '../../specialties/media/scope';
 import { conversaComoTexto } from './conversation';
 import { restoreMotionResume,validMotionResumeId } from '../../jobs/motion/fps-resume';
+import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER } from '../../jobs/motion/authoring';
 import { resolveInside } from '../../common/path-guard';
 import type { ExecutionLog } from './types';
 
@@ -66,7 +67,7 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
         const outros = (await jobsDaConversa(prisma, origem.conversationId)).filter((id) => id !== job.id);
         const resultados = await artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
         if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
-        if (mediaEnabledForArea(job.project.area) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]')) {
+        if (mediaEnabledForArea(job.project.area) || step.instructions.includes(MOTION_CONTRACT_MARKER)||step.instructions.includes(MOTION_EDIT_MARKER)) {
           // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
           const trabalhosAnteriores = await prisma.job.findMany({
             where: { projectId: job.projectId, id: { in: outros } },

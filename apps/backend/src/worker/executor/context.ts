@@ -15,6 +15,7 @@ import { TEXTO_SISTEMA_RODANDO,TEXTO_FOTOS,TEXTO_ROTEIRO,TEXTO_PADRAO_DAS_TELAS 
 import { RULE_REVIEW_STEP,RULE_REVIEW_REPORT,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
 import { mediaEnabledForArea,hasNativeMediaOperation } from '../../specialties/media/scope';
 import { mediaAuthorRules } from '../../specialties/media/planner-contract';
+import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } from '../../jobs/motion/authoring';
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
@@ -56,21 +57,22 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
     const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
-    const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
+    const motionEdit=step.instructions.includes(MOTION_EDIT_MARKER);
+    const motionAuthor=motionEdit||step.instructions.includes(MOTION_CONTRACT_MARKER);
+    const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || motionAuthor;
     const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
     const nativeImage=!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset;
-    const motionAuthor=step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
     const skills=selectSkills({
-      phase:'execution',text:[step.key,step.title,step.instructions.split('[NIVOO_MOTION_CORE_CONTRACT_V1]')[0]].join(' '),
+      phase:'execution',text:[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' '),
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
       nativeImage,motionAuthor,
-      resume:priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
+      resume:motionEdit||priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
     });
     const skillIds=skills.map(s=>s.id);
     // The compiled author contract already contains the exact engine manual.
     // A still-image or audio step does not need another copy of WebGL docs.
     if(etapaMidia||nativeImage||skillIds.includes('motion')||skillIds.includes('direcao-artistica')||(usaMidia&&step.key===RULE_REVIEW_STEP)){
-      add('qualidade-video',mediaAuthorRules(!nativeImage&&!motionAuthor&&skillIds.includes('motion')));
+      add('qualidade-video',mediaAuthorRules(!nativeImage&&!motionAuthor&&skillIds.includes('motion'),motionEdit));
     }
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
