@@ -215,15 +215,29 @@ EOF
     echo "   (o worker roda como $NIVOO_USER; a API também — os logins acima valem para os dois)"
     ;;
   update)
+    # Homologação: backup automático desativado por padrão. Pode ser
+    # reativado na configuração do servidor ou solicitado para uma atualização.
+    update_backup="${NIVOO_UPDATE_BACKUP:-$(sed -n 's/^NIVOO_UPDATE_BACKUP=//p' "$ENV_FILE" 2>/dev/null | tail -n 1 || true)}"
+    update_backup="${update_backup:-0}"
+    case "${1:-}" in
+      --backup) update_backup=1; shift ;;
+      --no-backup) update_backup=0; shift ;;
+    esac
+    if [ "$#" -ne 0 ] || [[ "$update_backup" != 0 && "$update_backup" != 1 ]]; then
+      echo "Uso: nivoo update [--backup|--no-backup]; NIVOO_UPDATE_BACKUP deve ser 0 ou 1." >&2
+      exit 2
+    fi
     cd "$APP_DIR"
     if [ -d .git ]; then
       git pull --ff-only
     else
       echo "código sem .git: substitua os arquivos em $APP_DIR pela nova versão e rode 'nivoo update' de novo" >&2
     fi
-    # Executar o backup do próprio checkout, não de um binário antigo.
-    # Um update interrompido pode ter atualizado o Git sem atualizar /usr/local/bin/nivoo.
-    bash "$APP_DIR/deploy/nivoo" backup
+    if [ "$update_backup" = 1 ]; then
+      bash "$APP_DIR/deploy/nivoo" backup
+    else
+      echo "Backup automático desativado; seguindo diretamente para a atualização."
+    fi
     # Atualização com diagnóstico persistente, sem esconder stderr ou exigir
     # que o usuário rode npm/tsc de novo para descobrir a causa.
     log_dir=/var/log/nivoo
@@ -580,7 +594,10 @@ nivoo — administração do Nivoo AI Manager
   nivoo backup              backup do banco, dados e configuração (mantém os 2 mais recentes)
   nivoo limpar-backups      remove backups antigos/incompletos e preserva os 2 mais recentes
   nivoo restore <carimbo>   restaura um backup
-  nivoo update              backup + atualiza o código (git pull) + reinstala/migra
+  nivoo update              atualiza o código e reinstala/migra (sem backup por padrão)
+  nivoo update --backup     executa backup antes da instalação desta atualização
+  nivoo update --no-backup  desativa o backup nesta atualização mesmo se configurado
+  NIVOO_UPDATE_BACKUP=1     em /etc/nivoo/nivoo.env, reativa o backup automático
 
 Configuração: $ENV_FILE   Código: $APP_DIR   Dados: $NIVOO_HOME/data
 EOF
