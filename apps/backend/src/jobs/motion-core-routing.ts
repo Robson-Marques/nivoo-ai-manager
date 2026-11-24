@@ -45,15 +45,24 @@ function renderSource(command: string): string | null {
   return validSource(source) ? source : null;
 }
 
-function selectHtmlSource(command: string, source: string): string {
+function selectSource(command: string, source: string, filename = 'index.html'): string {
   return command.replace(RENDER_CALL, (match, double, single, bare) => {
     const old = double !== undefined ? '"' + double + '"' :
       single !== undefined ? "'" + single + "'" : bare;
-    const entry = source + '/index.html';
+    const entry = source + '/' + filename;
     const next = double !== undefined ? '"' + entry + '"' :
       single !== undefined ? "'" + entry + "'" : entry;
     return match.slice(0, -old.length) + next;
   });
+}
+
+function selectStandaloneHtml(command: string, source: string): string {
+  const html=selectSource(command,source);
+  // Standalone graphics owns the complete image. Ignore stale overlay from
+  // another version; only hybrid compositions use the overlay.
+  const mode=/--motor\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)/;
+  if(mode.test(html))return html.replace(mode,'--motor html');
+  return html.replace(RENDER_CALL,m=>m+' --motor html');
 }
 
 function isComposer(step: RawStep): boolean {
@@ -143,8 +152,9 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // 3D não pode voltar silenciosamente ao scene.json de uma revisão
     // antiga. Uma entrada HTML explícita também funciona com --motor auto.
     // Retomadas sem etapa autora mantêm a fonte originalmente escolhida.
-    if (real3d) render.instructions = selectHtmlSource(command, source);
+    if (real3d) render.instructions = selectSource(command, source);
     if (real3d && !hasPhotos) {
+      render.instructions=selectStandaloneHtml(command,source);
       const authorKey=String(compose.key??'');
       if(authorKey && authorKey!==String(render.key??''))
         render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
@@ -155,7 +165,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       continue;
     }
     const mode: MotionMode = real3d ? 'hybrid' : pedeGrafismos(text) ? 'graphics' : 'scene';
-    if(mode==='graphics') render.instructions=selectHtmlSource(command,source);
+    if(mode==='graphics') render.instructions=selectStandaloneHtml(command,source);
+    else if(mode==='scene' && /\/index\.html(?=["'\s]|$)/.test(command)) render.instructions=selectSource(command,source,'scene.json');
     const authorKey=String(compose.key??'');
     if(authorKey && authorKey!==String(render.key??'')){
       render.dependsOn=[...new Set([...(Array.isArray(render.dependsOn)?render.dependsOn.map(String):[]),authorKey])];
