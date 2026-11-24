@@ -19,6 +19,7 @@ import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } 
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
+import { architectureContext } from '../../specialties/software/architecture-context';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -62,8 +63,9 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || motionAuthor;
     const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
     const nativeImage=!!(step.providerOptions as Record<string,unknown>|null)?.visualAsset;
+    const task=[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' ');
     const skills=selectSkills({
-      phase:'execution',text:[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' '),
+      phase:'execution',text:task,
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
       nativeImage,motionAuthor,
       resume:motionEdit||priorAttempts.length>0,previousError:priorAttempts.some(a=>!!a.error),
@@ -76,6 +78,10 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
+    if(skillIds.includes('codigo')){
+      const map=architectureContext(worktree,task);
+      if(map.length)add('arquitetura-workspace',map);
+    }
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);

@@ -12,6 +12,7 @@ import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
 import { selectSkills,skillContext } from '../../specialties/skills';
+import { architectureContext } from '../../specialties/software/architecture-context';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
 
@@ -21,6 +22,8 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const capabilities=await selectPlannerCapabilities(project.area,registry,providerId);
   const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
+  const task=entrega??currentMessage.join('\n');
+  const skills=selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface});
     return [
       '# Você é a IA deste projeto no Nivoo',
       '',
@@ -53,7 +56,8 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '## Conversa até aqui',
       conversa || '(primeira mensagem)',
       '',
-      ...skillContext(selectSkills({phase:'planner',text:entrega??currentMessage.join('\n'),media:midia,software:capabilities.softwareInterface}),request.worktree),
+      ...skillContext(skills,request.worktree),
+      ...(skills.some(s=>s.id==='codigo')?architectureContext(request.worktree,task):[]),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [
