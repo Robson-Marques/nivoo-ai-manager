@@ -60,3 +60,20 @@ export function authorOutputCheck(source: string, mode: MotionMode): string {
   const files=mode==='scene'?['scene.json']:mode==='hybrid'?['index.html','overlays.json']:['index.html'];
   return files.map(name=>"test -s '"+source+'/'+name+"'").join(' && ');
 }
+
+/** A generated file-existence check must follow the source selected by the
+ * workflow. Preserve custom verification (tests, reports, content checks).
+ * This replaces the existing simple output check; it adds no verification step.
+ */
+export function reconcileAuthorOutput(compose:RawStep,source:string,mode:MotionMode):void{
+  const check=String(compose.verifyCommand??'').trim();
+  if(!check){compose.verifyCommand=authorOutputCheck(source,mode);return;}
+  const parts=check.split(/\s*&&\s*/);
+  const isSourceCheck=parts.every(part=>{
+    const m=/^test\s+-(?:s|f|e)\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))$/.exec(part.trim());
+    if(!m)return false;
+    const file=m[1]??m[2]??m[3];
+    return ['scene.json','index.html','overlays.json'].some(name=>file===source+'/'+name);
+  });
+  if(isSourceCheck)compose.verifyCommand=authorOutputCheck(source,mode);
+}
