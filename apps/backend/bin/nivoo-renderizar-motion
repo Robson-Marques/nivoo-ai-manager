@@ -145,7 +145,7 @@ function motionSceneCore() {
         // WebGL customizado desenha malhas/objetos 3D; fotos e logomarcas
         // ficam numa camada RGBA independente ACIMA da geometria,
         // sem Z-fighting, oclusão nem fotos escuras duplicadas.
-        const { loadScene, overlayScript } = motionSceneCore();
+        const { loadScene, overlayScript, mountMediaOverlay } = motionSceneCore();
         const { scene, binaries, warnings } = loadScene(overlayPath);
         warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
         if (scene.width !== W || scene.height !== H) console.warn(
@@ -159,35 +159,7 @@ function motionSceneCore() {
             's) diferente da composição ('+sourceDuration+
             's); preservando saída e permitindo revisão visual');
         }
-        await pagina.evaluate((size) => {
-          // A composição HTML antiga pode aplicar CSS GLOBAL aos elementos
-          // canvas (display:none, opacity, transform, visibility...). Antes,
-          // esse CSS também atingia a camada das pizzas e o MP4 saía só
-          // com as tábuas. Isolar a camada em Shadow DOM não altera o HTML 3D.
-          const host = document.createElement('div');
-          host.id = 'nivoo-photo-overlay-host';
-          host.style.setProperty('all', 'initial', 'important');
-          host.style.setProperty('position', 'fixed', 'important');
-          host.style.setProperty('inset', '0', 'important');
-          host.style.setProperty('display', 'block', 'important');
-          host.style.setProperty('opacity', '1', 'important');
-          host.style.setProperty('visibility', 'visible', 'important');
-          host.style.setProperty('z-index', '2147483647', 'important');
-          host.style.setProperty('pointer-events', 'none', 'important');
-          const shadow = host.attachShadow({mode:'open'});
-          const canvas = document.createElement('canvas');
-          canvas.width = size.width;
-          canvas.height = size.height;
-          canvas.style.cssText = 'all:initial!important;display:block!important;'+
-            'position:absolute!important;inset:0!important;width:100%!important;'+
-            'height:100%!important;opacity:1!important;visibility:visible!important;'+
-            'pointer-events:none!important;';
-          shadow.appendChild(canvas);
-          document.documentElement.appendChild(host);
-          // Shadow DOM impede document.getElementById(); o runtime usa
-          // a referência explícita, que não depende de CSS/ID do trabalho.
-          window.__nivooOverlayCanvas=canvas;
-        }, { width: W, height: H });
+        await pagina.evaluate(mountMediaOverlay, { width: W, height: H });
         await pagina.addScriptTag({ content: overlayScript(scene, binaries) });
         let deadline;
         try {
