@@ -18,7 +18,7 @@ export function mediaDeliveries(provider:string,instructions:string,opts:Record<
     path:op.output,kind:'video' as const,width:op.width,height:op.height,seconds:op.seconds,...(op.fps!==undefined?{fps:op.fps}:{})
   }]:[]);
   const raw=provider==='gemini-video'?opts.arquivo??('videos/'+key+'.mp4'):
-    provider==='juntar-videos'?opts.arquivo:provider==='gerar-narracao'?opts.arquivo??'out/previa-locucao.mp3':null;
+    provider==='nvidia-media'&&opts.modo==='video'?opts.arquivo:provider==='juntar-videos'?opts.arquivo:provider==='gerar-narracao'?opts.arquivo??'out/previa-locucao.mp3':null;
   const file=caminhoDoProjeto(raw);
   if(!file)return [];
   if(provider==='gerar-narracao'){

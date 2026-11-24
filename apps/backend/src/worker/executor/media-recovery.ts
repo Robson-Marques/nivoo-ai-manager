@@ -46,7 +46,7 @@ export async function publishAttemptMedia(artifacts:ArtifactStoreService,job:Own
 export async function recoverRenderedOutput(prisma:PrismaService,job:Ownership,step:OutputStep,mediaDir:string){
   const provider=step.provider??job.defaultProvider;
   const opts=(step.providerOptions??{}) as Record<string,unknown>;
-  if(!['local-shell','juntar-videos','gemini-video'].includes(provider))return {kind:'none' as const};
+  if(!['local-shell','juntar-videos','gemini-video','nvidia-media'].includes(provider))return {kind:'none' as const};
   const names=mediaOutputs(step,job.defaultProvider).filter(name=>/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(name));
   const existing=names.filter(name=>caminhoRealDoVideo(mediaDir,name));
   if(!existing.length)return {kind:'none' as const};

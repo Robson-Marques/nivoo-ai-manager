@@ -12,6 +12,7 @@ import { mediaDeliveries } from '../../specialties/media/delivery';
 import { validarSaidaMotion } from './media-paths';
 import { opcoesDeVideo,opcoesDeJuncao,narracaoValida } from './media-options';
 import { nativeImageTarget, visualReferences, isCodex, isCodexAccount } from '../../providers/codex-image-assets';
+import { nvidiaMediaOptions } from '../../providers/nvidia-media-options';
 import { imageOptions } from '../../providers/image-options';
 import { operacoesDeArquivos } from './file-options';
 
@@ -81,6 +82,10 @@ export function parseSteps(registry: Pick<ProviderRegistry,'has'|'get'>, raw: un
       if ((provider ?? defaultProvider) === 'gemini-video') {
         Object.assign(providerOptions, opcoesDeVideo(key, opts));
         verificacao = verifyCommand ?? `test -s '${providerOptions.arquivo}'`;
+      }
+      if ((provider ?? defaultProvider) === 'nvidia-media') {
+        Object.assign(providerOptions,nvidiaMediaOptions(key,opts));
+        if(providerOptions.modo==='analise')verificacao=verifyCommand??`test -s '${providerOptions.arquivo}'`;
       }
       if ((provider ?? defaultProvider) === 'gemini-image') {
         Object.assign(providerOptions, imageOptions(key, opts));

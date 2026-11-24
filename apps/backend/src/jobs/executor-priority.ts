@@ -122,7 +122,7 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
     const step = item as Record<string, unknown>;
     const provider = String(step.provider ?? defaultProvider);
-    if(provider==='gemini-video')return item;
+    if(provider==='gemini-video'||provider==='nvidia-media')return item;
 
     const instr = String(step.instructions ?? '').trim();
     // Comando de render real, inclusive depois de "set -e;" ou em linha

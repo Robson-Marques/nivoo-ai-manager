@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { createHash, randomUUID } from 'node:crypto';
 import { ehAdicional, tipoDe } from '../accounts/connections';
 import { segredoDaConexao } from '../accounts/secrets';
+import { NVIDIA_OMNI,NVIDIA_REASONER } from './nvidia-media-options';
 import { catalogarNvidiaModelos } from './nvidia-model-catalog';
 
 /**
@@ -80,7 +81,7 @@ export class NvidiaSpecializedService {
     return k;
   }
 
-  private async post(conexao: string, url: string, payload: unknown, timeoutMs = 40_000, maxBytes = 9_000_000): Promise<any> {
+  private async post(conexao: string, url: string, payload: unknown, timeoutMs = 40_000, maxBytes = 9_000_000, signal?:AbortSignal): Promise<any> {
     // O chamador NUNCA pode fornecer URL: as rotas são constantes oficiais.
     if (!(Object.values(NVIDIA_SPECIAL_ENDPOINTS) as string[]).includes(url)) throw new BadRequestException('Endpoint proibido');
     const chave = this.chave(conexao);
@@ -95,7 +96,7 @@ export class NvidiaSpecializedService {
           Accept: 'application/json',
         },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs),...(signal?[signal]:[])]),
       });
     } catch (e: any) {
       if (url === NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano && /abort|timeout/i.test(String(e?.message ?? e))) {
@@ -219,23 +220,28 @@ export class NvidiaSpecializedService {
    * A geração pode ser lenta. Não repetir após timeout: resultado remoto pode
    * ter sido concluído mesmo sem resposta no Nivoo.
    */
-  async video(conexao: string, input: any): Promise<NvidiaResultado> {
+  async video(conexao: string, input: any,signal?:AbortSignal): Promise<NvidiaResultado> {
     const model = modeloSeguro(input?.modelo ?? 'nvidia/cosmos3-nano');
     if (model !== 'nvidia/cosmos3-nano') throw new BadRequestException('Somente Cosmos3 Nano tem API hospedada de vídeo nesta versão');
     const prompt = texto(input?.prompt, 'prompt', 2000);
     const proporcao = input?.proporcao === '9:16' ? '9:16' : '16:9';
-    const resolucao = proporcao === '9:16' ? '480_9_16' : '480_16_9';
-    const numFrames = numeroLimitado(input?.numFrames, 'numFrames', 25, 25, 49);
+    const tier=numeroLimitado(input?.resolucao,'resolucao',480,480,720);
+    if(tier!==480&&tier!==720)throw new BadRequestException('Resolução deve ser 480 ou 720');
+    const resolucao = tier+(proporcao==='9:16'?'_9_16':'_16_9');
+    const numFrames = numeroLimitado(input?.numFrames, 'numFrames', 25, 25, tier===720?197:297);
+    const ref=input?.inputReference;
+    if(ref!==undefined&&(typeof ref!=='string'||ref.length>12_000_000||!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(ref)))throw new BadRequestException('Referência Cosmos deve ser imagem base64 válida');
     const fps = 24;
     const r = await this.post(conexao, NVIDIA_SPECIAL_ENDPOINTS.videoCosmosNano, {
-      model_mode: 'text2video',
+      model_mode: ref?'image2video':'text2video',
+      ...(ref?{input_reference:ref}:{}),
       prompt,
       resolution: resolucao,
       num_frames: numFrames,
       num_inference_steps: 35,
       fps,
       seed: numeroLimitado(input?.seed, 'seed', 42, 0, 4294967295),
-    }, 180_000, 64_000_000);
+    }, 180_000, 64_000_000,signal);
     const media = r?.b64_video;
     if (typeof media !== 'string' || media.length === 0 || media.length > 60_000_000 ||
         !/^[A-Za-z0-9+/=\r\n]+$/.test(media)) {
@@ -259,7 +265,7 @@ export class NvidiaSpecializedService {
     this.limparVideos();
     const assinatura = createHash('sha256').update(JSON.stringify({ conexao, prompt,
       modelo: input?.modelo ?? 'nvidia/cosmos3-nano', proporcao: input?.proporcao ?? '16:9',
-      numFrames: input?.numFrames ?? 25, seed: input?.seed ?? 42 })).digest('hex');
+      numFrames: input?.numFrames ?? 25, seed: input?.seed ?? 42,resolucao:input?.resolucao??480,inputReference:input?.inputReference??null })).digest('hex');
     for (const [id, job] of this.videos) {
       if (job.conexao === conexao && job.assinatura === assinatura &&
           Date.now() - job.criadoEm < 10 * 60_000) {
@@ -296,6 +302,18 @@ export class NvidiaSpecializedService {
       resultado: job.estado === 'concluido' ? job.resultado : undefined };
   }
 
+  async analisarMidia(conexao:string,model:string,prompt:string,data:string,signal?:AbortSignal):Promise<NvidiaResultado>{
+    if(model!==NVIDIA_OMNI&&model!==NVIDIA_REASONER)throw new BadRequestException('Modelo multimodal não suportado');
+    const m=/^data:(image\/(?:png|jpeg|webp)|video\/mp4|audio\/(?:wav|mpeg));base64,[A-Za-z0-9+/=]+$/.exec(data);
+    if(!m||data.length>12_000_000)throw new BadRequestException('Mídia base64 inválida');
+    const type=m[1].startsWith('image/')?'image_url':m[1].startsWith('video/')?'video_url':'audio_url';
+    if(type==='audio_url'&&model===NVIDIA_REASONER)throw new BadRequestException('Use Omni para áudio');
+    const r=await this.post(conexao,NVIDIA_SPECIAL_ENDPOINTS.chat,{model,messages:[{role:'user',content:[{type,[type]:{url:data}},{type:'text',text:texto(prompt,'prompt',4000)}]}],max_tokens:4096,stream:false},120000,2_000_000,signal);
+    const answer=r?.choices?.[0]?.message?.content;
+    if(typeof answer!=='string'||!answer.trim())throw new BadRequestException('Modelo NVIDIA não devolveu análise final; confirme acesso multimodal nesta chave.');
+    return {tipo:'conversa',modelo:model,texto:answer.trim().slice(0,25000)};
+  }
+
   /** O catálogo de capacidades é exclusivo das conexões NVIDIA. */
   capacidadesParaConexao(conexao: string) {
     if (tipoDe(conexao) !== 'nvidia-api') throw new BadRequestException('Selecione uma conexão NVIDIA válida');
@@ -311,7 +329,9 @@ export class NvidiaSpecializedService {
       { tipo: 'imagem', modelos: [FLUX], estado: 'API implementada; acesso depende da chave', local: false },
       { tipo: 'video', modelos: ['Cosmos3 Nano'], estado: 'API de vídeo integrada; pode exigir habilitação Public API Endpoints na conta', local: false },
       { tipo: 'video-local', modelos: ['Wan 2.2 Animate', 'Video Super Resolution'], estado: 'necessita NIM local ou infraestrutura própria', local: true },
-      { tipo: 'audio', modelos: ['Parakeet', 'Magpie', 'Whisper'], estado: 'requer endpoint/implantação específica', local: true },
+      { tipo:'visao', modelos:[NVIDIA_OMNI,NVIDIA_REASONER],estado:'Executor multimodal; acesso remoto depende da chave',local:false },
+      { tipo:'audio', modelos:['Magpie TTS Multilingual'],estado:'Integrado em gerar-narracao; sujeito à cota',local:false },
+      { tipo:'audio-local', modelos:['Parakeet','Whisper'],estado:'requer endpoint/implantação específica',local:true },
       { tipo: 'outros', modelos: ['OCR', 'Kumo', 'ciência', 'segurança'], estado: 'requer endpoint/implantação específica', local: true },
     ];
   }
