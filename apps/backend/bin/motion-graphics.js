@@ -94,9 +94,65 @@ function installMotionGraphics() {
     const m=/^#([0-9a-f]{6})$/i.exec(value??'');
     return m?[0,2,4].map(i=>parseInt(m[1].slice(i,i+2),16)/255):[.8,.8,.8];
   }
+  // Headless servers may lack WebGL. Project and illuminate the same XYZ
+  // meshes on Canvas 2D, sorting faces in camera space. This is real 3D
+  // geometry with a painter fallback (not a full depth buffer).
+  function createSoftware(canvas) {
+    const ctx=canvas.getContext('2d');
+    if(!ctx)throw Error('Canvas indisponível');
+    const rotate=(p,r)=>{
+      let [x,y,z]=p;
+      let a=Math.cos(r[0]),b=Math.sin(r[0]);[y,z]=[a*y-b*z,b*y+a*z];
+      a=Math.cos(r[1]);b=Math.sin(r[1]);[x,z]=[a*x+b*z,-b*x+a*z];
+      a=Math.cos(r[2]);b=Math.sin(r[2]);[x,y]=[a*x-b*y,b*x+a*y];
+      return [x,y,z];
+    };
+    function render(objects,options={}){
+      const {eye=[0,1,5],target=[0,0,0],fov=40,background=null,key=[-3,5,5],fill=[4,1,2],ambient=.22}=options;
+      const W=canvas.width,H=canvas.height;
+      const z=norm(sub(eye,target)),up=Math.abs(z[1])>.999?[0,0,1]:[0,1,0],x=norm(cross(up,z)),y=cross(z,x);
+      const focal=H/2/Math.tan(rad(fov)/2), light=norm(key), bounce=norm(fill), triangles=[];
+      ctx.clearRect(0,0,W,H);
+      if(background!==null){ctx.fillStyle='rgb('+rgb(background).map(v=>Math.round(v*255)).join(',')+')';ctx.fillRect(0,0,W,H);}
+      for(const o of objects){
+        if(!o.geometry?.positions||!o.geometry?.normals)throw Error('Use uma malha de NivooGraphics');
+        const p=o.geometry.positions,n=o.geometry.normals,pos=o.position??[0,0,0],r=(o.rotation??[0,0,0]).map(rad);
+        const scale=(typeof o.scale==='number'?[o.scale,o.scale,o.scale]:o.scale??[1,1,1]).map(v=>Math.max(.0001,v));
+        const base=rgb(o.color),metal=clamp(o.metal??0,0,1),rough=clamp(o.roughness??.4,0,1),emission=clamp(o.emission??0,0,2);
+        for(let i=0;i<p.length;i+=9){
+          const xyz=[],screen=[],depths=[],ns=[];
+          for(let j=0;j<9;j+=3){
+            const world=rotate([p[i+j]*scale[0],p[i+j+1]*scale[1],p[i+j+2]*scale[2]],r).map((v,k)=>v+pos[k]);
+            const delta=sub(world,eye),d=-dot(z,delta);
+            xyz.push(world);depths.push(d);
+            if(d<=.05)break;
+            screen.push([W/2+dot(x,delta)*focal/d,H/2-dot(y,delta)*focal/d]);
+            ns.push(rotate([n[i+j]/scale[0],n[i+j+1]/scale[1],n[i+j+2]/scale[2]],r));
+          }
+          if(screen.length!==3)continue;
+          const center=[0,1,2].map(k=>(xyz[0][k]+xyz[1][k]+xyz[2][k])/3);
+          const normal=norm([0,1,2].map(k=>ns[0][k]+ns[1][k]+ns[2][k]));
+          const v=norm(sub(eye,center)),ndv=dot(normal,v);
+          if(ndv<=0)continue;
+          const half=norm(v.map((q,k)=>q+light[k]));
+          const diffuse=ambient+Math.max(dot(normal,light),0)*.85+Math.max(dot(normal,bounce),0)*.30+emission;
+          const spec=Math.pow(Math.max(dot(normal,half),0),lerp(100,7,rough))*(.35+metal*.9),rim=Math.pow(1-Math.max(ndv,0),3);
+          const color=base.map((q,k)=>Math.round(clamp(q*diffuse+lerp(.8,q,metal)*spec+[.13,.16,.20][k]*rim,0,1)*255));
+          triangles.push({screen,depth:(depths[0]+depths[1]+depths[2])/3,color:'rgb('+color.join(',')+')'});
+        }
+      }
+      triangles.sort((a,b)=>b.depth-a.depth);
+      ctx.lineWidth=.6;ctx.lineJoin='round';
+      for(const {screen,color} of triangles){
+        ctx.beginPath();ctx.moveTo(...screen[0]);ctx.lineTo(...screen[1]);ctx.lineTo(...screen[2]);ctx.closePath();
+        ctx.fillStyle=color;ctx.strokeStyle=color;ctx.fill();ctx.stroke();
+      }
+    }
+    return {render,dispose(){},backend:'software'};
+  }
   function create(canvas) {
     const gl=canvas.getContext('webgl',{alpha:true,antialias:true,premultipliedAlpha:false,preserveDrawingBuffer:true});
-    if(!gl)throw Error('WebGL indisponível');
+    if(!gl)return createSoftware(canvas);
     const vs='attribute vec3 p,n; uniform mat4 vp; uniform vec3 pos,rot,scl; varying vec3 P,N; vec3 rotate(vec3 v){float a=cos(rot.x),b=sin(rot.x);v=vec3(v.x,a*v.y-b*v.z,b*v.y+a*v.z);a=cos(rot.y);b=sin(rot.y);v=vec3(a*v.x+b*v.z,v.y,-b*v.x+a*v.z);a=cos(rot.z);b=sin(rot.z);return vec3(a*v.x-b*v.y,b*v.x+a*v.y,v.z);} void main(){P=rotate(p*scl)+pos;N=normalize(rotate(n/scl));gl_Position=vp*vec4(P,1.); }';
     const fs='precision mediump float; varying vec3 P,N; uniform vec3 color,eye,key,fill; uniform float metal,rough,ambient,emission; void main(){vec3 n=normalize(N),v=normalize(eye-P),l=normalize(key),h=normalize(v+l);float d=max(dot(n,l),0.),f=max(dot(n,normalize(fill)),0.);float sp=pow(max(dot(n,h),0.),mix(100.,7.,rough));float rim=pow(1.-max(dot(n,v),0.),3.);vec3 c=color*(ambient+d*.85+f*.30+emission)+mix(vec3(.8),color,metal)*sp*(.35+metal*.9)+vec3(.13,.16,.20)*rim;gl_FragColor=vec4(clamp(c,0.,1.),1.); }';
     function shader(type,src){const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh;}
@@ -130,15 +186,15 @@ function installMotionGraphics() {
       }
     }
     function dispose(){for(const g of buffers.values()){gl.deleteBuffer(g.p);gl.deleteBuffer(g.n);}buffers.clear();gl.deleteProgram(program);}
-    return {render,dispose};
+    return {render,dispose,backend:'webgl'};
   }
   window.NivooGraphics=Object.freeze({create,mesh,box,sphere,torus,cylinder,lerp,smooth});
 }
 
 function graphicsAuthorContract(){
   return [
-    'FERRAMENTA NATIVA HTML: window.NivooGraphics já está disponível antes do primeiro script da página, sem import, CDN ou instalação.',
-    'Use NivooGraphics.create(canvas) para criar um renderer WebGL; crie as malhas UMA vez: box(), sphere(), torus(raio,tubo), cylinder(raioInferior,raioSuperior), mesh(triângulosXYZ,normaisXYZ opcionais).',
+    'FERRAMENTA NATIVA HTML: window.NivooGraphics já está disponível antes do primeiro script da página, sem import, CDN ou instalação. WebGL quando disponível, projeção 3D por software como alternativa sem GPU.',
+    'Use NivooGraphics.create(canvas) para criar um renderer 3D; crie as malhas UMA vez: box(), sphere(), torus(raio,tubo), cylinder(raioInferior,raioSuperior), mesh(triângulosXYZ,normaisXYZ opcionais).',
     'renderer.render([{geometry,position:[x,y,z],rotation:[grausX,grausY,grausZ],scale:[x,y,z],color:"#d9a348",metal:.8,roughness:.25,emission:0}],{eye:[0,1,5],target:[0,0,0],fov:40,key:[-3,5,5],fill:[4,1,2],ambient:.22,background:null}); background:null deixa o canvas transparente.',
     'Use malhas e materiais diferentes para criar objetos, grafismos e símbolos específicos do briefing, não uma coleção genérica de formas. SVG/CSS/HTML locais podem compor grafismos, máscaras, degradês e tipografia; o canvas 3D tem profundidade e luz reais.',
     'Defina window.__motionSegundos e window.__renderAt(t) com tempo em segundos para atualizar câmera, objetos, SVG e tipografia a cada quadro; prepare as malhas fora da função. O Nivoo captura a timeline; não é necessário reimplementar a captura.',
