@@ -44,7 +44,8 @@ async function main() {
   const formas=validateScene({...anuncio,layers:JSON.parse(JSON.stringify(variantes))}).scene.layers;
   assert.equal(formas[0].width,1080);assert.equal(formas[0].height,1920);
   assert.equal(formas[1].width,420);assert.equal(formas[1].height,180);
-  assert.ok(formas[2].width>100&&formas[2].height>0);
+  assert.equal(formas[2].width,918,'0.85 em string é proporção do canvas, não pixel');
+  assert.ok(formas[2].height>0);
   const semTamanho=validateScene({...anuncio,layers:[
     {id:'fundo',type:'image',asset:'assets/fundo.png'},
     {id:'logo',type:'image',asset:'assets/logo.png'},
