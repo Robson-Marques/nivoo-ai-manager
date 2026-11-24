@@ -34,7 +34,7 @@ Transformar uma intenção audiovisual em composição e renderização conectad
 | Autoria 2D | Exemplo e contrato declarativo | `bin/motion/scene/authoring.js` |
 | Desenho | Runtime Canvas e timeline | `bin/motion/scene/runtime.js` |
 | Browser | HTML e overlay transparentes | `bin/motion/scene/browser.js` |
-| Fonte | Compatibilidade e composição selecionada | `bin/motion/scene/source.js` |
+| Fonte | Resolução única de entrada e modo, usada pelo render e inspeção legada | `bin/motion/scene/source.js` |
 | Adaptador operacional | Descritor tipado de chamadas CLI literais | `src/jobs/motion/command.ts` |
 | Falhas | Classificação de erros de mídia independente da persistência do worker | `src/specialties/media/failure-policy.ts` |
 
@@ -91,3 +91,9 @@ Lacunas: definição persistida de operações tipadas (hoje ainda existe interp
 ## Evidência adicional desta frente
 
 Três cenas representativas produziram exatamente a mesma normalização, HTML e script de overlay depois da extração de módulos. Cinco cenários isolados adicionais do adaptador operacional, dependências múltiplas, política de falhas e perfil legado passaram (execução JS adaptada de TS, não build). Testes reais integrados de Chromium/FFmpeg, movimento e imagem visível foram adicionados em `test/integration/motion-production.spec.ts`; não executados neste ambiente. Não há aceite de produção.
+
+## Consolidação arquitetural — frente 1/7
+
+Novas autorias selecionam explicitamente `scene`, `hybrid` ou `html`. A composição e o executor recebem o mesmo modo; uma retomada sem autoria preserva o comando original. A resolução de fonte no motor é compartilhada entre CLI e inspeção legada, sem executar uma conferência adicional. `html` ignora overlays antigos, `hybrid` exige seu arquivo, e uma fonte explícita não é substituída por um `scene.json` vizinho. A assinatura de cache inclui o modo efetivo, além de versão do código, fonte e parâmetros.
+
+Evidência desta frente: 8 combinações de seleção e inspeção, 5 rejeições de fonte/mode incompatível ou ausente, 6 conversões de modo e 6 cenários do workflow (incluindo retomada, refação e idempotência), executados diretamente com código do branch e dependências de filesystem simuladas quando necessário. Testes de regressão existentes atualizados; a suíte integral e o aceite integrado permanecem para consolidação final.
