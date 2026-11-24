@@ -35,7 +35,7 @@ import { prepareExecutionPrompt } from './executor/prompt';
 import { normalizeSessionResult,classifyExecutionResult } from './executor/outcome';
 import { hasMotionCommand,readMotionInvocations } from '../jobs/motion/command';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
-import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
+import { WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
@@ -339,7 +339,7 @@ export class StepExecutorService {
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
     // permanente e devem ser extraídos pelo backend, ANTES de gastar sessões de IA.
     // A composição/renderização já aprovada não é repetida.
-    if (isAi && mediaEnabledForArea(job.project.area) && quadrosRequeridos(step.verifyCommand ?? '').length) {
+    if (isAi && quadrosRequeridos(step.verifyCommand ?? '').length) {
       const etapas = await this.prisma.step.findMany({
         where: { jobId: job.id, provider: 'local-shell' },
         orderBy: { order: 'asc' },
