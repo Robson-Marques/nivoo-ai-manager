@@ -3,10 +3,10 @@ import type { RawStep } from './types';
 import { isComposer } from './authoring';
 import { nativeImageTarget } from '../../providers/codex-image-assets';
 
-/** Conservative house profile, not a guarantee about a changing app UI.
- * The 1080x1920 reference reserves extra space for feed previews and right rail.
- * Background and nonessential decoration remain full bleed. */
-export const REELS_SAFE_PROFILE={width:1080,height:1920,left:90,right:180,top:300,bottom:672} as const;
+/** Compact editorial margins for organic Reels, not a guarantee about changing UI.
+ * The guide protects information rather than constraining the entire composition.
+ * Product photography, backgrounds and decoration remain full bleed. */
+export const REELS_SAFE_PROFILE={width:1080,height:1920,left:60,right:120,top:120,bottom:240} as const;
 export function reelsSafeArea(width:number,height:number){
   const p=REELS_SAFE_PROFILE;
   const left=Math.ceil(width*p.left/p.width),right=Math.ceil(width*p.right/p.width);
@@ -23,21 +23,25 @@ export function portraitSocialIntent(text:string):boolean{
 export const REELS_SAFE_MARKER='[NIVOO_REELS_SAFE_AREA_V1]';
 export function reelsSafeContract(width=1080,height=1920):string{
   const a=reelsSafeArea(width,height);
-  return REELS_SAFE_MARKER+' Perfil conservador de publicação Reels '+width+'x'+height+
-    ': área segura x='+a.x+' até '+a.xMax+', y='+a.y+' até '+a.yMax+
+  return REELS_SAFE_MARKER+' Perfil editorial de publicação Reels '+width+'x'+height+
+    ': área preferencial para informações x='+a.x+' até '+a.xMax+', y='+a.y+' até '+a.yMax+
     ' ('+a.width+'x'+a.height+'). Margens esquerda '+a.left+', direita '+a.right+', topo '+a.top+', base '+a.bottom+' px. '+
-    'O fundo, chuva, partículas, sombras e decoração não essencial podem preencher todo o canvas. '+
-    'Logo, textos, preço, CTA e região indispensável do produto ficam integralmente dentro da área segura enquanto devem ser vistos, incluindo escala, rotação, perspectiva e overshoot da animação. '+
-    'Na arte final de referência, respeite estas margens já na composição; se a referência fornecida exceder a zona, preserve sua identidade e reorganize os elementos. '+
-    'Para PNG isolado transparente, não aplique a margem da tela ao arquivo: preserve o objeto inteiro e encaixe-o na área segura durante a composição. Para fundo puro use tela inteira. '+
-    'No HTML crie um contêiner absoluto de conteúdo seguro com left:'+a.left+'px; top:'+a.top+'px; width:'+a.width+'px; height:'+a.height+'px; (ou coordenadas proporcionais se o viewport for escalado). '+
-    'No scene.json/overlays.json use os limites equivalentes nas coordenadas da cena, incluindo as dimensões e keyframes. Não use overflow:hidden como substituto de posicionamento; não encolha o vídeo inteiro, nem desenhe as guias no MP4. '+
+    'O fundo, produto (pizza, embalagem, objeto principal), chuva, partículas, sombras e decoração podem ocupar toda a tela, inclusive abaixo da zona de informações; preserve o enquadramento artístico e não reduza o produto para caber na guia. '+
+    'Proteja somente logo, textos, preço e CTA durante o período de leitura, inclusive após escala e rotação. Posicione a logo um pouco abaixo do topo e concentre as mensagens na região central; deixe o produto aproveitar a parte inferior. Não empilhe elementos nem crie áreas vazias para cumprir a guia. A legenda e os controles reais podem variar; mantenha CTA e informações críticas longe da base e dos botões laterais. '+
+    'Na arte de referência, preserve a composição original e faça apenas os deslocamentos necessários de informações; não reorganize toda a peça. '+
+    'Para PNG isolado transparente, não aplique a margem da tela ao arquivo: preserve o objeto inteiro e anime-o livremente na composição. Para fundo puro use tela inteira. '+
+    'No HTML use, apenas para informações, um contêiner ou limites de posicionamento com left:'+a.left+'px; top:'+a.top+'px; width:'+a.width+'px; height:'+a.height+'px; (ou coordenadas proporcionais se o viewport for escalado). '+
+    'No scene.json/overlays.json use os limites equivalentes apenas para as camadas informativas, incluindo as dimensões e keyframes. Não use overflow:hidden como substituto de posicionamento; não encolha o vídeo inteiro, nem desenhe as guias no MP4. '+
     'O autor controla as margens durante o trabalho existente; não adicionar etapa de revisão ou render extra.';
 }
 const options=(s:RawStep)=>(s.providerOptions??{}) as Record<string,unknown>;
 function append(step:RawStep,contract:string):void{
   const old=String(step.instructions??'');
-  if(!old.includes(REELS_SAFE_MARKER))step.instructions=old+'\n\n'+contract;
+  // Recompiling an approved draft replaces the previous guide instead of retaining stale margins.
+  const start=old.indexOf(REELS_SAFE_MARKER);
+  if(start<0){step.instructions=old+'\n\n'+contract;return;}
+  const end=old.indexOf('\n',start);
+  step.instructions=old.slice(0,start)+contract+(end<0?'':old.slice(end));
 }
 /** Propagate a single coordinate system to the actual author and its upstream
  * image assets. Never modify an existing render-only plan or unrelated scene. */
