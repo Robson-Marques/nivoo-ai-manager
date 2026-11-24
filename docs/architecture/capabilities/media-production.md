@@ -37,3 +37,7 @@ Caminhos relativos a apps/backend/src, bin ou test conforme o componente. Detalh
 Os testes isolados de equivalência, escopo e descritores são Validation During Construction. Não equivalem a Capability Acceptance. O teste de browser/MP4 está versionado, mas sua execução e a compilação integral ainda não foram comprovadas; não há acesso direto ao POCOU neste ambiente. O contrato permanece in-progress. A persistência tipada e o executor específico de Motion ainda são lacunas. Não há mudança de schema nem de permissão nesta frente.
 
 Fora de escopo: novos geradores de mídia, novos provedores, migração automática de regras personalizadas, revisor de IA obrigatório, reescrita geral de outros domínios, certificação estética automática.
+
+## Integração da frente 6
+
+Contrato de saída `specialties/media/delivery.ts` compartilhado pelo grafo, inspeção física e recuperação. Publicação atômica dos conectores e proteção de vídeo durável, correções de mute e sincronização, suporte às saídas A/B de locução. Teste integrado adicional `test/integration/audiovisual-delivery.spec.ts` exercita montagem real e publicação. Testes de FFmpeg isolados executados; suíte do repositório e aceite da capacidade permanecem pendentes na frente 7.
