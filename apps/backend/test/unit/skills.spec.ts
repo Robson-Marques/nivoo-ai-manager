@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { selectSkills,skillContext } from '../../src/specialties/skills';
+import { NIVOO_SKILLS,selectSkills,skillContext } from '../../src/specialties/skills';
 import { mediaAuthorRules } from '../../src/specialties/media/planner-contract';
 import { writeSessionContextFile } from '../../src/common/session-context-file';
 import { previousSessions,stageCard,writeStageCard } from '../../src/worker/executor/stage-card';
@@ -15,9 +15,21 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,text:'Renderizar vídeo',executor:true})).toEqual([]);
     expect(ids({...base,phase:'planner',text:'Olá'})).toEqual([]);
     expect(ids({...base,text:'imagem de referência para vídeo Reels com narração',nativeImage:true})).toEqual(['execucao-enxuta','direcao-artistica']);
-    expect(ids({...base,text:'implementar_endpoint e gravar arquivos',media:false,software:true})).toEqual(['execucao-enxuta','arquivos','codigo']);
+    expect(ids({...base,text:'implementar_endpoint e gravar arquivos',media:false,software:true})).toEqual(['execucao-enxuta','arquivos','codigo','software-backend']);
     expect(ids({...base,text:'preserve a marca na arte'})).toEqual(['execucao-enxuta','direcao-artistica']);
     expect(ids({...base,text:'editar documento',media:false,software:false})).toEqual(['execucao-enxuta','arquivos']);
+  });
+  it('especializa software por domínio e preserva a seleção de mídia',()=>{
+    const sw={...base,media:false,software:true};
+    expect(NIVOO_SKILLS).toHaveLength(17);
+    expect(new Set(NIVOO_SKILLS.map(s=>s.id)).size).toBe(17);
+    expect(ids({...sw,text:'Corrigir endpoint'})).toEqual(['execucao-enxuta','codigo','software-backend']);
+    expect(ids({...sw,text:'Ajustar componente React'})).toEqual(['execucao-enxuta','codigo','software-frontend']);
+    expect(ids({...sw,text:'Migração Prisma e testes'})).toEqual(['execucao-enxuta','codigo','software-dados','software-qualidade']);
+    expect(ids({...sw,phase:'planner',text:'Integração webhook com autenticação'})).toEqual(['codigo','software-integracoes','software-seguranca']);
+    expect(ids({...sw,text:'Refatorar arquitetura e logs'})).toEqual(['execucao-enxuta','codigo','software-arquitetura','software-manutencao']);
+    expect(ids({...base,software:true,text:'Animar imagem da pizza em JavaScript',motionAuthor:true})).toEqual(['execucao-enxuta','direcao-artistica','motion']);
+    expect(ids({...sw,text:'Implementar backend',executor:true})).toEqual([]);
   });
   it('edição pontual não recebe regras de criação ou reposicionamento',()=>{
     const text=mediaAuthorRules(true,true).join('\n');

@@ -1,11 +1,12 @@
 import { writeSessionContextFile } from '../common/session-context-file';
+import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.2.1';
+export const SKILLS_VERSION='1.3.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
-export type Skill={id:string;description:string;action:string;body:string;source?:string};
+export type Skill={id:string;description:string;action:string;body:string;source?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
   {id:'retomada',description:'Continuidade de trabalho e checkpoints',source:upstream+'nemo-rl-session-memory',
     action:'Leia o estado desta etapa e o último erro; preserve as saídas e etapas concluídas. Retome do ponto verificável, não do começo.',
@@ -31,9 +32,10 @@ export const NIVOO_SKILLS:readonly Skill[]=[
   {id:'arquivos',description:'Criação, edição e entrega de arquivos persistentes',
     action:'Use a ferramenta de leitura e edição disponível nesta conexão. Grave no caminho contratado; preserve o original e diferencie fonte editável de resultado entregue.',
     body:'Leia o conteúdo e o formato reais antes de editar. Use caminhos relativos ao workspace e as ferramentas autorizadas pelo Nivoo; nunca escreva credenciais em código, contexto, notas ou artefatos. Não use uma operação de texto para simular um arquivo binário. Preserve arquivos não relacionados, não sobrescreva versões aprovadas sem pedido, e não declare que gravou um arquivo apenas porque o mencionou na resposta. Arquivos finais destinados ao usuário ficam no destino contratado ou em out/; não grave a entrega em contexto/, que é descartável. Para mover ou apagar, use o mecanismo autorizado pelo sistema. Não altere hooks, permissões ou regras do projeto.'},
-  {id:'codigo',description:'Correção de código com leitura de contratos e consumidores',
+  {id:'codigo',domain:'software',description:'Correção de código com leitura de contratos e consumidores',
     action:'Leia o componente dono da responsabilidade e os consumidores afetados; faça a alteração mínima coerente e preserve interfaces e dados.',
     body:'Use busca somente para localizar; depois leia a implementação completa pertinente, seus contratos de entrada/saída, consumidores e testes existentes. Não conclua que funciona apenas por encontrar o nome de uma função. Diferencie o que foi lido, compilado, testado e executado; nunca afirme validação que não ocorreu. Diferencie falhas de tipagem, build, execução e comportamento. Não invente caminhos, opções de CLI ou APIs. Não altere requisitos para passar testes. Testes e build são responsabilidade do backend nos comandos existentes; não adicione CI nem revisões extras sem pedido.'},
+  ...SOFTWARE_SKILLS,
 ];
 export interface SkillIntent {
   phase:'planner'|'execution'; text:string; media:boolean; software:boolean;
@@ -57,7 +59,11 @@ export function selectSkills(intent:SkillIntent):Skill[]{
     if(!intent.nativeImage&&/\b(narrac\w*|narrador\w*|locuc\w*|voz|vozes|tts|pronuncia|audio|trilha)\b/.test(t))selected.add('locucao');
   }
   if(!intent.nativeImage&&/\b(arquivo|arquivos|gravar|gravacao|salvar|escrever|editar|exportar|planilha|documento|relatorio|file|files)\b/.test(t))selected.add('arquivos');
-  if(intent.software&&!intent.nativeImage&&/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
+  if(intent.software&&!intent.nativeImage&&!intent.motionAuthor){
+    const specialists=selectSoftwareSkillIds(t);
+    if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
+    for(const id of specialists)selected.add(id);
+  }
   // No full skill bank in the prompt. The relevant detailed guidance is
   // materialized in the already disposable, read-only session context.
   return NIVOO_SKILLS.filter(s=>selected.has(s.id));
