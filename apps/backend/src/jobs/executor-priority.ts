@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { readMotionInvocation, MOTION_COMMAND } from './motion/command';
+import { hasMotionCommand, readMotionInvocations } from './motion/command';
 /**
  * Compatibilidade com planejamento em linguagem natural:
  * uma única cena pode vir como string ou campo "video"/"videoOriginal".
@@ -133,7 +133,7 @@ export function corrigirPlanoRenderizacaoMotion(raw: unknown, defaultProvider: s
     const instr = String(step.instructions ?? '').trim();
     // Comando de render real, inclusive depois de "set -e;" ou em linha
     // seguinte. A conferência técnica do MP4 é independente disso.
-    const comandoReal = !!readMotionInvocation(instr) || MOTION_COMMAND.test(instr);
+    const comandoReal = hasMotionCommand(instr);
     if (provider === 'local-shell' && comandoReal) return item;
 
     const opts = step.providerOptions && typeof step.providerOptions === 'object' && !Array.isArray(step.providerOptions)
@@ -210,13 +210,15 @@ export function dependenciasDeMontagemPorArquivo(raw: unknown, defaultProvider: 
     if (!s || typeof s !== 'object') continue;
     if (String(s.provider ?? defaultProvider) !== 'local-shell') continue;
     const comando = String(s.instructions ?? '');
-    const arquivo = readMotionInvocation(comando)?.output;
-    if (!arquivo || !/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/.test(arquivo)) continue;
-    const anterior = saidas.get(arquivo);
-    if (anterior && anterior !== s.key) {
-      throw new BadRequestException('Duas etapas tentam produzir o mesmo MP4 ' + arquivo + '. Use saídas distintas para não sobrescrever versões anteriores.');
+    for (const invocation of readMotionInvocations(comando)) {
+      const arquivo = invocation.output;
+      if (!arquivo) continue;
+      const anterior = saidas.get(arquivo);
+      if (anterior && anterior !== s.key) {
+        throw new BadRequestException('Duas etapas tentam produzir o mesmo MP4 ' + arquivo + '. Use saídas distintas para não sobrescrever versões anteriores.');
+      }
+      saidas.set(arquivo, String(s.key));
     }
-    saidas.set(arquivo, String(s.key));
   }
   return etapa.map((s) => {
     if (!s || typeof s !== 'object' || String(s.provider ?? defaultProvider) !== 'juntar-videos') return s;
