@@ -35,7 +35,7 @@ export function inspecionarVideoGerado(
   instructions: string,
   opts: Record<string, unknown> = {},
 ): VideoResult {
-  const delivery=mediaDeliveries(provider,instructions,opts).find(d=>d.path===relativePath)??{path:relativePath,kind:'video' as const};
+  const delivery=mediaDeliveries(provider,instructions,opts).find(d=>d.path===relativePath)??{path:relativePath,kind:'video' as const,requiresAudio:provider==='juntar-videos'&&!!(opts.trilha||opts.narracao)};
   return inspectMediaDelivery(mediaDir,mediaDir,delivery);
 }
 
