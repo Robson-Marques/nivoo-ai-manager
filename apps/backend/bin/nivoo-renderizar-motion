@@ -192,15 +192,22 @@ function motionSceneCore() {
       // A composição original NÃO é modificada. Apenas a captura virtual
       // percorre seu relógio mais rápido na abertura e no resto das cenas.
       segundos = args.includes('--segundos') ? segundosArg : Math.max(1,Math.round(segundosFonte*.8));
-      const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
-      const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
-      const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
-      pacing = {sourceDuration,openingEnd,openingSeconds};
-      if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
-          !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
-          !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
-        throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
-      console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+      // Se o autor já acelerou a abertura no HTML e não alterou a duração
+      // total, aplicar um segundo timewarp faria a abertura de 3,5s virar
+      // ~1,7s. Não remodelar uma composição pronta só por flag automática.
+      if (!temRitmoExplicit && Math.abs(segundos-segundosFonte)<.1) {
+        console.log('nivoo-renderizar-motion: mantendo ritmo da composição pronta; sem aceleração duplicada');
+      } else {
+        const sourceDuration = Number(opt('--duracao-origem', String(segundosFonte)));
+        const openingEnd = Number(opt('--abertura-origem', String(sourceDuration*.29)));
+        const openingSeconds = Number(opt('--abertura-final', String(Math.min(3.5,segundos*.25))));
+        pacing = {sourceDuration,openingEnd,openingSeconds};
+        if (!Number.isFinite(sourceDuration) || sourceDuration <= 0 ||
+            !Number.isFinite(openingEnd) || openingEnd <= 0 || openingEnd >= sourceDuration ||
+            !Number.isFinite(openingSeconds) || openingSeconds <= 0 || openingSeconds >= segundos)
+          throw new Error('Parâmetros de ritmo inválidos: confira duração de origem, abertura e duração de saída');
+        console.log(`nivoo-renderizar-motion: ritmo ${modoRitmo}, origem ${sourceDuration}s, saída ${segundos}s, abertura ${openingEnd}s→${openingSeconds}s`);
+      }
     }
     const result = await renderOffline({
       page: pagina, outputPath: saida, sourcePath: entrada, seconds: segundos, width: W, height: H, pacing,
