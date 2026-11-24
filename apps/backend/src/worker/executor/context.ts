@@ -21,6 +21,7 @@ import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
 import { architectureContext } from '../../specialties/software/architecture-context';
 import { backendEngineeringContext } from '../../specialties/software/backend';
+import { frontendEngineeringContext } from '../../specialties/software/frontend';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -84,6 +85,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       if(map.length)add('arquitetura-workspace',map);
     }
     if(skillIds.includes('software-backend'))add('engenharia-backend',backendEngineeringContext('execution',task));
+    if(skillIds.includes('software-frontend'))add('engenharia-frontend',frontendEngineeringContext('execution',task));
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);

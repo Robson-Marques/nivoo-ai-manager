@@ -14,6 +14,7 @@ import { collectPlannerContext } from './context';
 import { selectSkills,skillContext } from '../../specialties/skills';
 import { architectureContext } from '../../specialties/software/architecture-context';
 import { backendEngineeringContext } from '../../specialties/software/backend';
+import { frontendEngineeringContext } from '../../specialties/software/frontend';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
 
@@ -60,6 +61,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       ...skillContext(skills,request.worktree),
       ...(skills.some(s=>s.id==='codigo')?architectureContext(request.worktree,task):[]),
       ...(skills.some(s=>s.id==='software-backend')?backendEngineeringContext('planner',task):[]),
+      ...(skills.some(s=>s.id==='software-frontend')?frontendEngineeringContext('planner',task):[]),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [
