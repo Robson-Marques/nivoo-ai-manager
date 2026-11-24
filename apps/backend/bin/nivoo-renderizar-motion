@@ -160,15 +160,33 @@ function motionSceneCore() {
             's); preservando saída e permitindo revisão visual');
         }
         await pagina.evaluate((size) => {
+          // A composição HTML antiga pode aplicar CSS GLOBAL aos elementos
+          // canvas (display:none, opacity, transform, visibility...). Antes,
+          // esse CSS também atingia a camada das pizzas e o MP4 saía só
+          // com as tábuas. Isolar a camada em Shadow DOM não altera o HTML 3D.
+          const host = document.createElement('div');
+          host.id = 'nivoo-photo-overlay-host';
+          host.style.setProperty('all', 'initial', 'important');
+          host.style.setProperty('position', 'fixed', 'important');
+          host.style.setProperty('inset', '0', 'important');
+          host.style.setProperty('display', 'block', 'important');
+          host.style.setProperty('opacity', '1', 'important');
+          host.style.setProperty('visibility', 'visible', 'important');
+          host.style.setProperty('z-index', '2147483647', 'important');
+          host.style.setProperty('pointer-events', 'none', 'important');
+          const shadow = host.attachShadow({mode:'open'});
           const canvas = document.createElement('canvas');
-          canvas.id = 'nivoo-overlay';
           canvas.width = size.width;
           canvas.height = size.height;
-          Object.assign(canvas.style, {
-            position:'fixed', left:'0', top:'0', width:'100vw', height:'100vh',
-            zIndex:'2147483647', pointerEvents:'none',
-          });
-          document.body.appendChild(canvas);
+          canvas.style.cssText = 'all:initial!important;display:block!important;'+
+            'position:absolute!important;inset:0!important;width:100%!important;'+
+            'height:100%!important;opacity:1!important;visibility:visible!important;'+
+            'pointer-events:none!important;';
+          shadow.appendChild(canvas);
+          document.documentElement.appendChild(host);
+          // Shadow DOM impede document.getElementById(); o runtime usa
+          // a referência explícita, que não depende de CSS/ID do trabalho.
+          window.__nivooOverlayCanvas=canvas;
         }, { width: W, height: H });
         await pagina.addScriptTag({ content: overlayScript(scene, binaries) });
         let deadline;
@@ -179,7 +197,12 @@ function motionSceneCore() {
               () => reject(new Error('Tempo limite de 30s carregando fotos da camada WebGL')), 30_000); }),
           ]);
         } finally { clearTimeout(deadline); }
-        console.log('nivoo-renderizar-motion: fotos/produtos em camada segura sobre WebGL (overlays.json)');
+        const stats=await pagina.evaluate(()=>window.__nivooOverlayStats||{});
+        console.log('nivoo-renderizar-motion: fotos/produtos isolados do CSS da composição 3D; '+
+          'arquivos carregados='+String(stats.loaded??0)+', referências='+String(stats.expected??0));
+        if ((stats.expected??0)>0 && (stats.loaded??0)===0) {
+          console.warn('nivoo-renderizar-motion: nenhum arquivo fotográfico carregado; veja os avisos de mídia acima');
+        }
       }
     }
     const segundosFonte = Math.min(300, Math.max(1,
