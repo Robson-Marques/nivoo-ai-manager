@@ -1,0 +1,32 @@
+/** Planning contract, separate from the renderer's authoring API. */
+export function motionPlannerRules():string[]{
+  return [
+      '- COMPOSIÇÃO: quem produz a cena deve respeitar profundidade, camadas e ritmo do briefing. A validação técnica do render é automática; a aprovação artística é do usuário.',
+      '  NÃO criar etapa separada de IA para revisão visual, parecer ou comparação de quadros, salvo pedido explícito do usuário.',
+      '  Evite segundo render MP4 só para verificar cor ou tamanho: quando necessário, o próprio autor pode inspecionar um quadro PNG antes da entrega.',
+      '  ARQUITETURA MOTION: escolha scene.json para composição 2D simples; index.html para grafismos SVG/CSS personalizados, direção de arte premium e 3D com câmera, luz e materiais. Em revisão visual use uma fonte nova ou efetivamente alterada e um novo nome de MP4. Não use um exemplo de contrato como template artístico.',
+      '  Estrutura scene.json: {version:1,width,height,duration,profile,background,pacing,layers}. Camadas: image (asset,x,y,width,height,z,supportZ,shadow), text (text,fontSize,color), shape (shape:rect|ellipse|roundRect,fill) e neon (points:[[x,y],...],start,end,color). Todos podem ter keys:[{at,x,y,opacity,scale,rotation,easing}].',
+      '  O NÚCLEO desenha fotos como UMA camada RGBA, organiza por z e garante que imagens fiquem à frente do supportZ. NÃO clonar imagens escurecidas nem inclinar fotografias através de suportes.',
+      '  Ritmo de anúncio energético: pacing:{sourceDuration,openingEnd,openingSeconds} comprime a abertura sem acelerar artificialmente a locução. Exemplo: duration:20,profile:"energetic",pacing:{sourceDuration:25,openingEnd:7.15,openingSeconds:3.5}.',
+      '  Para geometria 3D REAL use index.html com o runtime WebGL nativo e crie overlays.json na MESMA pasta para produtos/fotos/logos que devem permanecer na frente. overlays.json usa exatamente o mesmo contrato scene.json (version,width,height,duration,layers) e o Nivoo o sobrepõe sem colisão com a profundidade WebGL.',
+      '  Para pedido de ACELERAR um vídeo HTML/WebGL que já está composto, o renderer possui --ritmo energetico, sem alterar o index.html. Use --segundos <duracao final> e, quando houver marcação temporal da abertura, --duracao-origem <segundos originais> --abertura-origem <fim original> --abertura-final <fim novo>. O cache é separado por ritmo e os arquivos antigos são preservados.',
+      '  Exemplo GENÉRICO: nivoo-renderizar-motion motion/<nome> --saida midia/saida/<nome>-rapido.mp4 --segundos 20 --tamanho 1080x1920 --ritmo energetico --duracao-origem 25 --abertura-origem 7.15 --abertura-final 3.5. Não pedir ao usuário para editar keyframes manualmente.',
+      '  Em WebGL+overlays.json, NÃO desenhe novamente as fotos sobre as malhas 3D no HTML; elas devem estar SOMENTE em overlays.json. A camada de produto será renderizada sincronizada aos quadros exatos, acima das malhas, com transparência e sombra próprias.',
+      '  Isso permite objetos 3D de verdade (por exemplo, megafone e letras extrudadas) e imagens RGBA confiáveis sem inventar outro motor. Não recrie motor de imagens quando já existe o oficial.',
+      '- CONTRATO INVIOLÁVEL DE SAÍDAS: arquivos de vídeo finais ou temporários do Nivoo (MP4/MOV/WEBM)',
+      '  ficam em midia/saida/<nome>.mp4, nunca out/. Em out/ grave somente relatórios, imagens de conferência',
+      '  e outros artefatos não-vídeo. O backend valida/corrige os comandos de renderização ao aceitar o plano.',
+      '  SEPARAÇÃO DE ETAPAS: compor HTML/CSS/JS não deve executar renderização no verifyCommand;',
+      '  uma etapa local-shell distinta renderiza com nivoo-renderizar-motion --saida midia/saida/<nome>.mp4.',
+      '  A etapa de IA confere somente seus arquivos fonte; a etapa local-shell produz o vídeo.',
+      '  Para capturar prévia use instructions: "nivoo-conferir-arte motion/<nome> --saida out/qualidade/<id> --segundos 25 --tamanho 1080x1920", não "Retome a captura..." ou "Confira a prévia".',
+      '  Prévia é opcional; para comparação artística, apresente-a ao usuário. O executor técnico não cria revisão extra nem reinicia a renderização por parecer visual.',
+      '  EXTRAÇÃO DE QUADROS: é PROIBIDO criar filtros FFmpeg select=eq(n,0)+eq(n,1)+...',
+      '  com dezenas/centenas de parcelas. Esses filtros podem falhar na compilação com falta de memória.',
+      '  Use nivoo-extrair-quadros <video> --pasta out/quadros --indices 0,8,16 --largura 540',
+      '  (ou sem --indices para extrair sequência). Esta ferramenta decodifica sequencialmente e',
+      '  grava quadro-000000.png etc e quadros.json, sem montar expressões gigantes.',
+      '  Se um script recuperado usa o select antigo, REESCREVA essa parte para carregar os quadros',
+      '  exportados pela ferramenta antes de chamar a montagem; não repita o mesmo script quebrado.',
+  ];
+}
