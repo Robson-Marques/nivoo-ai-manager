@@ -26,8 +26,8 @@ function run() {
   assert.equal(converted[0].verifyCommand,compose.verifyCommand,
     'não adicionar nem substituir testes por aprovador de composição');
   assert.doesNotMatch(converted[0].verifyCommand,/nivoo-conferir-motion/);
-  assert.doesNotMatch(converted[1].instructions,/--motor\s/);
-  assert.match(converted[1].instructions,/--ritmo energetico/);
+  assert.equal(converted[1].instructions,render.instructions,
+    'não modificar renderizações depois da composição ficar pronta');
   assert.deepEqual(conectarMotorMotion(converted,'codex-cli',objective),converted,
     'a prévia do plano e a criação do job devem produzir EXATAMENTE o mesmo resultado');
 
