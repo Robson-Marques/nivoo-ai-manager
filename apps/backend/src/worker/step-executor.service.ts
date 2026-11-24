@@ -4,7 +4,6 @@ import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
-import { ferramentasDaIa } from '../providers/ferramentas';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
@@ -17,11 +16,9 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash, sha256File } from '../common/hash';
-import { textoDoRepositorio } from '../git/contexto-git';
 import { referenciasDaConferencia, variaveisDaConferencia } from '../accounts/secrets';
-import { contextoDaOrigem } from '../projects/origem-context';
 import { getGitAccount } from '../git/git-accounts';
-import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaCredencial, problemaDoAmbiente, runProcess, semLockfile, TEXTO_FOTOS, TEXTO_PADRAO_DAS_TELAS, TEXTO_ROTEIRO, TEXTO_SISTEMA_RODANDO } from '../common/exec';
+import { ambienteDaConferencia, killProcessGroup, minimalEnv, portaLivre, faltaCredencial, problemaDoAmbiente, runProcess, semLockfile } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -35,21 +32,19 @@ import { buildPrompt, ExecutionResult } from '../providers/provider.interface';
 import * as fs from 'node:fs';
 import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
-import { AGENT_RULES, evaluatePolicy } from '../security/policy';
-import { assembleContext, ContextSection, ContextStats, fullMemoryDocument } from './context-builder';
+import { evaluatePolicy } from '../security/policy';
+import type { ContextStats } from './context-builder';
+import { buildExecutionContext } from './executor/context';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { avisarConversaQueParou, jobsDaConversa } from '../conversations/jobs-da-conversa';
-import { infoDeVersao, textoDaVersao } from '../git/versao';
-import { bancoDeTesteDisponivel, descartarBancoDeTeste, prepararBancoDeTeste, TEXTO_BANCO_DE_TESTE } from '../common/banco-de-teste';
+import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
-import { RULE_REVIEW_REPORT, RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
+import { RULE_REVIEW_STEP, RULE_REVIEW_STEP_CHECK } from '../jobs/rule-review';
 import { MAX_OCORRENCIAS_MESMA_FALHA, repeticoesDoMesmoErro } from '../jobs/recovery-signature';
 import { capturasParaRecuperar, diagnosticoParecerVisual } from '../jobs/motion-capture-freshness';
-import { mediaEnabledForArea, hasNativeMediaOperation } from '../specialties/media/scope';
-import { mediaAuthorRules } from '../specialties/media/planner-contract';
-import { evidenciasDeVideo } from '../jobs/media-review-evidence';
+import { mediaEnabledForArea } from '../specialties/media/scope';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
@@ -1457,174 +1452,8 @@ export class StepExecutorService {
     return dir;
   }
 
-  async buildContext(job: Job, step: Step, profileText: string, worktree?: string): Promise<{ text: string; stats: ContextStats }> {
-    const [objective, criteria, steps, checkpoint, memory, attempts, artifacts] = await Promise.all([
-      this.prisma.jobObjectiveVersion.findFirst({ where: { jobId: job.id }, orderBy: { version: 'desc' } }),
-      this.prisma.acceptanceCriterion.findMany({ where: { jobId: job.id } }),
-      this.prisma.step.findMany({ where: { jobId: job.id }, orderBy: { order: 'asc' } }),
-      this.prisma.checkpoint.findFirst({ where: { jobId: job.id }, orderBy: { seq: 'desc' } }),
-      this.prisma.memoryEntry.findMany({
-        // Memória do projeto inteira + da interna só o que serve a esta sessão: lições de falhas do projeto e as
-        // notas DESTE trabalho (notas de outros trabalhos são processo encerrado, não contexto).
-        where: {
-          projectId: job.projectId,
-          supersededById: null,
-          OR: [
-            { camada: 'PROJETO' },
-            { camada: 'INTERNA', references: { path: ['origem'], equals: 'licao-automatica' } },
-            { camada: 'INTERNA', references: { path: ['jobId'], equals: job.id } },
-          ],
-        },
-        orderBy: { createdAt: 'asc' },
-      }),
-      this.prisma.attempt.findMany({ where: { stepId: step.id }, orderBy: { number: 'desc' }, take: 5 }),
-      this.prisma.artifact.findMany({ where: { jobId: job.id, kind: { in: ['FILE', 'METRICS', 'REPORT'] } }, orderBy: { createdAt: 'desc' } }),
-    ]);
-    const sessionNo = attempts.length + 1;
-    const sections: ContextSection[] = [];
-    const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
-    add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
-
-    // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
-    add('perfil', [profileText]);
-    // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
-    const vinculo = await this.prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
-    const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
-    const usaMidia = mediaEnabledForArea(vinculo?.area) || etapaMidia;
-    if (etapaMidia || (usaMidia && (hasNativeMediaOperation(steps, job.defaultProvider) || /\b(v[ií]deo|motion|anima[çc][aã]o|renderiz)/i.test([job.title, step.title, step.instructions].join(' '))))) {
-      add('qualidade-video', mediaAuthorRules());
-    }
-    if (vinculo) add('repositorio', await textoDoRepositorio(this.workspace.projectDirs(vinculo.dirKey).repo, vinculo));
-    const origem = await contextoDaOrigem(this.prisma, this.workspace, vinculo?.projetoOrigemId);
-    if (origem.length) add('origem', origem);
-    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
-    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS]);
-    if (step.key === RULE_REVIEW_STEP && worktree) {
-      // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
-      const emOut = fs.existsSync(path.join(worktree, 'out'))
-        ? fs.readdirSync(path.join(worktree, 'out'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.relative(worktree, path.join(e.parentPath ?? (e as any).path, e.name)))
-        : [];
-      add('mudancas', [
-        '## Mudanças feitas por este trabalho (comparadas com a pasta principal)', '```diff', await this.workspace.diffAgainstMain(worktree), '```',
-        ...(emOut.length ? ['Resultados em out/ (relatórios e documentos entregues; leia e confira também):', ...emOut.slice(0, 100).map((f) => `- ${f}`)] : []),
-      ]);
-      if (vinculo) {
-        const provas = evidenciasDeVideo(this.workspace.projectDirs(vinculo.dirKey).midia, worktree,
-          criteria.map(c=>({kind:c.kind,config:c.config})));
-        // Recibo real do backend: o vídeo está registrado como artefato do job,
-        // portanto já possui endpoint autenticado para assistir e baixar.
-        const publicados = await this.prisma.artifact.findMany({
-          where: { projectId: job.projectId, jobId: job.id, mimeType: 'video/mp4' },
-          select: { id: true, name: true, sizeBytes: true, sha256: true },
-        });
-        const recibo = {
-          responsabilidade: 'backend do Nivoo',
-          criterio: 'registro do MP4 como artefato acessível na API; reprodução visual no navegador não foi testada',
-          videos: publicados.map(v => ({
-            nome: v.name, bytes: v.sizeBytes, sha256: v.sha256,
-            endpoint: `/projects/${job.projectId}/artifacts/${v.id}`,
-          })),
-        };
-        fs.mkdirSync(path.join(worktree, 'contexto'), { recursive: true });
-        fs.writeFileSync(path.join(worktree, 'contexto', 'publicacao-midia.json'), JSON.stringify(recibo, null, 2));
-        if (publicados.length) add('publicacao-midia', [
-          '## Registro oficial de publicação do backend',
-          'Leia contexto/publicacao-midia.json: cada vídeo tem endpoint autenticado para visualização/download.',
-          'A confirmação de abertura do player no navegador não cabe à IA revisora; não transforme essa limitação em reprovação.',
-          ...publicados.map(v => `- ${v.name}: ${v.sizeBytes} bytes; /projects/${job.projectId}/artifacts/${v.id}`),
-        ]);
-        if(provas.length) add('revisao-midia',[
-          '## Evidências de vídeo da mídia permanente',
-          'Leia os arquivos JSON e inspecione as imagens em contexto/revisao-midia.',
-          'Não declare inexistente um MP4 só porque a sandbox não acessa o link midia/.',
-          'Avalie os quadros intermediários e não apenas o quadro final; a fluidez exige evidência própria.',
-          ...provas.map(p=>'- '+p),
-        ]);
-      }
-    }
-    if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'))) {
-      add('conversa', [
-        '## O pedido do usuário, por inteiro',
-        `A conversa que gerou este trabalho (mensagens do usuário completas, com listas, seções e exemplos que ele deu) está em ${SESSION_CONTEXT_DIR}/conversa-do-pedido.md.`,
-        'O objetivo abaixo é um RESUMO: na dúvida sobre o que foi pedido, leia a conversa. Antes de perguntar algo ao usuário,',
-        `procure a resposta na conversa, na memória do projeto (.nivoo/memoria.md), em out/respostas-do-usuario.md e nos entregáveis anteriores.`,
-        ...(fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'))
-          ? [`Resultados de trabalhos ANTERIORES desta conversa (relatórios, inventários, planos) estão em ${SESSION_CONTEXT_DIR}/resultados/<id do trabalho>/: use-os como base.`]
-          : []),
-      ]);
-    }
-    if (usaMidia && worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'fontes-anteriores'))) {
-      add('fontes-motion', [
-        '## Fontes editáveis de animações anteriores — recursos e histórico, não aprovação',
-        'Consulte contexto/fontes-anteriores/LEIA-ME.txt e as pastas <id>/motion/ antes de escrever uma composição nova.',
-        'São cópias de LEITURA das fontes originais de outros jobs. Reutilize ativos, infraestrutura e partes aprovadas; quando o usuário rejeitou o visual, a composição anterior serve para entender o erro, não como molde obrigatório. Leia a última solicitação completa antes de produzir; faça a mudança criativa pedida, não apenas renomeie ou reexporte o MP4.',
-        'Escreva a versão corrigida em motion/ do trabalho atual. Use a fonte destinada à etapa de render, preservando arquivos dos trabalhos anteriores. Em refação visual, crie os grafismos/objetos pedidos e mantenha a identidade, duração e áudio que não foram rejeitados.',
-      ]);
-    }
-    // Versão declarada × última etiqueta do Git: a IA sobe o número certo (o mesmo que o Nivoo vai publicar).
-    const versao = textoDaVersao(await infoDeVersao(this.workspace.projectDirs((job as any).project?.dirKey ?? (await this.prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { dirKey: true } })).dirKey).repo).catch(() => null));
-    if (versao.length) add('versao', versao);
-    add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
-    add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
-    add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
-    const conferencia = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
-    if (conferencia) add('verificacao', ['## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', conferencia, '```']);
-    if (step.key === RULE_REVIEW_STEP) {
-      add('revisao', [
-        '## Como esta revisão termina',
-        `- A etapa termina quando ${RULE_REVIEW_REPORT} existe com "conforme" true ou false. NÃO é preciso deixar conforme=true:`,
-        '  se houver violação que você não consegue corrigir (ex.: falta fazer parte do trabalho), grave conforme=false com as violações',
-        '  concretas — o sistema devolve o trabalho à IA do projeto para corrigir e depois revisa de novo.',
-      ]);
-    }
-    const history = [`## Sessões desta etapa: esta é a sessão ${sessionNo}`];
-    if (attempts.length) {
-      history.push('As sessões anteriores terminaram sem concluir a etapa. Continue de onde pararam; NÃO recomece do zero e não repita abordagens que falharam.');
-      history.push('Se a conferência falha por uma causa fora do que a etapa pede (ex.: o script de teste do package.json está errado, falta uma configuração),',
-        'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
-        'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
-      for (const a of [...attempts].reverse()) {
-        const e = a.error ?? '';
-        // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
-        const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
-        history.push(`- sessão ${a.number}: ${a.status} (término: ${a.stopReason ?? '-'}) ${resumo}`);
-      }
-      if (worktree && fs.existsSync(path.join(worktree, 'out', 'telas-interativas', 'relatorio.md'))) {
-        history.push('A última conferência rodou os ROTEIROS de interação: out/telas-interativas/relatorio.md e as fotos (inclusive a do passo que falhou). Corrija a tela no passo que falhou.');
-      }
-      if (worktree && fs.existsSync(path.join(worktree, 'out', 'telas', 'relatorio.md'))) {
-        history.push('A última conferência tirou FOTOS das telas: out/telas/*.png (computador e celular) e out/telas/relatorio.md. ABRA as fotos e corrija o visual (layout quebrado, texto cortado ou sobreposto, não cabe no celular) e os problemas do relatório.');
-      }
-      if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
-        history.push('A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
-      }
-    }
-    add('historico', history);
-    add('protocolo', [
-      '## Tarefas longas (ler muitos arquivos, auditorias, documentos grandes)',
-      `Cada sessão tem tempo limitado (cerca de ${Math.round(job.stepTimeoutSec / 60)} min) e a próxima continua de onde esta parou.`,
-      'Crie o arquivo de resultado LOGO NO COMEÇO e vá completando a cada parte analisada (salve com frequência);',
-      'não deixe para escrever tudo no fim. Anote o progresso (o que já foi visto e o que falta) nas notas abaixo.',
-      '',
-      '## Como registrar progresso (obrigatório antes de terminar a sessão)',
-      'Acrescente linhas JSON (uma por linha) em `.nivoo/notas.jsonl` no diretório atual, por exemplo:',
-      '{"tipo": "PROGRESSO", "titulo": "...", "conteudo": "o que foi feito e o que falta"}',
-      'Tipos: DECISAO_PROPOSTA, EVIDENCIA (com "arquivos": ["out/..."]), PENDENCIA, PROGRESSO.',
-      'Nunca apague ou reescreva linhas existentes desse arquivo. A memória completa do projeto está em `.nivoo/memoria.md`.',
-      '',
-      `Resultados e evidências: grave em out/ (${'$'}NIVOO_OUTPUT_DIR). Você não decide se o trabalho terminou.`,
-    ]);
-    if (checkpoint) {
-      add('checkpoint', [`## Último checkpoint #${checkpoint.seq} (${checkpoint.label}; commit ${checkpoint.gitCommit ?? '-'})`, JSON.stringify(checkpoint.state).slice(0, 4000)], false);
-    }
-    const artLines = artifacts.map((a) => `- ${a.name} (sha256 ${a.sha256.slice(0, 12)}, ${a.sizeBytes} B)`);
-    const budget = Number(process.env.NIVOO_CONTEXT_MAX_CHARS ?? 60000);
-    const result = assembleContext(sections, memory, artLines, budget);
-    if (worktree) {
-      fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
-      fs.writeFileSync(path.join(worktree, '.nivoo', 'memoria.md'), fullMemoryDocument(memory, artLines));
-    }
-    return result;
+  async buildContext(job:Job,step:Step,profileText:string,worktree?:string):Promise<{text:string;stats:ContextStats}>{
+    return buildExecutionContext(this.prisma,this.workspace,job,step,profileText,worktree);
   }
 }
 
