@@ -1,11 +1,8 @@
-import { registrarErro } from '../diagnostico/erros';
 import { falhaLocalCorrigivel } from './deterministic-media-errors';
 import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
 import { tipoDe } from '../accounts/connections';
 import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '../jobs/executor-priority';
-import { mcpDoProjeto } from '../mcp/mcp';
-import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { looksLikeResourceProblem } from '../providers/provider.interface';
 import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
@@ -28,16 +25,18 @@ import { conferenciaGrepAlternativasLegada } from '../jobs/verification-legacy-g
 import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { buildPrompt, ExecutionResult } from '../providers/provider.interface';
+import { buildPrompt } from '../providers/provider.interface';
 import * as fs from 'node:fs';
 import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import type { ContextStats } from './context-builder';
 import { buildExecutionContext } from './executor/context';
+import { prepareExecutionWorkspace } from './executor/workspace';
+import { dispatchExecution,executionTimeoutMs } from './executor/dispatch';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
-import { avisarConversaQueParou, jobsDaConversa } from '../conversations/jobs-da-conversa';
+import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
 import { escreverArquivosDaMemoria } from '../memory/camadas';
 import { ProjectProfileService } from '../projects/project-profile.service';
@@ -396,107 +395,7 @@ export class StepExecutorService {
       const blocked = checkGeneratedImageOutputs(step, providerId, worktree);
       if (blocked) return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL, blocked);
     }
-    // Etapa determinística de importação: disponibiliza os anexos do chat no
-    // worktree para o binário nivoo-importar-imagem. Não abre sessão de IA.
-    if (!isAi && providerId === 'local-shell' && /\bnivoo-importar-imagem\b/.test(step.instructions)) {
-      const origemImportacao = await this.prisma.conversationMessage.findFirst({
-        where: { jobId: job.id }, select: { conversationId: true },
-      });
-      if (origemImportacao) {
-        const mensagens = await this.prisma.conversationMessage.findMany({
-          where: { conversationId: origemImportacao.conversationId, role: 'USUARIO',
-            NOT: { attachments: { equals: Prisma.DbNull } } },
-          orderBy: { createdAt: 'desc' },
-          select: { id: true, conversationId: true, attachments: true },
-        });
-        const anexos = copiarAnexosParaSessao(
-          this.workspace.projectDirs(job.project.dirKey).root, worktree, mensagens,
-        );
-        await L(`Importação local: ${anexos.length} anexo(s) disponível(is) em contexto/anexos/; execução sem IA`);
-      }
-    }
-    // Defesa em profundidade: o conhecimento original do projeto (fora do workspace) não pode ser alterado
-    // durante a tentativa. A impressão digital é tirada ANTES de qualquer escrita do próprio worker.
-    const protectedBefore = isAi ? this.workspace.dirFingerprint(knowledgeDir) : null;
-    let repoHarness: string[] = [];
-    let docsPendentes = new Map<string, Buffer>();
-    if (isAi) {
-      // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
-      const ctx = this.workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
-      if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
-      // Anexos da conversa que originou este trabalho (imagens e documentos enviados no chat).
-      const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
-      if (origem) {
-        const comAnexos = await this.prisma.conversationMessage.findMany({
-          where: { conversationId: origem.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
-          orderBy: { createdAt: 'desc' },
-          select: { id: true, conversationId: true, attachments: true },
-        });
-        const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(job.project.dirKey).root, worktree, comAnexos);
-        if (anexos.length) await L(`Anexos da conversa disponíveis para a IA: ${anexos.map((a) => a.caminho).join(', ')}`);
-        // A conversa inteira que gerou o trabalho: o pedido do usuário (ex.: "as 16 seções") fica disponível em
-        // cada sessão — antes só o resumo do objetivo chegava e a IA perguntava ao usuário o que ele já tinha dito.
-        const conversa = await this.prisma.conversationMessage.findMany({
-          where: { conversationId: origem.conversationId },
-          orderBy: { createdAt: 'asc' },
-          select: { role: true, content: true, kind: true, createdAt: true, attachments: true },
-        });
-        fs.writeFileSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'), conversaComoTexto(conversa));
-        // Resultados dos OUTROS trabalhos desta conversa (ex.: o plano de limpeza que este trabalho vai executar).
-        const outros = (await jobsDaConversa(this.prisma, origem.conversationId)).filter((id) => id !== job.id);
-        const resultados = await this.artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
-        if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
-        if (mediaEnabledForArea(job.project.area) || step.instructions.includes('[NIVOO_MOTION_CORE_CONTRACT_V1]')) {
-          // Ordena por criação: o recuperador dá prioridade aos trabalhos mais recentes.
-          const trabalhosAnteriores = await this.prisma.job.findMany({
-            where: { projectId: job.projectId, id: { in: outros } },
-            orderBy: { createdAt: 'asc' }, select: { id: true },
-          });
-          // Fontes anteriores são auxiliares: falha de leitura em um worktree antigo
-          // não pode derrubar a tentativa atual nem iniciar novas sessões para reparar cache.
-          try {
-            const fontes = this.workspace.copiarFontesMotionAnteriores(job.project.dirKey, trabalhosAnteriores.map(x => x.id), worktree);
-            if (fontes.arquivos) await L(`Fontes motion editáveis recuperadas: ${fontes.arquivos} arquivo(s) de ${fontes.trabalhos.join(', ')} em contexto/fontes-anteriores/; trabalhos originais preservados`);
-            if (fontes.ignorados) await L(`Fontes anteriores: ${fontes.ignorados} item(ns) omitidos por segurança/tamanho; não presumir que a fonte esteja completa`, 'WARN');
-          } catch (e: any) {
-            await L(`Recuperação auxiliar das fontes motion anteriores indisponível: ${String(e?.message ?? e).slice(0, 300)}; preservando a etapa e os arquivos atuais`, 'WARN');
-          }
-        }
-      }
-      // Instruções de agente do próprio repositório: cópia legível em contexto/repositorio/, restauradas depois.
-      repoHarness = await this.workspace.hideRepoHarness(worktree);
-      // Documentos de instrução escritos por uma sessão anterior que ainda não viraram commit (a sessão acabou sem
-      // concluir a etapa): são do trabalho. Saem da pasta durante esta sessão (cópia legível em contexto/repositorio/)
-      // e voltam depois — antes a limpeza abaixo os apagava.
-      const naoVersionados = this.workspace.docsNoTrabalho(worktree).filter((f) => !repoHarness.includes(f));
-      docsPendentes = this.workspace.capturarDocsEditados(worktree, naoVersionados);
-      for (const [rel, conteudo] of docsPendentes) {
-        const dest = path.join(worktree, SESSION_CONTEXT_DIR, 'repositorio', WorkspaceService.sessionPath(rel));
-        fs.mkdirSync(path.dirname(dest), { recursive: true });
-        fs.writeFileSync(dest, conteudo);
-      }
-      const planted = this.workspace.sanitizeHarnessFiles(worktree).filter((f) => !repoHarness.includes(f) && !docsPendentes.has(f) && !f.startsWith('contexto/'));
-      if (planted.length) await L(`Arquivos de harness removidos antes da sessão (não fazem parte do trabalho): ${planted.join(', ')}`, 'WARN');
-    }
-    // As etapas locais também podem consumir arquivos de trabalhos anteriores.
-    // Antes só as sessões de IA recebiam contexto/resultados/, portanto um plano
-    // de recuperação com local-shell falhava em "cp: arquivo inexistente", mesmo
-    // quando o artefato já estava guardado no catálogo do Nivoo.
-    if (!isAi) {
-      const origem = await this.prisma.conversationMessage.findFirst({
-        where: { jobId: job.id }, select: { conversationId: true },
-      });
-      if (origem) {
-        const outros = (await jobsDaConversa(this.prisma, origem.conversationId))
-          .filter(id => id !== job.id);
-        const resultados = await this.artifacts.copiarResultados(
-          job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'),
-        );
-        if (resultados.length) {
-          await L(`Resultados anteriores disponíveis também ao executor local: ${resultados.length} arquivo(s) em contexto/resultados/`);
-        }
-      }
-    }
+    const {protectedBefore,repoHarness,docsPendentes}=await prepareExecutionWorkspace(this.prisma,this.workspace,this.artifacts,job,step,providerId,isAi,worktree,knowledgeDir,L);
     const treeBefore = await this.workspace.snapshotHash(worktree);
 
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
@@ -523,72 +422,9 @@ export class StepExecutorService {
     if (contextStats.memoryOmitted || contextStats.overBudget) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) de memória omitidas do prompt (íntegras em .nivoo/memoria.md)`, 'INFO', attempt.id);
     }
-    // Tempo da sessão: o da etapa; com limite de tempo no trabalho (> 0), nunca além do que resta dele.
-    // 0 = sem limite de tempo no trabalho (não pode virar "1 segundo").
-    const remainingSec = job.maxDurationSec > 0 ? Math.max(1, job.maxDurationSec - job.activeSeconds) : Infinity;
-    // A captura offline não é uma sessão de IA; 625 quadros de 1080x1920
-    // podem exigir mais que os 900 s padrão. A cada quadro há checkpoint
-    // durável, portanto uma interrupção nunca exige recompor ou repetir tudo.
-    // Respeitar limites explícitos do trabalho (maxDurationSec).
-    const motionLongo = providerId === 'local-shell' && /\bnivoo-renderizar-motion\b/.test(step.instructions);
-    const tempoEtapaSec = motionLongo ? Math.max(job.stepTimeoutSec, 3600) : job.stepTimeoutSec;
-    const timeoutMs = Math.min(tempoEtapaSec, remainingSec) * 1000;
+    const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
     const started = Date.now();
-    let result: ExecutionResult;
-    // Logs do provedor são gravados em ordem, sem bloquear a execução.
-    let logChain = Promise.resolve();
-    let ultimoEvento = Date.now();
-    const progresso = setInterval(() => {
-      const tempo = Math.floor((Date.now() - started) / 1000);
-      const inatividade = Math.floor((Date.now() - ultimoEvento) / 1000);
-      const detail = `Sessão ativa há ${tempo}s; último evento do executor há ${inatividade}s (sem presumir avanço)`;
-      logChain = logChain.then(async () => {
-        await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { statusDetail: detail } }).catch(() => undefined);
-        await this.logs.log(job.id, detail, { stepId: step.id, attemptId: attempt.id, source: `provider:${providerId}` }).catch(() => undefined);
-      });
-    }, 60_000);
-    try {
-      result = await provider.execute({
-        jobId: job.id,
-        stepId: step.id,
-        attemptId: attempt.id,
-        instructions: step.instructions,
-        context,
-        cwd: worktree,
-        outputDir,
-        projectMediaDir: this.pastaDeMidia(job.project.dirKey),
-        systemPrompt: isAi ? profile.text : undefined,
-        timeoutMs,
-        signal,
-        // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
-        options: {
-          model: projectModel(job.project, providerId),
-          ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }),
-          // Sem corte arbitrário em 20 turnos: a sessão já tem timeout controlado.
-          // Só encaminha um teto se o plano/projeto o configurou explicitamente.
-          ...((step.providerOptions as { maxTurns?: number } | null)?.maxTurns ? { maxTurns: (step.providerOptions as { maxTurns: number }).maxTurns } : {}),
-        },
-        // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
-        ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
-        onSpawn: (pid) => {
-          logChain = logChain.then(() => this.prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
-        },
-        onLog: (line, level = 'INFO') => {
-          ultimoEvento = Date.now();
-          logChain = logChain.then(() =>
-            this.logs.log(job.id, line, { stepId: step.id, attemptId: attempt.id, level, source: `provider:${providerId}` }).catch(() => undefined),
-          );
-        },
-      });
-    } catch (e: any) {
-      result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
-      registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);
-    } finally {
-      clearInterval(progresso);
-    }
-    await logChain;
-    // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
-    if (isAi) this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
+    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profile.text,timeoutMs,signal,started);
 
     if (isAi && !result.interrupted) {
       // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
@@ -1457,25 +1293,7 @@ export class StepExecutorService {
   }
 }
 
-/** Conversa do chat em Markdown (usuário por inteiro; respostas longas da IA resumidas no começo e no fim). */
-export function conversaComoTexto(msgs: Array<{ role: string; content: string; kind: string | null; createdAt: Date; attachments?: unknown }>): string {
-  const partes = ['# Conversa que gerou este trabalho', ''];
-  let total = 0;
-  for (const m of msgs) {
-    const quem = m.role === 'USUARIO' ? 'Usuário' : m.kind === 'sistema' ? 'Sistema' : 'IA';
-    const limite = m.role === 'USUARIO' ? 40_000 : 6_000;
-    const c = m.content.length > limite ? `${m.content.slice(0, limite / 2)}\n… (cortado) …\n${m.content.slice(-limite / 2)}` : m.content;
-    const anexos = Array.isArray(m.attachments) && m.attachments.length ? `\n(anexos: ${m.attachments.map((a: any) => a?.nome).filter(Boolean).join(', ')} — em contexto/anexos/)` : '';
-    const bloco = `## ${quem} — ${m.createdAt.toISOString()}\n\n${c}${anexos}\n`;
-    total += bloco.length;
-    if (total > 600_000) {
-      partes.push('… (conversa longa demais: o restante foi omitido) …');
-      break;
-    }
-    partes.push(bloco);
-  }
-  return partes.join('\n');
-}
+export { conversaComoTexto } from './executor/conversation';
 
 /** Erro sem o que muda a cada execução (horários, durações, números, hashes): para comparar repetição. */
 export function normalizarErro(e: string): string {
