@@ -20,6 +20,12 @@ describe('preflight de imagem gerada', () => {
   it('bloqueia antes de gastar tokens quando o skill não entrega PNG local', () => {
     expect(checkGeneratedImageOutputs(step, 'codex-cli--450809da', workspace)).toContain('Faltam: motion/pizza-lombo.png');
   });
+  it('permite a geração nativa contratada antes de o PNG existir',()=>{
+    const native={...step,verifyCommand:'test -s motion/pizza-lombo.png',providerOptions:{visualAsset:{arquivo:'motion/pizza-lombo.png',transparente:true}}};
+    expect(checkGeneratedImageOutputs(native,'codex-cli--450809da',workspace)).toBeNull();
+    expect(checkGeneratedImageOutputs(native,'claude-code-cli',workspace)).not.toBeNull();
+    expect(checkGeneratedImageOutputs({...native,verifyCommand:step.verifyCommand},'codex-cli--450809da',workspace)).toContain('motion/pizza-peru-amora.png');
+  });
   it('não bloqueia quando todos os PNGs já estão no workspace', () => {
     fs.mkdirSync(path.join(workspace, 'motion'));
     fs.writeFileSync(path.join(workspace, 'motion/pizza-lombo.png'), Buffer.from([137,80,78,71]));

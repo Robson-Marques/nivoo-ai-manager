@@ -20,6 +20,7 @@ export async function selectPlannerCapabilities(area:AreaScope|undefined,registr
   const softwareInterface=softwareInterfaceEnabled(area);
   const paidVideo=media&&registry.has('gemini-video')&&(await registry.status('gemini-video',15_000)).available;
   const paidImage=media&&registry.has('gemini-image')&&(await registry.status('gemini-image',15_000)).available;
-  const codexImageProvider=media&&providerId&&isCodexAccount(providerId)&&registry.has(providerId)&&(await registry.status(providerId,15_000)).available?providerId:undefined;
+  const selected=media&&providerId&&isCodexAccount(providerId)&&registry.has(providerId)?await registry.status(providerId,15_000):undefined;
+  const codexImageProvider=selected?.available&&selected.capabilities?.includes('imagegen-native-adapter')?providerId:undefined;
   return {media,softwareInterface,paidVideo,paidImage,...(codexImageProvider?{codexImageProvider}:{})};
 }

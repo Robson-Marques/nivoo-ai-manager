@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto, resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
@@ -88,6 +89,70 @@ export function nativeImageCandidates(home:string,cwd:string,thread:string|undef
   }
   return [...unique.values()];
 }
+/** Codex rollout response_item and event_msg, and exec item.completed.
+ * Only typed tool results, never agent text or arbitrary base64 from prompts. */
+export function imageEventBytes(ev:any):Buffer|undefined{
+  const item=ev?.type==='item.completed'?ev.item:
+    (ev?.type==='response_item'||ev?.type==='event_msg')?ev.payload:undefined;
+  if(!item||!['image_generation','image_generation_call','image_generation_end'].includes(item.type)||
+    item.status==='failed'||item.status==='cancelled'||item.failure)return undefined;
+  const value=item.result??item.image?.result;
+  if(typeof value!=='string'||value.length<44||value.length>Math.ceil(MAX_BYTES/3)*4||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(value))return undefined;
+  const bytes=Buffer.from(value,'base64');
+  if(bytes.length<33||bytes.length>MAX_BYTES||!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||
+    bytes.toString('ascii',12,16)!=='IHDR'||bytes.subarray(-8,-4).toString('ascii')!=='IEND')return undefined;
+  return bytes;
+}
+/** Look only in the current account's dated session directory, for this
+ * exact thread UUID. Some CLI releases keep PNG bytes only in rollout JSONL. */
+export async function rolloutImageBytes(home:string,thread:string|undefined,startedAt:number):Promise<Buffer[]>{
+  if(!thread||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(thread))return [];
+  const dates=new Set<string>();
+  for(const t of [startedAt,Date.now()]){
+    for(const d of [-1,0,1]){
+      const date=new Date(t+d*86400000);
+      dates.add(date.toISOString().slice(0,10).replace(/-/g,'/'));
+    }
+  }
+  const found=new Map<string,Buffer>();
+  for(const date of dates){
+    let folder:string;
+    try{folder=resolveInside(home,'sessions/'+date);if(fs.realpathSync(folder)!==folder)continue;}catch{continue;}
+    let files:string[];
+    try{files=fs.readdirSync(folder).filter(f=>f.startsWith('rollout-')&&f.endsWith('-'+thread+'.jsonl'));}catch{continue;}
+    for(const name of files){
+      let file:string;
+      try{
+        file=resolveInside(folder,name);
+        const st=fs.lstatSync(file);
+        if(!st.isFile()||st.size>160*1024*1024||st.mtimeMs<startedAt-2000)continue;
+      }catch{continue;}
+      const input=fs.createReadStream(file,{flags:fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW});
+      const lines=createInterface({input,crlfDelay:Infinity});
+      let sessionMatches=false;
+      try{
+        for await(const line of lines){
+          if(line.length>Math.ceil(MAX_BYTES/3)*4+1024*1024)continue;
+          let ev:any;
+          try{ev=JSON.parse(line);}catch{continue;}
+          if(ev.type==='session_meta'){
+            sessionMatches=ev.payload?.id===thread;
+            if(!sessionMatches)break;
+          }
+          if(!sessionMatches)continue;
+          const bytes=imageEventBytes(ev);
+          if(bytes){
+            const hash=createHash('sha256').update(bytes).digest('hex');
+            if(!found.has(hash))found.set(hash,bytes);
+            if(found.size>1)return [...found.values()];
+          }
+        }
+      }catch{/* unavailable or incomplete rollout */}finally{lines.close();input.destroy();}
+    }
+  }
+  return [...found.values()];
+}
 export function imageEventPath(ev:any):string|undefined{
   const item=ev?.item;
   if(ev?.type!=='item.completed'||!['image_generation','image_generation_call'].includes(item?.type)||
@@ -107,26 +172,73 @@ export async function inspectNativePng(file:string,transparent:boolean):Promise<
   const {stdout}=await exec('ffmpeg',[...args,'-vf','format=rgba,alphaextract','-f','rawvideo','-pix_fmt','gray','pipe:1'],{encoding:'buffer',timeout:15000,maxBuffer:MAX_BYTES});
   if(!stdout.some(v=>v===0)||!stdout.some(v=>v>0))throw new Error('PNG sem recorte transparente real ou totalmente invisível.');
 }
-export async function recoverNativeImage(env:NodeJS.ProcessEnv,cwd:string,target:VisualAsset,thread:string|undefined,savedPaths:string[],startedAt:number):Promise<string>{
+export async function recoverNativeImage(env:NodeJS.ProcessEnv,cwd:string,target:VisualAsset,thread:string|undefined,savedPaths:string[],startedAt:number,inline:Buffer[]=[]):Promise<string>{
   const dest=resolveInside(cwd,target.arquivo);
   const home=env.CODEX_HOME??path.join(env.HOME??os.homedir(),'.codex');
   const candidates=nativeImageCandidates(home,cwd,thread,savedPaths,startedAt);
+  const blobs=new Map<string,Buffer>();
+  const add=(bytes:Buffer)=>{blobs.set(createHash('sha256').update(bytes).digest('hex'),bytes);};
+  for(const file of candidates)add(fs.readFileSync(file));
+  for(const bytes of inline)add(bytes);
+  // The on-disk output is preferred; consult rollout if the CLI did not save it.
+  if(!blobs.size)for(const bytes of await rolloutImageBytes(home,thread,startedAt))add(bytes);
+  const dataCandidates=[...blobs.values()];
   // An explicit destination copied by the agent is accepted only if it
   // matches bytes from this thread (or the native event points there).
   if(fs.existsSync(dest)){
     if(!pngFile(dest))throw new Error('Destino não contém PNG válido.');
     const data=fs.readFileSync(dest);
-    if(!candidates.some(p=>fs.readFileSync(p).equals(data)))throw new Error('PNG de destino não corresponde ao ImageGen desta sessão.');
+    if(!dataCandidates.some(p=>p.equals(data)))throw new Error('PNG de destino não corresponde ao ImageGen desta sessão.');
     await inspectNativePng(dest,target.transparente);
     return target.arquivo;
   }
-  if(candidates.length!==1)throw new Error(candidates.length?'ImageGen devolveu várias imagens sem seleção inequívoca.':'ImageGen não devolveu arquivo local desta sessão.');
-  const source=candidates[0];
-  await inspectNativePng(source,target.transparente);
-  const tmp=dest+'.'+randomUUID()+'.tmp';
+  if(dataCandidates.length!==1)throw new Error(dataCandidates.length?'ImageGen devolveu várias imagens sem seleção inequívoca.':'ImageGen não devolveu PNG nem resultado recuperável no registro desta sessão.');
+  const tmp=dest+'.'+randomUUID()+'.png';
   try{
-    fs.copyFileSync(source,tmp,fs.constants.COPYFILE_EXCL);
+    fs.writeFileSync(tmp,dataCandidates[0],{flag:'wx'});
+    await inspectNativePng(tmp,target.transparente);
     fs.linkSync(tmp,dest);
   }finally{fs.rmSync(tmp,{force:true});}
   return target.arquivo;
+}
+
+/** A retry only reuses a file with the receipt for the same job, step,
+ * provider and brief. An arbitrary preexisting PNG is not evidence. */
+export function visualReceiptKey(jobId:string,stepId:string,providerId:string,brief:string,target:VisualAsset):string{
+  return createHash('sha256').update(JSON.stringify([jobId,stepId,providerId,brief,target])).digest('hex');
+}
+function receiptFile(cwd:string,key:string):string{
+  if(!/^[a-f0-9]{64}$/.test(key))throw new Error('Identidade de ativo inválida.');
+  return resolveInside(cwd,'.nivoo/visual-assets/'+key+'.json');
+}
+export function recordVisualReceipt(cwd:string,target:VisualAsset,key:string):void{
+  const file=resolveInside(cwd,target.arquivo);
+  const receipt=receiptFile(cwd,key);
+  fs.mkdirSync(path.dirname(receipt),{recursive:true});
+  const tmp=receipt+'.'+randomUUID()+'.tmp';
+  try{
+    fs.writeFileSync(tmp,JSON.stringify({arquivo:target.arquivo,sha256:createHash('sha256').update(fs.readFileSync(file)).digest('hex')}),{flag:'wx',mode:0o600});
+    fs.renameSync(tmp,receipt);
+  }finally{fs.rmSync(tmp,{force:true});}
+}
+export async function reuseVisualReceipt(cwd:string,target:VisualAsset,key:string):Promise<boolean>{
+  const file=resolveInside(cwd,target.arquivo);
+  if(!fs.existsSync(file))return false;
+  let receipt:any;
+  try{receipt=JSON.parse(fs.readFileSync(receiptFile(cwd,key),'utf8'));}catch{return false;}
+  if(receipt.arquivo!==target.arquivo||!pngFile(file)||receipt.sha256!==createHash('sha256').update(fs.readFileSync(file)).digest('hex'))return false;
+  await inspectNativePng(file,target.transparente);
+  return true;
+}
+export function publishVisualPreview(cwd:string,outputDir:string,target:VisualAsset):void{
+  if(target.arquivo.startsWith('out/'))return;
+  fs.mkdirSync(outputDir,{recursive:true});
+  const source=resolveInside(cwd,target.arquivo);
+  const dest=resolveInside(outputDir,'visual-assets/'+target.arquivo);
+  fs.mkdirSync(path.dirname(dest),{recursive:true});
+  if(fs.existsSync(dest)){
+    if(!fs.readFileSync(source).equals(fs.readFileSync(dest)))throw new Error('Conflito na prévia do ativo.');
+    return;
+  }
+  fs.copyFileSync(source,dest,fs.constants.COPYFILE_EXCL);
 }

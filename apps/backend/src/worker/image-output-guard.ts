@@ -1,3 +1,4 @@
+import { nativeImageTarget, isCodexAccount } from '../providers/codex-image-assets';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -14,6 +15,7 @@ export interface ImageOutputStep {
   title: string;
   instructions: string;
   verifyCommand: string | null;
+  providerOptions?: unknown;
 }
 
 export function requiredRasterOutputs(command: string | null): string[] {
@@ -40,7 +42,8 @@ export function checkGeneratedImageOutputs(
   const wantsOriginal = /\b(?:criar|gerar|produzir|desenhar|create|generate)\b[\s\S]{0,100}\b(?:fotos?|imagens?|ilustrações?|ilustracoes?|photos?|images?)\b/i.test(text) ||
     /\b(?:fotos?|imagens?|photos?|images?)\s+(?:novas?|inéditas?|ineditas?|originais?)\b/i.test(text);
   if (!wantsOriginal) return null;
-  const targets = requiredRasterOutputs(step.verifyCommand);
+  const native=isCodexAccount(providerId)?nativeImageTarget((step.providerOptions as Record<string,unknown>|undefined)?.visualAsset):undefined;
+  const targets = requiredRasterOutputs(step.verifyCommand).filter(file=>file!==native?.arquivo);
   if (!targets.length) return null;
   const root = fs.realpathSync(workspace);
   const missing = targets.filter(rel => {

@@ -53,9 +53,11 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
 
     const matchesSource = candidateIndices.filter(i =>
       (String(steps[i].instructions ?? '') + ' ' + String(steps[i].verifyCommand ?? '')).includes(source));
-    if (matchesSource.length > 1) continue; // não adivinhar qual IA produz a fonte
-    if (!matchesSource.length && candidateIndices.length !== 1) continue;
-    const ci = matchesSource[0] ?? candidateIndices[0];
+    const explicit=matchesSource.filter(i=>['index.html','scene.json','overlays.json'].some(name=>String(steps[i].verifyCommand??'').includes(source+'/'+name)));
+    const pool=explicit.length?explicit:matchesSource.length?matchesSource:candidateIndices;
+    const linked=pool.filter(i=>Array.isArray(render.dependsOn)&&render.dependsOn.includes(steps[i].key));
+    if(pool.length!==1&&linked.length!==1)continue; // no unsafe guessing
+    const ci=pool.length===1?pool[0]:linked[0];
     const compose = steps[ci];
 
     // Na segunda passagem (validatePlan→create) ignorar instruções que o
@@ -63,14 +65,16 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const original = originalAuthorInstructions(compose);
     // Imagens geradas são insumos reais. Vincule apenas ativos da mesma cena
     // ou caminhos/dependências explicitamente selecionados pelo planejador.
-    const imageStages=steps.slice(0,ci).flatMap(s=>{
+    const imageStages=steps.flatMap((s,index)=>{
+      if(index===ci||index===ri)return [];
       if(!s||typeof s!=='object')return [];
       const opts=s.providerOptions as Record<string,unknown>|undefined;
       const native=nativeImageTarget(opts?.visualAsset);
       const file=String(native?.arquivo??(String(s.provider??defaultProvider)==='gemini-image'?opts?.arquivo:'' )??'');
       const key=String(s.key??'');
-      if(!key||!/^motion\/[A-Za-z0-9._/-]+\.png$/i.test(file)||file.split('/').includes('..'))return [];
-      return file.startsWith(source+'/')||original.includes(file)||(Array.isArray(compose.dependsOn)&&compose.dependsOn.includes(key))?[{key,file}]:[];
+      if(!key||!/^(?:motion|out)\/[A-Za-z0-9._/-]+\.png$/i.test(file)||file.split('/').includes('..'))return [];
+      const refs=(compose.providerOptions as Record<string,unknown>|undefined)?.visualReferences;
+      return file.startsWith(source+'/')||original.includes(file)||(Array.isArray(refs)&&refs.includes(file))||(Array.isArray(compose.dependsOn)&&compose.dependsOn.includes(key))?[{key,file}]:[];
     });
     if(imageStages.length){
       if(isCodex(String(compose.provider??defaultProvider))){
@@ -92,7 +96,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // the HTML scene with real WebGL geometry. Do not infer the restrictive
     // hybrid overlay contract from the mere word "3D".
     const selectedMode=readMotionMode(command);
-    const real3d = imageStages.length ? selectedMode==='hybrid' : pedeGeometria3D(text);
+    const real3d = imageStages.length || selectedMode==='html' ? selectedMode==='hybrid' : pedeGeometria3D(text);
     const hasPhotos = imageStages.length > 0 || /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
@@ -108,7 +112,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       reconcileAuthorOutput(compose,source,'graphics');
       continue;
     }
-    const mode: MotionMode = real3d ? 'hybrid' : imageStages.length || pedeGrafismos(text) ? 'graphics' : 'scene';
+    const mode: MotionMode = real3d ? 'hybrid' : imageStages.length || selectedMode==='html' || pedeGrafismos(text) ? 'graphics' : 'scene';
     render.instructions=selectRenderMode(command,source,mode==='graphics'?'html':mode);
     const authorKey=String(compose.key??'');
     if(authorKey && authorKey!==String(render.key??'')){

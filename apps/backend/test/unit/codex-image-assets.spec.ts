@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { nativeImageTarget,nativeImageCandidates,recoverNativeImage,prepareNativeImage,imageEventPath,isCodexAccount } from '../../src/providers/codex-image-assets';
+import { nativeImageTarget,nativeImageCandidates,recoverNativeImage,prepareNativeImage,imageEventPath,isCodexAccount,rolloutImageBytes,visualReceiptKey,recordVisualReceipt,reuseVisualReceipt } from '../../src/providers/codex-image-assets';
 import { compileWorkflowPlan } from '../../src/jobs/workflow/compile-plan';
 import { mediaImageGenerationRules } from '../../src/specialties/media/planner-contract';
 const thread='01234567-1234-1234-1234-0123456789ab';
@@ -38,6 +38,18 @@ describe('Codex ImageGen ligado ao Motion',()=>{
     const explicitGeometry=compileWorkflowPlan([art,author,{...render,instructions:render.instructions+' --motor hybrid'}],'codex-cli--450809da','Calendário 3D com malhas e produto',{template:'design-video'}) as any[];
     expect(explicitGeometry[2].instructions).toContain('--motor hybrid');
   });
+  it('liga referência final, recorte e composição por arquivo, mesmo fora de ordem',()=>{
+    const provider='codex-cli--450809da';
+    const ref={key:'referencia',title:'Criar referência',instructions:'ImageGen',providerOptions:{visualAsset:{arquivo:'motion/c/assets/ref.png'}}};
+    const cut={key:'recorte',title:'Criar recorte',instructions:'ImageGen',providerOptions:{visualAsset:{arquivo:'motion/c/assets/obj.png',transparente:true},visualReferences:['motion/c/assets/ref.png']}};
+    const author={key:'compor',title:'Composição',instructions:'Componha motion/c/index.html',verifyCommand:'test -s motion/c/index.html'};
+    const render={key:'render',provider:'local-shell',instructions:'nivoo-renderizar-motion motion/c --saida midia/saida/c.mp4 --segundos 12 --tamanho 1080x1920'};
+    const plan=compileWorkflowPlan([cut,ref,author,render],provider,'Campanha',{template:'design-video'}) as any[];
+    expect(plan[0].dependsOn).toContain('referencia');
+    expect(plan[2].dependsOn).toEqual(expect.arrayContaining(['referencia','recorte']));
+    expect(plan[3].dependsOn).toContain('compor');
+    expect(()=>compileWorkflowPlan([ref,{...cut,providerOptions:ref.providerOptions},author,render],provider,'Campanha',{template:'design-video'})).toThrow(/mesmo/);
+  });
   it('recupera somente o PNG da própria sessão, preservando alfa e sem sobrescrever',async()=>{
     const root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-image-test-'));
     try{
@@ -55,8 +67,24 @@ describe('Codex ImageGen ligado ao Motion',()=>{
       await expect(recoverNativeImage({CODEX_HOME:home},cwd,target,thread,[],Date.now()-10000)).resolves.toBe(target.arquivo);
       expect(fs.readFileSync(path.join(cwd,target.arquivo))).toEqual(fs.readFileSync(png));
       expect(()=>prepareNativeImage(cwd,target)).toThrow();
+      const receipt=visualReceiptKey('job','step','codex-cli','brief',target);
+      recordVisualReceipt(cwd,target,receipt);
+      await expect(reuseVisualReceipt(cwd,target,receipt)).resolves.toBe(true);
+      await expect(reuseVisualReceipt(cwd,target,visualReceiptKey('job','other','codex-cli','brief',target))).resolves.toBe(false);
+      const base64=fs.readFileSync(png).toString('base64');
       fs.unlinkSync(png);
       expect(nativeImageCandidates(home,cwd,thread,[],Date.now()-10000)).toEqual([]);
+      const dated=path.join(home,'sessions',new Date().toISOString().slice(0,10).replace(/-/g,'/'));
+      fs.mkdirSync(dated,{recursive:true});
+      fs.writeFileSync(path.join(dated,'rollout-fixture-'+thread+'.jsonl'),[
+        {type:'session_meta',payload:{id:thread}},
+        {type:'response_item',payload:{type:'image_generation_call',status:'generating',result:base64}}
+      ].map(x=>JSON.stringify(x)).join('\n'));
+      const fromRollout=nativeImageTarget({arquivo:'motion/c/assets/recuperado.png',transparente:true})!;
+      prepareNativeImage(cwd,fromRollout);
+      expect((await rolloutImageBytes(home,thread,Date.now()-10000)).length).toBe(1);
+      await expect(recoverNativeImage({CODEX_HOME:home},cwd,fromRollout,thread,[],Date.now()-10000)).resolves.toBe(fromRollout.arquivo);
+      expect(fs.readFileSync(path.join(cwd,fromRollout.arquivo)).toString('base64')).toBe(base64);
     }finally{fs.rmSync(root,{recursive:true,force:true});}
   });
 });

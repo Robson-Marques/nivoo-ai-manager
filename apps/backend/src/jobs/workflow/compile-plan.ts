@@ -16,7 +16,7 @@ export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultPr
   const prioritized=media?aplicarPrioridadeDosExecutores(normalized.steps,defaultProvider):normalized.steps;
   const assembled=comVideoCompleto(prioritized,defaultProvider);
   const linked=dependenciasDeMontagemPorArquivo(assembled,defaultProvider);
-  return {steps:media?conectarMotorMotion(linked,defaultProvider,objective):linked,criteria:normalizeWorkflowCriteria(criteria,normalized.aliases)};
+  return {steps:media?dependenciasDeMontagemPorArquivo(conectarMotorMotion(linked,defaultProvider,objective),defaultProvider):linked,criteria:normalizeWorkflowCriteria(criteria,normalized.aliases)};
 }
 export function compileWorkflowPlan(raw:unknown,defaultProvider:string,objective:string,area?:AreaScope):unknown{
   return compileWorkflowDefinition(raw,undefined,defaultProvider,objective,area).steps;

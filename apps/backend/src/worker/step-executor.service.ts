@@ -298,7 +298,7 @@ export class StepExecutorService {
     // Pré-conferência determinística: os PNGs exigidos pelo plano vêm do MP4
     // permanente e devem ser extraídos pelo backend, ANTES de gastar sessões de IA.
     // A composição/renderização já aprovada não é repetida.
-    if (isAi && quadrosRequeridos(step.verifyCommand ?? '').length) {
+    if (isAi && !nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset) && quadrosRequeridos(step.verifyCommand ?? '').length) {
       const etapas = await this.prisma.step.findMany({
         where: { jobId: job.id, provider: 'local-shell' },
         orderBy: { order: 'asc' },
@@ -839,7 +839,8 @@ export class StepExecutorService {
   private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, retryAfterMs?: number): Promise<StepOutcome> {
     // IA reserva: acabou o crédito/limite da IA do projeto → continua sozinho com a próxima conectada.
     const providerId = step.provider ?? job.defaultProvider;
-    const reserva = await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId).catch(() => null);
+    const visual=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
+    const reserva = visual?null:await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId).catch(() => null);
     if (reserva) {
       const aviso = `${reserva.anterior} ficou indisponível (${detail.slice(0, 200)}). O trabalho continua com ${reserva.nome}, do ponto em que estava.`;
       await this.logs.log(job.id, aviso, { stepId: step.id, level: 'WARN', source: 'worker' });

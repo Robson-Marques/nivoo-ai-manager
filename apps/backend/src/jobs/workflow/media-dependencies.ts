@@ -1,3 +1,4 @@
+import { nativeImageTarget,visualReferences,isCodex } from '../../providers/codex-image-assets';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto } from '../../common/path-guard';
 import { mediaDeliveries } from '../../specialties/media/delivery';
@@ -18,10 +19,14 @@ const mediaPath=(v:unknown)=>caminhoDoProjeto(v);
 
 /** Physical outputs of the official media connectors, not inferred from titles. */
 export function mediaOutputs(step:Step,defaultProvider:string):string[]{
-  return mediaDeliveries(String(step.provider??defaultProvider),String(step.instructions??''),record(step.providerOptions),typeof step.key==='string'?step.key:'video').map(x=>x.path);
+  const provider=String(step.provider??defaultProvider),opts=record(step.providerOptions);
+  const image=nativeImageTarget(opts.visualAsset)?.arquivo??(provider==='gemini-image'?mediaPath(opts.arquivo):undefined);
+  return [...new Set([...mediaDeliveries(provider,String(step.instructions??''),opts,typeof step.key==='string'?step.key:'video').map(x=>x.path),...(image?[image]:[])])];
 }
 export function mediaInputs(step:Step,defaultProvider:string):string[]{
   const provider=step.provider??defaultProvider,opts=record(step.providerOptions);
+  if(isCodex(String(provider)))return visualReferences(opts.visualReferences);
+  if(provider==='gemini-image')return Array.isArray(opts.referencias)?opts.referencias.map(mediaPath).filter((x):x is string=>!!x):[];
   if(provider!=='juntar-videos')return [];
   return [...normalizarCenasDeMontagem(opts),record(opts.narracao).arquivo,record(opts.trilha).arquivo]
     .flatMap(value=>{
