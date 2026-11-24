@@ -1,4 +1,5 @@
 import type { Skill } from '../skills';
+import { BACKEND_SKILL,backendIntent } from './backend';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -8,9 +9,7 @@ export const SOFTWARE_SKILLS = [
   {id:'software-arquitetura',domain:'software',description:'Arquitetura e compreensão de dependências',source:upstream+'fastgen-develop',
     action:'Localize o componente responsável, leia sua implementação, contratos e consumidores antes de modificar a estrutura.',
     body:'Trabalhe sobre a revisão real do workspace. Consulte contexto/acervo/arquitetura-indice.md quando disponibilizado; ele é um índice, não prova de leitura ou de completude. Identifique pontos de entrada, componente dono, interfaces, consumidores e persistência/efeitos quando pertinentes. Leia manifestos, configurações de aliases e implementações completas relevantes antes de editar. Trace uma operação desde a entrada até o resultado, incluindo caminhos de erro. Confirme os consumidores de contratos alterados, inclusive referências dinâmicas não visíveis no mapa. Preserve o comportamento não solicitado e altere conjuntamente os contratos afetados. Não invente arquitetura nem crie um serviço paralelo para contornar uma falha. Faça a análise durante a mesma sessão produtiva, sem relatório obrigatório ou nova revisão.'},
-  {id:'software-backend',domain:'software',description:'Serviços, APIs e regras de negócio',source:upstream+'fastgen-develop',
-    action:'Implemente a regra na camada responsável e preserve os contratos entre entrada, serviço, persistência e resposta.',
-    body:'Use o framework e as convenções existentes. Separe transporte, regra de negócio e persistência conforme a arquitetura real. Trate estados, erros, concorrência e efeitos colaterais na fronteira responsável. Não introduza uma fila, serviço ou dependência sem necessidade demonstrada.'},
+  BACKEND_SKILL,
   {id:'software-frontend',domain:'software',description:'Interfaces de software e integração com serviços',source:upstream+'fastgen-develop',
     action:'Leia os componentes e o contrato real da API; preserve estados, navegação, acessibilidade e responsividade.',
     body:'Respeite a biblioteca de componentes, o design e as rotas existentes. Ligue a interface a operações reais, trate carregamento, vazio, erro e sucesso. Não simule funcionalidade com dados fictícios ou botões inertes. Confira os consumidores quando alterar um componente compartilhado.'},
@@ -33,7 +32,6 @@ export const SOFTWARE_SKILLS = [
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-backend',/\b(backend|controller\w*|endpoint\w*|nestjs|express|fastapi|django|laravel|servicos? de negocio|regras? de negocio|workers?|filas?|concorrencia)\b/],
   ['software-frontend',/\b(frontend|react|vue|angular|svelte|next\.js|componentes? (?:react|de interface)|interface (?:web|do sistema)|responsiv\w*|formularios?|telas? do sistema)\b/],
   ['software-dados',/\b(banco de dados|postgres(?:ql)?|mysql|sqlite|mongodb|prisma|orm|sql|migrac\w*|transacoes?|schema|modelagem de dados)\b/],
   ['software-integracoes',/\b(integrac\w*|webhooks?|oauth\w*|api externa|apis externas|api rest|graphql|grpc|idempotenc\w*|contratos? de api|sdk)\b/],
@@ -45,5 +43,7 @@ const routes:ReadonlyArray<readonly [string,RegExp]> = [
 /** Input is the normalized current task, never historical conversation or
  * a provider-supplied instruction. Domain authorization belongs to caller. */
 export function selectSoftwareSkillIds(text:string):string[]{
-  return routes.filter(([,pattern])=>pattern.test(text)).map(([id])=>id);
+  const ids=routes.filter(([,pattern])=>pattern.test(text)).map(([id])=>id);
+  if(backendIntent(text))ids.push('software-backend');
+  return ids;
 }

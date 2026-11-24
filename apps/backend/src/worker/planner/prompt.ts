@@ -13,6 +13,7 @@ import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
 import { selectSkills,skillContext } from '../../specialties/skills';
 import { architectureContext } from '../../specialties/software/architecture-context';
+import { backendEngineeringContext } from '../../specialties/software/backend';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
 
@@ -58,6 +59,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       ...skillContext(skills,request.worktree),
       ...(skills.some(s=>s.id==='codigo')?architectureContext(request.worktree,task):[]),
+      ...(skills.some(s=>s.id==='software-backend')?backendEngineeringContext('planner',task):[]),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [
