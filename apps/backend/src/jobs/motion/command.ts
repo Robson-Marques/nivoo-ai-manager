@@ -11,8 +11,7 @@ export interface MotionInvocation {
   width?: number;
   height?: number;
 }
-export const MOTION_COMMAND = /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-renderizar-motion(?=\s|$)/m;
-export function readMotionInvocation(script: string): MotionInvocation | null {
+function motionCommandWords(script:string): string[][] {
   // Split only on unquoted command boundaries, without interpreting shell
   // substitutions, expansions, escapes or running the input.
   const commands: string[][] = [];
@@ -21,7 +20,7 @@ export function readMotionInvocation(script: string): MotionInvocation | null {
   const end=()=>{flush();if(tokens.length)commands.push(tokens);tokens=[];};
   for(const c of script) {
     if(comment){if(c==='\n'){comment=false;end();}continue;}
-    if(escaped){token+=c;escaped=false;continue;}
+    if(escaped){if(c!=='\n')token+=c;escaped=false;continue;}
     if(c==='\\'&&quote!=="'"){escaped=true;continue;}
     if(quote){if(c===quote)quote='';else token+=c;continue;}
     if(c==="'"||c==='"'){quote=c;continue;}
@@ -30,15 +29,28 @@ export function readMotionInvocation(script: string): MotionInvocation | null {
     if(/\s/.test(c)){flush();continue;}
     token+=c;
   }
-  if(quote||escaped)return null;
+  if(quote||escaped)return [];
   end();
-  const invocations=commands.filter(parts=>{
+  return commands.filter(parts=>{
     const executable=parts[0]==='env'?parts[1]:parts[0];
     return executable==='nivoo-renderizar-motion'||executable==='/usr/local/bin/nivoo-renderizar-motion';
   });
-  // A multi-render shell script has no single output contract.
-  if(invocations.length!==1)return null;
-  const words=invocations[0];
+}
+
+export function hasMotionCommand(script:string):boolean {
+  return motionCommandWords(script).length>0;
+}
+export function readMotionInvocations(script:string):MotionInvocation[] {
+  return motionCommandWords(script).flatMap(words=>{
+    const invocation=describe(words);
+    return invocation?[invocation]:[];
+  });
+}
+export function readMotionInvocation(script: string): MotionInvocation | null {
+  const invocations=motionCommandWords(script);
+  return invocations.length===1?describe(invocations[0]):null;
+}
+function describe(words:string[]):MotionInvocation|null {
   const source=words[words[0]==='env'?2:1];
   if(!source||!/^motion\/[A-Za-z0-9._/-]+$/.test(source)||source.split('/').includes('..'))return null;
   const flag=(key:string):string|undefined=>{
