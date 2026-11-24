@@ -54,17 +54,19 @@ function normalizeMotionProfile(value) {
  */
 function motionLength(value, canvas, fallback) {
   let number=value;
+  let pxExplicit=false, percent=false;
   if (typeof number==='string') {
-    const v=number.trim().toLowerCase();
+    const v=number.trim().toLowerCase().replace(',', '.');
     if (/^(auto|inherit|initial|unset)$/.test(v)) return fallback;
-    const pct=v.match(/^(\d+(?:\.\d+)?)\s*%$/);
-    if(pct) number=canvas*Number(pct[1])/100;
+    const pct=v.match(/^((?:\d+(?:\.\d+)?|\.\d+))\s*%$/);
+    if(pct){number=canvas*Number(pct[1])/100;percent=true;}
     else {
-      const px=v.match(/^(\d+(?:\.\d+)?)\s*(?:px)?$/);
-      number=px?Number(px[1]):NaN;
+      const px=v.match(/^((?:\d+(?:\.\d+)?|\.\d+))\s*(px)?$/);
+      if(px){number=Number(px[1]);pxExplicit=!!px[2];}
+      else number=NaN;
     }
-  } else if (typeof number==='number' && number>0 && number<=1) {
-    // Dimensões 0..1 utilizadas por editores com coordenadas normalizadas.
+  }
+  if (!pxExplicit&&!percent&&typeof number==='number'&&number>0&&number<=1) {
     number=canvas*number;
   }
   if (typeof number!=='number'||!Number.isFinite(number)||number<=0||number>12000)
