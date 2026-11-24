@@ -73,10 +73,9 @@ function run() {
   const old=[render];
   assert.deepEqual(conectarMotorMotion(old,'codex-cli',objective),old,
     'renderizar composição existente não exige migrar obra do usuário');
-  assert.throws(() => conectarMotorMotion(old,'codex-cli',
-    'Corrija o recorte das pizzas no vídeo 3D; é preciso alterar a imagem'),
-    /MOTION_CONTRATO:.*Só renderizar a composição antiga repetiria o defeito/,
-    'o Nivo não pode propor apenas um re-render quando a cena precisa de correção');
+  assert.deepEqual(conectarMotorMotion(old,'codex-cli',
+    'Re-renderize as pizzas do vídeo 3D existente depois de corrigir o motor'),old,
+    'correção do motor NÃO obriga reabrir a IA nem reescrever a composição pronta');
   assert.deepEqual(conectarMotorMotion([{...render,instructions:'echo ok'}],'codex-cli',objective),
     [{...render,instructions:'echo ok'}],
     'sem chamada do renderizador, não forçar motor');
