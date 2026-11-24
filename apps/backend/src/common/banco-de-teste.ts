@@ -14,6 +14,12 @@ export function nomeDoBancoDeTeste(jobId: string): string {
   return `teste_${jobId.replace(/[^a-f0-9]/gi, '').slice(0, 20).toLowerCase()}`;
 }
 
+/** Only the current job or preview's generated name can reach SQL. */
+export function nomeDeBancoDescartavelValido(id:string,nome:string):boolean{
+  const suffix=id.replace(/[^a-f0-9]/gi,'').slice(0,20).toLowerCase();
+  return suffix.length>0&&(nome==='teste_'+suffix||nome==='previa_'+suffix);
+}
+
 function conexao(): URL | null {
   try {
     return process.env.NIVOO_TESTES_PG_URL ? new URL(process.env.NIVOO_TESTES_PG_URL) : null;
@@ -38,6 +44,7 @@ export async function prepararBancoDeTeste(jobId: string, nomeProprio?: string):
   const u = conexao();
   if (!u) return null;
   const nome = nomeProprio ?? nomeDoBancoDeTeste(jobId);
+  if(!nomeDeBancoDescartavelValido(jobId,nome))throw new Error('Nome de banco descartável incompatível com o trabalho ou a prévia.');
   const existe = await psql(`SELECT 1 FROM pg_database WHERE datname = '${nome}'`);
   if (!existe.ok) throw new Error(`não consegui falar com o PostgreSQL de testes: ${existe.saida.slice(0, 300)}`);
   if (existe.saida !== '1') {
@@ -66,7 +73,9 @@ export async function prepararBancoDeTeste(jobId: string, nomeProprio?: string):
 /** Apaga o banco do trabalho (fim do trabalho). Nunca lança. */
 export async function descartarBancoDeTeste(jobId: string, nomeProprio?: string): Promise<boolean> {
   if (!conexao()) return false;
-  const r = await psql(`DROP DATABASE IF EXISTS "${nomeProprio ?? nomeDoBancoDeTeste(jobId)}" WITH (FORCE)`).catch(() => ({ ok: false, saida: '' }));
+  const nome=nomeProprio??nomeDoBancoDeTeste(jobId);
+  if(!nomeDeBancoDescartavelValido(jobId,nome))return false;
+  const r = await psql(`DROP DATABASE IF EXISTS "${nome}" WITH (FORCE)`).catch(() => ({ ok: false, saida: '' }));
   return r.ok;
 }
 

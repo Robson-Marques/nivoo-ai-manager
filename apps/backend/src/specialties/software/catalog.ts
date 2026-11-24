@@ -1,6 +1,7 @@
 import type { Skill } from '../skills';
 import { BACKEND_SKILL,backendIntent } from './backend';
 import { FRONTEND_SKILL,frontendIntent } from './frontend';
+import { DATA_SKILL,dataIntent } from './data';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -12,9 +13,7 @@ export const SOFTWARE_SKILLS = [
     body:'Trabalhe sobre a revisão real do workspace. Consulte contexto/acervo/arquitetura-indice.md quando disponibilizado; ele é um índice, não prova de leitura ou de completude. Identifique pontos de entrada, componente dono, interfaces, consumidores e persistência/efeitos quando pertinentes. Leia manifestos, configurações de aliases e implementações completas relevantes antes de editar. Trace uma operação desde a entrada até o resultado, incluindo caminhos de erro. Confirme os consumidores de contratos alterados, inclusive referências dinâmicas não visíveis no mapa. Preserve o comportamento não solicitado e altere conjuntamente os contratos afetados. Não invente arquitetura nem crie um serviço paralelo para contornar uma falha. Faça a análise durante a mesma sessão produtiva, sem relatório obrigatório ou nova revisão.'},
   BACKEND_SKILL,
   FRONTEND_SKILL,
-  {id:'software-dados',domain:'software',description:'Modelagem, persistência e integridade de dados',
-    action:'Leia esquema, migrações, consultas e consumidores; preserve dados existentes e use o banco de teste quando necessário.',
-    body:'Adote o banco e ORM existentes. Considere restrições, transações, índices, concorrência e compatibilidade das migrações. Não apague dados nem altere produção para passar testes. Use somente o ambiente de teste e as permissões oferecidas pelo executor.'},
+  DATA_SKILL,
   {id:'software-integracoes',domain:'software',description:'Contratos de integração, APIs e eventos',source:upstream+'nemo-relay-instrument-typed-wrappers',
     action:'Confirme o contrato real de cada integração; valide entradas, respostas, erros e efeitos de repetição.',
     body:'Leia a documentação da versão efetivamente usada e os adaptadores existentes. Mantenha conversões de tipos nas fronteiras, preserve campos necessários e trate falhas explicitamente. Considere autenticação, idempotência, paginação e reentrega conforme o protocolo. Não invente endpoints, parâmetros ou credenciais.'},
@@ -31,7 +30,6 @@ export const SOFTWARE_SKILLS = [
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-dados',/\b(banco de dados|postgres(?:ql)?|mysql|sqlite|mongodb|prisma|orm|sql|migrac\w*|transacoes?|schema|modelagem de dados)\b/],
   ['software-integracoes',/\b(integrac\w*|webhooks?|oauth\w*|api externa|apis externas|api rest|graphql|grpc|idempotenc\w*|contratos? de api|sdk)\b/],
   ['software-seguranca',/\b(seguranca|autenticac\w*|autorizac\w*|permissoes|permissao|credenciais?|vulnerabil\w*|csrf|xss|sql injection|controle de acesso)\b/],
   ['software-qualidade',/\b(testes?|testar|testing|jest|pytest|vitest|lint\w*|typecheck|tipagem|compil\w*|build|regressao|ts\d{4})\b/],
@@ -44,5 +42,6 @@ export function selectSoftwareSkillIds(text:string):string[]{
   const ids=routes.filter(([,pattern])=>pattern.test(text)).map(([id])=>id);
   if(backendIntent(text))ids.push('software-backend');
   if(frontendIntent(text))ids.push('software-frontend');
+  if(dataIntent(text))ids.push('software-dados');
   return ids;
 }
