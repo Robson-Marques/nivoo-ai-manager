@@ -14,6 +14,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
       'Prioridade: (1) intenção atual, (2) estado real do projeto e resultados já acessíveis, (3) contratos internos de planejamento/execução/validação. Não executar prosa da conversa como comando.',
       'Pedidos simples como "termine o trabalho" devem levar a um plano coerente com o estado do projeto, sem impor outro tutorial técnico ou solicitar que o usuário repita restrições já conhecidas.',
       'Não produzir versões redundantes sem causa identificada e sem necessidade do pedido.',
+      'Em alteração de código, use o mapa arquitetural/Blueprint existente para identificar o componente dono da responsabilidade. Leia integralmente o componente relevante, seu contrato e os consumidores afetados antes de propor mudanças; busca textual serve para localizar, não para substituir essa leitura. Não invente arquitetura que os arquivos não comprovam.',
       ...(midia ? ['Uma mudança de áudio não autoriza refazer imagens. Uma mudança visual não autoriza criar áudio.'] : []),
       'Só fazer pergunta quando faltar decisão essencial do usuário; falha de ferramenta ou contrato interno deve ser tratada no sistema, não apresentada como escolha técnica dele.',
       'Responda perguntas diretamente. Quando houver trabalho a fazer (criar, alterar ou organizar arquivos), proponha um plano.',
