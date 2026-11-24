@@ -112,9 +112,11 @@ const motionAuthorExample = {
       keys:[{at:1,opacity:0,scale:.9},{at:2,opacity:1,scale:1,easing:'smooth'}]},
   ],
 };
-function motionAuthorContract() {
+function motionAuthorContract(overlay=false) {
+  const example=overlay?{...motionAuthorExample,layers:motionAuthorExample.layers.filter(l=>l.type==='image'&&l.id!=='fundo')}:motionAuthorExample;
   return [
-    'Use este exemplo funcional do próprio motor (adapte conteúdo, duração, layout e animações ao briefing; não copie a arte): '+JSON.stringify(motionAuthorExample),
+    (overlay?'Exemplo de camada de mídia transparente; não é a arte 3D nem contém o fundo. ':'')+
+      'Use este exemplo funcional do próprio motor (adapte conteúdo, duração, layout e animações ao briefing; não copie a arte): '+JSON.stringify(example),
     'Tempo: duration, pacing.sourceDuration, openingEnd/openingSeconds, keys[].at e neon start/end em segundos; keys ordenadas e sem tempos duplicados, de 0 até sourceDuration ou duration. Sem timestamps em frames ou milissegundos implícitos.',
     'Coordenadas x/y e dimensões em pixels, origem no canto superior esquerdo; x/y são o centro da camada. z/supportZ ordenam camadas. Opacity 0–1, scale 0.01–20, rotation em graus.',
     'Keyframes animam somente x, y, z, rotation, opacity, scale; easing: linear, smooth, out, back. Informe o estado inicial explicitamente em at:0 quando precisar ocultar uma camada antes da entrada.',
