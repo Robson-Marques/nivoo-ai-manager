@@ -160,10 +160,12 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
     const motionTime=mapMotionTime(frame/fps,seconds,pacing);
     if (frame) await page.clock.runFor(Math.max(0,(motionTime-previousMotionTime)*1000));
     previousMotionTime=motionTime;
-    if (already[frame]) continue;
-    // Overlay RGBA deve mostrar precisamente o mesmo tempo do WebGL de fundo,
-    // mesmo que os assets da camada levem tempo adicional para carregar.
+    // Overlay RGBA deve mostrar precisamente o mesmo tempo do WebGL de fundo.
+    // Não permitir que RAF autônomo apague as fotos entre captura e screenshot.
+    // Executar mesmo com cache reutilizado para manter relógio e indicadores
+    // de desenho sincronizados; NÃO repetir a criação dos JPEGs já válidos.
     if (hasMediaOverlay) await page.evaluate(t => window.__nivooOverlayRenderAt(t), motionTime);
+    if (already[frame]) continue;
     const jpg = await page.screenshot({ type: 'jpeg', quality: 90, animations: 'allow', caret: 'hide', timeout: 120000 });
     if (!Buffer.isBuffer(jpg) || jpg.length < 100 || jpg[0] !== 0xff || jpg[1] !== 0xd8 || jpg.at(-2) !== 0xff || jpg.at(-1) !== 0xd9) {
       throw new Error(`Quadro ${frame} JPEG inválido`);
@@ -184,6 +186,18 @@ async function renderMotionOffline({ page, outputPath, sourcePath, seconds, widt
   }
   if (sourceFingerprint(sourcePath) !== fingerprint) {
     throw new Error('Os arquivos da composição mudaram durante a renderização; os quadros existentes foram preservados e não será publicado um vídeo misturado.');
+  }
+  // Parte da própria renderização, sem segunda IA/revisor: não publicar um MP4
+  // que nunca desenhou os produtos previstos. O usuário já recebeu vídeo
+  // com tábuas vazias; isso é falha técnica, não avaliação estética.
+  if (hasMediaOverlay) {
+    const media=await page.evaluate(()=>({
+      essential:window.__nivooRequiredProductPhotoIds??[],
+      shown:window.__nivooOverlayStats?.everDrawnIds??[],
+    }));
+    const missing=media.essential.filter(id=>!media.shown.includes(id));
+    if(missing.length) throw new Error('MOTION_MIDIA_AUSENTE: fotografias jamais desenhadas nos quadros: '+
+      missing.join(', ')+'. Nenhum MP4 incompleto foi publicado.');
   }
   // Apenas agora o FFmpeg comprime. EPIPE do encerramento do navegador não
   // destrói a captura; JPEGs persistem até o MP4 ser validado e publicado.
