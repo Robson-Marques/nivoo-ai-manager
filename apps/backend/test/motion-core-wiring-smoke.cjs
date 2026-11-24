@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const {conectarMotorMotion} = require('../dist/jobs/motion-core-routing');
-const {checkMotionSource}=require('../bin/motion-scene-core');
+const {checkMotionSource,resolveMotionSource}=require('../bin/motion-scene-core');
 
 function run() {
   const source='motion/promocao-v5';
@@ -155,6 +155,15 @@ function run() {
     fs.writeFileSync(source+'/index.html','<html><body><canvas></canvas></body></html>');
     fs.writeFileSync(source+'/overlays.json',JSON.stringify(standard));
     assert.equal(checkMotionSource(source,'hybrid').mode,'hybrid');
+    // Mesmo diretório, três motores possíveis. A fonte explícita prevalece.
+    assert.equal(resolveMotionSource(source,'auto').mode,'scene');
+    assert.equal(resolveMotionSource(source+'/index.html','auto').mode,'hybrid');
+    assert.equal(checkMotionSource(source+'/index.html','auto').mode,'hybrid');
+    assert.equal(resolveMotionSource(source,'html').mode,'html');
+    assert.equal(resolveMotionSource(source,'html').overlayPath,null);
+    assert.equal(checkMotionSource(source,'html').mode,'html');
+    assert.throws(()=>resolveMotionSource(source+'/index.html','scene'),/MOTION_CONTRATO/);
+    assert.throws(()=>resolveMotionSource(source+'/scene.json','hybrid'),/MOTION_CONTRATO/);
     // O mesmo produto não pode ser desenhado dentro do HTML e no overlay.
     fs.writeFileSync(source+'/index.html','<script src="assets/pizza.png"></script>');
     assert.throws(()=>checkMotionSource(source,'hybrid'),/MOTION_CONTRATO:.*referenciada no index.html/);
