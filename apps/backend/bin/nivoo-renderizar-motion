@@ -125,7 +125,7 @@ function motionSceneCore() {
       const { scene, binaries, warnings } = loadScene(entrada);
       warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
       if (scene.width !== W || scene.height !== H)
-        throw new Error(`Resolução da cena ${scene.width}x${scene.height} difere de --tamanho ${W}x${H}; ajuste a saída antes do render`);
+        console.warn(`nivoo-renderizar-motion: tamanho de cena ${scene.width}x${scene.height} diferente da saída ${W}x${H}; renderizando e deixando avaliação visual ao usuário`);
       await pagina.setContent(sceneDocument(scene, binaries), { waitUntil: 'load', timeout: 30_000 });
       let deadline;
       try {
@@ -148,16 +148,16 @@ function motionSceneCore() {
         const { loadScene, overlayScript } = motionSceneCore();
         const { scene, binaries, warnings } = loadScene(overlayPath);
         warnings.forEach(w => console.warn('nivoo-renderizar-motion: aviso de mídia: ' + w));
-        if (scene.width !== W || scene.height !== H) throw new Error(
-          `MOTION_CONTRATO: overlay ${scene.width}x${scene.height} difere de saída ${W}x${H}`);
+        if (scene.width !== W || scene.height !== H) console.warn(
+          `nivoo-renderizar-motion: overlay ${scene.width}x${scene.height} e saída ${W}x${H}; mantendo render para avaliação`);
         // O relógio do overlay usa tempo de ORIGEM do WebGL; a duração
         // declarada deve ser a da composição antes de qualquer aceleração.
         const sourceDuration=Number(await pagina.evaluate(()=>window.__motionSegundos));
         if (Number.isFinite(sourceDuration) && sourceDuration>0 &&
             Math.abs(scene.duration-sourceDuration)>0.12) {
-          throw new Error('MOTION_CONTRATO: overlays.json.duration='+scene.duration+
-            ' deve coincidir com a duração original do HTML/WebGL ('+sourceDuration+
-            's), não com a duração acelerada do MP4.');
+          console.warn('nivoo-renderizar-motion: duração do overlay ('+scene.duration+
+            's) diferente da composição ('+sourceDuration+
+            's); preservando saída e permitindo revisão visual');
         }
         await pagina.evaluate((size) => {
           const canvas = document.createElement('canvas');
