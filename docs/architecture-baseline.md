@@ -61,3 +61,7 @@ Ver [Capability de produção audiovisual](architecture/capabilities/media-produ
 ## Executor — frente 4/7
 
 O ciclo de vida do job continua em `StepExecutorService`; `worker/executor/` concentra contexto, workspace, prompt, despacho, conferência técnica e resultado operacional em módulos independentes. O contrato `ExecutionRequest` existente permanece a interface de todos os provedores. O contexto de IA é construído somente quando o provedor não é executor determinístico; a instrução real permanece registrada. A seleção de ferramentas de software é compartilhada com o planejador. Recuperação e propriedade de artefatos permanecem no escopo da frente 5. Evidências e limitações em [plano de recuperação](architecture/recovery-plan.md).
+
+## Recuperação — frente 5/7
+
+`worker/executor/recovery-policy.ts` contém decisões de continuidade, `recovery-store.ts` preserva checkpoints e memória, `media-recovery.ts` vincula saídas físicas à tentativa produtora. O executor coordena transições persistidas e fila; a publicação não infere autoria pelos critérios globais do job. Histórico e fontes anteriores não equivalem a aceite. Ver [plano de recuperação](architecture/recovery-plan.md) para os testes e a fronteira de integração audiovisual.
