@@ -1,19 +1,36 @@
 'use strict';
 const fs=require('node:fs');const path=require('node:path');const {loadScene}=require('./assets');
-/**
- * Ponte entre planejamento, validação da composição e render.
- * O mesmo contrato é verificado após a IA produzir a fonte e ANTES de
- * capturar qualquer quadro: não são duas decisões de formato independentes.
+/** Select once, using the same rules for inspection and actual rendering.
+ * Explicit HTML is not displaced by an older scene.json in the same folder.
+ * Inspection of assets remains a separate operation.
  */
+function resolveMotionSource(source, mode = 'auto') {
+  if (!['auto','scene','hybrid','html'].includes(mode))
+    throw new Error('MOTION_CONTRATO: modo inválido: '+mode);
+  const requested=path.resolve(source);
+  if (!fs.existsSync(requested)) throw new Error('MOTION_CONTRATO: composição não encontrada: '+source);
+  const directory=fs.statSync(requested).isDirectory();
+  const dir=directory?requested:path.dirname(requested);
+  const scenePath=path.join(dir,'scene.json'), overlayPath=path.join(dir,'overlays.json');
+  const entry=directory
+    ? (mode==='scene'||(mode==='auto'&&fs.existsSync(scenePath))?scenePath:path.join(dir,'index.html'))
+    : requested;
+  const isScene=path.basename(entry)==='scene.json';
+  if(mode==='scene'&&!isScene || (mode==='hybrid'||mode==='html')&&isScene)
+    throw new Error('MOTION_CONTRATO: fonte incompatível com modo '+mode);
+  if(mode==='hybrid'&&(!fs.existsSync(entry)||!fs.existsSync(overlayPath)))
+    throw new Error('MOTION_CONTRATO: index.html e overlays.json são obrigatórios para composição WebGL com produtos');
+  if(!fs.existsSync(entry)||!fs.statSync(entry).isFile())
+    throw new Error('MOTION_CONTRATO: fonte não encontrada: '+entry);
+  const resolvedMode=isScene?'scene':mode==='html'?'html':fs.existsSync(overlayPath)?'hybrid':'html';
+  return {entry,mode:resolvedMode,overlayPath:resolvedMode==='hybrid'?overlayPath:null};
+}
+
+/** Inspection is advisory for legacy jobs; renderer uses the same selector. */
 function checkMotionSource(source, mode = 'auto') {
-  if (!['auto','scene','hybrid'].includes(mode)) throw new Error('MOTION_CONTRATO: modo inválido: '+mode);
-  const entry = path.resolve(source);
-  if (!fs.existsSync(entry)) throw new Error('MOTION_CONTRATO: composição não encontrada: '+source);
-  const dir = fs.statSync(entry).isDirectory() ? entry : path.dirname(entry);
-  const scenePath = path.join(dir,'scene.json'), htmlPath=path.join(dir,'index.html'), overlayPath=path.join(dir,'overlays.json');
-  const sourceMode = mode === 'auto'
-    ? fs.existsSync(scenePath) ? 'scene' : fs.existsSync(overlayPath) ? 'hybrid' : 'legacy'
-    : mode;
+  const selected=resolveMotionSource(source,mode);
+  const sourceMode=selected.mode;
+  const scenePath=selected.entry, htmlPath=selected.entry, overlayPath=selected.overlayPath;
   try {
     if (sourceMode==='scene') {
       if (!fs.existsSync(scenePath)) throw new Error('scene.json obrigatório para cenas estruturadas');
@@ -21,8 +38,6 @@ function checkMotionSource(source, mode = 'auto') {
       return {mode:'scene',layers:scene.layers.length,width:scene.width,height:scene.height,warnings};
     }
     if (sourceMode==='hybrid') {
-      if (!fs.existsSync(htmlPath) || !fs.existsSync(overlayPath))
-        throw new Error('index.html e overlays.json são obrigatórios para composição WebGL com produtos');
       const {scene,warnings}=loadScene(overlayPath);
       const photos=scene.layers.filter(layer=>layer.type==='image');
       if (!photos.length)
@@ -40,10 +55,9 @@ function checkMotionSource(source, mode = 'auto') {
         ' ainda é referenciada no index.html e no overlays.json; retire o desenho/importação duplicado do WebGL');
       return {mode:'hybrid',layers:scene.layers.length,width:scene.width,height:scene.height,warnings};
     }
-    if (!fs.existsSync(htmlPath)) throw new Error('index.html não encontrado (legado)');
-    return {mode:'legacy',layers:0};
+    return {mode:mode==='html'?'html':'legacy',layers:0};
   } catch (e) {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={checkMotionSource};
+module.exports={checkMotionSource,resolveMotionSource};
