@@ -138,7 +138,7 @@ export class ArtifactStoreService {
         if (!fs.statSync(real).isFile() || !fs.statSync(real).size) continue;
         const hash = await sha256File(real);
         const existente = await this.prisma.artifact.findFirst({
-          where: { projectId: meta.projectId, jobId: meta.jobId, name: nome, sha256: hash, kind: 'FILE' },
+          where: { projectId: meta.projectId, jobId: meta.jobId, ...(meta.stepId ? {stepId:meta.stepId} : {}), name: nome, sha256: hash, kind: 'FILE' },
         });
         if (existente) { registrados.push(existente); continue; }
         registrados.push(await this.storeFile({
