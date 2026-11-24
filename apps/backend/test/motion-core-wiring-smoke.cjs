@@ -104,7 +104,13 @@ function run() {
   const coordinates=[];
   const ctx={clearRect(){},fillRect(){},beginPath(){},moveTo(x,y){coordinates.push([x,y]);},lineTo(x,y){coordinates.push([x,y]);},closePath(){},fill(){},stroke(){}};
   const soft=G.create({width:360,height:640,getContext:type=>type==='2d'?ctx:null});
-  const mesh=G.torus();
+  for(const name of ['mesh','box','sphere','torus','cylinder','lerp','smooth'])
+    assert.equal(soft[name],G[name],'renderer e namespace oferecem a mesma API: '+name);
+  const quad=soft.mesh({positions:[[0,0,0],[1,0,0],[1,1,0],[0,1,0]],indices:[0,1,2,0,2,3]});
+  assert.equal(quad.positions.length,18);
+  assert.equal(quad.normals.length,18);
+  assert.throws(()=>soft.mesh({positions:[0,0,0,1,0,0,0,1,0],indices:[0,1,3]}),/Índices/);
+  const mesh=soft.torus();
   soft.render([{geometry:mesh,color:'#d9a348',rotation:[20,0,0]}]);
   const first=JSON.stringify(coordinates);
   assert.ok(coordinates.length>0);
