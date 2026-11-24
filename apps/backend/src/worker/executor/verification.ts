@@ -15,6 +15,7 @@ import { diagnosticoParecerVisual } from '../../jobs/motion-capture-freshness';
 import { RULE_REVIEW_STEP,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
 import { normalizeMotionOutputs } from '../../jobs/motion/command';
 import { replaceMediaAliases } from '../../jobs/workflow/media-paths';
+import { resolveInside } from '../../common/path-guard';
 
 /**
  * Conferência que falhou sem mensagem: o comando e, para `test -f/-s/-e/-d <arquivo>` e `grep -q <texto> <arquivo>`,
@@ -25,8 +26,8 @@ export function explicarConferencia(comando: string, pasta: string): string {
   for (const m of comando.matchAll(/test\s+(!\s+)?-([fsed])\s+('([^']+)'|"([^"]+)"|(\S+))/g)) {
     const neg = !!m[1];
     const arq = m[4] ?? m[5] ?? m[6];
-    const abs = path.resolve(pasta, arq);
-    if (!abs.startsWith(path.resolve(pasta))) continue;
+    let abs:string;
+    try { abs=resolveInside(pasta,arq); } catch { continue; }
     const existe = fs.existsSync(abs);
     if (!neg && !existe) faltas.push(`falta ${arq}`);
     else if (!neg && m[2] === 's' && existe && fs.statSync(abs).size === 0) faltas.push(`${arq} está vazio`);
@@ -35,8 +36,9 @@ export function explicarConferencia(comando: string, pasta: string): string {
   for (const m of comando.matchAll(/grep\s+(?:-[a-zA-Z]+\s+)*('([^']+)'|"([^"]+)"|(\S+))\s+('([^']+)'|"([^"]+)"|(\S+))/g)) {
     const texto = m[2] ?? m[3] ?? m[4];
     const arq = m[6] ?? m[7] ?? m[8];
-    const abs = path.resolve(pasta, arq);
-    if (!abs.startsWith(path.resolve(pasta)) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue;
+    let abs:string;
+    try { abs=resolveInside(pasta,arq); } catch { continue; }
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue;
     if (!fs.readFileSync(abs, 'utf8').includes(texto)) faltas.push(`${arq} não contém "${texto}"`);
   }
   return `o comando de conferência falhou sem mensagem: ${comando.slice(0, 300)}${faltas.length ? ` — ${faltas.join('; ')}` : ''}`;
@@ -139,7 +141,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       v = await conferir();
       // Cache do corepack quebrado (download interrompido: "pnpm.cjs" ausente): o sistema refaz o cache e confere
       // de novo, sozinho — não é coisa que a IA conserte.
-      if (v.exitCode !== 0 && /corepack/i.test(`${v.stdout}${v.stderr}`) && problemaDoAmbiente(`${v.stdout}${v.stderr}`)) {
+      if (v.exitCode !== 0 && !v.aborted && /corepack/i.test(`${v.stdout}${v.stderr}`) && problemaDoAmbiente(`${v.stdout}${v.stderr}`)) {
         const cache = process.env.COREPACK_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.cache', 'node', 'corepack');
         fs.rmSync(cache, { recursive: true, force: true });
         await L(`Conferência: cache do corepack quebrado no servidor; refeito (${cache}) e conferindo de novo`, 'WARN', attempt.id);
@@ -148,7 +150,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       // "npm ci" sem package-lock.json (projeto que não commita o lockfile): o npm aborta com EUSAGE antes de testar.
       // A IA não tem terminal para gerar o lockfile nem pode mudar o comando: o sistema refaz a conferência com
       // "npm ci" → "npm install" (igual para yarn/pnpm "--frozen-lockfile"), uma vez. Não é falha do código.
-      if (v.exitCode !== 0 && semLockfile(`${v.stdout}${v.stderr}`) && /npm ci|--frozen-lockfile|--immutable/.test(verifyCommandEfetivo)) {
+      if (v.exitCode !== 0 && !v.aborted && semLockfile(`${v.stdout}${v.stderr}`) && /npm ci|--frozen-lockfile|--immutable/.test(verifyCommandEfetivo)) {
         verifyCommandEfetivo = verifyCommandEfetivo
           .replace(/npm ci/g, 'npm install')
           .replace(/\s--frozen-lockfile/g, '')
