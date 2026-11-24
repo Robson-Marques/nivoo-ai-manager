@@ -1,4 +1,4 @@
-import { diagnosticoRenderDeterministico, falhaLocalCorrigivel } from '../../src/worker/deterministic-media-errors';
+import { diagnosticoRenderDeterministico, erroDeterministicoMotion, falhaLocalCorrigivel } from '../../src/worker/deterministic-media-errors';
 describe('Falhas determinísticas de montagem', () => {
   it('interrompe o filtro FFmpeg gigante na primeira falha', () => {
     expect(diagnosticoRenderDeterministico("[Parsed_select_0] Error while parsing expression 'eq(n,0)+eq(n,1)'\n[AVFilterGraph] Error initializing filters")).toContain('nivoo-extrair-quadros');
@@ -27,5 +27,20 @@ describe('Reparo de script no MESMO trabalho, sem encerrar na primeira falha', (
     expect(falhaLocalCorrigivel('permission denied ao executar script.cjs')).toBe(false);
     expect(falhaLocalCorrigivel('credencial ausente para API')).toBe(false);
     expect(falhaLocalCorrigivel('rede temporariamente indisponível')).toBe(false);
+  });
+});
+
+describe('Motion schema não pode repetir o mesmo render três vezes', () => {
+  it('identifica o erro real no fundo.width na primeira execução', () => {
+    expect(erroDeterministicoMotion(
+      'Comando local falhou (exit 4): nivoo-renderizar-motion: falhou: fundo.width: número fora do intervalo 1–12000'
+    )).toContain('fundo.width');
+    expect(erroDeterministicoMotion(
+      'nivoo-renderizar-motion: falhou: profile inválido'
+    )).toContain('profile');
+  });
+  it('não intercepta erro transitório, de GPU ou de ffmpeg', () => {
+    expect(erroDeterministicoMotion('nivoo-renderizar-motion: falhou: navegador desconectou')).toBeNull();
+    expect(erroDeterministicoMotion('Comando local falhou (exit 1): ffmpeg sem espaço')).toBeNull();
   });
 });
