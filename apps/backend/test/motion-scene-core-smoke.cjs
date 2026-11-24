@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime } = require('../bin/motion-scene-core');
+const { motionAuthorExample,motionAuthorContract,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime } = require('../bin/motion-scene-core');
 
 async function main() {
   const scene = {
@@ -82,6 +82,39 @@ async function main() {
   assert.doesNotThrow(()=>validateScene({...scene,layers:[{...scene.layers[0],asset:'/etc/senha.png'}]}));
   assert.throws(()=>validateScene({...scene,pacing:{openingEnd:30}}),/openingEnd/);
   assert.throws(()=>validateScene({...scene,layers:[{...scene.layers[0],keys:[{at:10},{at:1}]}]}),/ordenados/);
+
+  // O especialista usa este exemplo do próprio motor; não um contrato
+  // independente que possa ficar desatualizado.
+  assert.doesNotThrow(()=>validateScene(JSON.parse(JSON.stringify(motionAuthorExample))));
+  assert.match(motionAuthorContract(),/keys\[\]\.at/);
+  const timelineVariants=[
+    {keys:[{at:'0s'},{at:'900ms'},{at:'00:12'}],expected:[0,.9,12]},
+    {keys:[{at:0},{at:900},{at:12000}],expected:[0,.9,12]},
+    {keys:[{at:'0'},{at:'0.9'},{at:'12'}],expected:[0,.9,12]},
+    {keyframes:[{time:0},{atMs:900},{t:'12s'}],expected:[0,.9,12]},
+    {timeUnit:'ms',keys:[{at:0},{at:10},{at:12000}],expected:[0,.01,12]},
+  ];
+  for(const {expected,...properties} of timelineVariants){
+    const draft=JSON.parse(JSON.stringify(anuncio));
+    Object.assign(draft.layers[1],properties);
+    const parsed=validateScene(draft).scene;
+    assert.deepEqual(parsed.layers[1].keys.map(k=>k.at),expected);
+    assert.deepEqual(validateScene(parsed).scene.layers[1].keys.map(k=>k.at),expected);
+    assert.equal(parsed.duration,12);
+  }
+  for(const times of [[0,1,12000],[0,13],[1,0],[0,0]]){
+    const draft=JSON.parse(JSON.stringify(anuncio));
+    draft.layers[1].keys=times.map(at=>({at}));
+    assert.throws(()=>validateScene(draft),/logo\.at|ordenados/);
+  }
+  const presentation=JSON.parse(JSON.stringify(anuncio));
+  presentation.layers[1].x='50%';
+  presentation.layers[1].keys=[{at:0,opacity:'0%',scale:'90%'},
+    {at:'1s',opacity:'100%',scale:'1',easing:'ease-out'}];
+  validateScene(presentation);
+  assert.equal(presentation.layers[1].x,540);
+  assert.equal(presentation.layers[1].keys[0].scale,.9);
+  assert.equal(presentation.layers[1].keys[1].easing,'out');
 
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-motion-core-'));
   const escape=path.join(os.tmpdir(),path.basename(root)+'-externo.png');
