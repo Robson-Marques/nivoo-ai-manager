@@ -148,6 +148,10 @@ function motionSceneCore() {
         falhas.map(l=>l.id).join(', '));
       console.log('nivoo-renderizar-motion: motor declarativo, fotos RGBA em camada única, ritmo de cena controlado pelo Nivo');
     } else {
+      const runtime = [path.join(__dirname,'motion-graphics.js'),
+        path.join(process.env.NIVOO_APP_DIR || '/opt/nivoo/app','apps/backend/bin/motion-graphics.js')].find(p=>fs.existsSync(p));
+      if(!runtime) throw new Error('biblioteca gráfica Motion não instalada');
+      await pagina.addInitScript(require(runtime).installMotionGraphics);
       await pagina.goto(`file://${entrada}`, { waitUntil: 'load', timeout: 30_000 });
       const overlayPath = path.join(path.dirname(entrada), 'overlays.json');
       if (fs.existsSync(overlayPath)) {
