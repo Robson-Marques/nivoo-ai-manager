@@ -44,6 +44,14 @@ describe('Fronteiras do planejador', () => {
     const absent=await selectPlannerCapabilities({template:'design-video'},registry as any,id);
     expect(absent.codexImageProvider).toBeUndefined();
   });
+  it('evita build duplicado sem dispensar verificações independentes',()=>{
+    const prompt=plannerRules({media:false,softwareInterface:true,paidVideo:false,paidImage:false}).join('\n');
+    expect(prompt).toContain('mesmo alvo e modo');
+    expect(prompt).toContain('Preserve testes e builds independentes');
+    expect(prompt).toContain('se npm test já executa o build exigido, não acrescente npm run build');
+    expect(prompt).toContain('não apresente como validado');
+    expect(prompt).not.toContain('Ex.: "npm install && npm test && npm run build"');
+  });
   it('mantém mídia local sem Gemini',async()=>{
     const registry={has:jest.fn(()=>false),status:jest.fn()};
     const c=await selectPlannerCapabilities({template:'design-video'},registry as any);

@@ -4,6 +4,7 @@ import { FRONTEND_SKILL,frontendIntent } from './frontend';
 import { DATA_SKILL,dataIntent } from './data';
 import { INTEGRATION_SKILL,integrationIntent } from './integration';
 import { SECURITY_SKILL,securityIntent } from './security';
+import { QUALITY_SKILL,qualityIntent } from './quality';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -18,9 +19,7 @@ export const SOFTWARE_SKILLS = [
   DATA_SKILL,
   INTEGRATION_SKILL,
   SECURITY_SKILL,
-  {id:'software-qualidade',domain:'software',description:'Sintaxe, tipagem, compilação e testes',source:upstream+'mcore-testing',
-    action:'Use os testes e comandos de validação existentes, proporcionais à mudança; diferencie inspeção, compilação e execução.',
-    body:'Leia os testes e comandos reais do projeto, incluindo configurações do compilador. Corrija a causa de falhas sem remover critérios. Inclua regressão quando o comportamento mudar; aproveite a conferência técnica do executor, sem criar CI ou revisão de IA. Declare somente validações realmente executadas.'},
+  QUALITY_SKILL,
   {id:'software-manutencao',domain:'software',description:'Manutenção, desempenho e observabilidade',source:upstream+'nemo-relay-plugin-observability',
     action:'Rastreie o fluxo que falhou e meça o custo relevante antes de refatorar ou otimizar.',
     body:'Preserve interfaces e resultados; identifique a origem do custo ou erro com evidência. Use logs estruturados e identificadores já existentes, sem duplicar instrumentação. Não adicione cache, tentativas ou verificações para mascarar defeitos. Diferencie hipótese de medição.'},
@@ -28,7 +27,6 @@ export const SOFTWARE_SKILLS = [
 
 const routes:ReadonlyArray<readonly [string,RegExp]> = [
   ['software-arquitetura',/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/],
-  ['software-qualidade',/\b(testes?|testar|testing|jest|pytest|vitest|lint\w*|typecheck|tipagem|compil\w*|build|regressao|ts\d{4})\b/],
   ['software-manutencao',/\b(refator\w*|manutencao|desempenho|performance|observabilidade|telemetria|profil\w*|logs?|latencia|gargalos?|otimiz\w*)\b/],
 ];
 
@@ -41,5 +39,6 @@ export function selectSoftwareSkillIds(text:string):string[]{
   if(dataIntent(text))ids.push('software-dados');
   if(integrationIntent(text))ids.push('software-integracoes');
   if(securityIntent(text))ids.push('software-seguranca');
+  if(qualityIntent(text))ids.push('software-qualidade');
   return ids;
 }

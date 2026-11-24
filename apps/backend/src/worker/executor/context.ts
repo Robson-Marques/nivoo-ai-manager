@@ -25,6 +25,7 @@ import { frontendEngineeringContext } from '../../specialties/software/frontend'
 import { dataEngineeringContext } from '../../specialties/software/data';
 import { integrationEngineeringContext } from '../../specialties/software/integration';
 import { securityEngineeringContext } from '../../specialties/software/security';
+import { qualityEngineeringContext } from '../../specialties/software/quality';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -92,6 +93,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(skillIds.includes('software-dados'))add('engenharia-dados',dataEngineeringContext('execution',task,bancoDeTesteDisponivel()));
     if(skillIds.includes('software-integracoes'))add('engenharia-integracoes',integrationEngineeringContext('execution',task));
     if(skillIds.includes('software-seguranca'))add('engenharia-seguranca',securityEngineeringContext('execution',task));
+    if(skillIds.includes('software-qualidade'))add('engenharia-qualidade',qualityEngineeringContext('execution',task));
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);
