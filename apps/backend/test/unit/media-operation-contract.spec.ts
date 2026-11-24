@@ -1,6 +1,6 @@
 import { readMotionInvocation, readMotionInvocations, hasMotionCommand } from '../../src/jobs/motion/command';
 import { videoGeradoPorEtapa } from '../../src/jobs/native-video-result';
-import { conferenciaTecnicaDeVideo } from '../../src/jobs/video-step-verification';
+import { conferenciaTecnicaDeVideo,customMediaVerification } from '../../src/jobs/video-step-verification';
 import { dependenciasDeMontagemPorArquivo } from '../../src/jobs/executor-priority';
 import { classifyMediaFailure } from '../../src/specialties/media/failure-policy';
 import { currentMediaBaseRules, LEGACY_3D_PROFILE_LINE, CURRENT_3D_PROFILE_LINE } from '../../src/specialties/media/runtime-profile';
@@ -14,6 +14,13 @@ describe('Contrato operacional de mídia', () => {
     expect(verify).toContain('1080x1920');
     expect(verify).toContain('target=12');
     expect(verify).toContain('midia/saida/a.mp4');
+  });
+  it('remove somente inspeção gerada e preserva testes personalizados',()=>{
+    const path='midia/saida/a.mp4',custom='test -s out/relatorio.md';
+    const generated=conferenciaTecnicaDeVideo('local-shell',command,{},custom);
+    expect(customMediaVerification('local-shell',command,{},[path],generated)).toBe(custom);
+    expect(customMediaVerification('local-shell',command,{},[path],conferenciaTecnicaDeVideo('local-shell',command,{},"test -s '"+path+"'"))).toBeUndefined();
+    expect(customMediaVerification('local-shell',command,{},[path],custom)).toBe(custom);
   });
   it('não interpreta texto citado ou comentário como operação de render', () => {
     for(const script of ["echo 'texto; nivoo-renderizar-motion motion/novo --saida midia/saida/a.mp4'","# nivoo-renderizar-motion motion/novo --saida midia/saida/a.mp4"]){
