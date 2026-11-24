@@ -21,6 +21,24 @@ async function main() {
     ]
   };
   validateScene(scene);
+  // Regressão do trabalho "Novidade no cardápio": uma IA produziu
+  // scene.json com profile fora da enum e o render caiu 3x sem criar MP4.
+  const anuncio = {
+    version:1,width:1080,height:1920,duration:12,profile:'cinematic',
+    layers:[
+      {id:'fundo',type:'image',asset:'assets/fundo.png',x:540,y:960,width:1080,height:1920},
+      {id:'logo',type:'image',asset:'assets/logo.png',x:540,y:390,width:500,height:260},
+      {id:'chamada',type:'text',text:'Em breve, novidade no cardápio!',
+        x:540,y:940,width:950,height:125},
+    ],
+  };
+  const aceite=validateScene(JSON.parse(JSON.stringify(anuncio)));
+  assert.equal(aceite.scene.profile,'normal','perfil artístico não impede o render');
+  assert.equal(aceite.scene.duration,12,'duração original preservada');
+  assert.equal(aceite.scene.layers.length,3,'camadas intactas');
+  assert.equal(validateScene({...anuncio,profile:'dinâmico',layers:anuncio.layers.map(l=>({...l}))}).scene.profile,'energetic');
+  assert.equal(validateScene({...anuncio,profile:'calmo',layers:anuncio.layers.map(l=>({...l}))}).scene.profile,'calm');
+  assert.equal(validateScene({...anuncio,profile:{style:'promo'},layers:anuncio.layers.map(l=>({...l}))}).scene.profile,'normal');
   assert.deepEqual(productPhotoLayers(scene).map(x=>x.id),['pizza'],
     'foto do produto é componente necessário do vídeo');
   assert.equal(productPhotoLayers({...scene,layers:[
@@ -44,6 +62,22 @@ async function main() {
     fs.mkdirSync(path.join(root,'assets'),{recursive:true});
     fs.writeFileSync(path.join(root,'scene.json'),JSON.stringify(scene));
     fs.writeFileSync(path.join(root,'assets','pizza.png'),Buffer.from([137,80,78,71,13,10,26,10]));
+    fs.writeFileSync(path.join(root,'assets','fundo.png'),Buffer.from([137,80,78,71,13,10,26,10]));
+    fs.writeFileSync(path.join(root,'assets','logo.png'),Buffer.from([137,80,78,71,13,10,26,10]));
+    const anuncioPath=path.join(root,'anuncio.json');
+    const originalAnuncio=JSON.stringify(anuncio);
+    fs.writeFileSync(anuncioPath,originalAnuncio);
+    const carregado=loadScene(anuncioPath);
+    assert.equal(carregado.scene.profile,'normal');
+    assert.equal(carregado.scene.duration,12);
+    assert.equal(Object.keys(carregado.binaries).length,2,'fundo e logo originais carregados');
+    assert.match(carregado.warnings.join(' '),/Perfil de ritmo.*normal/);
+    assert.equal(fs.readFileSync(anuncioPath,'utf8'),originalAnuncio,
+      'normalização só em memória; cena pronta nunca reescrita');
+    const scriptAnuncio=sceneDocument(carregado.scene,carregado.binaries)
+      .match(/<script>([\s\S]+)<\/script>/)?.[1];
+    assert.ok(scriptAnuncio,'HTML do anúncio deve conter o renderizador de cena');
+    assert.doesNotThrow(()=>new vm.Script(scriptAnuncio));
     const saved=loadScene(path.join(root,'scene.json'));
     assert.equal(saved.scene.duration,20);
     assert.match(saved.binaries['assets/pizza.png'],/^data:image\/png;base64,/);

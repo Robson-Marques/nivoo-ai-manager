@@ -26,6 +26,23 @@ function color(v, label) {
     throw new Error(label + ': cor inválida');
   return v;
 }
+/**
+ * "profile" só ajusta o ritmo automático: não controla imagens, textos nem
+ * a renderização do MP4. Uma IA pode chamá-lo de "cinematic", "teaser",
+ * "elegante" etc. Isso não deve derrubar uma cena pronta.
+ * Normalizar somente em memória; os arquivos de trabalho ficam intactos.
+ */
+function normalizeMotionProfile(value) {
+  if (typeof value !== 'string') return 'normal';
+  const name=value.trim().normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  if (['energetic','energetico','energetica','dynamic','dinamico','dinamica','fast','rapido','rapida'].includes(name))
+    return 'energetic';
+  if (['calm','calmo','calma','slow','suave','tranquilo','tranquila'].includes(name))
+    return 'calm';
+  // Outros nomes são descrições artísticas, não parâmetros executáveis.
+  // Conservar os keyframes e o pacing explícito, sem impor outro ritmo.
+  return 'normal';
+}
 function validateScene(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.version !== 1)
     throw new Error('Cena deve ser um objeto com version=1');
@@ -36,8 +53,7 @@ function validateScene(raw) {
   if (raw.background !== undefined) color(raw.background, 'background');
   const total = raw.pacing?.sourceDuration ?? raw.duration;
   finite(total, 'pacing.sourceDuration', raw.duration, 300);
-  if (raw.profile !== undefined && !['normal','energetic','calm'].includes(raw.profile))
-    throw new Error('profile inválido');
+  if (raw.profile !== undefined) raw.profile=normalizeMotionProfile(raw.profile);
   if (raw.pacing?.openingEnd !== undefined) {
     finite(raw.pacing.openingEnd, 'openingEnd', .1, total);
     const target = raw.pacing.openingSeconds ??
@@ -111,8 +127,14 @@ function loadScene(scenePath) {
   const absolute = fs.realpathSync(scenePath);
   const dir = path.dirname(absolute);
   const parsed = JSON.parse(fs.readFileSync(absolute,'utf8'));
+  const requestedProfile=parsed.profile;
   const { scene, assets } = validateScene(parsed);
   const binaries = {}, warnings = [];
+  if (requestedProfile !== undefined && requestedProfile !== scene.profile) {
+    const label=typeof requestedProfile==='string' ? requestedProfile.slice(0,80) : typeof requestedProfile;
+    warnings.push('Perfil de ritmo '+JSON.stringify(label)+' interpretado como '+
+      scene.profile+'; composição original preservada');
+  }
   let totalBytes=0;
   const motionParent = path.basename(path.dirname(dir)) === 'motion' ? path.dirname(dir) : dir;
   const projectRoot = motionParent !== dir ? path.dirname(motionParent) : dir;
@@ -463,4 +485,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
+module.exports={ normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
