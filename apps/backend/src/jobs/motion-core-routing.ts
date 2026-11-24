@@ -4,8 +4,8 @@
  * Antes, scene.json/overlays.json eram só sugestões no prompt; a IA podia
  * devolver outro HTML e o executor gastaria 625 quadros com geometria errada.
  *
- * Aqui o NÚCLEO vincula a etapa produtora ao render oficial, define o formato
- * e exige validação determinística do arquivo produzido. Não cria etapas.
+ * Aqui o NÚCLEO recomenda o formato na etapa autora e preserva o
+ * render oficial. Não acrescenta revisores, testes finais nem etapas.
  * Renderizações de composições antigas SEM etapa produtora seguem compatíveis.
  */
 
@@ -32,18 +32,6 @@ function isComposer(step: RawStep): boolean {
       /\bmotion\/[A-Za-z0-9._/-]+\/(?:index\.html|scene\.json|overlays\.json)\b/i.test(instr)) &&
     !/revis|auditor|confer|verific|valid|aprov/i.test(title) &&
     !/\bnivoo-renderizar-motion\b/.test(instr);
-}
-
-function existingCheck(verify: string, source: string): string[] {
-  // Substitui apenas testes de uma fonte HTML antiga pelo cheque oficial
-  // que aceita tanto scene.json como index.html+overlays.json.
-  return verify.split(/\s+&&\s+/g)
-    .map(s => s.trim()).filter(s =>
-      s && s !== 'true' && s !== ':' &&
-      !s.includes(source + '/index.html') &&
-      !s.includes(source + '/scene.json') &&
-      !s.includes(source + '/overlays.json') &&
-      !s.includes('nivoo-conferir-motion'));
 }
 
 /**
@@ -130,8 +118,8 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
             'Entregue ' + source + '/index.html com as MALHAS WebGL e ' + source + '/overlays.json (scene v1).',
             'Fotografias, pizzas, produtos e logos ficam SOMENTE em overlays.json como camadas RGBA.',
             'NÃO duplique essas fotos no index.html nem inclíne-as para atravessar a tábua/malhas do WebGL.',
-            'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay. O verificador do Nivo rejeita a mesma imagem nos dois lugares.',
-            'A duração overlays.json.duration é a duração ORIGINAL do relógio WebGL, mesmo quando o MP4 final será acelerado.',
+            'Remova do HTML inclusive os imports/referências aos arquivos de imagem usados no overlay, para não duplicar visualmente as fotografias.',
+            'A duração overlays.json.duration deve acompanhar a duração ORIGINAL do relógio WebGL; diferenças são avisadas, não usadas para bloquear a entrega.',
             'As imagens locais podem ser PNG/WebP/JPG ou módulos JS base64 legados na pasta motion; o próprio motor as carrega.',
           ];
       compose.instructions = String(compose.instructions ?? '') + '\n\n' +
