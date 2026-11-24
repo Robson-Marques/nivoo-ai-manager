@@ -324,7 +324,8 @@ export class ConversationsService {
     if (!msg) throw new NotFoundException('Mensagem não encontrada');
     if (msg.kind !== 'plano' || msg.status !== 'PRONTA' || !msg.plan) throw new BadRequestException('Esta mensagem não contém um plano para aprovar');
     if (msg.jobId || msg.approvedAt) throw new ConflictException('Este plano já foi aprovado');
-    const plan = this.jobs.validatePlan(msg.plan);
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { area: { select: { template: true, slug: true } } } });
+    const plan = this.jobs.validatePlan(msg.plan, project.area);
     // Reserva o plano antes de criar o job: dois cliques em "Fazer" nunca criam dois trabalhos.
     const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt: new Date(), approvedBy: decidedBy } });
     if (!reserva.count) throw new ConflictException('Este plano já foi aprovado');
