@@ -880,7 +880,10 @@ export class StepExecutorService {
   }
 
   private async awaitApproval(task: ClaimedTask, workerId: string, job: Job, step: Step, reasons: string[], descricao?: string): Promise<StepOutcome> {
-    const pending = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'PENDENTE' } });
+    const subjectHash=stepHash({...step,provider:step.provider??job.defaultProvider});
+    // Do not silently reuse an approval whose exact executor options changed.
+    await this.prisma.approval.updateMany({where:{jobId:job.id,subjectId:step.id,kind:'ACAO_DESTRUTIVA',status:'PENDENTE',NOT:{subjectHash}},data:{status:'REJEITADO',decidedBy:'sistema',decidedAt:new Date(),reason:'Autorização anterior substituída por novo contrato de execução; operação não executada.'}});
+    const pending = await this.prisma.approval.findFirst({ where: { jobId: job.id, subjectId: step.id, kind: 'ACAO_DESTRUTIVA', status: 'PENDENTE',subjectHash } });
     if (!pending) {
       await this.prisma.approval.create({
         data: {
@@ -888,7 +891,7 @@ export class StepExecutorService {
           projectId: job.projectId,
           kind: 'ACAO_DESTRUTIVA',
           subjectId: step.id,
-          subjectHash: stepHash({...step,provider:step.provider??job.defaultProvider}),
+          subjectHash,
           description: descricao ?? `Etapa "${step.key}" contém ação potencialmente destrutiva: ${reasons.join('; ') || 'marcada como requer aprovação'}`,
         },
       });
