@@ -57,10 +57,13 @@ function validateScene(raw) {
       finite(l.height, l.id+'.height', 1, 12000);
     }
     if (l.type === 'image') {
-      // Uma imagem pode vir de arquivo local, anexo recuperado, SVG do logo
-      // ou data:image base64. Formato do NOME não reprova um trabalho pronto.
-      // Somente o carregador decide se consegue ler a mídia, sem rede e com
-      // as raízes do workspace restritas. Se não conseguir, AVISA e entrega.
+      // Suportar formatos de composição existentes, sem exigir que uma IA
+      // refaça o JSON apenas porque escreveu "src" em vez de "asset".
+      // Normalização é apenas EM MEMÓRIA, não reescreve a composição pronta.
+      if (!(typeof l.asset === 'string' && l.asset.trim())) {
+        const alias=[l.src,l.image,l.file,l.path].find(v=>typeof v==='string'&&v.trim());
+        if(alias) l.asset=alias;
+      }
       if (typeof l.asset === 'string' && l.asset.trim()) assets.add(l.asset);
       else console.warn('[NIVO_MOTION] camada sem referência de mídia: '+l.id);
       if (l.supportZ !== undefined) finite(l.supportZ, l.id+'.supportZ', -10000, 10000);
@@ -114,6 +117,40 @@ function loadScene(scenePath) {
   const motionParent = path.basename(path.dirname(dir)) === 'motion' ? path.dirname(dir) : dir;
   const projectRoot = motionParent !== dir ? path.dirname(motionParent) : dir;
   const allowed = [motionParent, path.join(projectRoot,'contexto')];
+  const withinAllowed = file => allowed.some(root=>file.startsWith(root+path.sep));
+  function resolveLocalMedia(relative) {
+    const expected=relative.startsWith('contexto/')
+      ? path.resolve(projectRoot,relative):path.resolve(dir,relative);
+    try {
+      const found=fs.realpathSync(expected);
+      if (!withinAllowed(found)) throw new Error('arquivo fora das pastas permitidas');
+      return {file:found,recovered:false};
+    } catch(error) {
+      // Uma referência a um caminho proibido continua PROIBIDA, sem fallback.
+      if (/fora das pastas permitidas/.test(String(error?.message??error)) ||
+          path.isAbsolute(relative) || relative.split('/').filter(x=>x==='..').length>1)
+        throw error;
+      // O Nivo já copiou as fotografias para motion/<versão>/assets.
+      // Recuperar pelo nome EXATO (sem adivinhar imagem por semelhança).
+      const base=path.basename(relative);
+      if(!/^[\w. -]{1,160}\.(?:png|jpe?g|webp|svg|js)$/i.test(base)) throw error;
+      const dirs=[path.join(dir,'assets'),dir];
+      const annexRoot=path.join(projectRoot,'contexto','anexos');
+      if(fs.existsSync(annexRoot)) {
+        for(const entry of fs.readdirSync(annexRoot,{withFileTypes:true}).slice(0,80))
+          if(entry.isDirectory())dirs.push(path.join(annexRoot,entry.name));
+      }
+      for(const candidateDir of dirs) {
+        let entries;
+        try { entries=fs.readdirSync(candidateDir,{withFileTypes:true}); } catch { continue; }
+        const names=entries.filter(e=>e.isFile() && e.name.toLowerCase()===base.toLowerCase());
+        if(names.length!==1)continue;
+        const found=fs.realpathSync(path.join(candidateDir,names[0].name));
+        if(withinAllowed(found)) return {file:found,recovered:true};
+      }
+      throw error;
+    }
+  }
   for (const relative of assets) {
     try {
       if (relative.length > 28*1024*1024) throw new Error('referência grande demais');
@@ -124,11 +161,9 @@ function loadScene(scenePath) {
       }
       if (/^[a-z][a-z\d+.-]*:/i.test(relative)) throw new Error('referência remota não suportada');
       if (relative.includes('\0') || /[\x00-\x1f]/.test(relative)) throw new Error('nome com caracteres de controle');
-      const candidate = relative.startsWith('contexto/') ?
-        path.resolve(projectRoot, relative) : path.resolve(dir, relative);
-      const file = fs.realpathSync(candidate);
-      if (!allowed.some(root=>file.startsWith(root+path.sep)))
-        throw new Error('arquivo fora das pastas permitidas');
+      const {file,recovered} = resolveLocalMedia(relative);
+      if(recovered) console.warn('[NIVO_MOTION] recurso localizado nos assets existentes: '+
+        path.basename(relative));
       const size=fs.statSync(file).size;
       if (size > 20*1024*1024 || (totalBytes += size) > 60*1024*1024)
         throw new Error('limite de tamanho da mídia excedido');
