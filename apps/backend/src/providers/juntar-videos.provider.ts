@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { assemblyFrameRate,preserveClipWithoutEncoding } from './assembly-frame-rate';
 import { publishMediaFile } from './media-file-publication';
 import { minimalEnv, runProcess } from '../common/exec';
 import { sha256File } from '../common/hash';
@@ -191,7 +192,7 @@ export class JuntarVideosProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao; sincronizarVideoComNarracao?: boolean };
+    const o = (req.options ?? {}) as { cenas?: string[]; arquivo?: string; legendas?: string[]; transicoes?: string[]; trilha?: Trilha; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: Narracao; sincronizarVideoComNarracao?: boolean; fps?:number };
     const cenas = o.cenas ?? [];
     if (cenas.length < 1 || !o.arquivo) return { exitCode: 1, output: '', error: 'etapa sem cenas ou sem o nome do vídeo final' };
     if(o.arquivo.startsWith('midia/')&&fs.existsSync(this.resolver(req,o.arquivo)))return {exitCode:1,output:'',error:'MIDIA_DESTINO_EXISTENTE: '+o.arquivo};
@@ -218,7 +219,10 @@ export class JuntarVideosProvider implements AiProvider {
       if (!w || !h) return { exitCode: 1, output: '', error: `não consegui ler o vídeo ${cenas[0]}` };
       const W = w - (w % 2);
       const H = h - (h % 2);
-      req.onLog(`Juntando ${cenas.length} cena(s) em ${o.arquivo} (${W}x${H})`);
+      const rateProbe=await probe(entradas[0],['-select_streams','v:0','-show_entries','stream=avg_frame_rate','-of','default=noprint_wrappers=1:nokey=1']);
+      const originalRate=rateProbe.stdout.trim();
+      const rate=assemblyFrameRate(originalRate,o.fps);
+      req.onLog(`Juntando ${cenas.length} cena(s) em ${o.arquivo} (${W}x${H}, FPS ${rate.filter}${o.fps===undefined?' da primeira cena':' solicitado'})`);
       const partes: string[] = [];
       for (let i = 0; i < entradas.length; i++) {
         if (req.signal.aborted) return { exitCode: 1, output: '', error: 'interrompido', interrupted: true };
@@ -228,7 +232,7 @@ export class JuntarVideosProvider implements AiProvider {
         const corte = o.cortes?.[i] ?? null;
         // Um vídeo já aprovado é reutilizado sem reencode desnecessário.
         // Só a sincronização global e a mixagem finais irão processá-lo.
-        if (entradas.length === 1 && !corte) {
+        if (preserveClipWithoutEncoding(entradas.length===1,corte,o.fps,originalRate)) {
           fs.copyFileSync(entradas[i], parte);
           partes.push(parte);
           req.onLog(`Vídeo aprovado reaproveitado sem regenerar nem recodificar: ${cenas[i]}`);
@@ -239,7 +243,7 @@ export class JuntarVideosProvider implements AiProvider {
         const vel = Number.isFinite(corte?.velocidade) && (corte!.velocidade as number) > 0 ? Number(corte!.velocidade) : 1;
         const corteIn = ini > 0 ? ['-ss', ini.toFixed(3)] : [];
         const corteDur = fim !== null ? ['-t', (fim - ini).toFixed(3)] : [];
-        const vf = [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`, 'setsar=1', ...(vel !== 1 ? [`setpts=PTS/${vel}`] : []), 'fps=24', 'format=yuv420p'].join(',');
+        const vf = [`scale=${W}:${H}:force_original_aspect_ratio=decrease`, `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`, 'setsar=1', ...(vel !== 1 ? [`setpts=PTS/${vel}`] : []), 'fps='+rate.filter, 'format=yuv420p'].join(',');
         const af = vel !== 1 ? ['-af', filtroVelocidadeAudio(vel)] : [];
         const args = temSom
           ? [...corteIn, '-i', entradas[i], ...corteDur, '-map', '0:v:0', '-map', '0:a:0']
@@ -408,7 +412,8 @@ export class JuntarVideosProvider implements AiProvider {
         // o pitch, nunca aplicamos atempo na voz pronta. Sem silêncio prolongado.
         // Para vídeos de várias cenas, exigir solicitação explícita no plano.
         const ajustarPelaLocucao = !!voz && nDur > 0 &&
-          (o.sincronizarVideoComNarracao === true || (cenas.length === 1 && !musica && (o.volumeCenas ?? 1) === 0));
+          o.sincronizarVideoComNarracao === true;
+        if(o.sincronizarVideoComNarracao===false&&nDur>vDur+0.05)return {exitCode:1,output:'',error:`Locução de ${nDur.toFixed(2)}s excede vídeo de ${vDur.toFixed(2)}s; a duração visual foi marcada para preservação. Use roteiro mais curto ou autorize ajuste de duração.`,costUsd:custo,costEstimated:!!custo};
         let duracaoFinalAlvo = Math.max(vDur, nDur);
         if (ajustarPelaLocucao) {
           if (o.cortes?.some(c => c?.velocidade && c.velocidade !== 1)) {
@@ -422,10 +427,12 @@ export class JuntarVideosProvider implements AiProvider {
           if (Math.abs(vDur - alvoVoz) > 0.18) {
             const sincronizado = path.join(tmp, 'sincronizado.mp4');
             const preservarSom=videoTemAudio&&(o.volumeCenas??1)>0;
-            const sync = await ff(['-i', saida, ...(preservarSom?['-af',filtroVelocidadeAudio(fator),'-c:a','aac']:['-an']), '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=24`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
+            const sync = await ff(['-i', saida, ...(preservarSom?['-af',filtroVelocidadeAudio(fator),'-c:a','aac']:['-an']), '-vf', `setpts=(PTS-STARTPTS)/${fator.toFixed(6)},fps=${rate.filter}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', sincronizado], 1_800_000);
             if (sync.exitCode !== 0) return { exitCode: 1, output: '', error: explicarFalhaMidia('Sincronização do vídeo com a narração', sync), costUsd: custo, costEstimated: !!custo };
             fs.renameSync(sincronizado, saida);
             videoTemAudio=preservarSom;
+            inicios=inicios.map(t=>t/fator);
+            for(let i=0;i<durT.length;i++)durT[i]/=fator;
             req.onLog(`Sincronização da imagem: ${vDur.toFixed(2)}s → ${alvoVoz.toFixed(2)}s (${fator.toFixed(2)}x); a voz natural foi preservada.`);
           }
           duracaoFinalAlvo = await durDe(saida);
@@ -434,7 +441,7 @@ export class JuntarVideosProvider implements AiProvider {
         }
         // 3) ALVO = o maior entre o vídeo e a narração.
 
-        const alvo = ajustarPelaLocucao ? Math.max(duracaoFinalAlvo, nDur) : Math.max(vDur, nDur);
+        const alvo = o.sincronizarVideoComNarracao===false?vDur:ajustarPelaLocucao ? Math.max(duracaoFinalAlvo, nDur) : Math.max(vDur, nDur);
         const duracaoImagemAtual = ajustarPelaLocucao ? duracaoFinalAlvo : vDur;
         if (alvo > duracaoImagemAtual + 0.05) {
           const esticado = path.join(tmp, 'esticado.mp4');
@@ -531,7 +538,7 @@ export class JuntarVideosProvider implements AiProvider {
       if (srtArquivo && srtTexto) fs.writeFileSync(this.resolver(req, srtArquivo), srtTexto);
       const dur = Number((await probe(destino, ['-show_entries', 'format=duration', '-of', 'csv=p=0'])).stdout.trim());
       const mb = (fs.statSync(destino).size / 1024 / 1024).toFixed(1);
-      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}${narracaoInfo ? `; ${narracaoInfo}` : ''}`;
+      const resumo = `Vídeo completo: ${o.arquivo} (${cenas.length} cenas, FPS ${rate.filter}, ${Number.isFinite(dur) ? `${Math.round(dur)} s, ` : ''}${mb} MB)${legendado ? `, com legendas (${srtArquivo})` : srtArquivo ? `; legendas só em ${srtArquivo}` : ''}${trilhaInfo ? `; ${trilhaInfo}` : ''}${narracaoInfo ? `; ${narracaoInfo}` : ''}`;
       req.onLog(resumo);
       return { exitCode: 0, output: resumo, stopReason: 'completed', ...(custo ? { costUsd: custo, costEstimated: true } : {}) };
     } catch (e: any) {

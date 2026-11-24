@@ -1,3 +1,4 @@
+import { nativeImageTarget } from '../../providers/codex-image-assets';
 import { hasMotionCommand } from '../../jobs/motion/command';
 
 /** The configured area, not words in an unrelated task, selects its domain.
@@ -20,7 +21,7 @@ export function hasNativeMediaOperation(steps: unknown, defaultProvider: string)
   return steps.some(step=>{
     if(!step||typeof step!=='object')return false;
     const provider=String(step.provider??defaultProvider);
-    if(['gemini-video','gemini-image','juntar-videos','gerar-narracao'].includes(provider))return true;
+    if(['gemini-video','gemini-image','juntar-videos','gerar-narracao'].includes(provider)||nativeImageTarget(step.providerOptions?.visualAsset))return true;
     if(provider!=='local-shell')return false;
     const command=String(step.instructions??'');
     return hasMotionCommand(command) || /(?:^|[;&|\n])\s*(?:env\s+)?(?:\/usr\/local\/bin\/)?nivoo-(?:conferir-arte|analisar-video|extrair-quadros)(?:\s|$)/m.test(command);

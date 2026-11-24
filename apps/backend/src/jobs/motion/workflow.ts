@@ -96,14 +96,15 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     // the HTML scene with real WebGL geometry. Do not infer the restrictive
     // hybrid overlay contract from the mere word "3D".
     const selectedMode=readMotionMode(command);
-    const real3d = imageStages.length ? selectedMode==='hybrid' : pedeGeometria3D(text);
+    const alreadyCompiled=String(compose.instructions??'').includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
+    const real3d = selectedMode==='hybrid'||(!imageStages.length&&pedeGeometria3D(text));
     const hasPhotos = imageStages.length > 0 || /pizzas?|fotografias?|imagens?|produtos?|logomarcas?|logos?|png|webp|assets?|fotos?|recort/i.test(text);
     // Se precisa de geometria 3D real, o HTML mantém a geometria; imagens
     // passam obrigatoriamente para overlay independente. Fotos 2D usam JSON.
     // 3D não pode voltar silenciosamente ao scene.json de uma revisão
     // antiga. Uma entrada HTML explícita também funciona com --motor auto.
     // Retomadas sem etapa autora mantêm a fonte originalmente escolhida.
-    if (real3d && !hasPhotos) {
+    if (real3d && !hasPhotos && selectedMode!=='hybrid' && !(alreadyCompiled&&selectedMode==='scene')) {
       render.instructions=selectStandaloneHtml(command,source);
       const authorKey=String(compose.key??'');
       if(authorKey && authorKey!==String(render.key??''))
@@ -112,7 +113,7 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
       reconcileAuthorOutput(compose,source,'graphics');
       continue;
     }
-    const mode: MotionMode = real3d ? 'hybrid' : imageStages.length || selectedMode==='html' || pedeGrafismos(text) ? 'graphics' : 'scene';
+    const mode: MotionMode = alreadyCompiled&&selectedMode ? (selectedMode==='html'?'graphics':selectedMode) : selectedMode==='hybrid'?'hybrid':real3d ? 'hybrid' : imageStages.length || selectedMode==='html' || pedeGrafismos(text) ? 'graphics' : 'scene';
     render.instructions=selectRenderMode(command,source,mode==='graphics'?'html':mode);
     const authorKey=String(compose.key??'');
     if(authorKey && authorKey!==String(render.key??'')){

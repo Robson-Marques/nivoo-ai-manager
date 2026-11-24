@@ -25,7 +25,13 @@ export function compileWorkflowDefinition(raw:unknown,criteria:unknown,defaultPr
   const normalized=resolveWorkflowMediaPaths(withFps,defaultProvider);
   const prioritized=media?aplicarPrioridadeDosExecutores(normalized.steps,defaultProvider):normalized.steps;
   const assembled=options.append?prioritized:comVideoCompleto(prioritized,defaultProvider);
-  const linked=dependenciasDeMontagemPorArquivo(assembled,defaultProvider);
+  const withAssemblyFps=Array.isArray(assembled)?assembled.map(s=>{
+    if(!s||typeof s!=='object'||(s.provider??defaultProvider)!=='juntar-videos')return s;
+    const opts=s.providerOptions??{};
+    const rate=motionFpsFromText(String(s.title??''))??motionFpsFromText(objective);
+    return opts.fps!==undefined||rate===undefined?s:{...s,providerOptions:{...opts,fps:rate}};
+  }):assembled;
+  const linked=dependenciasDeMontagemPorArquivo(withAssemblyFps,defaultProvider);
   return {steps:media?applyReelsSafeArea(dependenciasDeMontagemPorArquivo(conectarMotorMotion(linked,defaultProvider,objective),defaultProvider),defaultProvider,objective):linked,criteria:normalizeWorkflowCriteria(criteria,normalized.aliases)};
 }
 export function compileWorkflowPlan(raw:unknown,defaultProvider:string,objective:string,area?:AreaScope):unknown{

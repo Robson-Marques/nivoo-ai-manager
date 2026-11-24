@@ -86,6 +86,7 @@ export function narracaoValida(key: string, n: any): { texto?: string; arquivo?:
       throw new BadRequestException(`Etapa ${key}: trechos excedem o limite de texto`);
     out.trechos = partes;
   }
+  if(out.arquivo&&out.texto)throw new BadRequestException(`Etapa ${key}: escolha narração pronta ou texto, não ambos`);
   if (!out.arquivo && !out.texto && !out.trechos?.length)
     throw new BadRequestException(`Etapa ${key}: narração exige texto, trechos ou arquivo`);
   const motor = n.motor === undefined ? undefined : String(n.motor).trim().toLowerCase();
@@ -144,6 +145,7 @@ function trilhaValida(key: string, t: any): { arquivo?: string; descricao?: stri
     out.arquivo = a;
   }
   if (t.descricao !== undefined && String(t.descricao).trim()) out.descricao = String(t.descricao).trim().slice(0, 1000);
+  if(out.arquivo&&out.descricao)throw new BadRequestException(`Etapa ${key}: escolha trilha pronta ou descrição para gerar música, não ambas`);
   if (!out.arquivo && !out.descricao) throw new BadRequestException(`Etapa ${key}: trilha precisa de "descricao" (música gerada) ou "arquivo" (áudio do projeto)`);
   if (t.volume !== undefined) {
     const v = Number(t.volume);
@@ -159,7 +161,7 @@ function transicaoValida(key: string, t: unknown): string {
   return v;
 }
 
-export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean } {
+export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo: string; legendas?: string[]; transicoes?: string[]; trilha?: ReturnType<typeof trilhaValida>; volumeCenas?: number; cortes?: Array<{ inicio?: number; fim?: number; velocidade?: number } | null>; narracao?: ReturnType<typeof narracaoValida>; sincronizarVideoComNarracao?: boolean; fps?:number } {
   const cenas: string[] = normalizarCenasDeMontagem(o).map((c: unknown): string => {
     const caminho = caminhoDoProjeto(c&&typeof c==='object'&&'arquivo' in c?c.arquivo:c);
     if (!caminho || !/\.(mp4|mov|webm)$/i.test(caminho))
@@ -172,6 +174,10 @@ export function opcoesDeJuncao(key: string, o: any): { cenas: string[]; arquivo:
   if (!/\.mp4$/i.test(arquivo)) throw new BadRequestException(`Etapa ${key}: "arquivo" deve ser um caminho do projeto terminando em .mp4`);
   if (cenas.includes(arquivo)) throw new BadRequestException(`Etapa ${key}: o vídeo final não pode ter o nome de uma cena`);
   const out: ReturnType<typeof opcoesDeJuncao> = { cenas, arquivo };
+  if(o.fps!==undefined){
+    if(typeof o.fps!=='number'||!Number.isInteger(o.fps)||o.fps<1||o.fps>60)throw new BadRequestException(`Etapa ${key}: fps deve ser inteiro entre 1 e 60`);
+    out.fps=o.fps;
+  }
   if (o.trilha !== undefined) out.trilha = trilhaValida(key, o.trilha);
   if (o.volumeCenas !== undefined) {
     const v = Number(o.volumeCenas);

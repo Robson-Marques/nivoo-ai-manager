@@ -26,5 +26,5 @@ export function mediaDeliveries(provider:string,instructions:string,opts:Record<
     return [{path:file,kind:'audio'},...(typeof opts.fechamentoAlternativo==='string'&&opts.fechamentoAlternativo.trim()?[{path:file.replace(/\.mp3$/i,'-alternativa.mp3'),kind:'audio' as const}]:[])];
   }
   if(!/\.mp4$/i.test(file))return [];
-  return [{path:file,kind:'video',requiresAudio:provider==='juntar-videos'&&!!(opts.trilha||opts.narracao)}];
+  return [{path:file,kind:'video',...(provider==='juntar-videos'&&typeof opts.fps==='number'?{fps:opts.fps}:{}),requiresAudio:provider==='juntar-videos'&&!!(opts.trilha||opts.narracao)}];
 }
