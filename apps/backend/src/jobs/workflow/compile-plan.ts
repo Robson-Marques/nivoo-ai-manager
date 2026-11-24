@@ -1,5 +1,6 @@
 import { aplicarPrioridadeDosExecutores, corrigirPlanoRenderizacaoMotion, dependenciasDeMontagemPorArquivo } from '../executor-priority';
 import { conectarMotorMotion } from '../motion-core-routing';
+import { normalizeWorkflowMediaPaths } from './media-paths';
 import { comVideoCompleto } from './video-assembly';
 import { AreaScope, mediaEnabledForArea, hasNativeMediaOperation } from '../../specialties/media/scope';
 
@@ -13,11 +14,11 @@ export function compileWorkflowPlan(raw: unknown, defaultProvider: string, objec
   // Explicit native providers still retain their exact file dependencies.
   if (!mediaEnabledForArea(area)) {
     return hasNativeMediaOperation(raw,defaultProvider)
-      ? dependenciasDeMontagemPorArquivo(comVideoCompleto(raw,defaultProvider),defaultProvider)
+      ? dependenciasDeMontagemPorArquivo(comVideoCompleto(normalizeWorkflowMediaPaths(raw,defaultProvider),defaultProvider),defaultProvider)
       : raw;
   }
   const routed=corrigirPlanoRenderizacaoMotion(raw,defaultProvider,objective);
-  const prioritized=aplicarPrioridadeDosExecutores(routed,defaultProvider);
+  const prioritized=aplicarPrioridadeDosExecutores(normalizeWorkflowMediaPaths(routed,defaultProvider),defaultProvider);
   const assembled=comVideoCompleto(prioritized,defaultProvider);
   const linked=dependenciasDeMontagemPorArquivo(assembled,defaultProvider);
   return conectarMotorMotion(linked,defaultProvider,objective);
