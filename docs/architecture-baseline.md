@@ -53,3 +53,7 @@ Nove cenários isolados executados a partir das funções do branch com remoçã
 ## Capability Map e fronteira de vídeo
 
 Ver [Capability de produção audiovisual](architecture/capabilities/media-production.md). Motor declarativo segmentado em `bin/motion/scene/`, com fachada compatível e cache versionado por dependências. `src/jobs/motion/command.ts` é o adaptador tipado dos comandos legados e `src/specialties/media/failure-policy.ts` contém a decisão de falha, não o ciclo de vida do job. A frase padrão histórica que proibia 3D foi alinhada à capacidade instalada em `runtime-profile.ts`, sem mutação de regras armazenadas. O guia antigo já copiado no workspace permanece uma lacuna documental. A capacidade está `in-progress`: teste integrado versionado, ainda não executado, e build/deploy não verificados. Não declarar aceitação das demais especialidades.
+
+## Planejador — frente 2/7
+
+`PlannerService` mantém a coordenação da sessão, fila e persistência, delegando contexto, seleção de capacidades, protocolo, composição de prompt, interpretação JSON e validação compartilhada aos módulos `src/worker/planner/`. A seleção de modelo pertence a `src/providers/project-model.ts` e não depende do executor. Contratos de interface de software e de produção audiovisual são selecionados independentemente pela área; a consulta ao Gemini só ocorre em áreas que habilitam mídia. Ver [plano de recuperação](architecture/recovery-plan.md) para evidências, fronteiras restantes e sequência de entrega.
