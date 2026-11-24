@@ -97,14 +97,100 @@ function normalizeLayerDimensions(layer,scene) {
   layer.width=motionLength(originalWidth,scene.width,widthFallback);
   layer.height=motionLength(originalHeight,scene.height,heightFallback);
 }
+/**
+ * Native authoring contract, shared with the Motion specialist. Keep the
+ * canonical example executable by validateScene, not a separate schema.
+ * The author chooses artistic values; the engine owns representations.
+ */
+const motionAuthorExample = {
+  version:1,width:1080,height:1920,duration:12,profile:'normal',
+  layers:[
+    {id:'fundo',type:'image',asset:'assets/fundo.png',x:540,y:960,width:1080,height:1920,z:0,shadow:false},
+    {id:'logo',type:'image',asset:'assets/logo.png',x:540,y:390,width:420,height:'auto',z:10,
+      keys:[{at:0,opacity:0},{at:1,opacity:1,easing:'out'}]},
+    {id:'titulo',type:'text',text:'Seu texto',x:540,y:920,width:920,fontSize:78,z:20,color:'#ffffff',
+      keys:[{at:1,opacity:0,scale:.9},{at:2,opacity:1,scale:1,easing:'smooth'}]},
+  ],
+};
+function motionAuthorContract() {
+  return [
+    'Use este exemplo funcional do próprio motor (adapte conteúdo, duração, layout e animações ao briefing; não copie a arte): '+JSON.stringify(motionAuthorExample),
+    'Tempo: duration, pacing.sourceDuration, openingEnd/openingSeconds, keys[].at e neon start/end em segundos; keys ordenadas e sem tempos duplicados, de 0 até sourceDuration ou duration. Sem timestamps em frames ou milissegundos implícitos.',
+    'Coordenadas x/y e dimensões em pixels, origem no canto superior esquerdo; x/y são o centro da camada. z/supportZ ordenam camadas. Opacity 0–1, scale 0.01–20, rotation em graus.',
+    'Keyframes animam somente x, y, z, rotation, opacity, scale; easing: linear, smooth, out, back. Informe o estado inicial explicitamente em at:0 quando precisar ocultar uma camada antes da entrada.',
+    'image: asset relativo ao scene.json; width/height podem ser auto para manter proporção. text: text, fontSize, font, weight, color, align, width; use camadas separadas para linhas. shape: shape rect/ellipse/roundRect, fill, radius. neon: points [[x,y],...], start/end, color, glow, strokeWidth. Marque required:true em imagens obrigatórias do briefing.',
+    'Use profile normal, calm ou energetic; pacing opcional para remapear uma composição de duração original maior. Não invente campos de animação; use os recursos disponíveis no motor.',
+  ].join('\n');
+}
+function numericRepresentation(value, unit, reference) {
+  if (typeof value !== 'string') return value;
+  const m=value.trim().replace(',', '.').match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(px|%|deg)?$/i);
+  if(!m)return value;
+  const n=Number(m[1]), suffix=(m[2]??'').toLowerCase();
+  if(!suffix || suffix===unit)return n;
+  if(suffix==='%'&&reference!==undefined)return n*reference/100;
+  return value;
+}
+function motionSeconds(value, unit='s') {
+  if(typeof value==='number')return unit==='ms'?value/1000:value;
+  if(typeof value!=='string')return value;
+  const v=value.trim().replace(',', '.');
+  const clock=v.match(/^(?:(\d+):)?(\d{1,2}):(\d{2}(?:\.\d+)?)$/);
+  if(clock&&Number(clock[2])<60&&Number(clock[3])<60)
+    return Number(clock[1]??0)*3600+Number(clock[2])*60+Number(clock[3]);
+  const m=v.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*(ms|s|sec|seconds?)?$/i);
+  if(!m)return value;
+  return Number(m[1])/((m[2]?.toLowerCase()??unit)==='ms'?1000:1);
+}
+function normalizeLayerState(target,scene) {
+  for(const [name,unit,reference] of [
+    ['x','px',scene.width],['y','px',scene.height],['z'],['supportZ'],
+    ['rotation','deg'],['opacity',undefined,1],['scale',undefined,1],['fontSize','px'],
+  ]) if(target[name]!==undefined)target[name]=numericRepresentation(target[name],unit,reference);
+}
+function normalizeLayerTimeline(layer,total,scene) {
+  // Canonical seconds survive a second validation (loadScene -> sceneDocument).
+  // Aliases and explicit units are normalized without rewriting scene.json.
+  if(layer.keys===undefined&&Array.isArray(layer.keyframes))layer.keys=layer.keyframes;
+  if(!Array.isArray(layer.keys))return;
+  const keys=layer.keys;
+  if(keys.some(k=>!k||typeof k!=='object'||Array.isArray(k)))return;
+  const declared=layer.timeUnit??scene.timeUnit;
+  const explicit=declared==='ms'||declared==='s';
+  const values=keys.map(k=>k.at??k.time??k.t??(k.atMs===undefined?undefined:String(k.atMs)+'ms'));
+  // Legacy compositions sometimes use bare milliseconds. Only infer this
+  // when the ENTIRE nonzero series is outside the seconds timeline and fits
+  // in milliseconds; never reinterpret a mixed/ambiguous seconds series.
+  const bare=values.map(v=>typeof v==='number'?v:
+    typeof v==='string'&&/^[+]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(v.trim())?Number(v.trim().replace(',','.')):NaN);
+  const positive=bare.filter(v=>v>0);
+  const legacyMs=!explicit&&bare.every(Number.isFinite)&&positive.length>0&&
+    positive.every(v=>v>total&&v<=total*1000)&&Math.max(...positive)>=100;
+  const unit=declared==='ms'||legacyMs?'ms':'s';
+  keys.forEach((k,i)=>{
+    k.at=motionSeconds(values[i],unit);
+    // Explicit aliases are removed only after successful conversion so the
+    // second pass cannot reapply ms to canonical numeric seconds.
+    normalizeLayerState(k,scene);
+    const easingAliases={'ease':'smooth','ease-in-out':'smooth','ease-out':'out'};
+    if(typeof k.easing==='string'&&Object.hasOwn(easingAliases,k.easing))k.easing=easingAliases[k.easing];
+  });
+  if(layer.timeUnit!==undefined||scene.timeUnit!==undefined)layer.timeUnit='s';
+}
 function validateScene(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.version !== 1)
     throw new Error('Cena deve ser um objeto com version=1');
+  raw.width=numericRepresentation(raw.width,'px');raw.height=numericRepresentation(raw.height,'px');
+  raw.duration=motionSeconds(raw.duration);
   finite(raw.width, 'width', 120, 4096); finite(raw.height, 'height', 120, 4096);
   finite(raw.duration, 'duration', .1, 300);
   if (!Array.isArray(raw.layers) || !raw.layers.length || raw.layers.length > 180)
     throw new Error('layers deve conter 1 a 180 camadas');
   if (raw.background !== undefined) color(raw.background, 'background');
+  if(raw.pacing&&typeof raw.pacing==='object'){
+    for(const k of ['sourceDuration','openingEnd','openingSeconds'])
+      if(raw.pacing[k]!==undefined)raw.pacing[k]=motionSeconds(raw.pacing[k]);
+  }
   const total = raw.pacing?.sourceDuration ?? raw.duration;
   finite(total, 'pacing.sourceDuration', raw.duration, 300);
   if (raw.profile !== undefined) raw.profile=normalizeMotionProfile(raw.profile);
@@ -121,6 +207,12 @@ function validateScene(raw) {
     if (typeof l.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(l.id) || ids.has(l.id))
       throw new Error('ID de camada vazio, duplicado ou inválido');
     ids.add(l.id);
+    normalizeLayerState(l,raw);
+    normalizeLayerTimeline(l,total,raw);
+    if(l.type==='neon'){
+      if(l.start!==undefined)l.start=motionSeconds(l.start);
+      if(l.end!==undefined)l.end=motionSeconds(l.end);
+    }
     for (const k of ['x','y','z']) if (l[k] !== undefined) finite(l[k], l.id+'.'+k, -10000, 10000);
     if (l.type !== 'neon') {
       normalizeLayerDimensions(l,raw);
@@ -545,4 +637,4 @@ function checkMotionSource(source, mode = 'auto') {
     throw new Error('MOTION_CONTRATO: '+String(e&&e.message||e));
   }
 }
-module.exports={ motionLength,normalizeLayerDimensions,normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
+module.exports={ motionAuthorContract,motionAuthorExample,motionLength,normalizeLayerDimensions,normalizeMotionProfile,validateScene,loadScene,productPhotoLayers,sceneDocument,overlayScript,sceneRuntime,checkMotionSource,mountMediaOverlay };
