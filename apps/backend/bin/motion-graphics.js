@@ -167,7 +167,7 @@ function installMotionGraphics() {
         ctx.fillStyle=color;ctx.strokeStyle=color;ctx.fill();ctx.stroke();
       }
     }
-    return Object.freeze({render,dispose(){},backend:'software',mesh,box,sphere,torus,cylinder,lerp,smooth});
+    return {render,dispose(){},backend:'software',mesh,box,sphere,torus,cylinder,lerp,smooth};
   }
   function create(canvas) {
     const gl=canvas.getContext('webgl',{alpha:true,antialias:true,premultipliedAlpha:false,preserveDrawingBuffer:true});
@@ -205,7 +205,7 @@ function installMotionGraphics() {
       }
     }
     function dispose(){for(const g of buffers.values()){gl.deleteBuffer(g.p);gl.deleteBuffer(g.n);}buffers.clear();gl.deleteProgram(program);}
-    return Object.freeze({render,dispose,backend:'webgl',mesh,box,sphere,torus,cylinder,lerp,smooth});
+    return {render,dispose,backend:'webgl',mesh,box,sphere,torus,cylinder,lerp,smooth};
   }
   window.NivooGraphics=Object.freeze({create,mesh,box,sphere,torus,cylinder,lerp,smooth});
 }
