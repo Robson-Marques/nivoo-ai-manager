@@ -31,6 +31,7 @@ export function readReviewCheckpoint(raw:unknown):GoldfishCheckpoint{
   const b=raw.binding;
   if(b.continuationOf!==undefined&&!str(b.continuationOf))throw Error('Vínculo de continuação inválido.');
   if(!['projectId','conversationId','messageId','providerId','revision','targetHash','sourceRevision'].every(k=>str(b[k]))||!(b.model===null||typeof b.model==='string')||!['uninterrupted','feature_spec','implementation','drift','lite-spec','lite-diff',5,6,7,8,9].includes(b.preset as GoldfishPreset|'drift'))throw Error('Vínculo Goldfish inválido.');
+  if((b.preset==='lite-spec'||b.preset==='lite-diff')&&!str(b.liteSourceId))throw Error('Origem Lite inválida.');
   const keys=new Set<string>();
   for(const e of raw.entries){
     if(!object(e)||!str(e.key)||!str(e.fingerprint)||!str(e.role)||![5,6,7,8,9].includes(Number(e.stage))||(e.attempt!==1&&e.attempt!==2)||e.key!==e.stage+':'+e.role+':'+e.attempt||keys.has(e.key)||!str(e.startedAt))throw Error('Tentativa Goldfish inválida.');
