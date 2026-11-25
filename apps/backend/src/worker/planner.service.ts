@@ -1,6 +1,7 @@
 import { planFpsResume } from './planner/fps-resume';
 import { validatedPlannerJob } from './planner/validated-job';
-import { bindPlanningSource } from '../jobs/approved-scope';
+import { bindPlanningSource,readApprovedScope } from '../jobs/approved-scope';
+import { SPECIALTY_HANDOFF_KIND } from '../jobs/workflow/specialty-handoff';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -101,9 +102,20 @@ export class PlannerService {
       await this.queue.complete(task.id, workerId);
     };
 
+    const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
+    let specialtyContext:string|null=null;
+    if(specialtyResume){
+      const previous=msg.jobId?await this.prisma.job.findFirst({where:{id:msg.jobId,projectId:project.id,status:'CONCLUIDO'},select:{id:true,approvedScope:true,mergedCommit:true}}):null;
+      const scope=readApprovedScope(previous?.approvedScope,project.id);
+      if(!scope||scope.conversationId!==msg.conversationId||project.area.template!=='studio-workflow'||project.visualProfileRevision!==scope.visual.revision)return fail('A retomada não pode ser feita com o contexto atual. Preserve a especialidade criada e solicite novo alinhamento do pedido original.');
+      const newer=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{gt:new Date(scope.cutoff)}},select:{id:true}});
+      if(newer)return fail('Há uma nova solicitação na conversa; a retomada anterior não foi executada.');
+      specialtyContext=['A especialidade local foi criada e incorporada no trabalho '+previous!.id+' (commit '+previous!.mergedCommit+').','O pedido original NÃO foi implementado. Leia o catálogo e a especialidade recém-criada. Use o histórico integral da conversa, incluindo a solicitação anterior à seleção visual, e o perfil já aprovado.','Faça o novo Relatório de alinhamento para implementar o pedido original, conforme specialty-creation.md e prompt-alinhamento.md. Não crie novamente a mesma especialidade, não faça uma revisão da entrega anterior e não declare software entregue. Se houver outra lacuna real, siga o método; se decisão material faltar, pergunte. Caso contrário, apresente plano de implementação e aguarde Fazer.','Pedido vinculado ao alinhamento anterior: '+(scope.request?.content??''),'Alinhamento anterior: '+scope.alignment].join('\n');
+    }
+
     // Compatibility for queued requests: make the same deterministic decision
     // before opening a provider session. No extra AI call.
-    if(msg.kind!=='entrega'&&project.visualProfile==null){
+    if(!specialtyResume&&msg.kind!=='entrega'&&project.visualProfile==null){
       const intercepted=await this.prisma.$transaction(async tx=>{
         await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${msg.conversationId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
@@ -146,7 +158,7 @@ export class PlannerService {
     let goldfishScope:string|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
-    if(msg.kind!=='entrega'){
+    if(!specialtyResume&&msg.kind!=='entrega'){
       const userMessage=await this.prisma.conversationMessage.findFirst({
         where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},
         orderBy:{createdAt:'desc'},select:{content:true},
@@ -241,7 +253,7 @@ export class PlannerService {
       let routedSkillIds:readonly string[]=goldfishScope!==null?[GOLDFISH_SKILL.id]:[];
       const prompt = goldfishScope!==null
         ? goldfishReviewPrompt(goldfishScope,revision,AGENT_RULES,skillContext([GOLDFISH_SKILL],tmp))
-        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
+        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
       if(goldfishScope!==null)registrarTempo('goldfish_inicio',{provedor:providerId,skillsVersion:SKILLS_VERSION,skill:GOLDFISH_SKILL.id,revisao:revision});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
@@ -451,6 +463,7 @@ export class PlannerService {
           kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
           content: erro ?? `${trocou}${content || '(sem resposta)'}`,
           plan: planoDaEntrega ? undefined : plan,
+          ...(specialtyResume?{jobId:null}:{}),
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
           costUsd: result.costUsd ?? 0,

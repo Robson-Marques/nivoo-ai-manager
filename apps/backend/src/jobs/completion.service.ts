@@ -23,6 +23,7 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { capabilityReference,orderedCapabilityCriteria,deferredCapabilityCriterion } from './workflow/capability-criteria';
+import { SPECIALTY_HANDOFF_KIND,SPECIALTY_HANDOFF_NOTICE,specialtyHandoff } from './workflow/specialty-handoff';
 
 export interface CriterionResult {
   key: string;
@@ -437,7 +438,7 @@ export class CompletionService {
         return null;
       });
       if (pasta) await this.logs.log(jobId, `Resultados guardados na pasta do projeto: ${pasta}/`, { source: 'evaluator' });
-      await this.pedirEntrega(job.id,report.criteria);
+      await this.pedirEntrega(job,mergedCommit,report.criteria);
     }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
@@ -458,15 +459,19 @@ export class CompletionService {
    * Entrega na conversa (padrão, qualquer IA): o trabalho aprovado no chat terminou → a IA volta sozinha com o
    * que fez, onde estão os arquivos e as perguntas que dependem do usuário, numeradas, com recomendação.
    */
-  private async pedirEntrega(jobId: string,checks:CriterionResult[]): Promise<void> {
+  private async pedirEntrega(job:Job & {project:{dirKey:string}},mergedCommit:string|null,checks:CriterionResult[]): Promise<void> {
+    const jobId=job.id;
+    const files=mergedCommit?await this.workspace.arquivosDoCommit(job.project.dirKey,mergedCommit):[];
+    const handoff=specialtyHandoff(job.approvedScope,job.projectId,files);
     const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
     if (!plano) return;
     const approved=checks.filter(c=>c.passed);
-    const content=['Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
+    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
     await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${plano.conversationId} FOR UPDATE`;
       const existente = await tx.conversationMessage.findFirst({ where: { jobId, kind: 'entrega' }, select: { id: true } });
       if (existente) return;
       await tx.conversationMessage.create({
@@ -479,6 +484,17 @@ export class CompletionService {
           jobId,
         },
       });
+      if(handoff&&handoff.conversationId===plano.conversationId){
+        const conversation=await tx.conversation.findFirst({where:{id:plano.conversationId,projectId:job.projectId,archivedAt:null}});
+        const later=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{role:'USUARIO',createdAt:{gt:new Date(handoff.cutoff)}},{status:'PENDENTE'},{kind:'plano',createdAt:{gt:new Date(handoff.approvedAt)}}]},select:{id:true}});
+        if(conversation&&!later){
+          const latest=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId},orderBy:{createdAt:'desc'},select:{createdAt:true}});
+          const createdAt=new Date(Math.max(Date.now(),(latest?.createdAt.getTime()??0)+1));
+          const next=await tx.conversationMessage.create({data:{conversationId:plano.conversationId,role:'ASSISTENTE',status:'PENDENTE',kind:SPECIALTY_HANDOFF_KIND,jobId,content:'',createdAt}});
+          await tx.queueTask.create({data:{type:'PLAN_MESSAGE',messageId:next.id}});
+          await tx.conversation.update({where:{id:plano.conversationId},data:{updatedAt:createdAt}});
+        }
+      }
     });
   }
 

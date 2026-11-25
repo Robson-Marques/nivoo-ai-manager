@@ -103,8 +103,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
             '   Se tudo foi feito e não há bloqueio: só o resumo, sem perguntas. Pedido totalmente concluído: {"tipo":"resposta"}.',
           ]
         : [
-      '## Mensagem atual do usuário',
-      ...currentMessage,
+      ...(request.specialtyContext?['## Novo alinhamento após criação de especialidade',request.specialtyContext]:['## Mensagem atual do usuário',...currentMessage]),
 
           ]),
     ].join('\n');
