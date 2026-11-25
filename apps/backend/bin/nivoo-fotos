@@ -63,7 +63,7 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
     for (const t of TAMANHOS) {
       const ctx = await navegador.newContext({ viewport: t.viewport, isMobile: t.isMobile, hasTouch: t.isMobile, deviceScaleFactor: 1 });
       const pagina = await ctx.newPage();
-      const r = { caminho, tamanho: t.nome, foto: '', status: null, errosDoConsole: [], errosDeScript: [], naoCarregou: [], emBranco: false, rolagemParaOLado: false, emojiEmControles: [], acentosQuebrados: '' };
+      const r = { caminho, tamanho: t.nome, foto: '', status: null, errosDoConsole: [], errosDeScript: [], naoCarregou: [], emBranco: false, rolagemParaOLado: false, emojiEmControles: [], acentosQuebrados: '', designObservado: null };
       pagina.on('console', (m) => m.type() === 'error' && r.errosDoConsole.push(m.text().slice(0, 300)));
       pagina.on('pageerror', (e) => r.errosDeScript.push(String(e.message).slice(0, 300)));
       pagina.on('response', (resp) => {
@@ -95,6 +95,26 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
             .map((el) => `${el.tagName.toLowerCase()}: "${(el.textContent || '').trim().slice(0, 40)}"`);
         });
         r.emBranco = medidas.texto === 0 && medidas.imagens === 0;
+        r.designObservado = await pagina.evaluate(async () => {
+          const root = document.querySelector('[data-nivoo-profile-revision][data-nivoo-design-engine]');
+          if (!root) return null;
+          await Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,1500))]);
+          const css = getComputedStyle(root);
+          const heading = root.querySelector('h1,h2,h3');
+          return {
+            revision: root.getAttribute('data-nivoo-profile-revision'),
+            engine: root.getAttribute('data-nivoo-design-engine'),
+            variant: root.getAttribute('data-glass-variant'),
+            theme: root.getAttribute('data-theme'),
+            palette: root.getAttribute('data-nivoo-palette'),
+            density: root.getAttribute('data-nivoo-density'),
+            accent: css.getPropertyValue('--nv-color-accent').trim(),
+            body: css.fontFamily,
+            heading: heading ? getComputedStyle(heading).fontFamily : null,
+            surfaces: root.querySelectorAll('.liqui-glass').length,
+            localFonts: [...document.fonts].map(f=>({family:f.family,status:f.status})),
+          };
+        });
         const altura = await pagina.evaluate(() => Math.min(document.documentElement.scrollHeight, 4000));
         r.foto = path.join(pasta, `${nomeDe(caminho)}-${t.nome}.png`);
         await pagina.screenshot({ path: r.foto, clip: { x: 0, y: 0, width: t.viewport.width, height: Math.max(altura, t.viewport.height) }, fullPage: true });
@@ -126,6 +146,11 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
       `# Fotos das telas — ${base}`,
       '',
       ...resultados.map((r) => `- ${r.caminho} (${r.tamanho}): ${r.foto || 'sem foto'}`),
+      '',
+      '## Perfil visual observado (não substitui avaliação visual ou funcional)',
+      ...resultados.map(r => r.designObservado
+        ? `- ${r.caminho} (${r.tamanho}): ${JSON.stringify(r.designObservado)}`
+        : `- ${r.caminho} (${r.tamanho}): módulo de perfil aprovado não identificado no DOM`),
       '',
       problemas.length ? '## Problemas encontrados' : '## Nenhum problema automático encontrado (confira as fotos)',
       ...problemas.map((p) => `- ${p}`),

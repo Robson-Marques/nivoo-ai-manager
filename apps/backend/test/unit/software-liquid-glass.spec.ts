@@ -16,7 +16,7 @@ describe('Liquid Glass Nivoo',()=>{
     expect(liquidGlassIntent("Ajustar CSS","liquid-glass")).toBe(true);
     expect(liquidGlassIntent("Corrigir endpoint","liquid-glass")).toBe(false);
     expect(liquidGlassIntent("Migração Prisma","liquid-glass")).toBe(false);
-    expect(liquidGlassIntent("Ajustar componente React","liquid-glass")).toBe(false);
+    expect(liquidGlassIntent("Ajustar componente React","liquid-glass")).toBe(true);
     expect(liquidGlassIntent("Criar dashboard","minimalist")).toBe(false);
     expect(liquidGlassIntent("Criar dashboard",undefined)).toBe(false);
     expect(liquidGlassIntent("Criar vídeo Liquid Glass",undefined)).toBe(false);

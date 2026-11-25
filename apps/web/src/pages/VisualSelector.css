@@ -71,7 +71,6 @@
 .nv-vs-preview[data-style=corporate] .nv-vs-demo-plain:has(.nv-vs-demo-nav){border-radius:4px;border-bottom:3px solid var(--vs-accent)}
 .nv-vs-preview[data-style=premium-dark] .nv-vs-demo-plain:has(.nv-vs-demo-nav){border-top:2px solid var(--vs-accent)}
 /* Layout only. Optical refraction, tint and rim are the original Liqui kernel. */
-.nv-vs-optical-backdrop{position:absolute;inset:0;z-index:-1;pointer-events:none}
 .nv-vs-optical.nv-vs-preview{isolation:isolate;position:relative;border-radius:22px;background:var(--vs-bg);color:var(--vs-text)}
 .nv-vs-optical .nv-vs-preview-action{border-radius:999px}
 .nv-vs-error{font-weight:600}

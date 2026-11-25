@@ -22,6 +22,7 @@ import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skil
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { visualFontAssetsContext } from '../../projects/visual-font-assets';
+import { approvedDesignContext } from '../../projects/approved-design';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
@@ -60,7 +61,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
-    const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, visualProfile: true, area: { select: { template: true, slug: true } } } });
+    const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, visualProfile: true, visualProfileRevision: true, area: { select: { template: true, slug: true } } } });
     const motionEdit=step.instructions.includes(MOTION_EDIT_MARKER);
     const motionAuthor=motionEdit||step.instructions.includes(MOTION_CONTRACT_MARKER);
     const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || motionAuthor;
@@ -82,8 +83,11 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
-    if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass'))add('fontes-visuais',visualFontAssetsContext(vinculo?.visualProfile,worktree));
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
+    if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
+      const bound=skillIds.includes('software-liquid-glass')?approvedDesignContext(vinculo?.visualProfile,vinculo?.visualProfileRevision??0,worktree):[];
+      if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(vinculo?.visualProfile,worktree));
+    }
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
       add('estado-etapa',['## Retomada operacional','Estado compacto desta etapa, dependências, última tentativa e checkpoint: contexto/estado-etapa.md. Leia ao retomar; não releia todo o histórico sem necessidade.']);
