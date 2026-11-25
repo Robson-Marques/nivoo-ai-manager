@@ -303,4 +303,5 @@ async function testarHttp(r: McpResolvido, timeoutMs: number): Promise<Array<{ n
 export const MCP_PRONTOS = [
   { chave: 'context7', nome: 'Documentação (Context7)', descricao: 'Documentação atualizada de bibliotecas e frameworks.', tipo: 'http', url: 'https://mcp.context7.com/mcp', cabecalhos: ['CONTEXT7_API_KEY'] },
   { chave: 'github', nome: 'GitHub', descricao: 'Issues, pull requests e repositórios do GitHub (token pessoal).', tipo: 'http', url: 'https://api.githubcopilot.com/mcp/', cabecalhos: ['Authorization'], dica: 'Authorization = "Bearer <seu token do GitHub>"' },
+  { chave: '21st', nome: '21st.dev', descricao: 'Catálogo de componentes React/Tailwind. Pesquisa e código conforme a cota da conta; geração hospedada é opcional e pode cobrar créditos.', tipo: 'http', url: 'https://21st.dev/api/mcp', cabecalhos: ['x-api-key'], dica: 'Obtenha uma chave atual em 21st.dev/mcp. Use somente nos projetos escolhidos.', ajudaUrl: 'https://21st.dev/mcp', somenteProjetosEscolhidos: true },
 ];

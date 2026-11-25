@@ -30,7 +30,8 @@ describe('Ferramentas MCP', () => {
     const p1 = (await h.http().post('/api/projects').send({ name: 'Com MCP', provider: 'claude-code-cli' }).expect(201)).body;
     const p2 = (await h.http().post('/api/projects').send({ name: 'Sem MCP', provider: 'claude-code-cli' }).expect(201)).body;
     const lista = (await h.http().get('/api/mcp').expect(200)).body;
-    expect(lista.prontos.map((x: any) => x.chave)).toEqual(['context7', 'github']);
+    expect(lista.prontos.map((x: any) => x.chave)).toEqual(['context7', 'github', '21st']);
+    expect(lista.prontos.find((x: any) => x.chave === '21st')).toMatchObject({tipo:'http',url:'https://21st.dev/api/mcp',cabecalhos:['x-api-key'],somenteProjetosEscolhidos:true});
 
     // Inválidos: comando com espaços/argumentos no lugar errado; token dentro do endereço.
     await h.http().post('/api/mcp').send({ nome: 'x', tipo: 'comando', comando: 'rm -rf /' }).expect(400);
@@ -81,6 +82,21 @@ describe('Ferramentas MCP', () => {
     const segredos = path.join(dados, 'segredos.json');
     if (fs.existsSync(segredos)) expect(fs.readFileSync(segredos, 'utf8')).not.toContain('segredo-123');
     fs.rmSync(path.join(CTL, 'mode'), { force: true });
+  });
+
+  it('registra 21st sem expor chave e respeita escopo do projeto', async () => {
+    const {mcpDoProjeto}=await import('../../src/mcp/mcp');
+    const p=(await h.http().post('/api/projects').send({name:'Design 21st',provider:'claude-code-cli'}).expect(201)).body;
+    const other=(await h.http().post('/api/projects').send({name:'Sem 21st',provider:'claude-code-cli'}).expect(201)).body;
+    const m=(await h.http().post('/api/mcp').send({nome:'21st.dev',tipo:'http',url:'https://21st.dev/api/mcp',cabecalhos:{'x-api-key':'dummy-test-only'},projetos:[p.id]}).expect(201)).body;
+    try{
+      expect(m.segredos).toEqual([{nome:'x-api-key',definido:true}]);
+      expect(JSON.stringify((await h.http().get('/api/mcp')).body)).not.toContain('dummy-test-only');
+      expect(mcpDoProjeto(p.id).find(x=>x.nome==='21st-dev')).toMatchObject({tipo:'http',url:'https://21st.dev/api/mcp',headers:{'x-api-key':'dummy-test-only'}});
+      expect(mcpDoProjeto(other.id).some(x=>x.nome==='21st-dev')).toBe(false);
+      await h.http().patch(`/api/mcp/${m.id}`).send({ativo:false}).expect(200);
+      expect(mcpDoProjeto(p.id).some(x=>x.nome==='21st-dev')).toBe(false);
+    }finally{await h.http().delete(`/api/mcp/${m.id}`).expect(200);}
   });
 
   it('formatos do ChatGPT (Codex) e do Gemini', () => {

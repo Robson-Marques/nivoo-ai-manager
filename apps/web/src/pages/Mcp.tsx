@@ -118,8 +118,11 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
   const [todos, setTodos] = useState(atual ? atual.projetos === 'todos' : true);
   const [escolhidos, setEscolhidos] = useState<string[]>(atual && atual.projetos !== 'todos' ? atual.projetos : []);
   const [erro, setErro] = useState<string | null>(null);
+  const [prontoEscolhido, setProntoEscolhido] = useState<any>(null);
   const [ocupado, setOcupado] = useState(false);
   const usarPronto = (p: any) => {
+    setProntoEscolhido(p);
+    if(p.somenteProjetosEscolhidos){setTodos(false);setEscolhidos([]);}
     setNome(p.nome);
     setTipo(p.tipo);
     setComando(p.tipo === 'comando' ? [p.comando, ...(p.args ?? [])].join(' ') : '');
@@ -176,6 +179,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
             </div>
           </>
         )}
+        {prontoEscolhido?.dica && <p className="muted small">{prontoEscolhido.dica} {prontoEscolhido.ajudaUrl && <a href={prontoEscolhido.ajudaUrl} target="_blank" rel="noopener noreferrer">Obter chave</a>}</p>}
         <label>Nome<input value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={60} placeholder="Ex.: GitHub da empresa" /></label>
         <div className="row small">
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}><input type="radio" style={{ width: 'auto' }} checked={tipo === 'comando'} onChange={() => setTipo('comando')} /> Programa no servidor</label>
