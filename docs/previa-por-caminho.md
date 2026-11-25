@@ -16,3 +16,7 @@ Em `NIVOO_PREVIA_URL=/previa` (comando `nivoo previa`), a interface do Nivoo exi
 ## Aceitação
 
 Abrir o projeto e verificar Dashboard, Clientes, CRUD com dados de teste, navegação e recarga. Uma resposta HTTP do processo só indica servidor iniciado; não é evidência de funcionamento do software. O workflow de desenvolvimento e a qualidade do design são responsabilidades distintas desta correção.
+
+## Avaliação antes da incorporação
+
+O painel permite selecionar a versão principal ou um trabalho do próprio projeto que aguarda aprovação subjetiva e tem todas as etapas concluídas. O servidor resolve o commit Git da versão selecionada, faz checkout em cópia descartável e informa a identificação do trabalho e do commit. Não troca a main, não executa no worktree da IA e não aceita trabalho de outro projeto. O banco da prévia é distinto do banco de teste do trabalho; operações na prévia não comprovam nem alteram os dados dos testes automatizados. A sessão é um snapshot: se o trabalho mudar, selecione a versão novamente. A visualização não aprova o trabalho. O critério e a decisão continuam pelo mecanismo existente. A presença da prévia não comprova completude funcional. A versão pendente só pode ser testada se tiver configuração de execução válida.

@@ -11,9 +11,12 @@ export class PreviaController {
     return this.previa.estado(pid);
   }
 
+  @Get('fontes')
+  fontes(@Param('pid', ParseUUIDPipe) pid: string) { return this.previa.fontes(pid); }
+
   @Post('ligar')
-  ligar(@Param('pid', ParseUUIDPipe) pid: string) {
-    return this.previa.ligar(pid);
+  ligar(@Param('pid', ParseUUIDPipe) pid: string, @Body() body?:{jobId?:unknown}) {
+    return this.previa.ligar(pid,body?.jobId);
   }
 
   @Post('visualizador/quadro')

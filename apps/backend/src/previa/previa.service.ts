@@ -43,6 +43,8 @@ type Estado = 'parada' | 'ligando' | 'no-ar' | 'erro';
 
 interface Previa {
   projectId: string;
+  sourceJobId?: string;
+  sourceCommit: string;
   token: string;
   estado: Estado;
   mensagem: string;
@@ -187,6 +189,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     p.ultimoUso = Date.now();
     return {
       estado: p.estado,
+      sourceJobId: p.sourceJobId ?? null,
+      sourceCommit: p.sourceCommit ?? null,
       mensagem: p.mensagem,
       tipo: p.como?.tipo ?? null,
       origem: p.como?.origem ?? null,
@@ -207,12 +211,42 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return r.finally(()=>{if(this.operacoes.get(projectId)===r)this.operacoes.delete(projectId);});
   }
 
-  ligar(projectId: string) { return this.serializar(projectId,()=>this.ligarInterno(projectId)); }
-  private async ligarInterno(projectId: string) {
+  /** Only reviewable jobs in this project can be previewed. Never open an
+   * executing worktree or switch main to a job's branch. */
+  async fontes(projectId: string) {
+    return this.prisma.job.findMany({
+      where:{projectId,status:'AGUARDANDO_APROVACAO',steps:{some:{},every:{status:'CONCLUIDO'}},approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},
+      select:{id:true,title:true,updatedAt:true},orderBy:{updatedAt:'desc'},take:50,
+    });
+  }
+
+  private async fonte(projectId:string,raw:unknown):Promise<{sourceJobId?:string;sourceCommit:string}>{
+    const repo=await this.repoDo(projectId);
+    if(raw===undefined||raw===null||raw===''){
+      const result=await this.git(repo,['rev-parse','--verify','refs/heads/main^{commit}']);
+      const sourceCommit=result.stdout.trim();
+      if(result.exitCode!==0||!/^[0-9a-f]{40}$/.test(sourceCommit))throw new BadRequestException('A versão principal do projeto não pôde ser identificada.');
+      return {sourceCommit};
+    }
+    if(typeof raw!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw))throw new BadRequestException('Identificador de trabalho inválido.');
+    const job=await this.prisma.job.findFirst({
+      where:{id:raw,projectId,status:'AGUARDANDO_APROVACAO',steps:{some:{},every:{status:'CONCLUIDO'}},approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},
+      select:{id:true},
+    });
+    if(!job)throw new BadRequestException('O trabalho não está aguardando aceitação ou não pertence a este projeto.');
+    const result=await this.git(repo,['rev-parse','--verify','refs/heads/'+this.workspace.jobBranch(job.id)+'^{commit}']);
+    const sourceCommit=result.stdout.trim();
+    if(result.exitCode!==0||!/^[0-9a-f]{40}$/.test(sourceCommit))throw new BadRequestException('Não encontrei o checkpoint do resultado a avaliar.');
+    return {sourceJobId:job.id,sourceCommit};
+  }
+
+  ligar(projectId: string, jobId?:unknown) { return this.serializar(projectId,()=>this.ligarInterno(projectId,jobId)); }
+  private async ligarInterno(projectId: string,jobId?:unknown) {
     if (!this.portao && (!modoCaminho() || process.env.NIVOO_PREVIA_DESLIGADA==='1')) throw new BadRequestException('A prévia está desligada neste servidor (portão não abriu; veja os logs da API)');
+    const source=await this.fonte(projectId,jobId);
     const antiga = this.previas.get(projectId);
     if (antiga) await this.parar(antiga);
-    const p: Previa = { projectId, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now(), abort: new AbortController() };
+    const p: Previa = { projectId, ...source, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now(), abort: new AbortController() };
     this.previas.set(projectId, p);
     p.subida = this.subir(p).catch((e) => {
       if (cancelada(p)) return;
@@ -237,22 +271,24 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private async subir(p: Previa): Promise<void> {
     const repo = await this.repoDo(p.projectId);
     if (cancelada(p)) return;
-    // Cópia da pasta principal só para a prévia (o trabalho da IA nunca roda aqui).
+    // Cópia descartável do commit selecionado, nunca o worktree de execução.
     const dir = path.join(path.dirname(repo), 'previa');
     if (!fs.existsSync(path.join(dir, '.git'))) {
       fs.rmSync(dir, { recursive: true, force: true });
       await this.git(repo, ['worktree', 'prune']);
-      const r = await this.git(repo, ['worktree', 'add', '--detach', '--force', dir, 'main']);
+      const r = await this.git(repo, ['worktree', 'add', '--detach', '--force', dir, p.sourceCommit]);
       if (r.exitCode !== 0) throw new Error(`não consegui copiar o projeto: ${r.stderr.trim().slice(0, 300)}`);
     } else {
-      await this.git(dir, ['checkout', '--detach', '--force', 'main']);
-      await this.git(dir, ['reset', '--hard', 'main']);
-      await this.git(dir, ['clean', '-fdx', '-e', 'node_modules', '-e', '.venv']); // dependências ficam (mais rápido)
+      for(const args of [['checkout','--detach','--force',p.sourceCommit],['reset','--hard',p.sourceCommit],['clean','-fdx','-e','node_modules','-e','.venv']]){
+        const r=await this.git(dir,args);
+        if(r.exitCode!==0)throw new Error('Não consegui preparar a versão selecionada: '+r.stderr.trim().slice(0,300));
+      }
     }
     if (cancelada(p)) return;
     p.dir = dir;
     const como = PreviaService.comoRodar(dir);
     if (!como) {
+      if(p.sourceJobId)throw new Error('O resultado a avaliar não possui configuração de prévia (nivoo-previa.json, servidor ou site).');
       // A prévia mostra a PASTA PRINCIPAL: se um trabalho em andamento vai criar a prévia, ela só aparece quando ele concluir.
       const rodando = await this.prisma.job.findFirst({ where: { projectId: p.projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } }, select: { title: true } });
       p.trabalhoEmAndamento = !!rodando;
@@ -278,12 +314,13 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
         if (cancelada(p)) { servidor.close(); return; }
       }
       p.estado = 'no-ar';
-      p.mensagem = `site estático (${como.origem})`;
+      p.mensagem = `site estático (${como.origem}) — ${p.sourceJobId?'resultado a avaliar':'versão principal'} ${p.sourceCommit?.slice(0,8)}`;
       p.ligadaEm = new Date();
       return;
     }
     p.porta = await portaLivre();
-    const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId)).catch(() => null);
+    const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId));
+    if(process.env.NIVOO_TESTES_PG_URL&&!banco)throw new Error('Configuração inválida do banco descartável da prévia.');
     if (cancelada(p)) return;
     const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
@@ -322,7 +359,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       if (await this.responde(p.porta)) {
         if (cancelada(p)) return;
         p.estado = 'no-ar';
-        p.mensagem = `sistema no ar (${como.origem})`;
+        p.mensagem = `sistema no ar (${como.origem}) — ${p.sourceJobId?'resultado a avaliar':'versão principal'} ${p.sourceCommit?.slice(0,8)}`;
         p.ligadaEm = new Date();
         return;
       }
@@ -456,6 +493,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse) {
     const base = resolveInside(p.dir!, p.como!.pasta);
     let rel = decodeURIComponent(caminho).replace(/^\/+/, '');
+    if(rel.split('/').some(part=>part==='.git'||part==='.nivoo'||part==='contexto'||part==='.env'||part.startsWith('.env.')))return this.pagina(res,404,'Arquivo não publicado na prévia.');
     let arq: string;
     try {
       arq = rel ? resolveInside(base, rel) : base;
