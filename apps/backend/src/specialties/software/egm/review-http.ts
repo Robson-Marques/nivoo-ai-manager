@@ -133,7 +133,8 @@ export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch
         await input.onUsage(result);
         if(req.signal.aborted||result.interrupted){halted=true;return {status:'interrupted' as const,reason:'Revisão interrompida.'};}
         if(result.resourceUnavailable){halted=true;return {status:'unavailable' as const,reason:result.error||'Provedor indisponível.'};}
-        if(result.exitCode!==0||result.sessionEnded||!result.output.trim())return {status:'failed' as const,reason:result.error||'Parecer incompleto.'};
+        const text=result.output.trim();
+        if(result.exitCode!==0||result.sessionEnded||!text||/^(?:length|max_tokens|content_filter)$/i.test(result.stopReason??'')||/^(?:Arquivos alterados:|Alterações concluídas:)[\s\S]*$/i.test(text))return {status:'failed' as const,reason:result.error||'Parecer ausente, truncado ou incompleto.'};
         // A stateless HTTP invocation has no native thread id; the locally
         // generated execution id identifies that actual, fresh invocation.
         return {status:'completed' as const,report:result.output,receipt:{sessionId:id,freshContext:true as const,readOnly:true as const,access:req.access}};
