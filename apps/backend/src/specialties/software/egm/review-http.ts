@@ -14,12 +14,12 @@ export function goldfishTransportSupported(type:string|null):boolean{return gold
 
 const MAX_FILE=256*1024,MAX_BASELINE=512*1024,MAX_REFERENCES=40;
 const protectedPart=/^(?:\.|node_modules$|contexto$|out$|midia$|segredos\.json$|conexoes\.json$|id_rsa$|id_ed25519$)/i;
-function validRelative(relative:string):boolean{
+export function validRelative(relative:string):boolean{
   return !!relative&&relative.length<=240&&!path.isAbsolute(relative)&&!relative.includes('\\')&&!relative.includes('\0')&&
     relative.split('/').every(p=>!!p&&p!=='..'&&!protectedPart.test(p)&&!/[\x00-\x1f]/.test(p))&&
     !/\.(?:pem|key|pfx|p12|kdbx)$/i.test(relative);
 }
-function readReference(root:string,relative:string):GoldfishReference{
+export function readReference(root:string,relative:string):GoldfishReference{
   if(!validRelative(relative))throw Error('Referência de revisão protegida ou inválida.');
   let file=fs.realpathSync(root);
   for(const part of relative.split('/')){
@@ -124,7 +124,7 @@ export function createGoldfishDispatch(input:DispatchInput):GoldfishDispatch{
           '## Documento alvo e intervalos autorizados (conteúdo integral dos intervalos no prompt; arquivo equivalente na pasta isolada)',JSON.stringify(req.target),
           cli?'## Referências autorizadas (conteúdo integral inline)':'## Referências autorizadas disponíveis por leitura',JSON.stringify(cli?refs:refs.map(r=>r.path)),
           ...(req.priorReports.length?['## Pareceres anteriores autorizados',JSON.stringify(req.priorReports)]:[]),
-          'Devolva o parecer Markdown integral. Preserve as paráfrases exigidas na fase 6.',FINDINGS_CONTRACT,
+          'Devolva o parecer Markdown integral. Preserve as paráfrases exigidas na fase 6.',...(req.role.startsWith('egm-drift-')?[]:[FINDINGS_CONTRACT]),
         ].join('\n');
         input.onLog('Goldfish fase '+req.stage+' / '+req.role+' / tentativa '+req.attempt);
         if(req.signal.aborted||!input.canContinue())return {status:'interrupted' as const,reason:'Revisão interrompida.'};
