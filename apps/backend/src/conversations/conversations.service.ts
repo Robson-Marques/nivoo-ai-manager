@@ -9,6 +9,7 @@ import { readPlanningSource,type ApprovedScope } from '../jobs/approved-scope';
 import { minimalEnv,runProcess } from '../common/exec';
 import { readReviewCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { readResolutionLedger,validateResolutionDecisions } from '../specialties/software/egm/review-resolution';
+import { bindApprovedGoldfish,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import * as fs from 'node:fs';
@@ -381,6 +382,7 @@ export class ConversationsService {
     const request=await this.prisma.conversationMessage.findFirst({where:{conversationId,role:'USUARIO',createdAt:{lte:cutoff}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{id:true,content:true,kind:true}});
     const plan = this.jobs.validatePlan(msg.plan, project.area);
     const egm=(msg.plan as Record<string,unknown>).egmResolution;
+    let egmApproved:ApprovedGoldfishResolution|undefined;
     if(egm!==undefined){
       if(automatic)throw new ConflictException('Resolução Goldfish exige aprovação explícita.');
       if(!egm||typeof egm!=='object'||Array.isArray(egm))throw new ConflictException('Vínculo Goldfish inválido.');
@@ -390,7 +392,9 @@ export class ConversationsService {
       try{
         const state=readReviewCheckpoint(review?.goldfishState),ledger=readResolutionLedger(state.resolution);
         if(!ledger.ready||state.binding.projectId!==projectId||state.binding.conversationId!==conversationId||state.binding.messageId!==binding.reviewMessageId||state.binding.revision!==binding.revision||ledger.revision!==binding.revision)throw Error('Revisão não corresponde ao plano.');
-        validateResolutionDecisions(ledger,{tipo:'plano',egmDecisions:binding.decisions},plan.steps);
+        const decisions=validateResolutionDecisions(ledger,{tipo:'plano',egmDecisions:binding.decisions},plan.steps);
+        egmApproved=bindApprovedGoldfish(binding.reviewMessageId as string,ledger,decisions,plan.steps);
+        if(Array.isArray((msg.plan as any).anexosNoProjeto)&&(msg.plan as any).anexosNoProjeto.length)throw Error('Resolução Goldfish não autoriza copiar anexos alheios à revisão.');
       }catch(e){throw new ConflictException('Resolução Goldfish inválida: '+(e as Error).message);}
       const p=await this.prisma.project.findUniqueOrThrow({where:{id:projectId},select:{dirKey:true}});
       const repo=this.workspace.projectDirs(p.dirKey).repo;
@@ -398,7 +402,7 @@ export class ConversationsService {
       if(rev.exitCode!==0||rev.stdout.trim()!==binding.revision)throw new ConflictException('A revisão do projeto mudou. Atualize a análise Goldfish antes de aprovar a correção.');
     }
     const approvedAt=new Date();
-    const scope:ApprovedScope={version:1,projectId,conversationId,planMessageId:msg.id,cutoff:cutoff.toISOString(),approvedAt:approvedAt.toISOString(),approvedBy:decidedBy,areaTemplate:project.area.template??project.area.slug,alignment:msg.content,request,visual:{revision:project.visualProfileRevision,profile:project.visualProfile}};
+    const scope:ApprovedScope={version:1,projectId,conversationId,planMessageId:msg.id,cutoff:cutoff.toISOString(),approvedAt:approvedAt.toISOString(),approvedBy:decidedBy,areaTemplate:project.area.template??project.area.slug,alignment:msg.content,request,visual:{revision:project.visualProfileRevision,profile:project.visualProfile},...(egmApproved?{egmResolution:egmApproved}:{})};
     // Reserva o plano antes de criar o job: dois cliques em "Fazer" nunca criam dois trabalhos.
     const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt, approvedBy: decidedBy } });
     if (!reserva.count) throw new ConflictException('Este plano já foi aprovado');
