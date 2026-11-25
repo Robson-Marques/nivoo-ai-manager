@@ -1151,8 +1151,8 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (
           <div className={`previa-moldura t-${tamanho}`}>
-            <div className="muted small" style={{padding: 6}}>Se aparecer “Prévia fechada” ou uma tela em branco, <a href={e.url} target="_blank" rel="noreferrer">abra em nova aba</a>. Não é necessário alterar o projeto para corrigir o acesso do navegador.</div>
-            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads" />
+            <div className="muted small" style={{padding: 6}}>{e.modoCaminho?'Modo por caminho: apps precisam suportar a base da prévia; armazenamento de origem e cookies do software ficam indisponíveis. ':''}Se aparecer “Prévia fechada” ou uma tela em branco, <a href={e.url} target="_blank" rel="noreferrer">abra em nova aba</a>. Não é necessário alterar o projeto para corrigir o acesso do navegador.</div>
+            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox={e.modoCaminho ? "allow-scripts allow-forms" : "allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"} />
           </div>
         ) : estado === 'ligando' ? (
           <div className="previa-info">
