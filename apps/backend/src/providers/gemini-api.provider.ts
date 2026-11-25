@@ -6,6 +6,7 @@ import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { serversGemini } from '../mcp/para-ia';
 import { cliReadOnly,geminiSessionSettings } from './cli-session-policy';
+import { nativeSkillReadObserver } from './cli-skill-observer';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
 /**
@@ -106,6 +107,8 @@ export class GeminiApiProvider implements AiProvider {
     fs.mkdirSync(path.join(homeMcp,'.gemini'),{mode:0o700});
     fs.writeFileSync(path.join(homeMcp,'.gemini','settings.json'),JSON.stringify(geminiSessionSettings(readOnly,serversGemini(mcp)),null,2),{mode:0o600,flag:'wx'});
     if(mcp.length)req.onLog('Ferramentas MCP nesta sessão: '+mcp.map(m=>m.nome).join(', '));
+    const skillRead=nativeSkillReadObserver('gemini',req.cwd,req.onLog);
+    const observe=(line:string)=>{skillRead(line);GeminiApiProvider.logEvento(line,req.onLog);};
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
@@ -120,10 +123,10 @@ export class GeminiApiProvider implements AiProvider {
         pendente += c;
         const linhas = pendente.split('\n');
         pendente = linhas.pop() ?? '';
-        for (const l of linhas) GeminiApiProvider.logEvento(l, req.onLog);
+        for (const l of linhas) observe(l);
       },
     });
-    if (pendente.trim()) GeminiApiProvider.logEvento(pendente, req.onLog);
+    if (pendente.trim()) observe(pendente);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) {
       // O Gemini CLI repete sozinho, em silêncio, quando o Google responde 503 (sobrecarga): o tempo acaba
