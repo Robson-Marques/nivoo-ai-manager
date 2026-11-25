@@ -394,7 +394,7 @@ export class ConversationsService {
         if(!ledger.ready||state.binding.projectId!==projectId||state.binding.conversationId!==conversationId||state.binding.messageId!==binding.reviewMessageId||state.binding.revision!==binding.revision||ledger.revision!==binding.revision)throw Error('Revisão não corresponde ao plano.');
         if(!Array.isArray(plan.steps))throw Error('Etapas Goldfish inválidas.');
         const decisions=validateResolutionDecisions(ledger,{tipo:'plano',egmDecisions:binding.decisions},plan.steps);
-        egmApproved=bindApprovedGoldfish(binding.reviewMessageId as string,ledger,decisions,plan.steps);
+        egmApproved=bindApprovedGoldfish(binding.reviewMessageId as string,ledger,decisions,plan.steps,plan.criteria);
         if(Array.isArray((msg.plan as any).anexosNoProjeto)&&(msg.plan as any).anexosNoProjeto.length)throw Error('Resolução Goldfish não autoriza copiar anexos alheios à revisão.');
       }catch(e){throw new ConflictException('Resolução Goldfish inválida: '+(e as Error).message);}
       const p=await this.prisma.project.findUniqueOrThrow({where:{id:projectId},select:{dirKey:true}});
