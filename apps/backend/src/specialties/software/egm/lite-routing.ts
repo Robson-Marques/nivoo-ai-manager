@@ -17,7 +17,7 @@ const aiTypes=new Set(['codex-cli','codex-api','claude-code-cli','claude-api','n
 const normalized=(v:string)=>v.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 export function declaredSourceTargets(text:string):string[]{
   const matches=text.matchAll(/(?:^|[\s\x60"'(])((?:[\w@.-]+\/)+[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|java|kt|cs|rb|php|sql|prisma|proto|vue|svelte|swift|cpp|h|c))(?=$|[\s\x60"'():,;])/gim);
-  return [...new Set([...matches].map(m=>m[1]).filter(p=>p.split('/').every(s=>s!=='.'&&s!=='..'&&!s.startsWith('.'))&&sourceExt.test(p)&&!testPath.test(p)))].sort();
+  return [...new Set([...matches].map(m=>m[1]).filter(p=>p.split('/').every(s=>s!=='.'&&s!=='..'&&!s.startsWith('.')&&s!=='node_modules'&&s!=='out'&&s!=='contexto')&&sourceExt.test(p)&&!testPath.test(p)))].sort();
 }
 export function routeEgm(plan:Plan,area:AreaScope|undefined):EgmRoute{
   const excluded=(reason:string):EgmRoute=>({route:'excluded',recommendSpecReview:false,reasons:[reason],targets:[],coverage:'not-applicable'});
@@ -48,9 +48,9 @@ export function executionChecklist(plan:Plan,route:EgmRoute,approval:{planMessag
   return {version:1,approval,route,objective:plan.objective,baseline,scopeHash:digest({objective:plan.objective,steps:plan.steps.map(s=>({key:s.key,instructions:s.instructions,verifyCommand:s.verifyCommand??null,provider:s.provider??plan.defaultProvider,dependsOn:s.dependsOn??[]})),criteria:plan.criteria.map(c=>({key:c.key,kind:c.kind,config:c.config}))}),steps:plan.steps.map(s=>({key:s.key,title:s.title,instructions:s.instructions,verifyCommand:s.verifyCommand??null,status:s.status??'PENDENTE'})),criteria:plan.criteria.map(c=>({key:c.key,kind:c.kind,description:c.description??'',status:c.status??'PENDENTE'})),independentReview:'not-run' as const};
 }
 export function renderExecutionChecklist(c:ReturnType<typeof executionChecklist>):string{
-  return ['# Elephant — checklist operacional do Nivoo ('+c.route.route+')','Aprovação do plano: '+c.approval.planMessageId+' / '+c.approval.approvedAt,'Escopo: '+c.scopeHash,'Base registrada: '+(c.baseline.commit??'indisponível')+'; inventário '+(c.baseline.complete?'capturado':'incompleto'),...c.baseline.dirty.map(s=>'- Estado anterior: '+JSON.stringify(s)),
-    '## Objetivo',c.objective,'## Etapas aprovadas',...c.steps.flatMap(s=>['- ['+(s.status==='CONCLUIDO'?'x':' ')+'] '+s.key+' — '+s.title+' ('+s.status+')','  '+s.instructions,'  Verificação: '+(s.verifyCommand??'não indicada')]),
-    '## Critérios',...c.criteria.map(x=>'- ['+x.status+'] '+x.key+' — '+x.description),'## Limites','O estado das etapas vem do backend, não de uma declaração da IA. Preserve alterações anteriores. Não altere alvos fora do plano; não enfraqueça testes. Não repita a suíte final apenas para antecipar o avaliador. Registre premissas não verificadas e escale mudanças de escopo. Parecer independente: não executado por este checklist.'].join('\n');
+  return ['# Elephant — checklist operacional do Nivoo ('+c.route.route+')','Aprovação original do plano: '+c.approval.planMessageId+' / '+c.approval.approvedAt,'Escopo: '+c.scopeHash,'Base registrada: '+(c.baseline.commit??'indisponível')+'; inventário '+(c.baseline.complete?'capturado':'incompleto'),...c.baseline.dirty.map(s=>'- Estado anterior: '+JSON.stringify(s)),
+    '## Objetivo',c.objective,'## Etapas persistidas no trabalho',...c.steps.flatMap(s=>['- ['+(s.status==='CONCLUIDO'?'x':' ')+'] '+s.key+' — '+s.title+' ('+s.status+')','  '+s.instructions,'  Verificação: '+(s.verifyCommand??'não indicada')]),
+    '## Critérios',...c.criteria.map(x=>'- ['+x.status+'] '+x.key+' — '+x.description),'## Limites','O estado das etapas vem do backend, não de uma declaração da IA. Este inventário não cria aprovação para alterações posteriores do objetivo ou do escopo. Preserve alterações anteriores. Não altere alvos fora do plano; não enfraqueça testes. Não repita a suíte final apenas para antecipar o avaliador. Registre premissas não verificadas e escale mudanças de escopo. Parecer independente: não executado por este checklist.'].join('\n');
 }
 
 export type EgmBaseline={commit:string|null;dirty:string[];complete:boolean};
