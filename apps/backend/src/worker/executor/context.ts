@@ -1,3 +1,4 @@
+import { adoptionOf,adoptionSummaries } from '../../jobs/workflow/adoption-contract';
 import { verificationDiagnostic } from './verification-diagnostic';
 import type { Job,Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -99,8 +100,11 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
-    if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
-      const bound=skillIds.includes('software-liquid-glass')?approvedDesignContext(visual.profile,visual.revision,worktree):[];
+    const adoptions=adoptionSummaries(criteria);
+    if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
+    const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
+    if(adoptsGlass||skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
+      const bound=(adoptsGlass||skillIds.includes('software-liquid-glass'))?approvedDesignContext(visual.profile,visual.revision,worktree):[];
       if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(visual.profile,worktree));
     }
     if(worktree){

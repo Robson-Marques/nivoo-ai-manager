@@ -1,3 +1,4 @@
+import { validateAdoptionCriteria } from './adoption-contract';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto } from '../../common/path-guard';
 
@@ -12,6 +13,7 @@ export function capabilityReference(config:unknown):CapabilityReference|null{
   return {id:raw.id,contract:raw.contract,phase:raw.phase as Phase};
 }
 export function validateCapabilityCriteria(criteria:Criterion[],steps:ReadonlyArray<{verifyCommand?:string|null}>=[]):void{
+  validateAdoptionCriteria(criteria);
   const groups=new Map<string,Array<{c:Criterion;ref:CapabilityReference}>>();
   for(const c of criteria){
     const cfg=record(c.config);

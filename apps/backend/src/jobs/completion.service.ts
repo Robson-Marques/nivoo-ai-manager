@@ -1,3 +1,5 @@
+import { adoptionOf,adoptionSummaries } from './workflow/adoption-contract';
+import { verifyAdoptionInventory,verifyAdoptionCoverage } from './workflow/adoption-evidence';
 import { Injectable } from '@nestjs/common';
 import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
@@ -466,7 +468,8 @@ export class CompletionService {
     const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
     if (!plano) return;
     const approved=checks.filter(c=>c.passed);
-    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
+    const adoption=adoptionSummaries(await this.prisma.acceptanceCriterion.findMany({where:{jobId}}));
+    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption, ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
@@ -560,6 +563,8 @@ export class CompletionService {
       }
       switch (c.kind) {
         case 'COMMAND': {
+          const adoption=adoptionOf(c.config);
+          const inventory=adoption?verifyAdoptionInventory(worktree,adoption):null;
           const cmd = String(cfg.command ?? '');
           await this.logs.log(job.id, `Conferência final: critério "${c.key}" rodando (${cmd.replace(/\s+/g, ' ').slice(0, 160)})`, { source: 'evaluator' });
           const pol = evaluatePolicy(cmd);
@@ -576,11 +581,12 @@ export class CompletionService {
           }),prepared.redact);
           const expected = cfg.expectExitCode ?? 0;
           const problem=verificationPassed(r,expected)?null:verificationProblem(r,cmd);
+          const missing=verificationPassed(r,expected)&&Array.isArray(cfg.adoptionFamilies)?verifyAdoptionCoverage(r.stdout,cfg.adoptionFamilies):[];
           return {
             ...base,
-            passed: verificationPassed(r,expected),
+            passed: verificationPassed(r,expected)&&!missing.length,
             ...(problem?{verificationProblem:problem}:{}),
-            evidence: { comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
+            evidence: { ...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
           };
         }
         case 'FILE_EXISTS': {

@@ -1,3 +1,4 @@
+import { liquidGlassComponentsContext } from './liquid-glass-components';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { writeSessionContextFile } from '../common/session-context-file';
@@ -69,6 +70,7 @@ export function approvedDesignContext(value:unknown,revision:number,worktree?:st
   // Use the same engine binaries/sources as the selector; no UI-specific copy
   // of the optics. Selected fonts are materialized alongside the adapter.
   liquidGlassTemplateContext(worktree);
+  liquidGlassComponentsContext(worktree);
   const fontInfo=visualFontAssetsContext(value,worktree,target+'fonts/');
   if(!fs.existsSync(path.join(worktree,'contexto',target,'fonts','fonts.css')))return ['Não foi possível materializar o pacote de design aprovado: fontes indisponíveis. Não declare aplicação fiel.'];
   writeSessionContextFile(worktree,target+'approved-design.tsx',approvedDesignSource(design));
@@ -80,7 +82,7 @@ export function approvedDesignContext(value:unknown,revision:number,worktree?:st
   writeSessionContextFile(worktree,target+'approved-profile.json',JSON.stringify(design,null,2)+'\n');
   return [
     '## Design aprovado — módulo React pronto para integração',
-    'O pacote local de revisão '+revision+' em contexto/'+target+' contém approved-design.tsx, approved-design.css, approved-profile.json, engine/ e fonts/. Copie estes cinco itens juntos para uma pasta do frontend real; importe ApprovedDesignRoot no shell e ApprovedDesignSurface nas superfícies ópticas. Não escreva de novo os parâmetros ou o motor. Preserve fontes/licenças. O registry/ permanece referência para os componentes compatíveis.',
+    'O pacote local de revisão '+revision+' em contexto/'+target+' contém approved-design.tsx, approved-design.css, approved-profile.json, engine/ e fonts/. Copie estes itens E o registry/ integral para uma pasta do frontend real; importe ApprovedDesignRoot no shell e ApprovedDesignSurface nas superfícies ópticas. Use os componentes oficiais do registry/ nos controles reais, com Tailwind v4 e dependências transitivas conforme registry.json; os imports internos já estão ligados ao engine. Não substitua os controles por versões próprias. Preserve fontes/licenças.',
     'Use as variáveis --nv-color-<papel>, --nv-space-<xs|sm|md|lg|xl>, --nv-radius-<control|panel|overlay>, --nv-font-<heading|body|mono>, --nv-control-height, --nv-touch-height e --nv-table-row-height nos controles, conteúdo e estados reais. A raiz acompanha o tema aprovado. Não copie as telas de demonstração nem substitua o domínio, a navegação ou a API. Não aplique fora do escopo. Se a pilha não for React, não a troque sem aprovação.',
     'Ao implementar interface compatível com este perfil, integre o módulo no fluxo real; a mera presença dos arquivos não é entrega. Na conferência já prevista, observe no DOM a raiz data-nivoo-profile-revision='+revision+' e superfícies reais .liqui-glass, fontes carregadas, navegação e operação. O atributo sozinho não prova fidelidade nem funcionalidade.',
     ...fontInfo,

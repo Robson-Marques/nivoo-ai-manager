@@ -373,7 +373,7 @@ export class PlannerService {
         registrarTempo('validacao_plano_inicio', { etapas: Array.isArray(parsed.job?.steps) ? parsed.job.steps.length : 0 });
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
-          plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos);
+          plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos,project.visualProfile);
           registrarTempo('validacao_plano_aprovada');
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
@@ -426,7 +426,7 @@ export class PlannerService {
             const corrigido = extractJson(reparo.output);
             registrarTempo('reparo_json_interpretado', { tipo: corrigido?.tipo ?? 'sem_json', temPlano: !!corrigido?.job });
             if (corrigido?.tipo !== 'plano' || !corrigido.job) throw new Error('A correção não retornou um plano estruturado');
-            plan = validatedPlannerJob(this.jobs,corrigido,providerId,project.area,anexos);
+            plan = validatedPlannerJob(this.jobs,corrigido,providerId,project.area,anexos,project.visualProfile);
             registrarTempo('reparo_plano_aprovado');
             parsed = corrigido;
             kind = 'plano';
