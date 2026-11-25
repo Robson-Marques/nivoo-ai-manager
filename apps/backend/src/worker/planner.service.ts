@@ -15,6 +15,7 @@ import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,pa
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
 import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
+import { approvedGoldfish,summarizeGoldfishExecution } from '../specialties/software/egm/resolution-execution';
 import { consolidateGoldfish,renderResolutionLedger,resolutionRequest,resolutionContext,readResolutionLedger,validateResolutionDecisions,renderResolutionDecisions,type ResolutionLedger } from '../specialties/software/egm/review-resolution';
 import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
@@ -725,6 +726,17 @@ export class PlannerService {
   private async dadosDaEntrega(jobId: string, dirKey: string): Promise<string> {
     const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { objectives: { orderBy: { version: 'desc' }, take: 1 }, steps: { orderBy: { order: 'asc' } }, criteria: { include: { checks: { orderBy: { createdAt: 'desc' }, take: 1 } } }, attempts: { orderBy: { number: 'desc' }, take: 6 } } });
     if (!job) return '';
+    let egmDelivery:string[]=[];
+    try{
+      const egm=approvedGoldfish(job.approvedScope);
+      if(egm){
+        const [attempts,checkpoints]=await Promise.all([
+          this.prisma.attempt.findMany({where:{jobId},select:{id:true,stepId:true,number:true,status:true,exitCode:true,treeAfter:true}}),
+          this.prisma.checkpoint.findMany({where:{jobId},select:{id:true,stepId:true,gitCommit:true,state:true,seq:true}}),
+        ]);
+        egmDelivery=summarizeGoldfishExecution(egm,job.steps,attempts,checkpoints,job.mergedCommit,job.status);
+      }
+    }catch(e){egmDelivery=['Rastreabilidade Goldfish indisponível: '+(e as Error).message+'. Não afirmar correção dos achados.'];}
     // Trabalho que PAROU (bloqueado/falhou): a IA recebe o erro para DIAGNOSTICAR e PROPOR UM PLANO que conserta.
     if (job.status === 'BLOQUEADO' || job.status === 'FALHOU' || job.status === 'AGUARDANDO_RECURSO') {
       const logs = await this.prisma.logEntry.findMany({ where: { jobId }, orderBy: { id: 'desc' }, take: 18 });
@@ -739,6 +751,7 @@ export class PlannerService {
         ...job.criteria.filter((c) => c.status !== 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}) ${c.status}: ${c.description.slice(0, 150)}${c.checks[0] ? ` — evidência: ${JSON.stringify(c.checks[0].evidence).slice(0, 300)}` : ''}`),
         `Últimas linhas do log:\n${logs.reverse().map((l) => `${l.level} ${l.source}: ${l.message.replace(/\s+/g, ' ').slice(0, 220)}`).join('\n')}`,
         '',
+        ...egmDelivery,
         'SUA TAREFA AGORA (retomada): explique a causa, mas NÃO proponha criar outro trabalho só para corrigir uma etapa bloqueada.',
         'O mesmo job guarda checkpoints e etapas concluídas. Use o botão Continuar do trabalho existente DEPOIS de corrigir a causa.',
         'Em montagem bloqueada por TRILHA_NAO_LOCALIZADA, o Nivoo já procura o nome original nos uploads e artefatos do projeto.',
@@ -760,6 +773,7 @@ export class PlannerService {
         (await this.artifacts.resultadosDosTrabalhos(job.projectId, [jobId])).filter((a) => a.name !== 'conferencia-regras.json').map((a) => `${a.name} (${a.sizeBytes} bytes)`).join('; ') || 'nenhum'
       }`,
       'Os resultados são o produto do trabalho tanto quanto os arquivos: apresente-os (o que contêm, os achados e as decisões pendentes).',
+      ...egmDelivery,
       'Conferências que o SISTEMA rodou e passaram:',
       ...job.steps.filter((x) => x.status === 'CONCLUIDO' && x.verifyCommand && x.verifyCommand !== 'true').map((x) => `- etapa "${x.title || x.key}": ${x.verifyCommand!.slice(0, 300)}`),
       ...job.criteria.filter((c) => c.status === 'APROVADO').map((c) => `- critério "${c.key}" (${c.kind}): ${c.description.slice(0, 200)}`),
