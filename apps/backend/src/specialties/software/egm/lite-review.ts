@@ -2,6 +2,7 @@ import { minimalEnv,runProcess } from '../../../common/exec';
 import { goldfishSource,type GoldfishDispatch,type GoldfishReference } from './review-pipeline';
 import { type EgmBaseline } from './lite-routing';
 import { validRelative } from './review-http';
+import { liteFindings,LITE_FINDING_FORMAT } from './lite-resolution';
 
 export type LiteMode='lite-spec'|'lite-diff';
 export type LiteIntake={mode:LiteMode;sourceId:string;revision:string;target:GoldfishReference};
@@ -62,7 +63,7 @@ export function parseLiteResult(report:string):LiteResult['status']{
   const t=report.trim();
   if(t==='[✅ LGTM]')return 'lgtm';
   if(!t||/\bLGTM\b/i.test(t)||/NIVOO_LITE_INCOMPLETE/.test(t))return 'incomplete';
-  return /(?:^|\n)\s*(?:[-*]\s*)?\[P[0-3]\]\s+\S/.test(t)?'findings':'incomplete';
+  return liteFindings(t)?.length?'findings':'incomplete';
 }
 export async function runLiteReview(intake:LiteIntake,dispatch:GoldfishDispatch,signal:AbortSignal):Promise<LiteResult>{
   const base={mode:intake.mode,sourceId:intake.sourceId,revision:intake.revision};
@@ -71,7 +72,7 @@ export async function runLiteReview(intake:LiteIntake,dispatch:GoldfishDispatch,
   const original=goldfishSource('skills/egm-lite/SKILL.md');
   const rubric=spec?original.slice(original.indexOf('### 2B.'),original.indexOf('## 3. EXEC PROTOCOL')):original.slice(original.indexOf('## 4. ADVERSARIAL DIFF REVIEW'),original.indexOf('## 5. POST-REVIEW RESOLUTION GATE'));
   if(!rubric.trim())throw Error('Rubrica original Lite não localizada.');
-  const result=await dispatch({stage:spec?7:9,role:intake.mode,attempt:1,revision:intake.revision,persona:[rubric,'Você é o revisor independente, não o orquestrador. O Nivoo já delegou a sessão. Não invoque agentes, não altere arquivos. '+(spec?'Avalie somente a especificação; não solicite AST nem diff.':'Avalie o diff e checklist completos fornecidos, incluindo testes e limites.'),'Contrato binário: responda exclusivamente [✅ LGTM] se estritamente zero achados; caso contrário somente achados materiais, cada um em linha iniciada por [P0], [P1], [P2] ou [P3], com evidência e proposta. Se entrada insuficiente, responda NIVOO_LITE_INCOMPLETE e a limitação.'].join('\n'),target:{path:intake.target.path,ranges:[{start:1,end:intake.target.content.split('\n').length,text:intake.target.content}]},baseline:[],priorReports:[],access:'document-only',signal});
+  const result=await dispatch({stage:spec?7:9,role:intake.mode,attempt:1,revision:intake.revision,persona:[rubric,'Você é o revisor independente, não o orquestrador. O Nivoo já delegou a sessão. Não invoque agentes, não altere arquivos. '+(spec?'Avalie somente a especificação; não solicite AST nem diff.':'Avalie o diff e checklist completos fornecidos, incluindo testes e limites.'),'Contrato binário: responda exclusivamente [✅ LGTM] se estritamente zero achados; caso contrário somente achados materiais, cada um em linha iniciada por [P0], [P1], [P2] ou [P3], com evidência e proposta. Se entrada insuficiente, responda NIVOO_LITE_INCOMPLETE e a limitação.',LITE_FINDING_FORMAT].join('\n'),target:{path:intake.target.path,ranges:[{start:1,end:intake.target.content.split('\n').length,text:intake.target.content}]},baseline:[],priorReports:[],access:'document-only',signal});
   if(result.status!=='completed')return {...base,status:'incomplete',report:result.reason};
   if(!result.receipt.sessionId||result.receipt.freshContext!==true||result.receipt.readOnly!==true||result.receipt.access!=='document-only')return {...base,status:'incomplete',report:'Recibo independente inválido.'};
   return {...base,status:parseLiteResult(result.report),report:result.report,sessionId:result.receipt.sessionId};
