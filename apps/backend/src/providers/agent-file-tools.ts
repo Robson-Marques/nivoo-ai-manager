@@ -11,7 +11,7 @@ const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|res
 function contextAllowed(rel:string):boolean{
   // The Elephant handoff and pinned originals are generated, read-only
   // context. HTTP agents previously could not read these paths.
-  if(/^contexto\/egm(?:\/original(?:\/.*)?|\/handoff\.json)?$/.test(rel)||rel==='contexto/escopo-aprovado.md')return true;
+  if(/^contexto\/egm(?:\/original(?:\/.*)?|\/(?:handoff\.json|egm_lite_checklist\.md))?$/.test(rel)||rel==='contexto/escopo-aprovado.md')return true;
   return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)\//.test(rel);
 }
 function safe(cwd:string,input:unknown,mode:'read'|'write'|'list'){
