@@ -6,7 +6,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { ArtifactStoreService } from '../../storage/artifact-store.service';
 import { copiarAnexosParaSessao } from '../../conversations/attachments';
 import { jobsDaConversa } from '../../conversations/jobs-da-conversa';
-import { readApprovedScope } from '../../jobs/approved-scope';
+import { readApprovedScope,approvedConversationFilter } from '../../jobs/approved-scope';
 import { mediaEnabledForArea,type AreaScope } from '../../specialties/media/scope';
 import { conversaComoTexto } from './conversation';
 import { restoreMotionResume,validMotionResumeId } from '../../jobs/motion/fps-resume';
@@ -20,7 +20,7 @@ type SessionJob=Job&{project:{dirKey:string;area:AreaScope&{slug:string;retiredS
 export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:WorkspaceService,artifacts:ArtifactStoreService,job:SessionJob,step:Step,providerId:string,isAi:boolean,worktree:string,knowledgeDir:string,L:ExecutionLog){
     const approved=readApprovedScope(job.approvedScope,job.projectId);
     const origemDoPlano=async()=>approved?{conversationId:approved.conversationId,createdAt:new Date(approved.cutoff)}:await prisma.conversationMessage.findFirst({where:{jobId:job.id,kind:'plano'},select:{conversationId:true,createdAt:true}});
-    const historicoAprovado=(o:{conversationId:string;createdAt:Date})=>({conversationId:o.conversationId,createdAt:{lte:o.createdAt}});
+    const historicoAprovado=(o:{conversationId:string;createdAt:Date})=>approved?approvedConversationFilter(approved):({conversationId:o.conversationId,createdAt:{lte:o.createdAt}});
     // Etapa determinística de importação: disponibiliza os anexos do chat no
     // worktree para o binário nivoo-importar-imagem. Não abre sessão de IA.
     if (!isAi && providerId === 'local-shell' && /\bnivoo-importar-imagem\b/.test(step.instructions)) {
@@ -57,7 +57,7 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
         });
         const anexos = copiarAnexosParaSessao(workspace.projectDirs(job.project.dirKey).root, worktree, comAnexos);
         if (anexos.length) await L(`Anexos da conversa disponíveis para a IA: ${anexos.map((a) => a.caminho).join(', ')}`);
-        // A conversa inteira que gerou o trabalho: o pedido do usuário (ex.: "as 16 seções") fica disponível em
+        // A conversa até o alinhamento aprovado: o pedido do usuário (ex.: "as 16 seções") fica disponível em
         // cada sessão — antes só o resumo do objetivo chegava e a IA perguntava ao usuário o que ele já tinha dito.
         const conversa = await prisma.conversationMessage.findMany({
           where: historicoAprovado(origem),
@@ -117,9 +117,7 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
     // de recuperação com local-shell falhava em "cp: arquivo inexistente", mesmo
     // quando o artefato já estava guardado no catálogo do Nivoo.
     if (!isAi) {
-      const origem = await prisma.conversationMessage.findFirst({
-        where: { jobId: job.id }, select: { conversationId: true },
-      });
+      const origem = await origemDoPlano();
       if (origem) {
         const outros = (await jobsDaConversa(prisma, origem.conversationId,origem.createdAt))
           .filter(id => id !== job.id);

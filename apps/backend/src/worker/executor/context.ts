@@ -151,7 +151,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if (worktree && fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'))) {
       add('conversa', [
         '## O pedido do usuário, por inteiro',
-        `A conversa que gerou este trabalho (mensagens do usuário completas, com listas, seções e exemplos que ele deu) está em ${SESSION_CONTEXT_DIR}/conversa-do-pedido.md.`,
+        `A conversa considerada no plano deste trabalho (mensagens do usuário até o corte aprovado, com listas, seções e exemplos que ele deu) está em ${SESSION_CONTEXT_DIR}/conversa-do-pedido.md.`,
         'O objetivo abaixo é um RESUMO: na dúvida sobre o que foi pedido, leia a conversa. Antes de perguntar algo ao usuário,',
         `procure a resposta na conversa, na memória do projeto (.nivoo/memoria.md), em out/respostas-do-usuario.md e nos entregáveis anteriores.`,
         ...(fs.existsSync(path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'))
