@@ -38,6 +38,7 @@ export interface ContextStats {
   promptChars?: number;
   profileChars?: number;
   leanExecution?: boolean;
+  egmExecution?:{route:'lite'|'design';scopeHash:string;baseline:{commit:string|null;dirty:string[];complete:boolean};independentReview:'not-run'};
   memoryPromptChars?: number;
   artifactPromptChars?: number;
 }
