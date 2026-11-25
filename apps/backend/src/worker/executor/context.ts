@@ -85,7 +85,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
     if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
-      const bound=approvedDesignContext(vinculo?.visualProfile,vinculo?.visualProfileRevision??0,worktree);
+      const bound=skillIds.includes('software-liquid-glass')?approvedDesignContext(vinculo?.visualProfile,vinculo?.visualProfileRevision??0,worktree):[];
       if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(vinculo?.visualProfile,worktree));
     }
     if(worktree){

@@ -26,7 +26,7 @@ export function NivooGlassRoot({variant,dark,accent,textColor,mutedColor,backdro
 /** Same backdrop supplied to the optical engine in the visual selector.
  * This paints a background only; the original LiquiGlass performs refraction. */
 export function NivooGlassBackdrop({dark}:{dark:boolean}){
-  return <div aria-hidden="true" style={{position:'absolute',inset:0,pointerEvents:'none',background:dark
+  return <div aria-hidden="true" style={{position:'absolute',inset:0,zIndex:-1,pointerEvents:'none',background:dark
     ?'linear-gradient(145deg,#070c19 0 34%,#2a4464 34% 55%,#132f45 55% 72%,#060e1e 72%)'
     :'linear-gradient(145deg,#f4f8fc 0 34%,#b9cce5 34% 55%,#d7e7ee 55% 72%,#eef1f8 72%)'}}/>;
 }

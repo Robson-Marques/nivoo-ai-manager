@@ -35,6 +35,7 @@ export function approvedDesignSource(design:NonNullable<ReturnType<typeof approv
     "import * as React from 'react';",
     "import { NivooGlassRoot,NivooGlassSurface,NivooGlassBackdrop } from './engine/nivoo';",
     "import './fonts/fonts.css';",
+    "import './approved-design.css';",
     'export const approvedDesign = '+JSON.stringify(design,null,2)+' as const;',
     'type RootProps = Omit<React.HTMLAttributes<HTMLDivElement>,"children"> & { children:React.ReactNode; backdrop?:React.ReactNode };',
     'export function ApprovedDesignRoot({children,backdrop,className,style,...rest}:RootProps){',
@@ -54,7 +55,7 @@ export function approvedDesignSource(design:NonNullable<ReturnType<typeof approv
     '  vars["--nv-table-row-height"]=approvedDesign.density.tableRowMinHeight+"px";',
     '  vars["--nv-border-width"]=approvedDesign.foundation.borderWidth+"px";',
     '  vars["--nv-liqui-solid"]=colors.surface;vars["--nv-liqui-text"]=colors.text;',
-    '  return <NivooGlassRoot {...rest} variant={approvedDesign.profile.glassVariantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop??<NivooGlassBackdrop dark={dark}/>} className={className} data-nivoo-profile-revision={approvedDesign.revision} data-nivoo-design-engine={approvedDesign.engine.name} data-nivoo-palette={approvedDesign.profile.paletteId} data-nivoo-density={approvedDesign.profile.density} style={{...style,...vars,fontFamily:approvedDesign.fonts.body,colorScheme:dark?"dark":"light"} as React.CSSProperties}>{children}</NivooGlassRoot>;',
+    '  return <NivooGlassRoot {...rest} variant={approvedDesign.profile.glassVariantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop??<NivooGlassBackdrop dark={dark}/>} className={['nv-approved-design',className].filter(Boolean).join(' ')} data-nivoo-profile-revision={approvedDesign.revision} data-nivoo-design-engine={approvedDesign.engine.name} data-nivoo-palette={approvedDesign.profile.paletteId} data-nivoo-density={approvedDesign.profile.density} style={{...style,...vars,fontFamily:approvedDesign.fonts.body,colorScheme:dark?"dark":"light"} as React.CSSProperties}>{children}</NivooGlassRoot>;',
     '}',
     'export { NivooGlassSurface as ApprovedDesignSurface };',
     '',
@@ -71,10 +72,15 @@ export function approvedDesignContext(value:unknown,revision:number,worktree?:st
   const fontInfo=visualFontAssetsContext(value,worktree,target+'fonts/');
   if(!fs.existsSync(path.join(worktree,'contexto',target,'fonts','fonts.css')))return ['Não foi possível materializar o pacote de design aprovado: fontes indisponíveis. Não declare aplicação fiel.'];
   writeSessionContextFile(worktree,target+'approved-design.tsx',approvedDesignSource(design));
+  writeSessionContextFile(worktree,target+'approved-design.css',[
+    '.nv-approved-design :where(h1,h2,h3,h4,h5,h6){font-family:var(--nv-font-heading)}',
+    '.nv-approved-design :where(code,pre,kbd,samp){font-family:var(--nv-font-mono)}',
+    '.nv-approved-design :where(button,input,select,textarea){font-family:var(--nv-font-body)}',
+  ].join('\n')+'\n');
   writeSessionContextFile(worktree,target+'approved-profile.json',JSON.stringify(design,null,2)+'\n');
   return [
     '## Design aprovado — módulo React pronto para integração',
-    'O pacote local de revisão '+revision+' em contexto/'+target+' contém approved-design.tsx, approved-profile.json, engine/ e fonts/. Copie estes quatro itens juntos para uma pasta do frontend real; importe ApprovedDesignRoot no shell e ApprovedDesignSurface nas superfícies ópticas. Não escreva de novo os parâmetros ou o motor. Preserve fontes/licenças. O registry/ permanece referência para os componentes compatíveis.',
+    'O pacote local de revisão '+revision+' em contexto/'+target+' contém approved-design.tsx, approved-design.css, approved-profile.json, engine/ e fonts/. Copie estes cinco itens juntos para uma pasta do frontend real; importe ApprovedDesignRoot no shell e ApprovedDesignSurface nas superfícies ópticas. Não escreva de novo os parâmetros ou o motor. Preserve fontes/licenças. O registry/ permanece referência para os componentes compatíveis.',
     'Use as variáveis --nv-color-<papel>, --nv-space-<xs|sm|md|lg|xl>, --nv-radius-<control|panel|overlay>, --nv-font-<heading|body|mono>, --nv-control-height, --nv-touch-height e --nv-table-row-height nos controles, conteúdo e estados reais. A raiz acompanha o tema aprovado. Não copie as telas de demonstração nem substitua o domínio, a navegação ou a API. Não aplique fora do escopo. Se a pilha não for React, não a troque sem aprovação.',
     'Ao implementar interface compatível com este perfil, integre o módulo no fluxo real; a mera presença dos arquivos não é entrega. Na conferência já prevista, observe no DOM a raiz data-nivoo-profile-revision='+revision+' e superfícies reais .liqui-glass, fontes carregadas, navegação e operação. O atributo sozinho não prova fidelidade nem funcionalidade.',
     ...fontInfo,

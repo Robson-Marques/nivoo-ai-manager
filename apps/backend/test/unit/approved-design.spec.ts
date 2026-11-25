@@ -17,7 +17,7 @@ describe('Módulo de design aprovado',()=>{
     expect(approvedDesign({...profile,paletteId:'inexistente'},7)).toBeNull();
     const source=approvedDesignSource(d);
     expect(source).toContain("from './engine/nivoo'");
-    expect(source).toContain("from './fonts/fonts.css'".replace('from ',''));
+    expect(source).toContain("import './fonts/fonts.css';");
     expect(source).toContain('variant={approvedDesign.profile.glassVariantId}');
     expect(source).toContain('data-nivoo-profile-revision={approvedDesign.revision}');
   });
@@ -31,7 +31,7 @@ describe('Módulo de design aprovado',()=>{
     try{
       expect(approvedDesignContext(profile,7,tmp).join('\n')).toContain('ApprovedDesignRoot');
       const root=path.join(tmp,'contexto/templates-nivoo/liquid-glass');
-      for(const name of ['approved-design.tsx','approved-profile.json','engine/nivoo.tsx','engine/LICENSE','fonts/fonts.css','fonts/ibm-plex-serif-400.ttf','fonts/ibm-plex-sans.ttf','fonts/ibm-plex-serif-OFL.txt'])expect(fs.existsSync(path.join(root,name))).toBe(true);
+      for(const name of ['approved-design.tsx','approved-design.css','approved-profile.json','engine/nivoo.tsx','engine/LICENSE','fonts/fonts.css','fonts/ibm-plex-serif-400.ttf','fonts/ibm-plex-sans.ttf','fonts/ibm-plex-serif-OFL.txt'])expect(fs.existsSync(path.join(root,name))).toBe(true);
       expect(JSON.parse(fs.readFileSync(path.join(root,'approved-profile.json'),'utf8')).revision).toBe(7);
       expect(fs.existsSync(path.join(root,'fonts/inter.ttf'))).toBe(false);
       expect(fs.readdirSync(tmp)).toEqual(['contexto']);
