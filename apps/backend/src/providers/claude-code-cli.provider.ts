@@ -1,3 +1,4 @@
+import { executeGoldfishCli } from './goldfish-cli';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -176,6 +177,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
+    if(req.options?.goldfishIsolatedReview===true)return executeGoldfishCli('claude',this.bin,this.env(),req);
     // Isolamento: NENHUMA regra genérica (ex.: "Write") — ela liberaria escrita em qualquer caminho.
     // Com acceptEdits e sem regras extras, o Claude Code só lê/edita dentro do diretório de trabalho;
     // fora dele a permissão é negada no modo não interativo (comprovado em test/integration/real-01).
