@@ -75,6 +75,8 @@ export interface ExecutionResult {
    */
   sessionEnded?: boolean;
   sessionId?: string;
+  /** Set only by the dedicated CLI transport after native event validation. */
+  reviewIsolation?: 'cli-inline-v1';
   stopReason?: string;
   numTurns?: number;
 }
