@@ -29,6 +29,13 @@ describe('EGM: fontes originais e handoff do plano Nivoo',()=>{
     const c={...criterion,kind:'COMMAND',config:{command:'npm run test:acceptance',capability:{id:'app.ui',contract:'docs/ui.md',phase:'acceptance'}}};
     expect(compileEgmHandoff({...input,criteria:[c]})).toMatchObject({route:'design',criteria:[{command:'npm run test:acceptance',capability:{id:'app.ui'}}]});
   });
+  it('preserva o pedido e a aprovação reais sem fabricar revisão ou autorizar mudança de escopo',()=>{
+    const approved={version:1 as const,projectId:'p',conversationId:'c',planMessageId:'m',cutoff:'2026-11-25T18:00:00Z',approvedAt:'2026-11-25T18:01:00Z',approvedBy:'u',areaTemplate:'studio-workflow',alignment:'Alteração restrita à consulta mensal.',request:{id:'r',content:'Mostrar uma linha por cartão.',kind:null},visual:{revision:0,profile:null}};
+    const h=compileEgmHandoff({...input,approved});
+    expect(h.approval).toMatchObject({planMessageId:'m',approvedAt:approved.approvedAt,alignment:approved.alignment,request:approved.request});
+    expect(h.review.status).toBe('not-run');
+    expect(h.steps).toEqual([step]);
+  });
   it('materializa apenas referências pertinentes depois do pré-gate e o handoff descartável',()=>{
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-egm-plan-'));
     try{
