@@ -35,6 +35,14 @@ describe('Perfil visual persistente',()=>{
     const custom={...guided,fonts:{heading:'ibm-plex-serif',body:'system-sans',mono:'system-mono'}};
     expect(parseVisualProfileUpdate({expectedRevision:0,profile:custom}).profile).toEqual(custom);
   });
+  it('valida paletas sem mudar tema ou descartar legado',()=>{
+    const p={...guided,paletteId:'emerald',theme:'light'};
+    expect(parseVisualProfileUpdate({expectedRevision:0,profile:p}).profile).toEqual(p);
+    const legacy={...p,paletteId:'legacy-brand'};
+    expect(parseVisualProfile(legacy)).toEqual(legacy);
+    expect(()=>parseVisualProfileUpdate({expectedRevision:0,profile:legacy})).toThrow('Paleta visual');
+    expect(visualProfileContext(legacy,1).join('\n')).toContain('Paleta indisponível');
+  });
   it('compõe orientação enxuta, sem campos indefinidos e sem conteúdo não confiável',()=>{
     expect(visualProfileContext(null,0)).toEqual([]);
     const t=visualProfileContext(guided,2).join('\n');

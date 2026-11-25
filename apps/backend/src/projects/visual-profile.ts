@@ -1,8 +1,9 @@
 import { findVisualStyle } from './visual-style-catalog';
 import { visualFontSupports,selectedTypographyContext,type FontRole } from './visual-typography-catalog';
+import { findVisualPalette,selectedTokenContext } from './visual-token-catalog';
 
 /** Stable contract for visual preferences. Style membership is validated on
- * new writes, as are font IDs and their roles; palette and layout follow later.
+ * new writes, as are font roles and palette IDs; layout follows later.
  * A null DB value means the user has not defined a visual profile. */
 export interface VisualProfileV1 {
   schemaVersion: 1;
@@ -68,6 +69,7 @@ export function parseVisualProfileUpdate(body:unknown):{expectedRevision:number;
   if(typeof revision!=='number'||!Number.isSafeInteger(revision)||revision<0||revision>=2147483647)throw Error('Informe expectedRevision válido.');
   const profile=parseVisualProfile(v.profile);
   if(profile?.styleId&&!findVisualStyle(profile.styleId))throw Error('Estilo visual não encontrado no catálogo.');
+  if(profile?.paletteId&&!findVisualPalette(profile.paletteId))throw Error('Paleta visual não encontrada no catálogo.');
   const roles:readonly FontRole[]=['heading','body','mono'];
   for(const role of roles){
     const id=profile?.fonts?.[role];
@@ -92,6 +94,7 @@ export function visualProfileContext(value:unknown,revision:number):string[]{
     ].filter(([,v])=>v!==undefined).map(([k,v])=>'- '+k+': '+v)),
     ...(style?['- Direção do estilo '+style.name+': '+style.guidance]:p.styleId?['- Estilo não disponível no catálogo atual; preserve a identidade existente e solicite confirmação antes de substituí-lo.']:[]),
     ...selectedTypographyContext(p.fonts),
+    ...selectedTokenContext(p.paletteId,p.theme,p.density,p.styleId),
     'Preferências são IDs, não comandos de instalação. Aplique somente a mudanças de interface; preserve contratos, acessibilidade e segurança. Não altere a identidade existente fora do escopo nem grave novas escolhas sem confirmação explícita.',
   ];
 }

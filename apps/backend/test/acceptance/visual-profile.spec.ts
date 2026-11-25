@@ -17,10 +17,17 @@ describe('API — perfil visual de projeto',()=>{
     expect(result.pairings).toHaveLength(5);
     expect(result.fonts.find((f:any)=>f.id==='manrope')).toMatchObject({license:'OFL-1.1',availability:'optional-local'});
   });
+  it('expõe paletas, densidades e fundações visuais',async()=>{
+    const result=(await h.http().get('/api/projects/visual-tokens').expect(200)).body;
+    expect(result.version).toBe(1);
+    expect(result.palettes.map((p:any)=>p.id)).toEqual(['ocean-blue','emerald','violet','graphite']);
+    expect(result.densities.map((d:any)=>d.id)).toEqual(['compact','balanced','spacious']);
+    expect(result.foundations).toHaveLength(4);
+  });
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;
     const b=(await h.http().post('/api/projects').send({name:'Visual B',base:'software'}).expect(201)).body;
-    const p={schemaVersion:1,mode:'guided',styleId:'liquid-glass',theme:'system',fonts:{body:'inter'}};
+    const p={schemaVersion:1,mode:'guided',styleId:'liquid-glass',paletteId:'ocean-blue',theme:'system',fonts:{body:'inter'}};
     const url='/api/projects/'+a.id+'/visual-profile';
     expect(a.visualProfile).toBeNull();
     expect(a.visualProfileRevision).toBe(0);
@@ -28,6 +35,7 @@ describe('API — perfil visual de projeto',()=>{
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,styleId:'not-in-catalog'}}).expect(400);
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,fonts:{body:'ibm-plex-mono'}}}).expect(400);
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,fonts:{body:'not-in-catalog'}}}).expect(400);
+    await h.http().patch(url).send({expectedRevision:0,profile:{...p,paletteId:'not-in-catalog'}}).expect(400);
     const saved=(await h.http().patch(url).send({expectedRevision:0,profile:p}).expect(200)).body;
     expect(saved.visualProfile).toEqual(p);
     expect(saved.visualProfileRevision).toBe(1);
@@ -35,6 +43,7 @@ describe('API — perfil visual de projeto',()=>{
     await h.http().patch(url).send({expectedRevision:0,profile:null}).expect(409);
     const profiles=h.app.get(ProjectProfileService);
     expect((await profiles.build(a.id)).text).toContain('Estilo: liquid-glass');
+    expect((await profiles.build(a.id)).text).toContain('Paleta Azul oceano — referência clara');
     expect((await profiles.build(b.id)).text).not.toContain('Estilo: liquid-glass');
     const cleared=(await h.http().patch(url).send({expectedRevision:1,profile:null}).expect(200)).body;
     expect(cleared.visualProfile).toBeNull();
