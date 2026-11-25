@@ -46,6 +46,8 @@ export interface SkillIntent {
   capabilityWork?:boolean;
   /** Enable phase-specific EGM routing for the live software workflow, not only Capability jobs. */
   softwareLifecycle?:boolean;
+  /** Structured, already approved step check; never execute it here or route on raw failure logs. */
+  verifyCommand?:string|null;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -70,6 +72,14 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   if(!intent.nativeImage&&/\b(arquivo|arquivos|gravar|gravacao|salvar|escrever|editar|exportar|planilha|documento|relatorio|file|files)\b/.test(t))selected.add('arquivos');
   if(intent.software&&!intent.nativeImage&&!intent.motionAuthor){
     const specialists=[...softwareIds,...(intent.capabilityWork?['software-requisitos','software-especificacao','software-contexto-arquitetural']:[])];
+    // The step title can be purely functional; an approved test command is
+    // concrete evidence of the engineering discipline, not proof of success.
+    const check=intent.phase==='execution'?intent.verifyCommand??'':'';
+    const checkIsSoftware=check.length>0&&/(?:^|[\s;&|])(?:node\s+[^;&|\n]*\bnivoo-roteiros\/|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test[\w:-]*|build[\w:-]*|lint[\w:-]*|typecheck[\w:-]*)\b|(?:npx\s+)?(?:jest|vitest|tsc|pytest|playwright|prisma)\b|python(?:3)?\s+-m\s+pytest\b)/i.test(check);
+    if(checkIsSoftware){
+      specialists.push('software-qualidade');
+      if(/\b(?:postgres(?:ql)?|prisma|mysql|sqlite|mariadb|mongodb)\b/i.test(check))specialists.push('software-dados');
+    }
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
     if(intent.softwareLifecycle&&selected.has('codigo')){
