@@ -86,6 +86,10 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       resume:motionEdit||priorAttempts.length>0,previousError,
     });
     const skillIds=skills.map(s=>s.id);
+    // Keep safety, objective, acceptance and project rules whole. Only bound
+    // optional historical payload; the complete archive remains on disk.
+    const lean=!!worktree&&!usaMidia&&softwareInterfaceEnabled(vinculo?.area)&&skillIds.includes('execucao-enxuta')&&step.key!==RULE_REVIEW_STEP;
+    if(lean)add('execucao-enxuta-operacional',['## Execução enxuta ativa','Use a última falha e os arquivos pertinentes. Memória histórica e artefatos adicionais estão no acervo local, não no prompt integral. Leia apenas as entradas e referências necessárias; regras obrigatórias, contrato aprovado e verificações continuam válidos. Não repita uma suíte completa dentro da sessão só para antecipar a mesma conferência do backend. Rode testes direcionados se necessários à correção.']);
     // The compiled author contract already contains the exact engine manual.
     // A still-image or audio step does not need another copy of WebGL docs.
     if(etapaMidia||nativeImage||skillIds.includes('motion')||skillIds.includes('direcao-artistica')||(usaMidia&&step.key===RULE_REVIEW_STEP)){
@@ -192,7 +196,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       history.push('Se a conferência falha por uma causa fora do que a etapa pede (ex.: o script de teste do package.json está errado, falta uma configuração),',
         'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
         'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
-      for (const a of [...priorAttempts].reverse()) {
+      for (const a of (lean?priorAttempts.slice(0,1):[...priorAttempts].reverse())) {
         const e = a.error ?? '';
         // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
         const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
@@ -204,8 +208,9 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       if (softwareInterfaceEnabled(vinculo?.area) && worktree && fs.existsSync(path.join(worktree, 'out', 'telas', 'relatorio.md'))) {
         history.push('A última conferência tirou FOTOS das telas: out/telas/*.png (computador e celular) e out/telas/relatorio.md. ABRA as fotos e corrija o visual (layout quebrado, texto cortado ou sobreposto, não cabe no celular) e os problemas do relatório.');
       }
+      if(lean&&priorAttempts.length>1)history.push('Detalhes das últimas tentativas (até cinco): contexto/tentativas-da-etapa.md. Leia somente se necessário para evitar abordagens já refutadas.');
       if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
-        history.push('A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
+        history.push(lean?'Log integral em .nivoo/ultima-conferencia.txt. Consulte as linhas pertinentes se o diagnóstico abaixo for insuficiente; não releia os testes aprovados.':'A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
         // Also recover the actual diagnostic from older logs whose stdout/stderr
         // were concatenated. Do not treat a prior successful check as a failure.
         if(priorAttempts.some(a=>(a.error??'').startsWith('verificação da etapa falhou'))){
@@ -247,7 +252,8 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       const index=writeContextArchive(worktree,'memoria-execucao',full);
       add('memoria-paginada',['Memória integral também disponível em páginas compatíveis com ferramentas de leitura: '+index]);
     }
-    const result = assembleContext(sections, memory, artLines, budget);
+    if(lean&&worktree)writeSessionContextFile(worktree,'tentativas-da-etapa.md',priorAttempts.map(a=>'## Tentativa '+a.number+' — '+a.status+'\n'+(a.error??a.stopReason??'sem erro registrado')).join('\n\n'));
+    const result = assembleContext(sections, memory, artLines, budget,lean?{memoryChars:6000,artifactChars:1500}:undefined);
     result.stats.skillIds=skillIds;
     result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
