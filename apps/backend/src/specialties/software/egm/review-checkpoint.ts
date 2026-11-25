@@ -30,7 +30,7 @@ export function readReviewCheckpoint(raw:unknown):GoldfishCheckpoint{
   if(!object(raw)||raw.version!==1||!object(raw.binding)||!Array.isArray(raw.entries)||raw.entries.length>20)throw Error('Checkpoint Goldfish inválido; nenhuma chamada será repetida.');
   const b=raw.binding;
   if(b.continuationOf!==undefined&&!str(b.continuationOf))throw Error('Vínculo de continuação inválido.');
-  if(!['projectId','conversationId','messageId','providerId','revision','targetHash','sourceRevision'].every(k=>str(b[k]))||!(b.model===null||typeof b.model==='string')||!['uninterrupted','feature_spec','implementation','drift','lite-spec','lite-diff',5,6,7,8,9].includes(b.preset as GoldfishPreset|'drift'))throw Error('Vínculo Goldfish inválido.');
+  if(!['projectId','conversationId','messageId','providerId','revision','targetHash','sourceRevision'].every(k=>str(b[k]))||!(b.model===null||typeof b.model==='string')||!['uninterrupted','feature_spec','implementation','drift','lite-spec','lite-diff',5,6,7,8,9].includes(b.preset as GoldfishPreset|'drift'|'lite-spec'|'lite-diff'))throw Error('Vínculo Goldfish inválido.');
   if((b.preset==='lite-spec'||b.preset==='lite-diff')&&!str(b.liteSourceId))throw Error('Origem Lite inválida.');
   const keys=new Set<string>();
   for(const e of raw.entries){
