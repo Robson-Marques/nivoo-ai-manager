@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
-import { killProcessGroup } from '../common/exec';
+import { killProcessGroup,minimalEnv,runProcess } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -28,6 +28,7 @@ import { evaluatePolicy } from '../security/policy';
 import type { ContextStats } from './context-builder';
 import { buildExecutionContext } from './executor/context';
 import { readApprovedScope } from '../jobs/approved-scope';
+import { approvedGoldfish,checkApprovedGoldfishStep,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
 import { prepareExecutionWorkspace } from './executor/workspace';
 import { dispatchExecution,executionTimeoutMs } from './executor/dispatch';
 import { verifyExecution } from './executor/verification';
@@ -126,6 +127,17 @@ export class StepExecutorService {
       return 'IGNORADO';
     }
 
+    let egm:ApprovedGoldfishResolution|null=null;
+    try{
+      egm=approvedGoldfish(job.approvedScope);
+      if(egm){
+        checkApprovedGoldfishStep(egm,step);
+        const repo=this.workspace.projectDirs(job.project.dirKey).repo;
+        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:repo,env:minimalEnv(),timeoutMs:60000,signal});
+        if(signal.aborted)return 'INTERROMPIDO';
+        if(rev.exitCode!==0||rev.stdout.trim()!==egm.revision)throw Error('A base principal divergiu da revisão Goldfish aprovada; evidências precisam ser reconciliadas antes de continuar.');
+      }
+    }catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
     const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
     if(mediaRecovery.kind==='recovered'){
       await L('RECUPERAÇÃO SEM REFAZER: MP4 do mesmo produtor e tentativa, hash e contrato técnico válidos. '+mediaRecovery.detail,'WARN');
@@ -286,7 +298,9 @@ export class StepExecutorService {
     const provider = this.registry.get(providerId);
 
     // Workspace isolado do job (worktree na branch job/<id>).
-    const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    let worktree:string;
+    try{worktree=await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm?.revision);}
+    catch(e){if(!egm)throw e;return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
     const previous=orphanRows.length?[...orphanRows].sort((a,b)=>b.number-a.number)[0]:
       step.attemptCount>0?await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id,number:step.attemptCount,status:'INTERROMPIDA'}}):null;
     if(previous){
