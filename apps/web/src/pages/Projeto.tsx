@@ -9,6 +9,8 @@ import { Icone } from './Contas';
 import { PedidosSsh } from './Ssh';
 import { BotaoDiagnostico } from './Diagnostico';
 import { SeletorModelo } from '../Pecas';
+import { VisualSelector } from './VisualSelector';
+import { validQuestions,type VisualProfile } from './visual-selection';
 
 /**
  * Projeto: conversa com a IA escolhida, presa ao "fine-tune do projeto" (regras do agente + regras do
@@ -610,6 +612,20 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
       setOcupado(false);
     }
   };
+  const responderVisual = async (messageId:string, profile:VisualProfile) => {
+    if(!conv||enviando.current||pensando||conv.archivedAt)throw new Error('A conversa não está disponível para confirmar agora.');
+    enviando.current=true;setOcupado(true);setErro(null);
+    try{
+      setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`,'POST',{visualAnswer:{messageId,profile}}));
+      onProjetoMudou();
+    }finally{enviando.current=false;setOcupado(false);}
+  };
+  const responderBriefingVisual = async (content:string) => {
+    if(!conv||enviando.current||pensando||conv.archivedAt)throw new Error('A conversa não está disponível.');
+    enviando.current=true;setOcupado(true);
+    try{setConv(await api(`/projects/${projeto.id}/conversations/${conv.id}/messages`,'POST',{content}));}
+    finally{enviando.current=false;setOcupado(false);}
+  };
   // Depois de trocar de IA: manda de novo a última pergunta, agora para a nova IA.
   const reenviar = async () => {
     const ultima = [...(conv?.messages ?? [])].reverse().find((m: any) => m.role === 'USUARIO');
@@ -718,6 +734,8 @@ function Conversa({ projeto, conversaId, painel, onPainel, aba, onAba, onProjeto
               onReenviar={m === ultimaIa ? reenviar : undefined}
               respondida={mensagens.some((x: any) => x.role === 'USUARIO' && new Date(x.createdAt) > new Date(m.createdAt))}
               onResponder={responderPerguntas}
+              onVisualConfirm={!pensando&&!conv?.archivedAt&&m===mensagens[mensagens.length-1]?(profile)=>responderVisual(m.id,profile):undefined}
+              onVisualFree={responderBriefingVisual}
             />
           ))}
         </div>
@@ -854,7 +872,7 @@ function TempoMensagem({ m, tipo }: { m: any; tipo: 'enviada' | 'resposta' | 'pe
   );
 }
 
-function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respondida = false, onResponder }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void>; respondida?: boolean; onResponder?: (texto: string) => Promise<void> }) {
+function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respondida = false, onResponder,onVisualConfirm,onVisualFree }: { m: any; projetoId: string; podeFazer: boolean; onFazer: () => Promise<void>; onMudou: () => void; onReenviar?: () => Promise<void>; respondida?: boolean; onResponder?: (texto: string) => Promise<void>; onVisualConfirm?:(profile:VisualProfile)=>Promise<void>; onVisualFree?:(text:string)=>Promise<void> }) {
   const [indo, setIndo] = useState(false);
   if (m.kind === 'sistema') return <div className="aviso-sistema">{m.content}<TempoMensagem m={m} tipo="sistema" /></div>;
   if (m.role === 'USUARIO') {
@@ -897,7 +915,9 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
     <div className={m.kind === 'entrega' ? 'msg ia entrega' : 'msg ia'}>
       {m.kind === 'entrega' && <div className="selo-entrega">Entrega do trabalho</div>}
       {!(m.kind === 'plano' && m.jobId) && !(m.kind === 'entrega' && m.jobId) && <TextoDaIa texto={m.content} />}
-      {m.kind !== 'entrega' && Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
+      {m.kind==='perfil-visual' ? (
+        onVisualConfirm&&validQuestions(m.perguntas,projetoId) ? <VisualSelector questions={m.perguntas} onConfirm={onVisualConfirm} onFree={onVisualFree}/> : <span className="muted small">Seleção visual encerrada ou indisponível nesta mensagem. Continue pelo chat.</span>
+      ) : m.kind !== 'entrega' && Array.isArray(m.perguntas) && m.perguntas.length > 0 && (
         <PerguntasComOpcoes perguntas={m.perguntas} respondida={respondida} onResponder={onResponder} />
       )}
       {m.kind === 'entrega' && m.jobId && (
