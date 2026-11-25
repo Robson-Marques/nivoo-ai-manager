@@ -150,7 +150,7 @@ export class PlannerService {
         const user=await tx.conversationMessage.findFirst({
           where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{content:true,kind:true},
         });
-        if(!user||user.kind===VISUAL_BRIEFING_KIND||user.kind===VISUAL_CONFIRMED_KIND)return 'continue';
+        if(!user||user.kind===VISUAL_BRIEFING_KIND||user.kind===VISUAL_CONFIRMED_KIND||goldfishRequest(user.content)!==null||resolutionRequest(user.content)!==null||driftRequest(user.content)!==null||loopRequest(user.content)!==null)return 'continue';
         const reason=await visualDiscoveryForRequest(tx,fresh,msg.conversationId,user.content,msg.createdAt);
         registrarTempo('visual_discovery',{motivo:reason,base:fresh.area.template});
         if(reason!=='ask')return 'continue';
@@ -314,7 +314,7 @@ export class PlannerService {
         try{if(driftScope!==null)driftIntake=loadDriftIntake(tmp,driftScope);else intake=loadGoldfishTarget(tmp,goldfishScope!);}catch(e){return fail('Goldfish: '+(e as Error).message);}
         const reviewRoot=fs.mkdtempSync(path.join(tmp,'goldfish-run-'));
         let cancelled=false;
-        const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:driftIntake?'drift':intake!.preset},driftIntake?{path:driftIntake.directory,content:JSON.stringify(driftIntake)}:intake!.target,driftIntake?[]:intake!.baseline);
+        const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:driftIntake?'drift':intake!.preset,...(loopParentId?{continuationOf:loopParentId}:{})},driftIntake?{path:driftIntake.directory,content:JSON.stringify(driftIntake)}:intake!.target,driftIntake?[]:intake!.baseline);
         const checkpoint=savedReview??createReviewCheckpoint(binding);
         try{assertReviewBinding(checkpoint,binding);}catch(e){return fail((e as Error).message);}
         const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
