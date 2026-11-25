@@ -40,7 +40,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       profileText,
       '',
-      ...ferramentasDaIa(providerId, mcpDoProjeto(project.id).map((m) => m.nome)),
+      ...ferramentasDaIa(providerId, request.goldfishResolutionContext?[]:mcpDoProjeto(project.id).map((m) => m.nome),true),
       '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
       '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
       '',
