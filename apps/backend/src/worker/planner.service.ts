@@ -467,7 +467,7 @@ export class PlannerService {
       }
       if(plan){
         const summary=adoptionSummaries((plan as unknown as {criteria:Array<{key:string;kind:string;config:unknown}>}).criteria??[]);
-        if(summary.length)content+='\n\n**Cobertura da adoção aprovada neste plano**\n'+summary.map(s=>'- '+s).join('\n');
+        if(summary.length)content+='\n\n**Cobertura da adoção proposta neste plano**\n'+summary.map(s=>'- '+s).join('\n');
         plan=bindPlanningSource(plan,planningSource);
       }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.

@@ -1,3 +1,5 @@
+import { liquidGlassTemplateContext } from '../../projects/liquid-glass-template';
+import { liquidGlassComponentsContext } from '../../projects/liquid-glass-components';
 import { adoptionOf,adoptionSummaries } from '../../jobs/workflow/adoption-contract';
 import { verificationDiagnostic } from './verification-diagnostic';
 import type { Job,Step } from '@prisma/client';
@@ -105,7 +107,10 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
     if(adoptsGlass||skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
       const bound=(adoptsGlass||skillIds.includes('software-liquid-glass'))?approvedDesignContext(visual.profile,visual.revision,worktree):[];
-      if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(visual.profile,worktree));
+      if(bound.length)add('design-aprovado',bound);else {
+        add('fontes-visuais',visualFontAssetsContext(visual.profile,worktree));
+        if(adoptsGlass&&!skillIds.includes('software-liquid-glass'))add('pacote-adocao-original',[...liquidGlassTemplateContext(worktree),...liquidGlassComponentsContext(worktree)]);
+      }
     }
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
