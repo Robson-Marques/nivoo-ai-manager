@@ -62,7 +62,7 @@ export function DesignStudio(){
         <fieldset disabled={saving}>
           <label>Perfil salvo<select value={current?.id??''} onChange={e=>selectProfile(e.target.value)}><option value="">Novo perfil</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
           <label>Nome<input required maxLength={120} value={draft.title} onChange={e=>setDraft(d=>({...d,title:e.target.value}))}/></label>
-          <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode']}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
+          <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode'],projectId:e.target.value==='new'?null:d.projectId}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
           {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving}/>}
           <label>Estilo / motor visual<select value={draft.sourceId} onChange={e=>setDraft(d=>({...d,sourceId:e.target.value}))}>{sources.filter(s=>s.kind!=='reference').map(s=><option key={s.id} value={s.id}>{s.style} — {s.name}</option>)}</select></label>
           <label>Tema<select value={draft.theme} onChange={e=>setDraft(d=>({...d,theme:e.target.value as Fields['theme']}))}><option value="system">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label>

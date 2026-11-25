@@ -15,7 +15,7 @@ export function summarizeFrontend(entries:Entry[],manifests:Manifest[]){
   const technologies=new Map<string,Set<string>>();
   const register=(name:string,evidence:string)=>{const set=technologies.get(name)??new Set<string>();set.add(evidence);technologies.set(name,set);};
   for(const m of manifests)for(const name of Object.keys(m.dependencies)){
-    if(known[name])register(known[name],m.path+' · '+name);
+    if(Object.prototype.hasOwnProperty.call(known,name))register(known[name],m.path+' · '+name);
     if(name.startsWith('@radix-ui/'))register('Radix UI',m.path+' · '+name);
   }
   const detect=(name:string,re:RegExp)=>{const p=paths.find(x=>re.test(x));if(p)register(name,p);};
