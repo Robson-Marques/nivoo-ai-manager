@@ -95,7 +95,7 @@ export function loadDriftIntake(root:string,scope:string):DriftIntake{
 }
 type Quote={path:string;line:number;quote:string};
 type Difference={kind:'missing-feature'|'incomplete-model'|'logic-shortcut'|'architecture'|'undocumented-logic';description:string;design:Quote;code:Quote[]};
-type DocResult={path:string;status:'complete'|'partial'|'not-run';differences:Difference[];limitations:string[];raw?:string;sessionId?:string};
+type DocResult={path:string;status:'partial'|'not-run';differences:Difference[];limitations:string[];raw?:string;sessionId?:string};
 const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 function verifiedQuote(v:unknown,refs:readonly GoldfishReference[]):v is Quote{
   if(!obj(v)||typeof v.path!=='string'||typeof v.line!=='number'||!Number.isInteger(v.line)||v.line<1||typeof v.quote!=='string'||!v.quote.trim()||v.quote.length>1000)return false;
@@ -126,7 +126,7 @@ export async function runSemanticDrift(input:{intake:DriftIntake;revision:string
         target:{path:doc.target.path,ranges:[{start:1,end:doc.target.content.split(/\r?\n/).length,text:doc.target.content}]},
         baseline:doc.references,priorReports:[],access:'authorized-baseline',signal:input.signal};
       const r=await input.dispatch(request);
-      if(r.status==='completed'&&r.receipt.freshContext&&r.receipt.readOnly&&r.receipt.access==='authorized-baseline'&&!sessions.has(r.receipt.sessionId)){
+      if(r.status==='completed'&&r.receipt.sessionId&&r.receipt.freshContext&&r.receipt.readOnly&&r.receipt.access==='authorized-baseline'&&!sessions.has(r.receipt.sessionId)){
         sessions.add(r.receipt.sessionId);
         const parsed=parseDriftReport(r.report,doc);
         row={path:doc.target.path,status:parsed?'partial':'not-run',differences:parsed?.differences??[],limitations:[...limitations,...(parsed?.limitations??['Parecer sem evidência estruturada válida.']),'Cobertura restrita às fontes selecionadas; não certifica conformidade integral.'],raw:r.report,sessionId:r.receipt.sessionId};
@@ -141,6 +141,6 @@ export async function runSemanticDrift(input:{intake:DriftIntake;revision:string
 }
 export function renderSemanticDrift(report:Awaited<ReturnType<typeof runSemanticDrift>>):string{
   return ['# EGM Drift Report — comparação semântica limitada','Revisão '+report.revision+'; diretório '+report.directory,
-    ...report.results.flatMap(r=>['','## '+r.path,...r.differences.map(d=>'- '+d.kind+': '+d.description+' (design '+d.design.path+':'+d.design.line+'; código '+d.code.map(q=>q.path+':'+q.line).join(', ')+')'),...(!r.differences.length?['Nenhuma divergência comprovada nas fontes avaliadas; não equivale a ausência de drift.']:[]),...r.limitations.map(l=>'- Limitação: '+l)]),
+    ...report.results.flatMap(r=>['','## '+r.path,...r.differences.map(d=>'- '+d.kind+': '+d.description+' (design '+d.design.path+':'+d.design.line+'; código '+d.code.map(q=>q.path+':'+q.line).join(', ')+')'),...(!r.differences.length?[r.status==='not-run'?'Análise não executada ou sem parecer válido.':'Nenhuma divergência apontada nas fontes avaliadas; não equivale a ausência de drift.']:[]),...r.limitations.map(l=>'- Limitação: '+l)]),
     ...report.pending.map(p=>'- Não analisado: '+p),...(report.skipped.length?['Fontes não lidas (lista limitada): '+report.skipped.join(', ')]:[])].join('\n');
 }
