@@ -31,6 +31,17 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,software:true,text:'Animar imagem da pizza em JavaScript',motionAuthor:true})).toEqual(['execucao-enxuta','direcao-artistica','motion']);
     expect(ids({...sw,text:'Implementar backend',executor:true})).toEqual([]);
   });
+  it('roteia EGM por fase em trabalhos de software sem Capability, sem ativar revisão independente',()=>{
+    const sw={...base,media:false,software:true,softwareLifecycle:true};
+    const planning=ids({...sw,phase:'planner',text:'Corrigir endpoint'});
+    expect(planning).toEqual(expect.arrayContaining(['codigo','software-backend','software-requisitos','software-especificacao']));
+    const execution=ids({...sw,text:'Corrigir endpoint'});
+    expect(execution).toEqual(expect.arrayContaining(['codigo','software-backend','software-contexto-arquitetural']));
+    expect(execution).not.toContain('software-revisao-independente');
+    expect(ids({...sw,phase:'planner',text:'Olá'})).toEqual([]);
+    expect(ids({...sw,text:'Corrigir endpoint',executor:true})).toEqual([]);
+    expect(ids({...sw,media:true,nativeImage:true,text:'Criar imagem de pizza'})).not.toContain('software-contexto-arquitetural');
+  });
   it('distingue microinterações de motion audiovisual em áreas mistas',()=>{
     const mixed={...base,software:true};
     for(const phase of ['planner','execution'] as const){
