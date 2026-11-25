@@ -1,0 +1,11 @@
+.design-studio { padding: 24px; overflow: auto; min-height: 0; }
+.design-studio-header { display:flex; gap:16px; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; margin-bottom:20px; }
+.design-studio-header h2,.design-studio-header p { margin:0 0 6px; }
+.design-studio-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:start; }
+.design-studio-panel { min-width:0; padding:16px; border:1px solid currentColor; border-radius:10px; }
+.design-studio-panel h3 { margin:0 0 14px; }
+.design-studio-panel fieldset { display:grid; gap:12px; border:0; padding:0; margin:0; min-width:0; }
+.design-studio-panel label { display:grid; gap:5px; min-width:0; }
+.design-studio-panel input,.design-studio-panel select { width:100%; min-width:0; }
+.design-studio-command { display:block; overflow-wrap:anywhere; white-space:pre-wrap; }
+@media(max-width:720px) { .design-studio {padding:12px;} .design-studio-grid {grid-template-columns:minmax(0,1fr);} }

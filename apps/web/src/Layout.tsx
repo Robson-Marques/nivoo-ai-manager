@@ -173,6 +173,7 @@ export function Layout() {
               <IconeArquivo /> Arquivados
             </button>
             <NavLink to="/studio">🎬 Nivoo Studio</NavLink>
+            <NavLink to="/design-studio">Studio de Design</NavLink>
             <NavLink to="/agentes">Agentes</NavLink>
             <NavLink to="/contas">Conexões</NavLink>
             <NavLink to="/diagnostico">Diagnóstico</NavLink>

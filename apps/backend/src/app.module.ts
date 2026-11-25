@@ -1,3 +1,4 @@
+import { DesignStudioController } from './design-studio/design-studio.controller';
 import { VideoStudioController } from './video-studio/video-studio.controller';
 import { StudioProductionsController } from './video-studio/standalone.controller';
 import { StandaloneStudioEditorController } from './video-studio/standalone-editor.controller';
@@ -26,7 +27,7 @@ import { PreviaService } from './previa/previa.service';
 
 @Module({
   imports: [CoreModule],
-  controllers: [VideoStudioController, StudioProductionsController, StandaloneStudioEditorController, AuthController, AccountsController, AreasController, GitController, ConversationsController, ArquivadosController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
+  controllers: [DesignStudioController, VideoStudioController, StudioProductionsController, StandaloneStudioEditorController, AuthController, AccountsController, AreasController, GitController, ConversationsController, ArquivadosController, ProjectsController, MemoryController, JobsController, GlobalJobsController, SystemController, McpController, SshController, DiagnosticoController, PreviaController],
   providers: [VideoStudioService, { provide: APP_GUARD, useClass: ApiTokenGuard }, AccountsService, LoginSessionsService, PreviaService],
 })
 export class AppModule implements OnModuleInit {
