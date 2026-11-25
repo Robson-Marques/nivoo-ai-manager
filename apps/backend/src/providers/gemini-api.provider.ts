@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { serversGemini } from '../mcp/para-ia';
+import { cliReadOnly,geminiSessionSettings } from './cli-session-policy';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
 /**
@@ -92,26 +93,25 @@ export class GeminiApiProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const args = ['-p', '', '--output-format', 'stream-json', '--approval-mode', 'auto_edit', '--skip-trust'];
+    const readOnly=cliReadOnly(req);
+    const args = ['-p', '', '--output-format', 'stream-json', '--approval-mode', readOnly?'default':'auto_edit', '--skip-trust'];
     const model = req.options?.model ?? process.env.NIVOO_GEMINI_MODEL;
     if (model) args.push('--model', model);
     req.onLog(`gemini ${args.join(' ')} (cwd=${req.cwd})`);
-    // Ferramentas MCP do projeto: num HOME só desta sessão (o da conexão é compartilhado entre projetos).
-    let homeMcp: string | null = null;
-    if (req.mcp?.length) {
-      homeMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-gemini-'));
-      GeminiApiProvider.ensureUserSettings(homeMcp);
-      const arq = path.join(homeMcp, '.gemini', 'settings.json');
-      const s = JSON.parse(fs.readFileSync(arq, 'utf8'));
-      fs.writeFileSync(arq, JSON.stringify({ ...s, mcpServers: serversGemini(req.mcp) }, null, 2), { mode: 0o600 });
-      req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
-    }
+    // Fresh per-session settings, even without MCP. Do not inherit tools,
+    // extensions or approvals from another project/account session.
+    const homeMcp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-gemini-'));
+    const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
+    try{
+    fs.mkdirSync(path.join(homeMcp,'.gemini'),{mode:0o700});
+    fs.writeFileSync(path.join(homeMcp,'.gemini','settings.json'),JSON.stringify(geminiSessionSettings(readOnly,serversGemini(mcp)),null,2),{mode:0o600,flag:'wx'});
+    if(mcp.length)req.onLog('Ferramentas MCP nesta sessão: '+mcp.map(m=>m.nome).join(', '));
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId, ...(homeMcp ? { HOME: homeMcp } : {}) }),
-      input: buildPrompt(req),
+      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId, HOME:homeMcp,GEMINI_CLI_HOME:homeMcp }),
+      input: buildPrompt(req)+(readOnly?'\n\nSessão local somente leitura: não altere arquivos; proponha a execução no plano.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
@@ -123,7 +123,6 @@ export class GeminiApiProvider implements AiProvider {
         for (const l of linhas) GeminiApiProvider.logEvento(l, req.onLog);
       },
     });
-    if (homeMcp) fs.rmSync(homeMcp, { recursive: true, force: true });
     if (pendente.trim()) GeminiApiProvider.logEvento(pendente, req.onLog);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) {
@@ -138,6 +137,7 @@ export class GeminiApiProvider implements AiProvider {
     const res = GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, () => undefined); // eventos já registrados
     if (res.output && res.exitCode === 0) req.onLog(`[agente] ${res.output.slice(0, 1500)}`);
     return res;
+    }finally{fs.rmSync(homeMcp,{recursive:true,force:true});}
   }
 
   /** Um evento do stream-json em linha de log (ferramentas e erros; o texto vai no fim, inteiro). */
