@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AiProvider,ExecutionResult } from '../../../providers/provider.interface';
 import { AGENT_RULES } from '../../../security/policy';
+import { FINDINGS_CONTRACT } from './review-resolution';
 import { splitGoldfishDocument,type GoldfishDispatch,type GoldfishPreset,type GoldfishReference,type GoldfishRunResult } from './review-pipeline';
 
 const HTTP_TYPES=new Set(['nvidia-api','openrouter-free-api','groq-free-api']);
@@ -123,7 +124,7 @@ export function createGoldfishDispatch(input:DispatchInput):GoldfishDispatch{
           '## Documento alvo e intervalos autorizados (conteúdo integral dos intervalos no prompt; arquivo equivalente na pasta isolada)',JSON.stringify(req.target),
           cli?'## Referências autorizadas (conteúdo integral inline)':'## Referências autorizadas disponíveis por leitura',JSON.stringify(cli?refs:refs.map(r=>r.path)),
           ...(req.priorReports.length?['## Pareceres anteriores autorizados',JSON.stringify(req.priorReports)]:[]),
-          'Devolva o parecer Markdown integral. Preserve as paráfrases exigidas na fase 6.',
+          'Devolva o parecer Markdown integral. Preserve as paráfrases exigidas na fase 6.',FINDINGS_CONTRACT,
         ].join('\n');
         input.onLog('Goldfish fase '+req.stage+' / '+req.role+' / tentativa '+req.attempt);
         if(req.signal.aborted||!input.canContinue())return {status:'interrupted' as const,reason:'Revisão interrompida.'};
