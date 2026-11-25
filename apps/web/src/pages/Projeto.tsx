@@ -923,6 +923,7 @@ function Mensagem({ m, projetoId, podeFazer, onFazer, onMudou, onReenviar, respo
       )}
       {m.kind === 'entrega' && m.jobId && (
         <>
+          {String(m.content??'').startsWith('Especialidade criada e incorporada.')&&<p className="muted small">Especialidade criada. O pedido original ainda está pendente; a implementação requer novo alinhamento.</p>}
           <QuadrosEntregues projetoId={projetoId} jobId={m.jobId} />
           <ArquivosDoTrabalho projetoId={projetoId} jobId={m.jobId} />
         </>

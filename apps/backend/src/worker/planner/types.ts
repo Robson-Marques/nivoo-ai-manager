@@ -18,6 +18,7 @@ export interface PlannerRequest {
   profileText:string;
   anexos:PlannerAttachment[];
   entrega:string|null;
+  specialtyContext?:string|null;
   providerId:string;
   resultados:string[];
   worktree?:string;
