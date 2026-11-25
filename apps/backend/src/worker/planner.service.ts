@@ -15,6 +15,7 @@ import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,pa
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
 import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
+import { consolidateGoldfish,renderResolutionLedger } from '../specialties/software/egm/review-resolution';
 import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
@@ -315,10 +316,12 @@ export class PlannerService {
         }
         if(signal.aborted||cancelled)return; // lease lost: do not overwrite the next worker.
         const totals=journal.totals();
+        const resolution=consolidateGoldfish(run,intake.target.path);
         const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
         const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+accounting,completedAt:new Date(),
+          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+accounting,completedAt:new Date(),
+          goldfishState:{...journal.state(),resolution} as unknown as Prisma.InputJsonValue,
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
         if(saved)await this.queue.complete(task.id,workerId);
