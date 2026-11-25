@@ -26,7 +26,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
   const task=entrega??currentMessage.join('\n');
-  const skills=selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
+  const skills=capabilities.studioWorkflow&&!entrega?[]:selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
   onSkills?.(skills.map(s=>s.id));
     return [
       '# Você é a IA deste projeto no Nivoo',
@@ -48,7 +48,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '## Trabalhos anteriores deste PROJETO — inclusive de outras conversas',
       ...(indiceTrabalhos.length ? indiceTrabalhos : ['(nenhum trabalho anterior)']),
       'Estes estados são fatos do banco: CONCLUIDO confirma a etapa; BLOQUEADO/FALHOU não confirma entrega. Não invente que um arquivo existe só porque uma etapa diz CONCLUIDO.',
-      'Ao ouvir "terminar", "continuar", "ajustar", "refazer" ou pedido curto, leia primeiro o objetivo atual, os trabalhos recentes, os arquivos principais e o catálogo antes de decidir se deve preservar ou criar algo.',
+      capabilities.studioWorkflow&&!entrega?'Ao retomar, reancore nas fontes pré-gate autorizadas pelo Studio Workflow: regras, memória, handoff, catálogo e estado declarado; não audite código nesta fase.':'Ao ouvir "terminar", "continuar", "ajustar", "refazer" ou pedido curto, leia primeiro o objetivo atual, os trabalhos recentes, os arquivos principais e o catálogo antes de decidir se deve preservar ou criar algo.',
       ...(midia ? await buildMediaPlannerContext(prisma, workspace, project) : []),
       ...(await contextoDaOrigem(prisma, workspace, project.projetoOrigemId)),
       '',

@@ -7,6 +7,7 @@ import type { ProviderRegistry } from '../../providers/provider-registry.service
 export interface PlannerCapabilities {
   media:boolean;
   softwareInterface:boolean;
+  studioWorkflow?:boolean;
   paidVideo:boolean;
   paidImage?:boolean;
   codexImageProvider?:string;
@@ -22,5 +23,5 @@ export async function selectPlannerCapabilities(area:AreaScope|undefined,registr
   const paidImage=media&&registry.has('gemini-image')&&(await registry.status('gemini-image',15_000)).available;
   const selected=media&&providerId&&isCodexAccount(providerId)&&registry.has(providerId)?await registry.status(providerId,15_000):undefined;
   const codexImageProvider=selected?.available&&selected.capabilities?.includes('imagegen-native-adapter')?providerId:undefined;
-  return {media,softwareInterface,paidVideo,paidImage,...(codexImageProvider?{codexImageProvider}:{})};
+  return {media,softwareInterface,...(area?.template==='studio-workflow'?{studioWorkflow:true}:{}),paidVideo,paidImage,...(codexImageProvider?{codexImageProvider}:{})};
 }
