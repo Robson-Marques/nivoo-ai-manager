@@ -8,6 +8,22 @@ const SECRET=/^(?:segredos\.json|conexoes\.json|id_rsa|id_ed25519|credentials(?:
 const SOURCE=/\.(?:[cm]?[jt]sx?)$/i;
 const MANIFEST=/^(?:package\.json|tsconfig(?:\..*)?\.json|pyproject\.toml|requirements(?:[-.]\w+)?\.txt|go\.mod|Cargo\.toml|composer\.json|Gemfile|pom\.xml|build\.gradle(?:\.kts)?|Dockerfile|docker-compose\.ya?ml|schema\.prisma)$/i;
 const DOC=/^(?:README|ARCHITECTURE|BLUEPRINT|CONTRIBUTING|ARQUITETURA)(?:[._-].*)?$/i;
+const DESIGN_DOC=/\.(?:md|markdown|rst|adoc|txt)$/i;
+const DESIGN_DIR=/^(?:adr|adrs|rfc|rfcs|architecture|arquitetura|design|designs|decisions|decisoes|decisões|blueprints)$/i;
+const DESIGN_NAME=/^(?:context|egm|adr(?:[-_. ]\d+.*)?|rfc(?:[-_. ]\d+.*)?|sitemap|design[-_. ](?:doc|draft|specification)|decision[-_. ]log)\.(?:md|markdown|rst|adoc|txt)$/i;
+
+/** Path classification only; the existing inventory supplies authorized paths. */
+export function architecturalDocumentPaths(files:readonly string[]):string[]{
+  return files.filter(f=>{
+    const parts=f.split('/');
+    const name=parts[parts.length-1];
+    if(DOC.test(name))return true;
+    if(!DESIGN_DOC.test(name))return false;
+    if(DESIGN_NAME.test(name))return true;
+    const dirs=parts.slice(0,-1);
+    return dirs.some((part,i)=>DESIGN_DIR.test(part)&&(i===0||dirs.slice(0,i).some(d=>/^(?:docs?|documentation|documentacao|documentação)$/i.test(d))));
+  });
+}
 const MAX_ENTRIES=12000, MAX_SOURCE=450, MAX_BYTES=8*1024*1024;
 type Inventory={files:string[];partial:boolean};
 type Edge={from:string;to:string;specifier:string};
@@ -124,14 +140,14 @@ export function architectureContext(worktree:string|undefined,task:string):strin
     const {targets,ambiguous}=architectureTargets(task,files);
     const graph=targets.length?staticEdges(root,files,targets):null;
     const manifests=files.filter(f=>MANIFEST.test(path.posix.basename(f)));
-    const docs=files.filter(f=>DOC.test(path.posix.basename(f)));
+    const docs=architecturalDocumentPaths(files);
     const lines=[
       '# Mapa de navegação do workspace atual',
       'Inventário de caminhos reais; não comprova semântica, qualidade, leitura de implementação ou build.',
       'Pastas de dependências, saídas, contexto, links, arquivos ocultos e nomes sensíveis conhecidos foram excluídos.',
       'Inventário: '+files.length+' arquivos'+(partial?' (parcial; limite ou pasta inacessível)':' (dentro do escopo pesquisado)'),
       '', '## Manifestos e configurações encontrados',...manifests.map(f=>'- '+f),
-      '', '## Documentação arquitetural encontrada',...docs.map(f=>'- '+f),
+      '', '## Documentação arquitetural encontrada','Candidatos por nome/caminho (READMEs, decisões, ADRs, RFCs, Blueprints e designs); conteúdo e vigência não verificados.',...docs.map(f=>'- '+f),
       '', '## Arquivos citados na tarefa',...targets.map(f=>'- '+f),...ambiguous.map(f=>'- Nome ambíguo: '+f),
       ...(graph?['','## Referências estáticas diretas JS/TS',
         'Parser TypeScript '+(graph.parser?'disponível; '+graph.scanned+' fontes examinadas':'indisponível')+(graph.partial?'; cobertura parcial':'')+'. Somente imports/exports/require literais relativos resolvidos de forma única. Aliases, injeção de dependências, reflexão, rotas e outras linguagens exigem leitura própria.',
@@ -157,6 +173,7 @@ export function architectureContext(worktree:string|undefined,task:string):strin
       'Mapa local: contexto/acervo/arquitetura-indice.md. '+files.length+' caminhos'+(partial?' (inventário parcial)':'')+'.',
       'Antes de propor ou editar, leia os manifestos/Blueprint relevantes, o arquivo responsável por inteiro, seus contratos e os consumidores afetados. O mapa apenas orienta essa leitura. Se um arquivo tiver paginação, leia até o fim pertinente; não conclua a partir de grep ou nomes.',
       'Confirme referências dinâmicas e aliases nas fontes e configurações; ausência no mapa não prova ausência de dependência. Não crie uma etapa de relatório ou revisão só para cumprir esta orientação.',
+      'A seção de documentação do mesmo índice reúne '+docs.length+' caminho(s) candidato(s), inclusive ADRs e designs quando encontrados. Leia os pertinentes e confronte com a implementação antes de assumir decisões ou contratos.',
       ...(targets.length?['Alvos encontrados: '+targets.join(', ')]:[]),
       ...(graph?.partial?['A análise estática de referências é parcial.']:[])];
   }catch{
