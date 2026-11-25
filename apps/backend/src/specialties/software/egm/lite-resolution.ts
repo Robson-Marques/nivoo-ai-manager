@@ -19,7 +19,7 @@ export function liteFindings(report:string):LiteFinding[]|null{
     const m=/^\[(P[0-3])\]\s+(.+)$/.exec(line.trim());
     if(!m)return null;
     let d:unknown;try{d=JSON.parse(m[2]);}catch{return null;}
-    if(!obj(d)||!str(d.scope,1000)||!str(d.description,4000)||!str(d.evidence,6000)||!str(d.recommendation,6000))return null;
+    if(!obj(d)||!str(d.scope,1000)||!str(d.description,3995)||!str(d.evidence,6000)||!str(d.recommendation,6000))return null;
     const data={priority:m[1] as LiteFinding['priority'],scope:d.scope.trim(),description:d.description.trim(),evidence:d.evidence.trim(),recommendation:d.recommendation.trim()};
     const id='LITE-'+hash(data).slice(0,20);
     if(seen.has(id))return null;
@@ -85,4 +85,14 @@ export function validateLiteSpecRevision(result:LiteResult,original:unknown,revi
 }
 export function renderLiteSpecDecisions(decisions:readonly SpecDecision[]):string{
   return ['## Triagem Elephant Lite — aguardando Fazer',...decisions.map(d=>'- '+d.findingId+' — '+d.category+': '+d.justification+' | Evidência declarada: '+d.evidence+(d.changes.length?' | Itens: '+d.changes.join(', '):'')),'Nenhuma edição executada. Fazer aceita as decisões apresentadas e autoriza o plano; não transforma contestação em prova independente.'].join('\n');
+}
+
+/** A persisted report must match the completed native transport receipt in
+ * the same checkpoint, not just a model-supplied report or session string. */
+export function assertLiteReceipt(state:import('./review-checkpoint').GoldfishCheckpoint):LiteResult{
+  const r=state.lite;
+  if(!r||r.mode!==state.binding.preset||r.sourceId!==state.binding.liteSourceId||r.revision!==state.binding.revision||!r.sessionId||r.status!=='findings'||!liteFindings(r.report)?.length)throw Error('Resultado Lite inválido.');
+  const receipt=state.entries.find(e=>e.role===r.mode&&e.stage===(r.mode==='lite-spec'?7:9)&&e.attempt===1&&e.finishedAt&&e.result?.status==='completed'&&e.result.report===r.report&&e.result.receipt.sessionId===r.sessionId&&e.result.receipt.access==='document-only');
+  if(!receipt)throw Error('Parecer Lite não corresponde ao recibo persistido.');
+  return r;
 }
