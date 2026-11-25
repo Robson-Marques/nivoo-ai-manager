@@ -66,6 +66,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       ...(preGate?[]:softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines)),
       ...(capabilities.softwareInterface?egmPlanningContext(skills,preGate,request.worktree):[]),
       ...plannerRules(capabilities),
+      ...(request.goldfishResolutionContext?['',request.goldfishResolutionContext]:[]),
       ...(resultados.length
         ? [
             '- RESULTADOS dos trabalhos desta conversa (relatórios, inventários, planos que a IA gravou em out/; ficam fora da pasta',
