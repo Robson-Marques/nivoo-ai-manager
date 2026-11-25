@@ -32,6 +32,7 @@ import { capabilityReference } from '../../jobs/workflow/capability-criteria';
 import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { writeEgmHandoff,egmPlanningReferences } from '../../specialties/software/egm/planning';
+import { routeEgm,executionChecklist,renderExecutionChecklist,captureEgmBaseline,previousEgmBaseline } from '../../specialties/software/egm/lite-routing';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -63,6 +64,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const priorAttempts=previousSessions(attempts);
     const sessionNo = (priorAttempts[0]?.number??0) + 1;
     const sections: ContextSection[] = [];
+    let egmExecution:ContextStats['egmExecution'];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
 
@@ -106,6 +108,18 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(worktree&&skillIds.includes('codigo')&&!etapaMidia&&!nativeImage&&step.key!==RULE_REVIEW_STEP){
       const handoff=writeEgmHandoff(worktree,{approved,objective,steps,criteria});
       if(handoff.route==='design')egmPlanningReferences(worktree);
+      if(approved&&objective){
+        const plan={objective:objective.text,defaultProvider:job.defaultProvider,steps,criteria};
+        const route=routeEgm(plan,vinculo?.area);
+        if(route.route!=='excluded'){
+          const first=await prisma.attempt.findFirst({where:{jobId:job.id},orderBy:{startedAt:'asc'},select:{id:true,stepId:true,number:true,status:true,contextStats:true}});
+          const baseline=first?.contextStats?previousEgmBaseline(first.contextStats):first?.stepId===step.id&&first.number===1&&first.status==='EXECUTANDO'&&steps.every(s=>s.id===step.id||s.attemptCount===0)?await captureEgmBaseline(worktree):{commit:null,dirty:[],complete:false};
+          const checklist=executionChecklist(plan,route,{planMessageId:approved.planMessageId,approvedAt:approved.approvedAt},baseline);
+          writeSessionContextFile(worktree,'egm/egm_lite_checklist.md',renderExecutionChecklist(checklist)+'\n');
+          egmExecution={route:route.route,scopeHash:checklist.scopeHash,baseline,independentReview:'not-run'};
+          add('egm-checklist',['## Elephant — execução do checklist aprovado','Leia contexto/egm/egm_lite_checklist.md, compilado das etapas e critérios persistidos, com a base original quando registrada. Não crie um checklist paralelo nem refaça tarefas concluídas. '+(baseline.complete?'Base inicial registrada.':'Base inicial não comprovada; não alegue diff independente completo.'),'O gate Fazer autoriza as etapas, não revisão independente. Reuse a conferência técnica existente; teste direcionado somente se necessário para corrigir. Identifique alvos adicionais ou premissas não resolvidas antes de ampliar escopo.']);
+        }
+      }
       add('egm-handoff',['## Elephant — plano vinculado à execução',
         'contexto/egm/handoff.json contém o objetivo versionado, etapas e critérios reais, e o alinhamento aprovado quando disponível. Rota candidata: '+handoff.route+'.',
         'Use esse registro com o estado da etapa; não crie outro checklist nem trate os estados do banco como parecer independente. Goldfish ainda não executado por esta composição.',
@@ -275,6 +289,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     if(lean&&worktree)writeSessionContextFile(worktree,'tentativas-da-etapa.md',priorAttempts.map(a=>'## Tentativa '+a.number+' — '+a.status+'\n'+(a.error??a.stopReason??'sem erro registrado')).join('\n\n'));
     const result = assembleContext(sections, memory, artLines, budget,lean?{memoryChars:6000,artifactChars:1500}:undefined);
+    if(egmExecution)result.stats.egmExecution=egmExecution;
     result.stats.skillIds=skillIds;
     result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
