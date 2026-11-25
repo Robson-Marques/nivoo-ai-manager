@@ -90,6 +90,11 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     if (process.env.NIVOO_PREVIA_DESLIGADA === '1') return;
+    if(modoCaminho()){
+      this.faxina=setInterval(()=>void this.desligarOciosas(),60_000);
+      this.faxina.unref();
+      return;
+    }
     this.portao = http.createServer((req, res) => void this.atender(req, res));
     this.portao.on('upgrade', (req, socket, cabeca) => this.atenderUpgrade(req, socket as net.Socket, cabeca));
     const pedida = Number(process.env.NIVOO_PREVIA_PORT ?? 3100);
@@ -189,7 +194,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   /** Liga (ou religa, com a última versão da pasta principal). Volta logo; o estado diz quando está no ar. */
   async ligar(projectId: string) {
-    if (!this.portao) throw new BadRequestException('A prévia está desligada neste servidor (portão não abriu; veja os logs da API)');
+    if (!this.portao && (!modoCaminho() || process.env.NIVOO_PREVIA_DESLIGADA==='1')) throw new BadRequestException('A prévia está desligada neste servidor (portão não abriu; veja os logs da API)');
     const antiga = this.previas.get(projectId);
     if (antiga) await this.parar(antiga);
     const p: Previa = { projectId, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now() };
@@ -279,7 +284,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const limite = Date.now() + esperaSeg * 1000;
     while (Date.now() < limite) {
       if (saiu !== undefined) throw new Error(`o sistema parou antes de responder (código ${saiu}); veja o registro abaixo`);
-      if (await this.responde(p.porta)) {
+      if (await this.responde(p.porta,como.manterPrefixo?baseSessao(p.token):'/')) {
         p.estado = 'no-ar';
         p.mensagem = `sistema no ar (${como.origem})`;
         p.ligadaEm = new Date();
@@ -294,9 +299,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return `previa_${projectId.replace(/[^a-f0-9]/gi, '').slice(0, 20).toLowerCase()}`;
   }
 
-  private responde(porta: number): Promise<boolean> {
+  private responde(porta: number,caminho='/'): Promise<boolean> {
     return new Promise((ok) => {
-      const r = http.get({ host: '127.0.0.1', port: porta, path: '/', timeout: 2000 }, (res) => {
+      const r = http.get({ host: '127.0.0.1', port: porta, path: caminho, timeout: 2000 }, (res) => {
         res.resume();
         ok(true);
       });
@@ -361,8 +366,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
           // Only redirects within the preview; never redirect to the manager or another origin.
           const loc=r.headers.location;
           if(!loc.startsWith('/')||loc.startsWith('//')||/[\\\r\n]/.test(loc)){r.resume();return this.pagina(res,502,'Redirecionamento externo não permitido na prévia por caminho.');}
-          if(loc.startsWith(route.base))h.location=loc;
-          else h.location=caminhoPublico(route.base,loc);
+          const next=loc.startsWith(route.base)?loc:caminhoPublico(route.base,loc);
+          if(!separarCaminho(next)){r.resume();return this.pagina(res,502,'Redirecionamento inválido na prévia.');}
+          h.location=next;
         }
         res.writeHead(r.statusCode??502,h);r.pipe(res);
       });
@@ -377,15 +383,28 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const p=route&&[...this.previas.values()].find(x=>x.token===route.token&&x.estado==='no-ar');
     if(!route||!p||!p.porta||p.como?.tipo!=='servidor')return void socket.destroy();
     p.ultimoUso=Date.now();
-    const alvo=net.connect(p.porta,'127.0.0.1',()=>{
-      const h=headersProjeto(req);h.host=`127.0.0.1:${p.porta}`;
-      const linhas=[`${req.method} ${p.como?.manterPrefixo?req.url:route.local} HTTP/${req.httpVersion}`];
-      for(const [k,v] of Object.entries(h))for(const x of Array.isArray(v)?v:[v])if(x!==undefined)linhas.push(`${k}: ${x}`);
-      alvo.write(linhas.join('\r\n')+'\r\n\r\n');
+    if(String(req.headers.upgrade??'').toLowerCase()!=='websocket'||req.method!=='GET')return void socket.destroy();
+    const destino=http.request({host:'127.0.0.1',port:p.porta,path:p.como?.manterPrefixo?req.url:route.local,method:'GET',headers:{...headersProjeto(req),host:`127.0.0.1:${p.porta}`,connection:'Upgrade',upgrade:'websocket'}});
+    destino.on('response',r=>{r.resume();socket.destroy();});
+    destino.on('upgrade',(r,alvo,head)=>{
+      if(r.statusCode!==101||String(r.headers.upgrade??'').toLowerCase()!=='websocket'){alvo.destroy();return void socket.destroy();}
+      // Rebuild the handshake. A project cannot inject Set-Cookie or another HTTP response.
+      const accept=r.headers['sec-websocket-accept'];
+      if(typeof accept!=='string'||!/^[A-Za-z0-9+/]{27}=$/.test(accept)){alvo.destroy();return void socket.destroy();}
+      const linhas=['HTTP/1.1 101 Switching Protocols','Connection: Upgrade','Upgrade: websocket','Sec-WebSocket-Accept: '+accept];
+      for(const k of ['sec-websocket-protocol','sec-websocket-extensions']){
+        const v=r.headers[k];if(typeof v==='string'&&!/[\r\n]/.test(v))linhas.push(k+': '+v);
+      }
+      socket.write(linhas.join('\r\n')+'\r\n\r\n');
+      if(head.length)socket.write(head);
       if(cabeca.length)alvo.write(cabeca);
+      alvo.on('error',()=>socket.destroy());socket.on('error',()=>alvo.destroy());
+      alvo.on('close',()=>socket.destroy());socket.on('close',()=>alvo.destroy());
       alvo.pipe(socket);socket.pipe(alvo);
     });
-    alvo.on('error',()=>socket.destroy());socket.on('error',()=>alvo.destroy());
+    destino.on('error',()=>socket.destroy());
+    socket.on('error',()=>destino.destroy());
+    destino.end();
   }
 
   // ---------------- portão ----------------
@@ -449,6 +468,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       arq = path.join(base, 'index.html');
       rel = 'index.html';
     }
+    if(!fs.existsSync(arq)||!fs.statSync(arq).isFile())return this.pagina(res,404,'Arquivo não encontrado.');
     res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': caminhoIsolado?'no-store':'no-cache' });
     if(req.method==='HEAD')return void res.end();
     fs.createReadStream(arq).pipe(res);

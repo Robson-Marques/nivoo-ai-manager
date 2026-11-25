@@ -17,7 +17,7 @@ async function bootstrap() {
     const previa=app.get(PreviaService);
     const express=app.getHttpAdapter().getInstance();
     express.use((req:IncomingMessage,res:ServerResponse,next:()=>void)=>{
-      if(req.url==='/previa'||req.url?.startsWith('/previa/')){void previa.atenderCaminho(req,res);return;}
+      if(req.url==='/previa'||req.url?.startsWith('/previa?')||req.url?.startsWith('/previa/')){void previa.atenderCaminho(req,res);return;}
       next();
     });
     app.getHttpServer().on('upgrade',(req:IncomingMessage,socket:Socket,head:Buffer)=>{
