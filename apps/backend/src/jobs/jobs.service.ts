@@ -29,6 +29,7 @@ import { LogService } from './log.service';
 import { aceitarRevisao, conferenciasDasEtapas, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
 import { approvedGoldfish,checkApprovedGoldfishStep } from '../specialties/software/egm/resolution-execution';
+import { assertGoldfishProofContracts } from '../specialties/software/egm/resolution-proof';
 import { capturasParaRecuperar } from './motion-capture-freshness';
 
 
@@ -102,6 +103,8 @@ export class JobsService {
     if(approvedScope)requireAdoptionContract({title,objective,steps,criteria},project.area,approvedScope.visual.profile,approvedScope.request?.content);
     const egm=approvedGoldfish(approvedScope);
     if(egm){
+      if(!egm.proofs)throw new ConflictException('Correção Goldfish exige contratos de regressão por achado.');
+      assertGoldfishProofContracts(egm.proofs,criteria);
       if(steps.length!==egm.steps.length)throw new ConflictException('Etapas Goldfish divergentes do plano aprovado.');
       for(const step of steps){
         if(this.registry.get(step.provider??defaultProvider).kind==='executor')throw new ConflictException('Correção Goldfish exige agente de software, não executor direto.');
