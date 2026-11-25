@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DesignProfileStore } from '../src/design-studio/design-profile.store';
 import { designCatalog } from '../src/design-studio/catalog';
+import { defaultVisual, palettes } from '../src/design-studio/visual';
 
 describe('Design Studio profile persistence',()=>{
   let root:string;
@@ -22,8 +23,14 @@ describe('Design Studio profile persistence',()=>{
     expect(()=>store.create({...fields,mode:'unknown'})).toThrow();
     expect(()=>store.get('../outside')).toThrow();
   });
+  it('persists visual tokens and rejects malformed color values',()=>{
+    const p=store.create({...fields,visual:{...defaultVisual,colors:{...defaultVisual.colors,primary:'#ABCDEF'}}});
+    expect(new DesignProfileStore(root).get(p.id).visual.colors.primary).toBe('#ABCDEF');
+    expect(()=>store.update(p.id,{...fields,revision:1,visual:{...defaultVisual,colors:{...defaultVisual.colors,primary:'red'}}})).toThrow();
+    expect(palettes.length).toBeGreaterThan(20);
+  });
   it('does not represent a reference or uninstalled engine as a live renderer',()=>{
     expect(new Set(designCatalog.map(s=>s.id)).size).toBe(designCatalog.length);
-    expect(designCatalog.every(s=>s.kind==='reference'?s.status==='reference':s.status==='adapter-pending')).toBe(true);
+    expect(designCatalog.every(s=>s.kind==='reference'?s.status==='reference':(s.status==='adapter-pending'||(s.status==='ready'&&!!s.adapter)))).toBe(true);
   });
 });

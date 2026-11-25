@@ -9,3 +9,15 @@
 .design-studio-panel input,.design-studio-panel select { width:100%; min-width:0; }
 .design-studio-command { display:block; overflow-wrap:anywhere; white-space:pre-wrap; }
 @media(max-width:720px) { .design-studio {padding:12px;} .design-studio-grid {grid-template-columns:minmax(0,1fr);} }
+
+.design-visual-editor {display:grid;gap:12px;margin-top:12px}
+.design-swatches,.design-options {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.design-color-row {display:flex;gap:5px;align-items:center}
+.design-color-row input[type=color] {width:36px;height:32px;flex:0 0 36px;padding:2px}
+.design-studio-panel .design-check {display:flex;align-items:center;gap:8px}
+.design-check input[type=checkbox] {width:auto}
+.design-actions {display:flex;gap:8px;flex-wrap:wrap}
+.design-preview-scroll {overflow:auto;max-width:100%;margin:10px 0;background:#8882}
+.design-preview-scroll iframe {display:block;margin:auto}
+@media(min-width:1100px) {.design-studio-grid {grid-template-columns:minmax(300px,0.8fr) minmax(0,1.4fr)}}
+@media(max-width:400px) {.design-swatches,.design-options {grid-template-columns:minmax(0,1fr)}}
