@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { minimalEnv,runProcess } from '../../../common/exec';
 import { capabilityReference } from '../../../jobs/workflow/capability-criteria';
 import { adoptionOf } from '../../../jobs/workflow/adoption-contract';
 import { hasNativeMediaOperation,type AreaScope } from '../../media/scope';
@@ -47,7 +48,33 @@ export function executionChecklist(plan:Plan,route:EgmRoute,approval:{planMessag
   return {version:1,approval,route,objective:plan.objective,baseline,scopeHash:digest({objective:plan.objective,steps:plan.steps.map(s=>({key:s.key,instructions:s.instructions,verifyCommand:s.verifyCommand??null,provider:s.provider??plan.defaultProvider,dependsOn:s.dependsOn??[]})),criteria:plan.criteria.map(c=>({key:c.key,kind:c.kind,config:c.config}))}),steps:plan.steps.map(s=>({key:s.key,title:s.title,instructions:s.instructions,verifyCommand:s.verifyCommand??null,status:s.status??'PENDENTE'})),criteria:plan.criteria.map(c=>({key:c.key,kind:c.kind,description:c.description??'',status:c.status??'PENDENTE'})),independentReview:'not-run' as const};
 }
 export function renderExecutionChecklist(c:ReturnType<typeof executionChecklist>):string{
-  return ['# EGM Lite — checklist operacional do Nivoo','Aprovação do plano: '+c.approval.planMessageId+' / '+c.approval.approvedAt,'Escopo: '+c.scopeHash,'Base registrada: '+(c.baseline.commit??'indisponível')+'; inventário '+(c.baseline.complete?'capturado':'incompleto'),...c.baseline.dirty.map(s=>'- Estado anterior: '+JSON.stringify(s)),
+  return ['# Elephant — checklist operacional do Nivoo ('+c.route.route+')','Aprovação do plano: '+c.approval.planMessageId+' / '+c.approval.approvedAt,'Escopo: '+c.scopeHash,'Base registrada: '+(c.baseline.commit??'indisponível')+'; inventário '+(c.baseline.complete?'capturado':'incompleto'),...c.baseline.dirty.map(s=>'- Estado anterior: '+JSON.stringify(s)),
     '## Objetivo',c.objective,'## Etapas aprovadas',...c.steps.flatMap(s=>['- ['+(s.status==='CONCLUIDO'?'x':' ')+'] '+s.key+' — '+s.title+' ('+s.status+')','  '+s.instructions,'  Verificação: '+(s.verifyCommand??'não indicada')]),
     '## Critérios',...c.criteria.map(x=>'- ['+x.status+'] '+x.key+' — '+x.description),'## Limites','O estado das etapas vem do backend, não de uma declaração da IA. Preserve alterações anteriores. Não altere alvos fora do plano; não enfraqueça testes. Não repita a suíte final apenas para antecipar o avaliador. Registre premissas não verificadas e escale mudanças de escopo. Parecer independente: não executado por este checklist.'].join('\n');
+}
+
+export type EgmBaseline={commit:string|null;dirty:string[];complete:boolean};
+const unavailableBaseline=():EgmBaseline=>({commit:null,dirty:[],complete:false});
+/** Record the worktree before the first author call. Do not stage, clean or
+ * commit existing changes. The inventory alone is NOT an isolated diff. */
+export async function captureEgmBaseline(worktree:string):Promise<EgmBaseline>{
+  try{
+    const options={cwd:worktree,env:minimalEnv({GIT_OPTIONAL_LOCKS:'0'}),timeoutMs:30000,maxBuffer:1024*1024};
+    const rev=await runProcess('git',['rev-parse','--verify','HEAD^{commit}'],options);
+    if(rev.exitCode!==0||rev.timedOut||rev.aborted||!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(rev.stdout.trim()))return unavailableBaseline();
+    const commit=rev.stdout.trim();
+    const status=await runProcess('git',['status','--porcelain=v1','-z','--untracked-files=all'],options);
+    if(status.exitCode!==0||status.timedOut||status.aborted||Buffer.byteLength(status.stdout)>65536||(status.stdout&&!status.stdout.endsWith('\0')))return {commit,dirty:[],complete:false};
+    const dirty=status.stdout.split('\0').filter(Boolean);
+    if(dirty.length>500)return {commit,dirty:[],complete:false};
+    return {commit,dirty,complete:true};
+  }catch{return unavailableBaseline();}
+}
+export function previousEgmBaseline(stats:unknown):EgmBaseline{
+  if(!stats||typeof stats!=='object'||Array.isArray(stats))return unavailableBaseline();
+  const b=(stats as {egmExecution?:{baseline?:unknown}}).egmExecution?.baseline;
+  if(!b||typeof b!=='object'||Array.isArray(b))return unavailableBaseline();
+  const value=b as Record<string,unknown>;
+  if(!(value.commit===null||typeof value.commit==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.commit))||typeof value.complete!=='boolean'||!Array.isArray(value.dirty)||value.dirty.length>500||value.dirty.some(x=>typeof x!=='string')||value.complete&&value.commit===null)return unavailableBaseline();
+  return {commit:value.commit as string|null,dirty:[...value.dirty] as string[],complete:value.complete};
 }
