@@ -83,6 +83,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
         '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',
         '  "dev"/"start" são detectados; se o projeto liga de outro jeito (monorepo, outra pasta, comando próprio), inclua no plano',
         '  um nivoo-previa.json na raiz: {"tipo":"servidor","pasta":"apps/web","instalar":"pnpm install","comando":"pnpm dev --port $PORT","caminho":"/"}',
+        '  O comando de início precisa funcionar em uma cópia limpa, com banco descartável vazio e somente as variáveis oferecidas pelo Nivoo. Inclua na preparação/início as migrações reais necessárias, sem depender de arquivos ignorados, dados ou processos da conferência. A aceitação existente deve exercitar esse mesmo comando e caminho; não criar outra revisão por IA.',
         '  (o sistema ouve em $PORT e recebe o banco de teste) ou {"tipo":"estatico","pasta":"dist"}.',
       ] : []),
       ...(capabilities.codexImageProvider ? [] : ['- IMAGENS INÉDITAS: use somente uma rota de geração/exportação suportada ou os ativos reais disponíveis; não invente imagens binárias com código.']),

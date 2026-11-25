@@ -1312,7 +1312,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
     try {
       const [estado,opcoes]=await Promise.all([api<any>(`/projects/${projetoId}/previa`),api<Array<{id:string;title:string}>>(`/projects/${projetoId}/previa/fontes`)]);
       setE(estado);setFontes(opcoes);
-      if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??'');}
+      if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??(opcoes.length===1?opcoes[0].id:''));}
       setErro(null);
     } catch (x: any) {
       setErro(x.message);

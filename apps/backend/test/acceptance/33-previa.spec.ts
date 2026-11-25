@@ -139,13 +139,17 @@ describe('Prévia do projeto', () => {
       title:'Nova interface',objective:'Disponibilizar a versão em avaliação',defaultProvider:'local-shell',
       steps:[{key:'a',instructions:"printf '<h1>Resultado em avaliação</h1>' > index.html"}],
       criteria:[{key:'html',kind:'COMMAND',description:'Resultado presente',config:{command:"grep -q 'Resultado em avaliação' index.html"}},
-        {key:'aceite',kind:'MANUAL_APPROVAL',description:'Aceitar resultado funcional'}],
+        {key:'aceite',kind:'MANUAL_APPROVAL',description:'Aceitar aplicação em prévia'}],
     }).expect(201)).body;
     await h.http().post(base+'/jobs/'+j.id+'/start').expect(201);
-    await waitFor(async()=>{
+    const waiting=await waitFor(async()=>{
       const state=(await h.http().get(base+'/jobs/'+j.id).expect(200)).body;
       return state.status==='AGUARDANDO_APROVACAO'?state:null;
     },60000);
+    const approval=waiting.approvals.find((a:any)=>a.status==='PENDENTE');
+    expect(approval.presentation).toBe('application');
+    const decide='/api/approvals/'+approval.id+'/decide';
+    await h.http().post(decide).send({decision:'APROVADO',decidedBy:'operador'}).expect(400);
     expect((await h.http().get(base+'/previa/fontes').expect(200)).body).toEqual(expect.arrayContaining([expect.objectContaining({id:j.id})]));
     await h.http().post('/api/projects/'+outro.id+'/previa/ligar').send({jobId:j.id}).expect(400);
     await h.http().post(base+'/previa/ligar').send({jobId:j.id}).expect(201);
@@ -161,6 +165,12 @@ describe('Prévia do projeto', () => {
     expect(principal).toMatchObject({estado:'no-ar',sourceJobId:null});
     const original=await abrir(principal.url);
     expect((await pedir(original.base+'/',original.cookie)).corpo).toContain('Versão principal');
+    await h.http().post(decide).send({decision:'APROVADO',decidedBy:'operador'}).expect(400);
+    await h.http().post(base+'/previa/ligar').send({jobId:j.id}).expect(201);
+    const selected=await noAr(p.id);
+    expect(selected.estado).toBe('no-ar');
+    await h.http().post(decide).send({decision:'APROVADO',decidedBy:'operador'}).expect(201);
+    await waitFor(async()=>{const done=(await h.http().get(base+'/jobs/'+j.id).expect(200)).body;return done.status==='CONCLUIDO'?done:null;},60000);
     await h.http().post(base+'/previa/desligar').expect(201);
   });
 
