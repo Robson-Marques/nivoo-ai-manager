@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
+import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest,goldfishProviderSupported,goldfishReviewPrompt,goldfishReviewOutcome } from '../specialties/software/goldfish';
 import { SKILLS_VERSION,skillContext } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
@@ -97,6 +98,35 @@ export class PlannerService {
       await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
       await this.queue.complete(task.id, workerId);
     };
+
+    // Compatibility for queued requests: make the same deterministic decision
+    // before opening a provider session. No extra AI call.
+    if(msg.kind!=='entrega'&&project.visualProfile==null){
+      const intercepted=await this.prisma.$transaction(async tx=>{
+        await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${msg.conversationId} FOR UPDATE`;
+        await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
+        const fresh=await tx.project.findUniqueOrThrow({where:{id:project.id},include:{area:true}});
+        const current=await tx.conversationMessage.findFirst({where:{id:msg.id,status:'PENDENTE'},select:{id:true}});
+        if(!current)return 'cancelled';
+        const user=await tx.conversationMessage.findFirst({
+          where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{content:true,kind:true},
+        });
+        if(!user||user.kind===VISUAL_BRIEFING_KIND||user.kind===VISUAL_CONFIRMED_KIND)return 'continue';
+        const reason=await visualDiscoveryForRequest(tx,fresh,msg.conversationId,user.content,msg.createdAt);
+        registrarTempo('visual_discovery',{motivo:reason,base:fresh.area.template});
+        if(reason!=='ask')return 'continue';
+        await tx.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
+          status:'PRONTA',kind:VISUAL_DISCOVERY_KIND,content:VISUAL_DISCOVERY_TEXT,
+          perguntas:visualDiscoveryQuestions(user.content,fresh.id,fresh.visualProfileRevision) as unknown as Prisma.InputJsonValue,
+          costUsd:0,completedAt:new Date(),
+        }});
+        return 'intercepted';
+      });
+      if(intercepted!=='continue'){
+        await this.queue.complete(task.id,workerId);
+        return;
+      }
+    }
 
     // Limite de gasto do projeto vale também para a conversa (trabalhos + respostas).
     if (project.maxCostUsd !== null) {
@@ -488,6 +518,12 @@ export class PlannerService {
     const aprovadoPeloUsuario = await this.prisma.conversationMessage.findFirst({ where: { conversationId, approvedAt: { not: null }, NOT: { approvedBy: { startsWith: 'Nivoo' } } } });
     if (!aprovadoPeloUsuario) return;
     const ultimaDoUsuario = await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } });
+    // A choice of appearance or a new UI request is not an approval of its first plan.
+    // Preserve automatic continuation after the user actually approves that request.
+    if(ultimaDoUsuario&&(ultimaDoUsuario.kind===VISUAL_CONFIRMED_KIND||ultimaDoUsuario.kind===VISUAL_BRIEFING_KIND||visualDiscoveryIntent(ultimaDoUsuario.content))){
+      const approval=await this.prisma.conversationMessage.findFirst({where:{conversationId,approvedAt:{gte:ultimaDoUsuario.createdAt},jobId:{not:null},NOT:{approvedBy:{startsWith:'Nivoo'}}},select:{id:true}});
+      if(!approval)return;
+    }
     const seguidos = await this.prisma.conversationMessage.count({
       where: { conversationId, approvedBy: { startsWith: 'Nivoo' }, ...(ultimaDoUsuario ? { createdAt: { gt: ultimaDoUsuario.createdAt } } : {}) },
     });

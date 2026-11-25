@@ -1,8 +1,13 @@
 import { VISUAL_STYLES } from './visual-style-catalog';
 import { FONT_PAIRINGS } from './visual-typography-catalog';
 import { parseVisualProfileUpdate,type VisualProfileV1 } from './visual-profile';
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import type { Prisma } from '@prisma/client';
 
 export const VISUAL_DISCOVERY_KIND='perfil-visual';
+export const VISUAL_BRIEFING_KIND='perfil-visual-briefing';
+export const VISUAL_CONFIRMED_KIND='perfil-visual-confirmado';
+export const VISUAL_DISCOVERY_TEXT='Antes do plano, escolha como deseja utilizar e visualizar o software. Você pode delegar cada decisão à IA ou responder livremente.';
 const DELEGATE='delegated';
 type Option={id:string;rotulo:string;descricao:string};
 type Question={id:string;pergunta:string;opcoes:Option[];multipla:false;visualDiscovery:{version:1;projectId:string;revision:number}};
@@ -16,6 +21,27 @@ const DECIDED=/\b(?:liquid[- ]glass|(?:crystal|frosted|dark|prism)[- ]glass|vidr
 export function visualDiscoveryIntent(text:string):boolean{
   const t=normalize(text);
   return CREATE.test(t)&&PRODUCT.test(t)&&UI.test(t)&&!EXCLUDED.test(t)&&!DECIDED.test(t)&&!/^\s*(?:como|qual|quais|o que|por que|sera que)\b/.test(t);
+}
+/** Shared deterministic decision. A greeting or reference image is not a visual decision. */
+export function visualDiscoveryReason(input:{software:boolean;profile:unknown;gitUrl?:string|null;hasWork:boolean;answered:boolean;text:string}):'ask'|'other-domain'|'profile-defined'|'existing-repository'|'existing-work'|'answered'|'not-new-ui'{
+  if(!input.software)return 'other-domain';
+  if(input.profile!=null)return 'profile-defined';
+  if(input.gitUrl)return 'existing-repository';
+  if(input.hasWork)return 'existing-work';
+  if(input.answered)return 'answered';
+  return visualDiscoveryIntent(input.text)?'ask':'not-new-ui';
+}
+type DiscoveryProject={id:string;area:{template?:string|null;slug?:string|null};visualProfile:unknown;gitUrl?:string|null};
+type DiscoveryDb=Pick<Prisma.TransactionClient,'job'|'conversationMessage'>;
+export async function visualDiscoveryForRequest(db:DiscoveryDb,project:DiscoveryProject,conversationId:string,text:string,at?:Date){
+  const input={software:softwareInterfaceEnabled(project.area),profile:project.visualProfile,gitUrl:project.gitUrl,hasWork:false,answered:false,text};
+  const initial=visualDiscoveryReason(input);
+  if(initial!=='ask')return initial;
+  const [work,briefing]=await Promise.all([
+    db.job.findFirst({where:{projectId:project.id},select:{id:true}}),
+    db.conversationMessage.findFirst({where:{conversationId,role:'USUARIO',kind:VISUAL_BRIEFING_KIND,...(at?{createdAt:{lte:at}}:{})},select:{id:true}}),
+  ]);
+  return visualDiscoveryReason({...input,hasWork:!!work,answered:!!briefing});
 }
 const delegate=():Option=>({id:DELEGATE,rotulo:'IA escolhe',descricao:'Delegar esta preferência sem definir um valor agora.'});
 function ordered(options:Option[],recommended:string):Option[]{

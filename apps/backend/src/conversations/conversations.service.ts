@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { softwareInterfaceEnabled } from '../specialties/scope';
-import { VISUAL_DISCOVERY_KIND,visualDiscoveryIntent,visualDiscoveryQuestions,profileFromVisualAnswers,validateVisualSelection,visualDecisionText } from '../projects/visual-discovery';
+import { VISUAL_DISCOVERY_KIND,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,VISUAL_DISCOVERY_TEXT,visualDiscoveryForRequest,visualDiscoveryQuestions,profileFromVisualAnswers,validateVisualSelection,visualDecisionText } from '../projects/visual-discovery';
 import type { VisualProfileV1 } from '../projects/visual-profile';
 import { optString, reqString } from '../common/validate';
 import { JobsService } from '../jobs/jobs.service';
@@ -279,26 +279,26 @@ export class ConversationsService {
       const question=latest?.role==='ASSISTENTE'&&latest.kind===VISUAL_DISCOVERY_KIND&&latest.status==='PRONTA'?latest:null;
       let choice:VisualProfileV1|null=null;
       if(visualAnswer!==undefined){
-        if(!question||question.id!==visualAnswer.messageId||project.visualProfile!==null||!softwareInterfaceEnabled(project.area))throw new ConflictException('As perguntas visuais não estão mais disponíveis.');
+        if(!question||question.id!==visualAnswer.messageId||project.visualProfile!=null||!softwareInterfaceEnabled(project.area))throw new ConflictException('As perguntas visuais não estão mais disponíveis.');
         try{choice=validateVisualSelection(visualAnswer.profile,projectId,project.visualProfileRevision,question.perguntas);}
         catch(e){throw new BadRequestException(e instanceof Error?e.message:'Resposta visual inválida.');}
-      }else if(question&&project.visualProfile===null&&softwareInterfaceEnabled(project.area)&&!temAnexo){
+      }else if(question&&project.visualProfile==null&&softwareInterfaceEnabled(project.area)&&!temAnexo){
         choice=profileFromVisualAnswers(content,question.perguntas,projectId,project.visualProfileRevision);
       }
       if(choice){
         const changed=await tx.project.updateMany({where:{id:projectId,areaId:project.areaId,visualProfileRevision:project.visualProfileRevision},data:{visualProfile:choice as unknown as Prisma.InputJsonValue,visualProfileRevision:{increment:1}}});
         if(!changed.count)throw new ConflictException('O perfil visual mudou. Recarregue antes de confirmar.');
       }
-      // Ask only on a first, clearly new UI request in a project without
-      // existing work, imported repository or a configured profile.
-      const discover=!latest&&!temAnexo&&visualAnswer===undefined&&project.visualProfile===null&&!project.gitUrl&&softwareInterfaceEnabled(project.area)&&visualDiscoveryIntent(content)
-        &&!(await tx.job.count({where:{projectId}}))
-        &&!(await tx.conversationMessage.findFirst({where:{conversation:{projectId},kind:VISUAL_DISCOVERY_KIND},select:{id:true}}));
+      // A greeting, attachment or abandoned question does not settle identity.
+      const briefing=!!question&&!choice&&visualAnswer===undefined;
+      const reason=choice?'confirmed':briefing?'briefing':await visualDiscoveryForRequest(tx,project,conversationId,textoOriginal?.trim()||content);
+      const discover=reason==='ask';
+      console.info('[NIVOO_VISUAL_DISCOVERY] '+JSON.stringify({projectId,conversationId,reason,source:'chat',template:project.area.template,revision:project.visualProfileRevision}));
       // PostgreSQL now() is transaction-scoped; explicit monotonic timestamps
       // preserve user/question order even when both rows are inserted together.
       const sentAt=new Date(Math.max(Date.now(),latest?latest.createdAt.getTime()+1:0));
       const responseAt=new Date(sentAt.getTime()+1);
-      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content,createdAt:sentAt,...(choice?{kind:'perfil-visual-confirmado'}:{}) } });
+      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content,createdAt:sentAt,...(choice?{kind:VISUAL_CONFIRMED_KIND}:briefing?{kind:VISUAL_BRIEFING_KIND}:{}) } });
       if (temAnexo) {
         const gravados = anexos.length ? gravarAnexos(raiz, conversationId, minha.id, anexos) : [];
         const todos = [...gravados, ...midia];
@@ -307,7 +307,7 @@ export class ConversationsService {
       if(discover){
         await tx.conversationMessage.create({data:{
           conversationId,role:'ASSISTENTE',status:'PRONTA',kind:VISUAL_DISCOVERY_KIND,
-          content:'Antes do plano, escolha como deseja utilizar e visualizar o software. Você pode delegar cada decisão à IA ou responder livremente.',
+          content:VISUAL_DISCOVERY_TEXT,
           perguntas:visualDiscoveryQuestions(content,projectId,project.visualProfileRevision) as unknown as Prisma.InputJsonValue,
           costUsd:0,createdAt:responseAt,completedAt:responseAt,
         }});

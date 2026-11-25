@@ -30,6 +30,20 @@ describe('Chat — assistente de definição visual',()=>{
     expect(await h.prisma.job.count({where:{projectId:p.id}})).toBe(0);
     await h.http().post(url).send({visualAnswer:{messageId:m.id,profile:selection}}).expect(409);
   });
+  it('apresenta a seleção para o pedido exato do teste mesmo depois de uma conversa preliminar',async()=>{
+    const {p,c,url}=await create('Regressão visual');
+    await h.prisma.conversationMessage.create({data:{conversationId:c.id,role:'USUARIO',content:'Olá'}});
+    await h.prisma.conversationMessage.create({data:{conversationId:c.id,role:'ASSISTENTE',content:'Como posso ajudar?'}});
+    const a=(await h.http().post(url).send({content:"Quero desenvolver um sistema completo de gerenciamento de clientes, com cadastro, edição, exclusão, pesquisa, filtros, dashboard com indicadores reais e banco de dados persistente.\n\nO sistema deverá funcionar em computadores e celulares, possuir uma interface profissional, validação de formulários e testes funcionais."}).expect(201)).body;
+    const m=a.messages.at(-1);
+    expect(m.kind).toBe('perfil-visual');
+    expect(m.perguntas).toHaveLength(4);
+    expect(await h.prisma.queueTask.count({where:{messageId:m.id}})).toBe(0);
+    expect(await h.prisma.job.count({where:{projectId:p.id}})).toBe(0);
+    const next=(await h.http().post(url).send({content:'Prefiro seguir a identidade própria que descrevi em texto.'}).expect(201)).body;
+    expect(next.messages.some((m:any)=>m.kind==='perfil-visual-briefing')).toBe(true);
+    expect(next.messages.at(-1).status).toBe('PENDENTE');
+  });
   it('correção pontual segue diretamente ao planejador',async()=>{
     const {url}=await create('Manutenção visual');
     const a=(await h.http().post(url).send({content:'Corrigir endpoint'}).expect(201)).body;

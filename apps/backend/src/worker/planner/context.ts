@@ -5,6 +5,7 @@ import { writeContextArchive,excerpt } from '../context-archive';
 import { memoryLine,sortMemory,fullMemoryDocument } from '../context-builder';
 import { readMotionInvocation } from '../../jobs/motion/command';
 import type { PlannerRequest } from './types';
+import { VISUAL_DISCOVERY_KIND,VISUAL_CONFIRMED_KIND,VISUAL_BRIEFING_KIND } from '../../projects/visual-discovery';
 
 const MAX_MEMORIA=12_000;
 const MAX_ARQUIVOS=300;
@@ -64,9 +65,10 @@ export async function collectPlannerContext(prisma:PrismaService,workspace:Works
   const recent=past.slice(0,worktree?8:20).reverse().map(m=>renderMessage(m,!worktree));
   const conversa=[...(archive?['Histórico integral anterior à mensagem atual: '+archive+'. Em retomadas e pedidos de continuidade, consulte as páginas relevantes antes de planejar.']:[]),...recent].join('\n\n');
   const deles=atual?anexos.filter(a=>a.mensagem===atual.id):[];
-  const originalVisualRequest=atual?.kind==='perfil-visual-confirmado'?past.find(m=>m.role==='USUARIO'):undefined;
+  const questionIndex=past.findIndex(m=>m.kind===VISUAL_DISCOVERY_KIND);
+  const originalVisualRequest=(atual?.kind===VISUAL_CONFIRMED_KIND||atual?.kind===VISUAL_BRIEFING_KIND)&&questionIndex>=0?past.slice(questionIndex+1).find(m=>m.role==='USUARIO'):undefined;
   const currentMessage=[
-    ...(originalVisualRequest?['Pedido original confirmado: '+originalVisualRequest.content]:[]),
+    ...(originalVisualRequest?['Pedido original: '+originalVisualRequest.content]:[]),
     atual?.content||'(sem texto: o usuário só enviou anexos)',
     ...(deles.length?['','Anexos desta mensagem (LEIA/VEJA cada um antes de responder; imagens: abra o arquivo com a sua ferramenta de leitura):',...deles.map(a=>'- '+descreverAnexo(a))]:[])
   ];
