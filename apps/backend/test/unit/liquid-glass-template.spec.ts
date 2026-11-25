@@ -42,6 +42,9 @@ describe('Template Liquid Glass',()=>{
     expect(p.files[0].content).toBe(liquidGlassCss());
     expect(p.files[1].content).toContain('não há refração óptica real');
     expect(p.files[2].content).toContain('href="liquid-glass.css"');
+    expect(p.files[1].content).toContain('O exemplo usa ocean-blue/system/');
+    expect(p.files[2].content).toContain('data-palette="ocean-blue"');
+    expect(p.files[2].content).toContain('radial-gradient(');
     expect(p.files[2].content).not.toMatch(/https?:\/\/|<script/i);
     expect(liquidGlassTemplateContext()).toEqual([]);
   });
