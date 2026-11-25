@@ -313,10 +313,11 @@ export class CompletionService {
     }
 
     let egm:ApprovedGoldfishResolution|null=null;
-    const repo=this.workspace.projectDirs(job.project.dirKey).repo;
+    let repo='';
     try{
       egm=approvedGoldfish(job.approvedScope);
       if(egm){
+        repo=this.workspace.projectDirs(job.project.dirKey).repo;
         if(!egm.proofs)throw Error('Correção Goldfish sem contrato de regressão individual. Atualize o plano; nenhuma evidência será presumida.');
         assertGoldfishProofContracts(egm.proofs,job.criteria);
         if(job.steps.length!==egm.steps.length)throw Error('Etapas divergentes do contrato de resolução aprovado.');
@@ -326,7 +327,7 @@ export class CompletionService {
       }
     }catch(e){return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
     let worktree:string;
-    try{worktree=await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm?.revision);}
+    try{worktree=egm?await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm.revision):await this.workspace.ensureJobWorktree(job.project.dirKey,job.id);}
     catch(e){if(!egm)throw e;return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
     let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
@@ -351,7 +352,7 @@ export class CompletionService {
           await this.prisma.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});
           continue; // No invented failed/pass evidence; this check was not executed.
         }
-        const r = await this.check(job, c, worktree,egm?.proofs?.filter(p=>p.criterionKey===c.key)??[]);
+        const r = egm?await this.check(job,c,worktree,egm.proofs!.filter(p=>p.criterionKey===c.key)):await this.check(job,c,worktree);
         evaluated.set(c.key,r.passed);
         if(r.verificationProblem)environmentFailure=r.verificationProblem;
         report.criteria.push(r);
@@ -414,7 +415,8 @@ export class CompletionService {
             const current=await this.workspace.headCommit(repo);
             if(current!==egm.revision)return {ok:false,commit:null,mudou:false};
           }
-          return this.workspace.integrateIntoMain(job.project.dirKey, job.id, await this.commitMessage(job),egm?.revision);
+          const message=await this.commitMessage(job);
+          return egm?this.workspace.integrateIntoMain(job.project.dirKey,job.id,message,egm.revision):this.workspace.integrateIntoMain(job.project.dirKey,job.id,message);
         },
         { timeout: 120_000, maxWait: 120_000 },
       );
