@@ -10,6 +10,7 @@ import { ambienteDaConferencia, portaLivre, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
+import { modoCaminho, baseSessao, separarCaminho, caminhoPublico, headersCaminho, headersProjeto, headersRespostaProjeto } from './previa-path';
 
 /**
  * Prévia do projeto: o site ou o sistema do projeto rodando, para o usuário ver ao lado da conversa.
@@ -33,6 +34,8 @@ export interface ComoRodar {
   comando?: string;
   caminho: string;
   origem: string;
+  /** The upstream server understands the session prefix (e.g. Vite --base). */
+  manterPrefixo?: boolean;
 }
 
 type Estado = 'parada' | 'ligando' | 'no-ar' | 'erro';
@@ -127,7 +130,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Como rodar o projeto (arquivo nivoo-previa.json ou detecção). Null se não há nada para mostrar. */
-  static comoRodar(dir: string): ComoRodar | null {
+  static comoRodar(dir: string, base?:string): ComoRodar | null {
     const cfgArq = path.join(dir, 'nivoo-previa.json');
     if (fs.existsSync(cfgArq)) {
       let c: any;
@@ -138,7 +141,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       }
       const pasta = String(c.pasta ?? '.').replace(/^\/+/, '') || '.';
       const tipo = c.tipo === 'estatico' || (!c.comando && c.tipo !== 'servidor') ? 'estatico' : 'servidor';
-      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json' };
+      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json', manterPrefixo: !!base && c.manterPrefixo === true };
     }
     const pacote = path.join(dir, 'package.json');
     if (fs.existsSync(pacote)) {
@@ -153,10 +156,11 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       if (nome) {
         const s = String(scripts[nome]);
         // Servidores de desenvolvimento que não leem $PORT: a porta vai como argumento.
-        const extra = /\bvite\b/.test(s) ? ' -- --port $PORT --host 127.0.0.1 --strictPort' : /\bnext\b/.test(s) ? ' -- -p $PORT -H 127.0.0.1' : '';
+        const vite = /\bvite\b/.test(s);
+        const extra = vite ? ' -- --port $PORT --host 127.0.0.1 --strictPort' + (base ? ' --base '+base : '') : /\bnext\b/.test(s) ? ' -- -p $PORT -H 127.0.0.1' : '';
         const gerenciador = fs.existsSync(path.join(dir, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(dir, 'yarn.lock')) ? 'yarn' : 'npm';
         const instalar = gerenciador === 'pnpm' ? 'pnpm install --frozen-lockfile || pnpm install' : gerenciador === 'yarn' ? 'yarn install' : fs.existsSync(path.join(dir, 'package-lock.json')) ? 'npm ci || npm install' : 'npm install';
-        return { tipo: 'servidor', pasta: '.', instalar, comando: `${gerenciador} run ${nome}${extra}`, caminho: '/', origem: `package.json (script "${nome}")` };
+        return { tipo: 'servidor', pasta: '.', instalar, comando: `${gerenciador} run ${nome}${extra}`, caminho: '/', origem: `package.json (script "${nome}")`, manterPrefixo: !!base && vite };
       }
     }
     for (const pasta of ['.', 'public', 'dist', 'build', 'site', 'docs', 'www']) {
@@ -174,7 +178,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       mensagem: p.mensagem,
       tipo: p.como?.tipo ?? null,
       origem: p.como?.origem ?? null,
-      url: p.estado === 'no-ar' ? `${this.urlPublica()}/__nivoo_previa/abrir?t=${p.token}&caminho=${encodeURIComponent(p.como?.caminho ?? '/')}` : null,
+      url: p.estado === 'no-ar' ? (modoCaminho() ? caminhoPublico(baseSessao(p.token),p.como?.caminho??'/') : `${this.urlPublica()}/__nivoo_previa/abrir?t=${p.token}&caminho=${encodeURIComponent(p.como?.caminho ?? '/')}`) : null,
+      modoCaminho: modoCaminho(),
       enderecoConfigurado: !!process.env.NIVOO_PREVIA_URL,
       trabalhoEmAndamento: !!p.trabalhoEmAndamento,
       ligadaEm: p.ligadaEm ?? null,
@@ -222,7 +227,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       await this.git(dir, ['clean', '-fdx', '-e', 'node_modules', '-e', '.venv']); // dependências ficam (mais rápido)
     }
     p.dir = dir;
-    const como = PreviaService.comoRodar(dir);
+    const como = PreviaService.comoRodar(dir,modoCaminho()?baseSessao(p.token):undefined);
     if (!como) {
       // A prévia mostra a PASTA PRINCIPAL: se um trabalho em andamento vai criar a prévia, ela só aparece quando ele concluir.
       const rodando = await this.prisma.job.findFirst({ where: { projectId: p.projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } }, select: { title: true } });
@@ -243,7 +248,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     }
     p.porta = await portaLivre();
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId)).catch(() => null);
-    const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
+    const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(modoCaminho()?{NIVOO_PREVIA_BASE_PATH:baseSessao(p.token)}:{}), ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
     if (como.instalar) {
       p.mensagem = `instalando as dependências (${como.instalar})`;
@@ -334,6 +339,55 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return runProcess('git', ['-c', 'safe.directory=*', ...args], { cwd, env: ambienteDaConferencia(), timeoutMs: 120_000 });
   }
 
+  /** Mounted before the administrative SPA/API parsers, only when path mode is configured. */
+  async atenderCaminho(req:http.IncomingMessage,res:http.ServerResponse):Promise<void>{
+    if(!modoCaminho())return this.pagina(res,404,'Prévia por caminho desativada.');
+    const route=separarCaminho(req.url??'');
+    if(!route)return this.pagina(res,404,'Abra a prévia pelo botão Ver o projeto no Nivoo.');
+    const p=[...this.previas.values()].find(x=>x.token===route.token&&x.estado==='no-ar');
+    if(!p)return this.pagina(res,404,'Esta sessão de prévia não está mais no ar.');
+    if(!headersCaminho(res,req,route.base))return this.pagina(res,400,'Endereço de prévia inválido.');
+    p.ultimoUso=Date.now();
+    if(req.method==='OPTIONS'){res.writeHead(204);return void res.end();}
+    try{
+      if(p.como?.tipo==='estatico'){
+        if(req.method!=='GET'&&req.method!=='HEAD')return this.pagina(res,405,'Método indisponível para site estático.');
+        return this.servirArquivo(p,new URL(route.local,'http://previa').pathname,req,res,true);
+      }
+      const upstream=p.como?.manterPrefixo?(req.url??'/'):route.local;
+      const destino=http.request({host:'127.0.0.1',port:p.porta,method:req.method,path:upstream,headers:{...headersProjeto(req),host:`127.0.0.1:${p.porta}`}},r=>{
+        const h=headersRespostaProjeto(r.headers);
+        if(r.headers.location){
+          // Only redirects within the preview; never redirect to the manager or another origin.
+          const loc=r.headers.location;
+          if(!loc.startsWith('/')||loc.startsWith('//')||/[\\\r\n]/.test(loc)){r.resume();return this.pagina(res,502,'Redirecionamento externo não permitido na prévia por caminho.');}
+          if(loc.startsWith(route.base))h.location=loc;
+          else h.location=caminhoPublico(route.base,loc);
+        }
+        res.writeHead(r.statusCode??502,h);r.pipe(res);
+      });
+      destino.on('error',e=>this.pagina(res,502,'O sistema da prévia não respondeu: '+e.message));
+      req.on('aborted',()=>destino.destroy());
+      req.pipe(destino);
+    }catch(e:any){this.pagina(res,500,'Erro na prévia: '+String(e?.message??e));}
+  }
+
+  atenderUpgradeCaminho(req:http.IncomingMessage,socket:net.Socket,cabeca:Buffer){
+    const route=modoCaminho()?separarCaminho(req.url??''):null;
+    const p=route&&[...this.previas.values()].find(x=>x.token===route.token&&x.estado==='no-ar');
+    if(!route||!p||!p.porta||p.como?.tipo!=='servidor')return void socket.destroy();
+    p.ultimoUso=Date.now();
+    const alvo=net.connect(p.porta,'127.0.0.1',()=>{
+      const h=headersProjeto(req);h.host=`127.0.0.1:${p.porta}`;
+      const linhas=[`${req.method} ${p.como?.manterPrefixo?req.url:route.local} HTTP/${req.httpVersion}`];
+      for(const [k,v] of Object.entries(h))for(const x of Array.isArray(v)?v:[v])if(x!==undefined)linhas.push(`${k}: ${x}`);
+      alvo.write(linhas.join('\r\n')+'\r\n\r\n');
+      if(cabeca.length)alvo.write(cabeca);
+      alvo.pipe(socket);socket.pipe(alvo);
+    });
+    alvo.on('error',()=>socket.destroy());socket.on('error',()=>alvo.destroy());
+  }
+
   // ---------------- portão ----------------
 
   private porCookie(req: http.IncomingMessage): Previa | null {
@@ -378,7 +432,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     res.end(`<!doctype html><meta charset="utf-8"><title>Prévia</title><body style="font-family:system-ui;padding:24px;color:#333">${texto.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</body>`);
   }
 
-  private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse) {
+  private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse, caminhoIsolado=false) {
     const base = resolveInside(p.dir!, p.como!.pasta);
     let rel = decodeURIComponent(caminho).replace(/^\/+/, '');
     let arq: string;
@@ -395,7 +449,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       arq = path.join(base, 'index.html');
       rel = 'index.html';
     }
-    res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': caminhoIsolado?'no-store':'no-cache' });
+    if(req.method==='HEAD')return void res.end();
     fs.createReadStream(arq).pipe(res);
   }
 
