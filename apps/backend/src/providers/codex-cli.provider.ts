@@ -1,3 +1,4 @@
+import { executeGoldfishCli } from './goldfish-cli';
 import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, imageEventFailure, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -106,6 +107,7 @@ export class CodexCliProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
+    if(req.options?.goldfishIsolatedReview===true)return executeGoldfishCli('codex',this.bin,this.env(),req);
     // project_doc_max_bytes=0: não carrega AGENTS.md do workspace (canal de contexto fora do prompt auditado).
     const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-C', req.cwd];
     const target = nativeImageTarget(req.options?.visualAsset);
