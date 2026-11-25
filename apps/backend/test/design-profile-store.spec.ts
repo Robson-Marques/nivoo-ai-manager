@@ -18,6 +18,14 @@ describe('Design Studio profile persistence',()=>{
     expect(()=>store.update(p.id,{...fields,revision:1})).toThrow();
     expect(store.list()[0].title).toBe('ERP novo');
   });
+  it('persists a linked Nivoo project and keeps the link on legacy updates',()=>{
+    const projectId='12345678-1234-4234-8234-123456789abc';
+    const p=store.create({...fields,projectId});
+    expect(new DesignProfileStore(root).get(p.id).projectId).toBe(projectId);
+    expect(store.update(p.id,{...fields,revision:1}).projectId).toBe(projectId);
+    expect(store.update(p.id,{...fields,revision:2,projectId:null}).projectId).toBeNull();
+    expect(()=>store.create({...fields,projectId:'../outside'})).toThrow();
+  });
   it('rejects references, invalid modes and path traversal',()=>{
     expect(()=>store.create({...fields,sourceId:'liquid-glass-prompts'})).toThrow();
     expect(()=>store.create({...fields,mode:'unknown'})).toThrow();

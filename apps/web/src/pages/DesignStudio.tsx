@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import { useProjetos } from '../Layout';
+import { NovoProjeto } from './NovoProjeto';
+import { DesignTarget } from './DesignTarget';
 import './DesignStudio.css';
 import { DesignPreview } from './DesignPreview';
 import { VisualEditor } from './VisualEditor';
 import type { Visual,Palette } from './design-visual';
 
 type Source={id:string;name:string;style:string;kind:'library'|'registry'|'reference';url:string;docs:string;install?:string;requirements:string[];status:'reference'|'adapter-pending'|'ready';adapter?:'liquid-glass'|'bootstrap';related?:string[]};
-type Fields={title:string;mode:'new'|'remodel';sourceId:string;theme:'light'|'dark'|'system'};
+type Fields={projectId:string|null;title:string;mode:'new'|'remodel';sourceId:string;theme:'light'|'dark'|'system'};
 type Profile=Fields & {visual:Visual;id:string;revision:number;updatedAt:string;schemaVersion:1};
-const empty:Fields={title:'',mode:'new',sourceId:'asimov-glass',theme:'system'};
+const empty:Fields={projectId:null,title:'',mode:'new',sourceId:'asimov-glass',theme:'system'};
 export function DesignStudio(){
+  const {projetos,recarregar}=useProjetos();
+  const [importing,setImporting]=useState(false);
   const [sources,setSources]=useState<Source[]>([]);
   const [profiles,setProfiles]=useState<Profile[]>([]);
   const [draft,setDraft]=useState<Fields>(empty);
@@ -32,7 +37,7 @@ export function DesignStudio(){
   useEffect(()=>{void load()},[]);
   const selectProfile=(id:string)=>{
     const p=profiles.find(x=>x.id===id)??null;
-    setCurrent(p);setDraft(p?{title:p.title,mode:p.mode,sourceId:p.sourceId,theme:p.theme}:empty);
+    setCurrent(p);setDraft(p?{projectId:p.projectId??null,title:p.title,mode:p.mode,sourceId:p.sourceId,theme:p.theme}:empty);
     setVisual(p?.visual??defaults);setError('');setNotice('');
   };
   const save=async()=>{
@@ -41,7 +46,7 @@ export function DesignStudio(){
       const p= current
         ? await api<Profile>('/design-studio/profiles/'+current.id,'PUT',{...draft,visual,revision:current.revision})
         : await api<Profile>('/design-studio/profiles','POST',{...draft,visual});
-      setCurrent(p);setVisual(p.visual);setDraft({title:p.title,mode:p.mode,sourceId:p.sourceId,theme:p.theme});
+      setCurrent(p);setVisual(p.visual);setDraft({projectId:p.projectId??null,title:p.title,mode:p.mode,sourceId:p.sourceId,theme:p.theme});
       setProfiles(old=>[p,...old.filter(x=>x.id!==p.id)]);setNotice('Perfil salvo no servidor.');
     } catch(e) {setError(e instanceof Error?e.message:String(e));}
     finally {setSaving(false);}
@@ -58,6 +63,7 @@ export function DesignStudio(){
           <label>Perfil salvo<select value={current?.id??''} onChange={e=>selectProfile(e.target.value)}><option value="">Novo perfil</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
           <label>Nome<input required maxLength={120} value={draft.title} onChange={e=>setDraft(d=>({...d,title:e.target.value}))}/></label>
           <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode']}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
+          {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving}/>}
           <label>Estilo / motor visual<select value={draft.sourceId} onChange={e=>setDraft(d=>({...d,sourceId:e.target.value}))}>{sources.filter(s=>s.kind!=='reference').map(s=><option key={s.id} value={s.id}>{s.style} — {s.name}</option>)}</select></label>
           <label>Tema<select value={draft.theme} onChange={e=>setDraft(d=>({...d,theme:e.target.value as Fields['theme']}))}><option value="system">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label>
           {visual&&defaults&&<VisualEditor key={current?.id??'new'} value={visual} onChange={setVisual} defaults={defaults} palettes={palettes}/>}
@@ -72,9 +78,10 @@ export function DesignStudio(){
           <h4>Requisitos</h4><p>{source.requirements.join(' · ')}</p>
           {source.install&&<><h4>Comando oficial de instalação</h4><code className="design-studio-command">{source.install}</code></>}
           {related.length>0&&<><h4>Fontes complementares</h4>{related.map(s=><p key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> — {s.kind==='reference'?'referência visual':'biblioteca complementar'}</p>)}</>}
-          {draft.mode==='remodel'&&<p>A conexão ao repositório e o diagnóstico de compatibilidade serão habilitados na integração Git.</p>}
+          {draft.mode==='remodel'&&<p>O Studio usa os projetos e as conexões Git existentes. A análise é somente leitura; a aplicação do design será uma etapa separada.</p>}
         </>:<p>Catálogo indisponível.</p>}
       </section>
     </div>}
+    {importing&&<NovoProjeto origemInicial="git" onFechar={()=>setImporting(false)} onCriado={id=>{setImporting(false);setDraft(d=>({...d,projectId:id}));void recarregar().catch(e=>setError(e instanceof Error?e.message:String(e)));}}/>}
   </section>;
 }

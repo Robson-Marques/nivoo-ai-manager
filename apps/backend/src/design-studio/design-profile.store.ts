@@ -9,11 +9,11 @@ import { defaultVisual, validateVisual, VisualSettings } from './visual';
 export type DesignMode = 'new' | 'remodel';
 export type DesignProfile = {
   schemaVersion: 1; id: string; title: string; mode: DesignMode;
-  sourceId: string; theme: 'light' | 'dark' | 'system';
+  projectId: string | null; sourceId: string; theme: 'light' | 'dark' | 'system';
   createdAt: string; updatedAt: string; revision: number; visual:VisualSettings;
 };
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-function validated(raw: unknown): Pick<DesignProfile,'title'|'mode'|'sourceId'|'theme'> {
+function validated(raw: unknown): Pick<DesignProfile,'title'|'mode'|'sourceId'|'theme'|'projectId'> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new BadRequestException('Configuração inválida');
   const b=raw as Record<string,unknown>;
   const title=typeof b.title==='string'?b.title.trim():'';
@@ -21,7 +21,9 @@ function validated(raw: unknown): Pick<DesignProfile,'title'|'mode'|'sourceId'|'
   if (b.mode!=='new' && b.mode!=='remodel') throw new BadRequestException('Modo inválido');
   if (typeof b.sourceId!=='string' || !findDesignSource(b.sourceId) || findDesignSource(b.sourceId)?.kind==='reference') throw new BadRequestException('Selecione um motor do catálogo, não uma referência visual');
   if (b.theme!=='light' && b.theme!=='dark' && b.theme!=='system') throw new BadRequestException('Tema inválido');
-  return {title,mode:b.mode,sourceId:b.sourceId,theme:b.theme};
+  const projectId=b.projectId??null;
+  if(projectId!==null&&(typeof projectId!=='string'||!ID.test(projectId)))throw new BadRequestException('Projeto inválido');
+  return {title,mode:b.mode,sourceId:b.sourceId,theme:b.theme,projectId};
 }
 
 /** Isolated, persistent workspace records; never writes to a target Git repository. */
@@ -36,7 +38,7 @@ export class DesignProfileStore {
     if(!fs.existsSync(file)) throw new NotFoundException('Perfil de design não encontrado');
     const p=JSON.parse(fs.readFileSync(file,'utf8')) as DesignProfile;
     if(p.id!==id || p.schemaVersion!==1) throw new ConflictException('Perfil inválido ou versão não suportada');
-    return {...p,visual:p.visual?validateVisual(p.visual):defaultVisual};
+    return {...p,projectId:p.projectId??null,visual:p.visual?validateVisual(p.visual):defaultVisual};
   }
   list(): DesignProfile[] {
     if(!fs.existsSync(this.root)) return [];
@@ -61,8 +63,8 @@ export class DesignProfileStore {
     return this.write({schemaVersion:1,id:randomUUID(),...fields,visual:v===undefined?defaultVisual:validateVisual(v),createdAt:now,updatedAt:now,revision:1});
   }
   update(id: string, raw: unknown) {
-    const fields=validated(raw);
     const p=this.get(id);
+    const fields=validated(raw&&typeof raw==='object'&&!Array.isArray(raw)?{projectId:p.projectId,...raw}:raw);
     const revision=(raw as Record<string,unknown>).revision;
     if(revision!==p.revision) throw new ConflictException('O perfil foi alterado. Recarregue antes de salvar.');
     const v=(raw as Record<string,unknown>).visual;

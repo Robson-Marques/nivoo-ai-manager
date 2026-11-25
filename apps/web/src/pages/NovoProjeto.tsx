@@ -4,14 +4,14 @@ import { api, nomeUsuario } from '../api';
 import { CamposNovoRepo, EscolherRepo, NovoRepo, nomeRepoPadrao, SeletorContaGit } from './Git';
 
 /** Novo projeto: nome, do que se trata, agente e qual IA vai trabalhar nele. */
-export function NovoProjeto({ onFechar, onCriado }: { onFechar: () => void; onCriado: (id: string) => void }) {
+export function NovoProjeto({ onFechar, onCriado, origemInicial = 'zero' }: { onFechar: () => void; onCriado: (id: string) => void; origemInicial?: 'zero' | 'git' | 'novo' }) {
   const [nome, setNome] = useState('');
   const [sobre, setSobre] = useState('');
   const [modelo, setModelo] = useState('geral');
   const [ia, setIa] = useState('claude-code-cli');
   const [modelos, setModelos] = useState<any[]>([]);
   const [contas, setContas] = useState<any[]>([]);
-  const [origem, setOrigem] = useState<'zero' | 'git' | 'novo'>('zero');
+  const [origem, setOrigem] = useState<'zero' | 'git' | 'novo'>(origemInicial);
   const [novoRepo, setNovoRepo] = useState<NovoRepo>({ accountId: '', namespace: '', tipoNamespace: 'usuario', nome: '', privado: true });
   const [digitar, setDigitar] = useState(false);
   const [repo, setRepo] = useState('');
