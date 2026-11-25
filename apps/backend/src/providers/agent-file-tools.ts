@@ -9,6 +9,9 @@ const BINARY_EXT=/\.(?:png|jpe?g|webp|gif|avif|ico|pdf|docx?|xlsx?|pptx?|zip|gz|
 const INTERNAL=/^(?:contexto|\.nivoo)(?:\/|$)/;
 const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md|historico-git\.txt|publicacao-midia\.json)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
 function contextAllowed(rel:string):boolean{
+  // The Elephant handoff and pinned originals are generated, read-only
+  // context. HTTP agents previously could not read these paths.
+  if(/^contexto\/egm(?:\/original(?:\/.*)?|\/handoff\.json)?$/.test(rel)||rel==='contexto/escopo-aprovado.md')return true;
   return rel==='contexto'||rel==='.nivoo'||READ_ONLY.test(rel)||/^contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)\//.test(rel);
 }
 function safe(cwd:string,input:unknown,mode:'read'|'write'|'list'){
