@@ -1,4 +1,4 @@
-import { useEffect,useRef,useState,type CSSProperties } from 'react';
+import { useEffect,useRef,useState,type CSSProperties,type ReactNode } from 'react';
 import { api } from '../api';
 import { buildVisualSelection,DELEGATE,delegatedChoices,emptyChoices,type Catalog,type Choices,type VisualProfile,type VisualQuestion,type Style,type Palette,type Font,type GlassVariant } from './visual-selection';
 import './VisualSelector.css';
@@ -14,55 +14,71 @@ function fontPreview(font:Font|undefined,states:FontStates):{stack:string;label:
   const state=states[font.id]??'loading';
   return {stack:font.stack,label:font.name+(state==='ready'?' · original local':state==='failed'?' · falha ao carregar':' · carregando')};
 }
-function Preview({style,palette,dark,mobile,density,heading,body,catalog,variant,fontStates,mini=false}:{style:Style;variant?:GlassVariant;fontStates:FontStates;palette:Palette;dark:boolean;mobile?:boolean;density?:string;heading?:Font;body?:Font;catalog:Catalog;mini?:boolean}){
+type PreviewScreen='dashboard'|'clients'|'form';
+type SelectOption={id:string;label:string;description?:string};
+function ChoiceField({label,value,options,onChange,children}:{label:string;value:string;options:SelectOption[];onChange:(id:string)=>void;children?:ReactNode}){
+  const selected=options.find(o=>o.id===value);
+  return <div className="nv-vs-field"><label><strong>{label}</strong><select value={value} onChange={e=>onChange(e.target.value)}><option value="" disabled>Selecione…</option>{options.map(o=><option key={o.id} value={o.id}>{o.label}</option>)}</select></label>{selected?.description&&<small>{selected.description}</small>}{children}</div>;
+}
+const CLIENTS=[
+  {id:'CLI-0024',name:'Mariana Costa',email:'mariana@example.test',status:'Ativo',date:'24/11/2026'},
+  {id:'CLI-0023',name:'Rafael Lima',email:'rafael@example.test',status:'Ativo',date:'23/11/2026'},
+  {id:'CLI-0022',name:'Beatriz Alves',email:'beatriz@example.test',status:'Pendente',date:'22/11/2026'},
+  {id:'CLI-0021',name:'Lucas Ribeiro',email:'lucas@example.test',status:'Inativo',date:'20/11/2026'},
+] as const;
+const SCREENS:readonly {id:PreviewScreen;label:string}[]=[{id:'dashboard',label:'Visão geral'},{id:'clients',label:'Clientes'},{id:'form',label:'Formulário'}];
+function SampleSurface({glass,kind,children}:{glass:boolean;kind:'nav'|'side'|'metric'|'chart'|'data'|'form'|'dock';children:ReactNode}){
+  const content='nv-vs-surface-content nv-vs-demo-'+kind;
+  if(!glass)return <div className="nv-vs-surface nv-vs-demo-plain"><div className={content}>{children}</div></div>;
+  const small=kind==='nav'||kind==='dock'||kind==='metric';
+  return <NivooGlassSurface className="nv-vs-surface" radius={small?20:18} refraction={small?75:110} bezel={small?15:21} blur={2} contentClassName={content}>{children}</NivooGlassSurface>;
+}
+function SampleStatus({status}:{status:string}){
+  return <span className="nv-vs-sample-status" data-status={status}>{status}</span>;
+}
+function Preview({style,palette,dark,mobile,density,heading,body,mono,catalog,variant,fontStates,screen}:{style:Style;variant?:GlassVariant;fontStates:FontStates;palette:Palette;dark:boolean;mobile:boolean;density?:string;heading?:Font;body?:Font;mono?:Font;catalog:Catalog;screen:PreviewScreen}){
   const colors=dark?palette.dark:palette.light;
   const glass=style.id==='liquid-glass';
-  const material=glass?(variant??catalog.glassVariants[0]):undefined;
-
+  const material=glass?(variant??catalog.glassVariants.find(v=>v.id==='frosted-glass')):undefined;
   const f=catalog.foundations.find(x=>x.styleId===style.id);
   const d=catalog.densities.find(x=>x.id===density);
   const vars={
     '--vs-bg':colors.background,'--vs-surface':colors.surface,'--vs-raised':colors.surfaceRaised,'--vs-text':colors.text,'--vs-muted':colors.muted,'--vs-border':colors.border,'--vs-accent':colors.accent,'--vs-on-accent':colors.onAccent,'--vs-success':colors.success,
     '--vs-radius':(f?.radius.panel??10)+'px','--vs-control-radius':(f?.radius.control??6)+'px','--vs-shadow':f?.shadow.panel??'none',
-    '--vs-gap':Math.max(4,d?.spacing.sm??8)+'px','--vs-heading':fontPreview(heading,fontStates).stack,'--vs-body':fontPreview(body,fontStates).stack,'--nv-liqui-solid':colors.surface,'--nv-liqui-text':colors.text,
+    '--vs-gap':Math.max(4,d?.spacing.sm??8)+'px','--vs-control-h':(d?.controlMinHeight??40)+'px','--vs-heading':fontPreview(heading,fontStates).stack,'--vs-body':fontPreview(body,fontStates).stack,'--vs-mono':fontPreview(mono,fontStates).stack,
+    '--nv-liqui-solid':colors.surface,'--nv-liqui-text':colors.text,
   } as CSSProperties;
+  const variantId=material?.id??'frosted-glass';
+  const className='nv-vs-preview nv-vs-sample'+(glass?' nv-vs-optical':'')+(mobile?' nv-vs-mobile':' nv-vs-desktop');
+  const navItems=[{id:'dashboard',label:'Resumo',glyph:'◈'},{id:'clients',label:'Clientes',glyph:'◎'},{id:'reports',label:'Relatórios',glyph:'▥'}];
+  const navLinks=navItems.map(item=><span key={item.id} className={(screen===item.id||(screen==='form'&&item.id==='clients'))?'nv-vs-active':undefined}><span aria-hidden="true">{item.glyph}</span> {item.label}</span>);
+  const title=screen==='dashboard'?'Visão geral':screen==='clients'?'Clientes':'Novo cliente';
+  const sampleData=<div className="nv-vs-demo-data-inner"><div className="nv-vs-data-toolbar"><span className="nv-vs-faux-input">⌕ Buscar cliente</span><span className="nv-vs-faux-input">Todos os status ▾</span></div><div className="nv-vs-table-scroll"><table><thead><tr><th scope="col">Cliente</th><th scope="col">Status</th>{screen==='clients'&&<><th scope="col">Cadastro</th><th scope="col">Ações</th></>}</tr></thead><tbody>{CLIENTS.slice(0,screen==='dashboard'?3:4).map(client=><tr key={client.id}><td><strong>{client.name}</strong><small className="nv-vs-client-id">{client.id}</small>{screen==='clients'&&<small>{client.email}</small>}</td><td><SampleStatus status={client.status}/></td>{screen==='clients'&&<><td>{client.date}</td><td>Editar · ⋯</td></>}</tr>)}</tbody></table></div>{screen==='clients'&&<small>Mostrando 4 de 24 clientes · Página 1 de 6</small>}</div>;
+  const children=<>
+    <SampleSurface glass={glass} kind="nav"><span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span></SampleSurface>
+    <div className="nv-vs-app-layout">
+      <div className="nv-vs-sample-sidebar"><SampleSurface glass={glass} kind="side">{navLinks}<span>⚙ Ajustes</span></SampleSurface></div>
+      <div className="nv-vs-app-main">
+        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>{title}</strong></div><span className="nv-vs-preview-action">{screen==='form'?'Salvar':'+ Novo'}</span></div>
+        {screen==='dashboard'&&<>
+          <div className="nv-vs-preview-stats nv-vs-demo-stats">{[{title:'Clientes',value:'24',detail:'+4 neste mês'},{title:'Ativos',value:'18',detail:'75% da base'},{title:'Pendentes',value:'4',detail:'Aguardando ação'},{title:'Inativos',value:'2',detail:'8% da base'}].map(stat=><SampleSurface key={stat.title} glass={glass} kind="metric"><span>{stat.title}</span><strong>{stat.value}</strong><small>{stat.detail}</small></SampleSurface>)}</div>
+          <SampleSurface glass={glass} kind="chart"><div className="nv-vs-chart-head"><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div><div className="nv-vs-chart-days" aria-hidden="true">{['Q','Q','S','S','D','S','T'].map((day,i)=><span key={i}>{day}</span>)}</div></SampleSurface>
+        </>}
+        {screen!=='form'&&<SampleSurface glass={glass} kind="data"><strong>{screen==='dashboard'?'Clientes recentes':'Lista de clientes'}</strong>{sampleData}</SampleSurface>}
+        {screen==='form'&&<SampleSurface glass={glass} kind="form"><strong>Informações cadastrais</strong><div className="nv-vs-demo-data-inner nv-vs-sample-form"><div><small>Nome completo</small><span className="nv-vs-faux-input">Mariana Costa</span></div><div><small>E-mail</small><span className="nv-vs-faux-input">mariana@example.test</span></div><div><small>Telefone</small><span className="nv-vs-faux-input">(00) 90000-0000</span></div><div><small>Status</small><span className="nv-vs-faux-input">Ativo ▾</span></div><div><small>Observações</small><span className="nv-vs-faux-input">Preferência de contato: e-mail</span></div><div className="nv-vs-form-actions"><span className="nv-vs-faux-input">Cancelar</span><span className="nv-vs-preview-action">Salvar cliente</span></div></div></SampleSurface>}
+      </div>
+    </div>
+    <div className="nv-vs-sample-dock"><SampleSurface glass={glass} kind="dock">{navLinks}</SampleSurface></div>
+  </>;
   if(glass){
-    const variantId=material?.id??'frosted-glass';
-    // Deliberately structured background: the upstream lens bends its edges.
-    // No CSS approximation of the optical effect and no unlicensed photography.
+    // Only the original optical engine draws the lens. This background supplies
+    // visible edges to refract and is not an imitation of an optical surface.
     const backdrop=<div aria-hidden="true" className="nv-vs-optical-backdrop" style={{background:dark
       ?'linear-gradient(145deg,#070c19 0 34%,#2a4464 34% 55%,#132f45 55% 72%,#060e1e 72%)'
       :'linear-gradient(145deg,#f4f8fc 0 34%,#b9cce5 34% 55%,#d7e7ee 55% 72%,#eef1f8 72%)'}}/>;
-    return <NivooGlassRoot variant={variantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop}
-      className={'nv-vs-preview nv-vs-optical'+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} style={vars} aria-hidden={mini?true:undefined}>
-      <NivooGlassSurface radius={20} refraction={75} bezel={15} blur={2} contentClassName="nv-vs-optical-nav">
-        <span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span>
-      </NivooGlassSurface>
-      <div className="nv-vs-optical-content">
-        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>Visão geral</strong></div><span className="nv-vs-preview-action">+ Novo</span></div>
-        <div className="nv-vs-preview-stats nv-vs-optical-stats">
-          <NivooGlassSurface radius={19} refraction={110} bezel={21} contentClassName="nv-vs-optical-stat"><span>Clientes</span><strong>24</strong><small>+4 neste mês</small></NivooGlassSurface>
-          <NivooGlassSurface radius={19} refraction={110} bezel={21} contentClassName="nv-vs-optical-stat"><span>Ativos</span><strong>18</strong><small>75% da base</small></NivooGlassSurface>
-        </div>
-        {!mini&&<NivooGlassSurface radius={20} refraction={120} bezel={22} contentClassName="nv-vs-optical-chart"><div><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div></NivooGlassSurface>}
-        <NivooGlassSurface radius={20} refraction={100} bezel={20} contentClassName="nv-vs-optical-table"><strong>Clientes recentes</strong><div className="nv-vs-optical-data"><div><span>Cliente A</span><span className="nv-vs-preview-status">Ativo</span></div>{!mini&&<div><span>Cliente B</span><span className="nv-vs-preview-status">Ativo</span></div>}</div></NivooGlassSurface>
-      </div>
-      <NivooGlassSurface radius={24} refraction={95} bezel={17} contentClassName="nv-vs-optical-dock"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span></NivooGlassSurface>
-    </NivooGlassRoot>;
+    return <NivooGlassRoot variant={variantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop} className={className} style={vars} aria-label="Demonstração visual com dados fictícios">{children}</NivooGlassRoot>;
   }
-  return <div className={'nv-vs-preview'+''+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} data-style={style.id} data-glass-variant={material?.id} data-mode={dark?'dark':'light'} style={vars} aria-hidden={mini?true:undefined}>
-    <div className="nv-vs-preview-nav"><span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span></div>
-    <div className="nv-vs-preview-content">
-      <div className="nv-vs-preview-sidebar"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span><span>⚙ Ajustes</span></div>
-      <div className="nv-vs-preview-main">
-        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>Visão geral</strong></div><span className="nv-vs-preview-action">+ Novo</span></div>
-        <div className="nv-vs-preview-stats"><div className="nv-glass-panel"><span>Clientes</span><strong>24</strong><small>+4 neste mês</small></div><div className="nv-glass-panel"><span>Ativos</span><strong>18</strong><small>75% da base</small></div></div>
-        <div className="nv-vs-preview-chart"><div><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div></div>
-        <div className="nv-vs-preview-table"><strong>Clientes recentes</strong><div><span className="nv-glass-control nv-vs-search">⌕ Pesquisar</span></div><div><span>Cliente A</span><span className="nv-vs-preview-status">Ativo</span></div><div><span>Cliente B</span><span className="nv-vs-preview-status">Ativo</span></div></div>
-      </div>
-    </div>
-    <div className="nv-vs-preview-dock"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span></div>
-  </div>;
+  return <div className={className} data-style={style.id} data-mode={dark?'dark':'light'} style={vars} aria-label="Demonstração visual com dados fictícios">{children}</div>;
 }
 
 export function VisualSelector({questions,onConfirm,onFree}:Props){
@@ -71,7 +87,8 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
   useEffect(()=>{let live=true;for(const font of LOCAL_FONTS)void loadVisualFont(font).then(state=>{if(live)setFontStates(s=>({...s,[font.id]:state}));});return ()=>{live=false;};},[]);
   const [choices,setChoices]=useState<Choices>({...emptyChoices});
   const [dark,setDark]=useState(false);
-  const [device,setDevice]=useState<'desktop'|'mobile'>('desktop');
+  const [device,setDevice]=useState<'desktop'|'mobile'>(()=>typeof window!=='undefined'&&window.matchMedia('(max-width:600px)').matches?'mobile':'desktop');
+  const [screen,setScreen]=useState<PreviewScreen>('dashboard');
   const [erro,setErro]=useState('');
   const [loading,setLoading]=useState(true);
   const [retry,setRetry]=useState(0);
@@ -92,7 +109,7 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
     }).catch(e=>{if(live)setErro(e instanceof Error?e.message:'Não foi possível carregar o catálogo visual.');}).finally(()=>{if(live)setLoading(false);});
     return ()=>{live=false;};
   },[retry]);
-  const choose=(key:keyof Choices,id:string)=>setChoices(c=>({...c,[key]:id,...(key==='style'&&id!=='liquid-glass'?{glassVariant:DELEGATE}:{})}));
+  const choose=(key:keyof Choices,id:string)=>{setChoices(c=>({...c,[key]:id,...(key==='style'&&id!=='liquid-glass'?{glassVariant:DELEGATE}:{})}));if(key==='style')setDark(catalog?.styles.find(s=>s.id===id)?.preferredTheme==='dark');};
   const chooseGlass=(id:string)=>{setChoices(c=>({...c,style:'liquid-glass',glassVariant:id}));setDark(id==='dark-glass');};
   const send=async(profile:VisualProfile)=>{
     if(sending.current)return;
@@ -115,38 +132,29 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
   const pairing=catalog.pairings.find(p=>p.id===choices.typography);
   const heading=catalog.fonts.find(f=>f.id===pairing?.fonts.heading);
   const body=catalog.fonts.find(f=>f.id===pairing?.fonts.body);
+  const mono=catalog.fonts.find(f=>f.id===pairing?.fonts.mono);
   const previewDark=choices.theme==='dark'||(choices.theme!=='light'&&dark);
   const previewMobile=choices.usage==='mobile'||(choices.usage!=='desktop'&&device==='mobile');
   return <section className="nv-visual-selector" aria-label="Identidade visual do software">
-    <div className="nv-vs-header"><h3>Defina o visual do seu software</h3><p>Escolha as preferências ou delegue à IA. A prévia é ilustrativa, não é o software final.</p><button type="button" className="secondary" disabled={saving} onClick={()=>setChoices({...delegatedChoices})}>Delegar todas as escolhas</button></div>
-    {questions.map(q=><fieldset key={q.id} disabled={saving}><legend>{q.pergunta}</legend><div className={'nv-vs-options'+(q.id==='style'?' nv-vs-styles':'')}>
-      {q.opcoes.map(o=>{
-        const s=q.id==='style'?catalog.styles.find(x=>x.id===o.id):undefined;
-        const pair=q.id==='typography'?catalog.pairings.find(x=>x.id===o.id):undefined;
-        const sample=fontPreview(catalog.fonts.find(x=>x.id===pair?.fonts.heading),fontStates);
-        const bodySample=fontPreview(catalog.fonts.find(x=>x.id===pair?.fonts.body),fontStates);
-        const monoSample=fontPreview(catalog.fonts.find(x=>x.id===pair?.fonts.mono),fontStates);
-        return <label key={o.id} className={'nv-vs-option'+(choices[q.id as keyof Choices]===o.id?' nv-vs-selected':'')}>
-          <input type="radio" name={'visual-'+q.id} checked={choices[q.id as keyof Choices]===o.id} onChange={()=>choose(q.id as keyof Choices,o.id)}/>
-          {s&&<Preview mini fontStates={fontStates} style={s} palette={palette} dark={choices.theme==='dark'||(choices.theme!=='light'&&s.preferredTheme==='dark')} catalog={catalog}/>}
-          {pair&&<div className="nv-vs-type-sample"><strong style={{fontFamily:sample.stack}}>Aa · Visão geral</strong><span style={{fontFamily:bodySample.stack}}>Gerencie seus clientes com precisão.</span><code style={{fontFamily:monoSample.stack}}>CLI-0024 · 18 ativos</code></div>}
-          <strong>{o.rotulo}</strong><small>{o.descricao}</small>{pair&&<small>{[...new Set([sample.label,bodySample.label,monoSample.label])].join(" · ")}</small>}
-        </label>;
-      })}
-    </div>{q.id==='style'&&<fieldset className="nv-vs-variants" disabled={saving}><legend>Variações Liquid Glass</legend><p>Escolha diretamente o material de vidro. Motor original Liqui Design (Canvas/SVG); a qualidade óptica depende do navegador.</p><div className="nv-vs-options nv-vs-styles">{catalog.glassVariants.map(v=><label key={v.id} className={'nv-vs-option'+(choices.style==='liquid-glass'&&choices.glassVariant===v.id?' nv-vs-selected':'')}><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===v.id} onChange={()=>chooseGlass(v.id)}/><Preview mini fontStates={fontStates} style={catalog.styles.find(s=>s.id==='liquid-glass')!} variant={v} palette={palette} dark={v.preferredTheme==='dark'||(v.preferredTheme==='system'&&choices.theme==='dark')} catalog={catalog}/><strong>{v.name}</strong><small>{v.description}</small></label>)}<label className="nv-vs-option"><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===DELEGATE} onChange={()=>chooseGlass(DELEGATE)}/>Liquid Glass — IA escolhe o material</label></div></fieldset>}</fieldset>)}
-    <fieldset disabled={saving}><legend>Paleta de cores</legend><div className="nv-vs-options">
-      {catalog.palettes.map(p=><label key={p.id} className={'nv-vs-option'+(choices.palette===p.id?' nv-vs-selected':'')}><input type="radio" name="visual-palette" checked={choices.palette===p.id} onChange={()=>choose('palette',p.id)}/><div className="nv-vs-swatches" aria-hidden="true">{[p.light.accent,p.dark.accent,p.light.background,p.dark.surface].map((c,i)=><span key={i} style={{background:c}}/>)}</div><strong>{p.name}</strong></label>)}
-      <label className="nv-vs-option"><input type="radio" name="visual-palette" checked={choices.palette===DELEGATE} onChange={()=>choose('palette',DELEGATE)}/>IA escolhe</label>
-    </div></fieldset>
-    <fieldset disabled={saving}><legend>Densidade das informações</legend><div className="nv-vs-options">
-      {catalog.densities.map(d=><label key={d.id} className={'nv-vs-option'+(choices.density===d.id?' nv-vs-selected':'')}><input type="radio" name="visual-density" checked={choices.density===d.id} onChange={()=>choose('density',d.id)}/><strong>{d.name}</strong><small>Controle de referência: {d.controlMinHeight}px</small></label>)}
-      <label className="nv-vs-option"><input type="radio" name="visual-density" checked={choices.density===DELEGATE} onChange={()=>choose('density',DELEGATE)}/>IA escolhe</label>
-    </div></fieldset>
-    <div className="nv-vs-live"><h4>Prévia da combinação</h4><div className="nv-vs-toolbar">
-      <button type="button" className="secondary" aria-pressed={previewDark} disabled={choices.theme==='light'||choices.theme==='dark'} onClick={()=>setDark(v=>!v)}>{previewDark?'Escuro':'Claro'}</button>
-      <button type="button" className="secondary" aria-pressed={previewMobile} disabled={choices.usage==='desktop'||choices.usage==='mobile'} onClick={()=>setDevice(v=>v==='desktop'?'mobile':'desktop')}>{previewMobile?'Celular':'Computador'}</button>
-    </div><Preview fontStates={fontStates} style={style} variant={variant} palette={palette} dark={previewDark} mobile={previewMobile} density={choices.density} heading={heading} body={body} catalog={catalog}/>
-    <small>{fontPreview(heading,fontStates).label}. {fontPreview(body,fontStates).label}. Dados fictícios. Valores de amostra para escolhas ainda não definidas não serão gravados.</small></div>
+    <div className="nv-vs-header"><h3>Identidade visual</h3><p>Escolha as preferências e compare o resultado em uma única prévia. Nenhuma escolha será gravada antes da confirmação.</p><button type="button" className="secondary" disabled={saving} onClick={()=>setChoices({...delegatedChoices})}>Delegar tudo à IA</button></div>
+    <fieldset className="nv-vs-config" disabled={saving} aria-label="Preferências visuais">
+      {questions.map(q=><div key={q.id} className="nv-vs-question">
+        <ChoiceField label={({style:'Estilo visual',usage:'Dispositivo',typography:'Tipografia',theme:'Tema'} as Record<string,string>)[q.id]??q.pergunta} value={choices[q.id as keyof Choices]} options={q.opcoes.map(o=>({id:o.id,label:o.rotulo,description:o.descricao}))} onChange={id=>choose(q.id as keyof Choices,id)}/>
+        {q.id==='style'&&choices.style==='liquid-glass'&&<ChoiceField label="Material Liquid Glass" value={choices.glassVariant} options={[...catalog.glassVariants.map(v=>({id:v.id,label:v.name,description:v.description})),{id:DELEGATE,label:'IA escolhe'}]} onChange={chooseGlass}/>}
+      </div>)}
+      <ChoiceField label="Paleta de cores" value={choices.palette} options={[...catalog.palettes.map(p=>({id:p.id,label:p.name})),{id:DELEGATE,label:'IA escolhe'}]} onChange={id=>choose('palette',id)}><div className="nv-vs-swatches" aria-label="Cores da prévia">{[palette.light.accent,palette.dark.accent,palette.light.background,palette.dark.surface].map((color,i)=><span key={i} style={{background:color}}/>)}</div></ChoiceField>
+      <ChoiceField label="Densidade" value={choices.density} options={[...catalog.densities.map(d=>({id:d.id,label:d.name,description:'Controles: '+d.controlMinHeight+'px'})),{id:DELEGATE,label:'IA escolhe'}]} onChange={id=>choose('density',id)}/>
+    </fieldset>
+    <div className="nv-vs-live"><div className="nv-vs-live-heading"><h4>Prévia da combinação</h4><small>{style.name}{style.id==='liquid-glass'?' · '+(variant?.name??'Frosted Glass (amostra)'):''}</small></div>
+      <div className="nv-vs-toolbar">
+        <label className="nv-vs-screen-select">Tela de exemplo<select value={screen} onChange={e=>setScreen(e.target.value as PreviewScreen)}>{SCREENS.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}</select></label>
+        <button type="button" className="secondary" aria-pressed={previewDark} disabled={choices.theme==='light'||choices.theme==='dark'} onClick={()=>setDark(v=>!v)}>{previewDark?'Escuro':'Claro'}</button>
+        <button type="button" className="secondary" aria-pressed={previewMobile} disabled={choices.usage==='desktop'||choices.usage==='mobile'} onClick={()=>setDevice(v=>v==='desktop'?'mobile':'desktop')}>{previewMobile?'Celular':'Computador'}</button>
+      </div>
+      <Preview fontStates={fontStates} style={style} variant={variant} palette={palette} dark={previewDark} mobile={previewMobile} density={choices.density} heading={heading} body={body} mono={mono} catalog={catalog} screen={screen}/>
+      {pairing&&<small>Tipografia: {[...new Set([fontPreview(heading,fontStates).label,fontPreview(body,fontStates).label,fontPreview(mono,fontStates).label])].join(' · ')}</small>}
+      <small>Dados fictícios. Campos delegados usam amostras apenas para a prévia; não serão gravados.{style.id==='liquid-glass'?' Motor original Liqui Design; refração conforme suporte do navegador.':''}</small>
+    </div>
     {erro&&<p role="alert" className="nv-vs-error">{erro}</p>}
     <button type="button" disabled={!profile||saving||missingFonts.length>0} onClick={()=>profile&&!missingFonts.length&&send(profile)}>{saving?'Confirmando…':'Confirmar identidade e continuar'}</button>
     {missingFonts.length>0&&<small role="status">As fontes originais escolhidas ainda não carregaram. Recarregue se necessário ou escolha outra combinação.</small>}
