@@ -551,7 +551,7 @@ export class StepExecutorService {
     if (credencialFaltando && attemptStatus !== 'SUCESSO') {
       await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
-        `a conferência não conseguiu instalar as dependências: um registro de pacotes privado recusou o acesso por falta de token (${credencialFaltando}). O trabalho feito está salvo. Guarde o token em Ajustes do projeto → "Variáveis da conferência" (ex.: GITLAB_PACKAGE_TOKEN, o mesmo nome que o .npmrc usa) e clique em "Continuar"`);
+        `A credencial da conferência está indisponível ou foi recusada (${credencialFaltando}). O trabalho feito está salvo. Confira as contas vinculadas e as variáveis da conferência nos Ajustes do projeto, depois retome o mesmo trabalho.`);
     }
 
     if (faltaPrograma && attemptStatus !== 'SUCESSO') {
