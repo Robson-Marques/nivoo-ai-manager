@@ -103,6 +103,11 @@ export class PlannerService {
       registrarTempo('erro_antes_ou_sem_execucao', {
         codigo: texto.includes('limite de gasto') ? 'LIMITE_INTERNO' : texto.includes('não está conectada') ? 'PROVEDOR_INDISPONIVEL' : 'PREPARACAO',
       });
+      if(msg.goldfishState!=null){
+        const write=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
+        if(await write({status:'ERRO',kind:'erro',content:[texto,msg.content].filter(Boolean).join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id,workerId);
+        return;
+      }
       await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
       await this.queue.complete(task.id, workerId);
     };
@@ -185,7 +190,7 @@ export class PlannerService {
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
         if(!goldfishTransportSupported(tipoDe(project.provider)))return fail('Goldfish indisponível nesta conexão. Nenhum provedor foi trocado nem sessão iniciada.');
-        if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
+        if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada ou retomada. Nenhuma nova chamada foi realizada.');
         if(msg.goldfishState!=null){
           try{savedReview=readReviewCheckpoint(msg.goldfishState);}catch(e){return fail((e as Error).message);}
           const b=savedReview.binding;
