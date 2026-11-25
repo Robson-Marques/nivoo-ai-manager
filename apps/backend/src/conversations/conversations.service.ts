@@ -7,7 +7,9 @@ import { optString, reqString } from '../common/validate';
 import { JobsService } from '../jobs/jobs.service';
 import { readPlanningSource,type ApprovedScope } from '../jobs/approved-scope';
 import { minimalEnv,runProcess } from '../common/exec';
-import { readReviewCheckpoint } from '../specialties/software/egm/review-checkpoint';
+import { readReviewCheckpoint,reviewBinding,assertReviewBinding } from '../specialties/software/egm/review-checkpoint';
+import { litePlanTarget } from '../specialties/software/egm/lite-review';
+import { validateLiteSpecRevision } from '../specialties/software/egm/lite-resolution';
 import { readResolutionLedger,validateResolutionDecisions } from '../specialties/software/egm/review-resolution';
 import { bindApprovedGoldfish,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
 import { PrismaService } from '../prisma/prisma.service';
@@ -402,8 +404,29 @@ export class ConversationsService {
       const rev=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:repo,env:minimalEnv(),timeoutMs:60000});
       if(rev.exitCode!==0||rev.stdout.trim()!==binding.revision)throw new ConflictException('A revisão do projeto mudou. Atualize a análise Goldfish antes de aprovar a correção.');
     }
+    let egmLiteSpec:ApprovedScope['egmLiteSpec'];
+    const liteSpec=(msg.plan as Record<string,unknown>).egmLiteSpec;
+    if(liteSpec!==undefined){
+      if(automatic)throw new ConflictException('Triagem Lite exige aprovação explícita.');
+      try{
+        if(!liteSpec||typeof liteSpec!=='object'||Array.isArray(liteSpec)||egm!==undefined)throw Error('Vínculo Lite inválido.');
+        const b=liteSpec as Record<string,unknown>;
+        if(typeof b.reviewMessageId!=='string'||typeof b.originalPlanId!=='string'||typeof b.revision!=='string')throw Error('Origem Lite incompleta.');
+        const [review,original]=await Promise.all([
+          this.prisma.conversationMessage.findFirst({where:{id:b.reviewMessageId,conversationId,role:'ASSISTENTE',status:'PRONTA'},select:{goldfishState:true}}),
+          this.prisma.conversationMessage.findFirst({where:{id:b.originalPlanId,conversationId,role:'ASSISTENTE',kind:'plano',status:'PRONTA',jobId:null,approvedAt:null},select:{plan:true}})
+        ]);
+        const state=readReviewCheckpoint(review?.goldfishState),result=state.lite,meta=readPlanningSource(original?.plan);
+        if(!original?.plan||!meta||!request||meta.projectId!==projectId||meta.areaId!==project.areaId||meta.visualRevision!==project.visualProfileRevision||meta.cutoff!==source?.cutoff||state.binding.projectId!==projectId||state.binding.conversationId!==conversationId||state.binding.messageId!==b.reviewMessageId||state.binding.preset!=='lite-spec'||state.binding.liteSourceId!==b.originalPlanId||!result||result.sourceId!==b.originalPlanId||result.revision!==b.revision||state.binding.revision!==b.revision)throw Error('Checklist ou revisão Lite não corresponde à proposta.');
+        assertReviewBinding(state,reviewBinding({...state.binding},litePlanTarget(original.plan,request.content),[]));
+        const decisions=validateLiteSpecRevision(result,original.plan,msg.plan,b.decisions);
+        const p=await this.prisma.project.findUniqueOrThrow({where:{id:projectId},select:{dirKey:true}});
+        if(await this.workspace.headCommit(this.workspace.projectDirs(p.dirKey).repo)!==b.revision)throw Error('Base Git mudou desde a revisão Lite.');
+        egmLiteSpec={reviewMessageId:b.reviewMessageId,originalPlanId:b.originalPlanId,revision:b.revision,decisions};
+      }catch(e){throw new ConflictException('Triagem Lite inválida: '+(e as Error).message);}
+    }
     const approvedAt=new Date();
-    const scope:ApprovedScope={version:1,projectId,conversationId,planMessageId:msg.id,cutoff:cutoff.toISOString(),approvedAt:approvedAt.toISOString(),approvedBy:decidedBy,areaTemplate:project.area.template??project.area.slug,alignment:msg.content,request,visual:{revision:project.visualProfileRevision,profile:project.visualProfile},...(egmApproved?{egmResolution:egmApproved}:{})};
+    const scope:ApprovedScope={version:1,projectId,conversationId,planMessageId:msg.id,cutoff:cutoff.toISOString(),approvedAt:approvedAt.toISOString(),approvedBy:decidedBy,areaTemplate:project.area.template??project.area.slug,alignment:msg.content,request,visual:{revision:project.visualProfileRevision,profile:project.visualProfile},...(egmApproved?{egmResolution:egmApproved}:{}),...(egmLiteSpec?{egmLiteSpec}:{})};
     // Reserva o plano antes de criar o job: dois cliques em "Fazer" nunca criam dois trabalhos.
     const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt, approvedBy: decidedBy } });
     if (!reserva.count) throw new ConflictException('Este plano já foi aprovado');
