@@ -1226,6 +1226,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {job.status === 'AGUARDANDO_APROVACAO' && (
         <div>
           <p>Preciso da sua confirmação{aprovacao ? `: ${aprovacao.description}` : ''}.</p>
+          {aprovacao?.kind==='CRITERIO_SUBJETIVO'&&!aprovacaoVisual&&job.steps?.every((s:any)=>s.status==='CONCLUIDO')&&<p className="muted small">Se for um software, abra a prévia do projeto e selecione “Avaliar: {job.title}” antes de decidir. A versão ainda não incorporada fica disponível para teste.</p>}
           {aprovacaoVisual && (
             <div>
               <p className="muted small">Prévia para avaliação — é obrigatório apresentar as imagens antes da aprovação.</p>
@@ -1292,9 +1293,14 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   const [tamanho, setTamanho] = useState<'computador' | 'celular'>(() => (lerPreferencia('nivoo_previa_tamanho', 'computador') as 'computador' | 'celular'));
   const [recarga, setRecarga] = useState(0);
   const [verLog, setVerLog] = useState(false);
+  const [fontes,setFontes]=useState<Array<{id:string;title:string}>>([]);
+  const [fonte,setFonte]=useState('');
+  const fonteInicial=useRef(false);
   const carregar = useCallback(async () => {
     try {
-      setE(await api(`/projects/${projetoId}/previa`));
+      const [estado,opcoes]=await Promise.all([api<any>(`/projects/${projetoId}/previa`),api<Array<{id:string;title:string}>>(`/projects/${projetoId}/previa/fontes`)]);
+      setE(estado);setFontes(opcoes);
+      if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??'');}
       setErro(null);
     } catch (x: any) {
       setErro(x.message);
@@ -1310,7 +1316,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   const acao = async (qual: 'ligar' | 'desligar') => {
     setErro(null);
     try {
-      setE(await api(`/projects/${projetoId}/previa/${qual}`, 'POST'));
+      setE(await api(`/projects/${projetoId}/previa/${qual}`, 'POST',qual==='ligar'?{jobId:fonte||null}:undefined));
     } catch (x: any) {
       setErro(x.message);
     }
@@ -1328,11 +1334,16 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
         <span className={`previa-estado e-${estado}`}>● {estado==='no-ar'&&e?.visualizador?'Servidor iniciado':rotulo[estado] ?? estado}</span>
         {estado === 'no-ar' && e?.mensagem && <span className="muted small previa-origem">{e.mensagem}</span>}
         <span className="previa-acoes">
+          <select aria-label="Versão a visualizar" value={fonte} onChange={x=>setFonte(x.target.value)} disabled={estado==='ligando'}>
+            <option value="">Versão principal</option>
+            {fontes.map(f=><option key={f.id} value={f.id}>Avaliar: {f.title}</option>)}
+            {fonte&&!fontes.some(f=>f.id===fonte)&&<option value={fonte} disabled>Resultado não está mais aguardando aprovação</option>}
+          </select>
           {(estado === 'parada' || estado === 'erro') && <button onClick={() => acao('ligar')}>Ligar a prévia</button>}
           {estado === 'no-ar' && (
             <>
               <button className="secondary" title="Recarregar a página" onClick={() => setRecarga((n) => n + 1)}>Recarregar</button>
-              <button className="secondary" title="Copia de novo a pasta principal (com o último trabalho) e religa" onClick={() => acao('ligar')}>Atualizar versão</button>
+              <button className="secondary" title="Abre a versão selecionada e religa" onClick={() => acao('ligar')}>{fonte!==(e?.sourceJobId??'')?'Abrir versão selecionada':'Atualizar versão'}</button>
               <span className="tamanhos">
                 <button className={tamanho === 'computador' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('computador')}>Computador</button>
                 <button className={tamanho === 'celular' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('celular')}>Celular</button>
@@ -1347,6 +1358,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
       {semEndereco && (
         <div className="aviso-sistema">A prévia ainda não tem endereço público configurado. Para usar o domínio atual, execute <code>nivoo previa</code>.</div>
       )}
+      {e?.sourceJobId&&<div className="aviso-sistema">Exibindo uma cópia do resultado ainda não incorporado · {String(e.sourceCommit??'').slice(0,8)}. Teste com dados descartáveis; a prévia não altera a versão principal nem aprova o trabalho.</div>}
       {erro && <div className="error small">{erro}</div>}
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (
@@ -1363,7 +1375,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
           <div className="previa-info">
             <p className="error">{e?.mensagem}</p>
             <div className="row">
-              {!e?.trabalhoEmAndamento && (
+              {!e?.trabalhoEmAndamento && !e?.sourceJobId && (
               <button
                 className="secondary"
                 onClick={() =>
@@ -1382,7 +1394,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
         ) : (
           <div className="previa-info">
             <p>Veja o site ou o sistema deste projeto funcionando, aqui do lado da conversa.</p>
-            <p className="muted small">Site: abre direto. Sistema: o Nivoo instala, liga numa cópia da pasta principal (com um banco de teste próprio) e desliga sozinho depois de 2 h sem uso.</p>
+            <p className="muted small">Selecione a versão principal ou um resultado aguardando aprovação. O sistema roda em uma cópia com banco de teste próprio.</p>
             <button onClick={() => acao('ligar')}>Ligar a prévia</button>
           </div>
         )}
