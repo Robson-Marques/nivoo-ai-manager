@@ -1,3 +1,5 @@
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import { capabilityReference } from './workflow/capability-criteria';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -11,6 +13,17 @@ export interface VisualPreview {
 /** Somente aprovações que explicitamente exigem prévias visuais. */
 export function isVisualApproval(description: string): boolean {
   return /pr[eé]vias?|quadros? (?:visuais?|para aprova[cç][aã]o)/i.test(description);
+}
+
+/** A software preview is an executable application, not a Motion PNG.
+ * Preserve legacy visual gates outside explicit application acceptance. */
+export function approvalPresentation(approval:{kind:string;description:string;subjectId?:string|null},job:{project:{area?:{template?:string|null;slug?:string|null}|null};criteria:ReadonlyArray<{id:string;kind:string;config:unknown}>;steps:ReadonlyArray<{provider?:string|null;instructions:string}>}):'application'|'images'|'decision'{
+  if(!isVisualApproval(approval.description))return 'decision';
+  const criterion=job.criteria.find(c=>c.id===approval.subjectId&&c.kind==='MANUAL_APPROVAL');
+  const motion=job.steps.some(s=>s.provider==='local-shell'&&/\bnivoo-conferir-arte\b/.test(s.instructions));
+  const application=/\b(?:aplica[cç][aã]o|software|sistema)\b[^.!?]{0,80}\b(?:em |na |pela |de )?pr[eé]via\b|\bpr[eé]via\b[^.!?]{0,80}\b(?:aplica[cç][aã]o|software|sistema)\b/i.test(approval.description);
+  if(approval.kind==='CRITERIO_SUBJETIVO'&&criterion&&!motion&&softwareInterfaceEnabled(job.project.area)&&(application||capabilityReference(criterion.config)?.phase==='decision'))return 'application';
+  return 'images';
 }
 
 export function requiredPreviewCount(description: string): number {

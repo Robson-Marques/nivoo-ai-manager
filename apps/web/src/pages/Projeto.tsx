@@ -1176,7 +1176,17 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
     }
   };
   const aprovacao = job?.approvals?.find((a: any) => a.status === 'PENDENTE');
-  const aprovacaoVisual = aprovacao && /pr[eé]vias?|quadros? (?:visuais?|para aprova[cç][aã]o)/i.test(String(aprovacao.description));
+  const aprovacaoAplicacao=aprovacao?.presentation==='application';
+  const aprovacaoVisual=aprovacao?.presentation==='images'||(!aprovacao?.presentation&&!!aprovacao&&/pr[eé]vias?|quadros? (?:visuais?|para aprova[cç][aã]o)/i.test(String(aprovacao.description)));
+  const [estadoAplicacao,setEstadoAplicacao]=useState<any>(null);
+  useEffect(()=>{
+    if(!aprovacaoAplicacao||job?.status!=='AGUARDANDO_APROVACAO'){setEstadoAplicacao(null);return;}
+    let ativo=true;
+    const consultar=()=>api<any>(`/projects/${projetoId}/previa`).then(e=>{if(ativo)setEstadoAplicacao(e);}).catch(()=>{if(ativo)setEstadoAplicacao(null);});
+    void consultar();const t=setInterval(consultar,3000);
+    return()=>{ativo=false;clearInterval(t);};
+  },[aprovacaoAplicacao,job?.status,projetoId]);
+  const aplicacaoPronta=!aprovacaoAplicacao||(estadoAplicacao?.estado==='no-ar'&&estadoAplicacao?.sourceJobId===jobId);
   const requiredPreviews = /\\b(duas|dois|2)\\s+pr[eé]vias?/i.test(String(aprovacao?.description ?? '')) ? 2
     : Math.max(1, Math.min(20, Number(/\\b(\\d+)\\s+pr[eé]vias?/i.exec(String(aprovacao?.description ?? ''))?.[1] ?? 1)));
   const [previewImages, setPreviewImages] = useState<Array<{ key: string; title: string; src: string }>>([]);
@@ -1227,7 +1237,8 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
       {job.status === 'AGUARDANDO_APROVACAO' && (
         <div>
           <p>Preciso da sua confirmação{aprovacao ? `: ${aprovacao.description}` : ''}.</p>
-          {aprovacao?.kind==='CRITERIO_SUBJETIVO'&&!aprovacaoVisual&&job.steps?.every((s:any)=>s.status==='CONCLUIDO')&&<p className="muted small">Se for um software, abra a prévia do projeto e selecione “Avaliar: {job.title}” antes de decidir. A versão ainda não incorporada fica disponível para teste.</p>}
+          {aprovacao?.kind==='CRITERIO_SUBJETIVO'&&!aprovacaoVisual&&!aprovacaoAplicacao&&job.steps?.every((s:any)=>s.status==='CONCLUIDO')&&<p className="muted small">Se for um software, abra a prévia do projeto e selecione “Avaliar: {job.title}” antes de decidir. A versão ainda não incorporada fica disponível para teste.</p>}
+          {aprovacaoAplicacao&&<div><p className="muted small">Avalie a aplicação interativa, não imagens. Abra a versão “Avaliar: {job.title}” na prévia e confira seu funcionamento.</p>{!aplicacaoPronta&&<p className="error">{estadoAplicacao?.sourceJobId===jobId&&estadoAplicacao?.estado==='erro'?'A aplicação não iniciou. Confira o registro da prévia.':'Aguardando a aplicação em avaliação ficar no ar.'}</p>}</div>}
           {aprovacaoVisual && (
             <div>
               <p className="muted small">Prévia para avaliação — é obrigatório apresentar as imagens antes da aprovação.</p>
@@ -1245,7 +1256,7 @@ function Progresso({ projetoId, jobId, onMudou }: { projetoId: string; jobId: st
           )}
           {aprovacao && (
             <>
-              <button disabled={!previewsReady || !!previewError} onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', {
+              <button disabled={!aplicacaoPronta||!previewsReady || (aprovacaoVisual&&!!previewError)} onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', {
                 decision: 'APROVADO', decidedBy: nomeUsuario(), ...(aprovacaoVisual ? { previewsPresented: true } : {}),
               }))}>Pode seguir</button>{' '}
               <button className="danger" onClick={() => acao(() => api(`/approvals/${aprovacao.id}/decide`, 'POST', { decision: 'REJEITADO', decidedBy: nomeUsuario() }))}>Não</button>
@@ -1301,7 +1312,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
     try {
       const [estado,opcoes]=await Promise.all([api<any>(`/projects/${projetoId}/previa`),api<Array<{id:string;title:string}>>(`/projects/${projetoId}/previa/fontes`)]);
       setE(estado);setFontes(opcoes);
-      if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??'');}
+      if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??(opcoes.length===1?opcoes[0].id:''));}
       setErro(null);
     } catch (x: any) {
       setErro(x.message);

@@ -1,3 +1,4 @@
+import { PreviaService } from '../previa/previa.service';
 import { Body, Controller, Get, Headers, MessageEvent, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query, Res, Sse } from '@nestjs/common';
 import type { Response } from 'express';
 import { Observable } from 'rxjs';
@@ -254,6 +255,7 @@ export class GlobalJobsController {
   constructor(
     private readonly jobs: JobsService,
     private readonly approvals: ApprovalsService,
+    private readonly previa: PreviaService,
   ) {}
 
   @Get('jobs')
@@ -268,6 +270,6 @@ export class GlobalJobsController {
 
   @Post('approvals/:id/decide')
   decide(@Param('id', ParseUUIDPipe) id: string, @Body() body: any) {
-    return this.approvals.decide(id, body);
+    return this.approvals.decide(id, body,(pid,jid)=>this.previa.confirmarAvaliacao(pid,jid));
   }
 }

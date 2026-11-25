@@ -240,6 +240,18 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return {sourceJobId:job.id,sourceCommit};
   }
 
+  /** Confirm the selected pending snapshot is actually responding. The human
+   * still decides functionality; HTTP readiness alone does not certify it. */
+  async confirmarAvaliacao(projectId:string,jobId:string):Promise<string>{
+    const p=this.previas.get(projectId);
+    if(!p||p.estado!=='no-ar'||p.sourceJobId!==jobId)throw new BadRequestException('Ligue a prévia do resultado a avaliar e confira o sistema antes de aprovar.');
+    const source=await this.fonte(projectId,jobId);
+    if(source.sourceCommit!==p.sourceCommit)throw new BadRequestException('O resultado mudou. Ligue novamente a versão em avaliação.');
+    if(p.como?.tipo==='servidor'&&(!p.porta||!await this.responde(p.porta,caminhoDaPrevia(p.como.caminho),true)))throw new BadRequestException('A aplicação em prévia não está respondendo corretamente.');
+    if(this.previas.get(projectId)!==p||p.estado!=='no-ar')throw new BadRequestException('A prévia mudou durante a aprovação.');
+    return p.sourceCommit;
+  }
+
   ligar(projectId: string, jobId?:unknown) { return this.serializar(projectId,()=>this.ligarInterno(projectId,jobId)); }
   private async ligarInterno(projectId: string,jobId?:unknown) {
     if (!this.portao && (!modoCaminho() || process.env.NIVOO_PREVIA_DESLIGADA==='1')) throw new BadRequestException('A prévia está desligada neste servidor (portão não abriu; veja os logs da API)');
@@ -356,7 +368,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     while (Date.now() < limite) {
       if (cancelada(p)) return;
       if (saiu !== undefined) throw new Error(`o sistema parou antes de responder (código ${saiu}); veja o registro abaixo`);
-      if (await this.responde(p.porta)) {
+      if (await this.responde(p.porta,caminhoDaPrevia(como.caminho),true)) {
         if (cancelada(p)) return;
         p.estado = 'no-ar';
         p.mensagem = `sistema no ar (${como.origem}) — ${p.sourceJobId?'resultado a avaliar':'versão principal'} ${p.sourceCommit?.slice(0,8)}`;
@@ -372,11 +384,11 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return `previa_${projectId.replace(/[^a-f0-9]/gi, '').slice(0, 20).toLowerCase()}`;
   }
 
-  private responde(porta: number,caminho='/'): Promise<boolean> {
+  private responde(porta: number,caminho='/',exigirSucesso=false): Promise<boolean> {
     return new Promise((ok) => {
       const r = http.get({ host: '127.0.0.1', port: porta, path: caminho, timeout: 2000 }, (res) => {
         res.resume();
-        ok(true);
+        ok(!exigirSucesso||(res.statusCode!==undefined&&res.statusCode>=200&&res.statusCode<400));
       });
       r.on('error', () => ok(false));
       r.on('timeout', () => {
