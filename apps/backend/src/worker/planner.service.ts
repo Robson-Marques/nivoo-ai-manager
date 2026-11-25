@@ -15,7 +15,7 @@ import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,pa
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
 import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
-import { consolidateGoldfish,renderResolutionLedger } from '../specialties/software/egm/review-resolution';
+import { consolidateGoldfish,renderResolutionLedger,resolutionRequest,resolutionContext,readResolutionLedger,validateResolutionDecisions,renderResolutionDecisions,type ResolutionLedger } from '../specialties/software/egm/review-resolution';
 import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
@@ -178,6 +178,9 @@ export class PlannerService {
     // Explicit Goldfish request only: no reviewer is added to normal planning or jobs.
     let goldfishScope:string|null=null;
     let savedReview:GoldfishCheckpoint|null=null;
+    let resolutionLedger:ResolutionLedger|null=null;
+    let resolutionSourceId:string|null=null;
+    let goldfishResolutionContext:string|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
     if(!specialtyResume&&msg.kind!=='entrega'){
@@ -187,6 +190,21 @@ export class PlannerService {
       });
       adoptionRequest=userMessage?.content??'';
       goldfishScope=goldfishRequest(userMessage?.content??'');
+      const resolveId=resolutionRequest(userMessage?.content??'');
+      if(resolveId!==null){
+        if(!softwareInterfaceEnabled(project.area))return fail('Resolução Goldfish disponível apenas em projetos de software.');
+        if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolveId))return fail('Informe o identificador da revisão: /goldfish-resolve <id da revisão>.');
+        const source=await this.prisma.conversationMessage.findFirst({where:{id:resolveId,conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA',createdAt:{lt:msg.createdAt}},select:{goldfishState:true}});
+        if(!source?.goldfishState)return fail('Revisão concluída não encontrada nesta conversa.');
+        try{
+          const state=readReviewCheckpoint(source.goldfishState);
+          if(state.binding.projectId!==project.id||state.binding.conversationId!==msg.conversationId||state.binding.messageId!==resolveId)throw Error('Vínculo da revisão inválido.');
+          resolutionLedger=readResolutionLedger(state.resolution);
+          if(resolutionLedger.revision!==state.binding.revision)throw Error('Revisão divergente do checkpoint.');
+          goldfishResolutionContext=resolutionContext(resolutionLedger,resolveId);
+          resolutionSourceId=resolveId;
+        }catch(e){return fail((e as Error).message);}
+      }
       if(goldfishScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
@@ -202,7 +220,7 @@ export class PlannerService {
           return fail('Revisão anterior sem checkpoint por revisor. Não será repetida automaticamente.');
         }
       }
-      const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
+      const recovery=goldfishScope===null&&!resolutionLedger?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
         const plan=bindPlanningSource(this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue,planningSource);
         const saved=await this.prisma.conversationMessage.updateMany({
@@ -250,6 +268,10 @@ export class PlannerService {
     try {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       let revision='main';
+      if(resolutionLedger){
+        const current=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
+        if(current.exitCode!==0||current.stdout.trim()!==resolutionLedger.revision)return fail('A base mudou desde a revisão Goldfish. Não vou propor edições com evidência desatualizada; revise o documento na revisão atual.');
+      }
       if(goldfishScope!==null){
         const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
         revision=rev.stdout.trim();
@@ -320,7 +342,7 @@ export class PlannerService {
         const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
         const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+accounting,completedAt:new Date(),
+          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+accounting+(resolution.ready&&resolution.actions.length?'\n\nPara avaliar os achados e propor correções: /goldfish-resolve '+msg.id:''),completedAt:new Date(),
           goldfishState:{...journal.state(),resolution} as unknown as Prisma.InputJsonValue,
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
@@ -352,7 +374,7 @@ export class PlannerService {
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
       let routedSkillIds:readonly string[]=[];
-      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
+      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext,goldfishResolutionContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -451,15 +473,28 @@ export class PlannerService {
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos,project.visualProfile,adoptionRequest);
+          if(resolutionLedger){
+            const proposed=plan as unknown as {steps:Array<{key:string;instructions:string;provider?:string}>};
+            const decisions=validateResolutionDecisions(resolutionLedger,parsed,proposed.steps);
+            for(const step of proposed.steps){
+              const fixes=decisions.filter(d=>d.stepKey===step.key);
+              if(step.provider==='local-shell')throw Error('A resolução não pode encaminhar achados diretamente a um executor shell.');
+              step.instructions+='\n\nAchados Goldfish vinculados à revisão '+resolutionSourceId+' ('+resolutionLedger.revision+'): '+JSON.stringify(fixes)+'. Preserve o escopo aprovado; confirme a evidência no código antes de alterar. Não aplique itens contestados, escalados ou descartados.';
+            }
+          }
           registrarTempo('validacao_plano_aprovada');
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
+          if(resolutionLedger)content+='\n\n'+renderResolutionDecisions(validateResolutionDecisions(resolutionLedger,parsed,(plan as unknown as {steps:Array<{key:string}>}).steps));
         } catch (e: any) {
           // Um plano inválido não deve ser devolvido ao usuário para ele depurar JSON.
           // Uma única correção interna, com o erro exato do contrato, e nova validação.
           // Sem executar trabalho nem inventar limiares numéricos.
           const erroInicial = String(e?.response?.message ?? e?.message ?? 'plano inválido').slice(0, 700);
           registrarTempo('validacao_plano_reprovada', { tipoErro: e?.name ?? 'erro', motivoCodigo: /local-shell|renderizar-motion/.test(erroInicial) ? 'RENDER_MOTION' : 'OUTRA_VALIDACAO' });
+          if(resolutionLedger){
+            plan=undefined;kind='resposta';content='A proposta de resolução não respeitou o contrato dos achados: '+erroInicial+'. Nenhuma edição foi autorizada. O registro da revisão permanece preservado.';
+          }else{
           let reparoErro = erroInicial;
           gravarAndamento('Conferindo o plano: ajustando uma configuração inválida antes de apresentar.');
           try {
@@ -514,9 +549,14 @@ export class PlannerService {
             kind = 'resposta';
             content = `A configuração do plano ainda está inválida e não será executada. Erro: ${reparoErro}. A versão anterior foi preservada. O Nivoo tentou uma correção interna, mas não conseguiu validá-la.`;
           }
+          }
         }
       } else if (parsed?.tipo === 'resposta') {
         content = String(parsed.texto ?? '');
+        if(resolutionLedger){
+          try{content+='\n\n'+renderResolutionDecisions(validateResolutionDecisions(resolutionLedger,parsed,[]));}
+          catch(e){content='A avaliação Elephant não classificou todos os achados de forma válida: '+(e as Error).message+'. Nenhuma decisão foi aplicada.';}
+        }
       } else if (!parsed && /```json|"tipo"\s*:/.test(result.output)) {
         // JSON sem conserto: recupera ao menos o texto da resposta e guarda a resposta original para o diagnóstico.
         const salvo = salvarTextoDaResposta(result.output);
@@ -526,7 +566,7 @@ export class PlannerService {
           ? `${salvo}\n\n[Parte estruturada da resposta (plano, perguntas ou memória) veio quebrada e ficou de fora. Se faltar o plano, peça "mande o plano de novo".]`
           : `${antes}\n\n[A resposta da IA veio com o plano quebrado (JSON inválido) e não pôde ser lida. Peça "mande o plano de novo".]`.trim();
       }
-      if (!erro && Array.isArray(parsed?.memoria)) {
+      if (!erro && !resolutionLedger && Array.isArray(parsed?.memoria)) {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
@@ -567,7 +607,7 @@ export class PlannerService {
         custoUsd: result.costUsd ?? 0,
       });
       if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
-      if (gravada.count && !erro && plan) {
+      if (gravada.count && !erro && plan && !resolutionLedger) {
         const alvo = planoDaEntrega
           ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
           : msg.id;
