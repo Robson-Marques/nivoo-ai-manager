@@ -6,7 +6,7 @@ import { QueueService } from '../queue/queue.service';
 import { LogService } from './log.service';
 import { OrchestratorService } from './orchestrator.service';
 import { WorkspaceService } from '../storage/workspace.service';
-import { isVisualApproval, requiredPreviewCount, visualPreviews } from './visual-previews';
+import { approvalPresentation, isVisualApproval, requiredPreviewCount, visualPreviews } from './visual-previews';
 
 @Injectable()
 export class ApprovalsService {
@@ -26,7 +26,7 @@ export class ApprovalsService {
     });
   }
 
-  async decide(approvalId: string, body: any) {
+  async decide(approvalId: string, body: any, confirmApplication?: (projectId:string,jobId:string)=>Promise<string>) {
     const decision = body?.decision === 'APROVADO' ? 'APROVADO' : body?.decision === 'REJEITADO' ? 'REJEITADO' : null;
     if (!decision) throw new ConflictException('decision deve ser APROVADO ou REJEITADO');
     const decidedBy = reqString(body, 'decidedBy', 100);
@@ -38,9 +38,14 @@ export class ApprovalsService {
     if (decision === 'APROVADO' && isVisualApproval(a.description)) {
       const job = await this.prisma.job.findFirst({
         where: { id: a.jobId ?? '', projectId: a.projectId },
-        include: { project: { select: { dirKey: true } }, steps: true },
+        include: { project: { select: { dirKey: true,area:{select:{template:true,slug:true}} } }, steps: true,criteria:true },
       });
       if (!job) throw new NotFoundException('Trabalho não encontrado');
+      if(approvalPresentation(a,job)==='application'){
+        if(!confirmApplication)throw new ConflictException('Abra a aplicação em prévia antes de aprovar.');
+        const commit=await confirmApplication(a.projectId,job.id);
+        reason=[reason,'NIVOO_APPLICATION_PREVIEW:'+commit].filter(Boolean).join('; ');
+      }else{
       const root = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
       const previews = visualPreviews(root, job.steps);
       const required = requiredPreviewCount(a.description);
@@ -51,6 +56,7 @@ export class ApprovalsService {
         throw new ConflictException('Abra e confira todas as prévias no painel antes de aprovar.');
       }
       reason = [reason, `NIVOO_PREVIEWS_PRESENTED:${required}`].filter(Boolean).join('; ');
+      }
     }
     await this.prisma.approval.update({ where: { id: a.id }, data: { status: decision, decidedBy, reason, decidedAt: new Date() } });
 

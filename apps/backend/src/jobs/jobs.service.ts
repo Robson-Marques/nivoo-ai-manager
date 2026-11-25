@@ -1,3 +1,4 @@
+import { approvalPresentation } from './visual-previews';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
@@ -175,7 +176,7 @@ export class JobsService {
     if (!job) throw new NotFoundException('Job não encontrado neste projeto');
     // Última coisa registrada (ex.: "[ferramenta] Read src/app.ts"): a tela mostra que o trabalho está vivo.
     const ultima = await this.prisma.logEntry.findFirst({ where: { jobId }, orderBy: { id: 'desc' }, select: { message: true, createdAt: true } });
-    return { ...job, ultimaAtividade: ultima ? { mensagem: ultima.message.slice(0, 300), em: ultima.createdAt } : null };
+    return { ...job, approvals:job.approvals.map(a=>({...a,presentation:approvalPresentation(a,job)})), ultimaAtividade: ultima ? { mensagem: ultima.message.slice(0, 300), em: ultima.createdAt } : null };
   }
 
   /** Busca por id global (usado em rotas /jobs/:id); retorna o projectId para checagens de isolamento. */
