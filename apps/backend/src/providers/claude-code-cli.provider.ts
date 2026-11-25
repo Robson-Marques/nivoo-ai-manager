@@ -1,5 +1,6 @@
 import { executeGoldfishCli } from './goldfish-cli';
 import { cliReadOnly,CLAUDE_READ_TOOLS,CLAUDE_EDIT_TOOLS } from './cli-session-policy';
+import { nativeSkillReadObserver } from './cli-skill-observer';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -225,6 +226,8 @@ export class ClaudeCodeCliProvider implements AiProvider {
     ].join('\n');
     // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
+    const skillRead=nativeSkillReadObserver('claude',req.cwd,req.onLog);
+    const observe=(line:string)=>{skillRead(line);ClaudeCodeCliProvider.logEvent(line,req.onLog);};
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
@@ -238,11 +241,11 @@ export class ClaudeCodeCliProvider implements AiProvider {
         pending += c;
         const lines = pending.split('\n');
         pending = lines.pop() ?? '';
-        for (const l of lines) ClaudeCodeCliProvider.logEvent(l, req.onLog);
+        for (const l of lines) observe(l);
       },
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
-    if (pending.trim()) ClaudeCodeCliProvider.logEvent(pending,req.onLog);
+    if (pending.trim()) observe(pending);
     if (pastaMcp) fs.rmSync(pastaMcp, { recursive: true, force: true });
     // Sessão encerrada à força: o CLI não emite o custo final. Estima pelos tokens já informados no stream,
     // para que o orçamento do job e do projeto continue valendo.
