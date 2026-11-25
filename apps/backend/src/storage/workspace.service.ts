@@ -321,15 +321,17 @@ export class WorkspaceService {
     return `job/${jobId}`;
   }
 
-  async ensureJobWorktree(slug: string, jobId: string): Promise<string> {
+  async ensureJobWorktree(slug: string, jobId: string, approvedBase?:string): Promise<string> {
     const dirs = await this.ensureProject(slug);
     const wt = resolveInside(dirs.worktrees, jobId);
+    if(approvedBase&&!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(approvedBase))throw Error('Base Git aprovada inválida.');
     if (!fs.existsSync(path.join(wt, '.git'))) {
       const branch = this.jobBranch(jobId);
       const exists = await this.git(dirs.repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
       if (exists.exitCode === 0) await this.gitOk(dirs.repo, ['worktree', 'add', '-q', wt, branch]);
-      else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, 'main']);
+      else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, approvedBase??'main']);
     }
+    if(approvedBase&&(await this.git(wt,['merge-base','--is-ancestor',approvedBase,'HEAD'])).exitCode!==0)throw Error('Worktree não descende da revisão Goldfish aprovada. Arquivos preservados.');
     fs.mkdirSync(path.join(wt, 'out'), { recursive: true });
     const exclude = path.join(dirs.repo, '.git', 'info', 'exclude');
     fs.mkdirSync(path.dirname(exclude), { recursive: true });
