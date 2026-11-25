@@ -1,4 +1,5 @@
 import { executeGoldfishCli } from './goldfish-cli';
+import { cliReadOnly,CLAUDE_READ_TOOLS,CLAUDE_EDIT_TOOLS } from './cli-session-policy';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -185,7 +186,8 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // remove ferramentas que executam código e confina as ferramentas de arquivo ao diretório de trabalho.
     // --strict-mcp-config: nenhum servidor MCP além dos passados explicitamente (nenhum).
     // Comprovado: sem isso, um .claude/settings.json plantado no workspace executava shell na sessão seguinte.
-    const readOnly=req.options?.readOnlyReview===true;
+    const review=req.options?.readOnlyReview===true;
+    const readOnly=cliReadOnly(req);
     const args = [
       '-p', '--output-format', 'stream-json', '--verbose',
       '--restricted', '--strict-mcp-config',
@@ -195,7 +197,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const extra = readOnly?[]:ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
     // Ferramentas MCP do projeto: arquivo só desta sessão (fora da pasta do trabalho, 600) e permissão só a elas.
     let pastaMcp: string | null = null;
-    if (!readOnly&&req.mcp?.length) {
+    if (!review&&req.mcp?.length) {
       pastaMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
       const arq = path.join(pastaMcp, 'mcp.json');
       fs.writeFileSync(arq, JSON.stringify(configClaude(req.mcp)), { mode: 0o600 });
@@ -206,7 +208,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     if (extra.length) args.push('--allowedTools', ...extra);
     // Sem MCP, mostrar ao Claude SOMENTE ferramentas presentes neste executor.
     // --disallowedTools continua como defesa em profundidade; --tools evita oferecer Bash ao modelo.
-    if (readOnly||!req.mcp?.length) args.push('--tools', readOnly?'Read,Glob,Grep':'Read,Edit,Write,Glob,Grep');
+    args.push('--tools',(readOnly?CLAUDE_READ_TOOLS:CLAUDE_EDIT_TOOLS).join(','));
     const model = req.options?.model ?? process.env.NIVOO_CLAUDE_MODEL;
     if (model) args.push('--model', model);
     const maxTurns = req.options?.maxTurns ?? (process.env.NIVOO_CLAUDE_MAX_TURNS ? Number(process.env.NIVOO_CLAUDE_MAX_TURNS) : undefined);
@@ -217,9 +219,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const toolsPolicy = [
       'AMBIENTE NIVOO: Bash/terminal, WebFetch e WebSearch NÃO existem nesta sessão, inclusive em subagentes.',
       'NUNCA invoque Bash, nem para head, cat, grep, testes, build ou inspecionar arquivos JS.',
-      readOnly?'Revisão somente leitura: use Read, Glob e Grep; não edite arquivos nem acione subagentes.':'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
+      readOnly?'Sessão local somente leitura: use Read, Glob e Grep; não edite arquivos nem acione subagentes.':'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
       'Se não conseguir ler ou editar, registre o caminho e o motivo real; não tente chamar ferramenta inexistente.',
-      readOnly?'Entregue somente o parecer em texto; não solicite execução ou correção automática.':'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
+      readOnly?'Entregue resposta ou plano conforme solicitado. Não aplique alterações locais.':'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
     ].join('\n');
     // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
@@ -240,6 +242,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       },
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
+    if (pending.trim()) ClaudeCodeCliProvider.logEvent(pending,req.onLog);
     if (pastaMcp) fs.rmSync(pastaMcp, { recursive: true, force: true });
     // Sessão encerrada à força: o CLI não emite o custo final. Estima pelos tokens já informados no stream,
     // para que o orçamento do job e do projeto continue valendo.
@@ -267,10 +270,10 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const stopReason: string | undefined = parsed?.terminal_reason ?? parsed?.subtype;
     // Fim de sessão por limite de turnos: o agente trabalhou, mas a sessão acabou. Não é falha.
     const sessionEnded = parsed?.subtype === 'error_max_turns' || parsed?.terminal_reason === 'max_turns';
-    const isError = !sessionEnded && (r.exitCode !== 0 || parsed?.is_error === true);
+    const isError = !sessionEnded && (r.exitCode !== 0 || !parsed || parsed.is_error === true || parsed.subtype!=='success');
     req.onLog(`[sessão ${parsed?.session_id ?? '?'}] término=${stopReason ?? '?'} turnos=${parsed?.num_turns ?? '?'}`);
     if (text) req.onLog(String(text).slice(0, 4000));
-    const errText = isError ? `${stopReason ?? 'erro'}: ${String(text).slice(0, 500)} ${r.stderr.slice(0, 500)}`.trim() : undefined;
+    const errText = isError ? `${stopReason ?? (parsed?'erro':'Claude não retornou evento final de resultado')}: ${String(text).slice(0, 500)} ${r.stderr.slice(0, 500)}`.trim() : undefined;
     return {
       exitCode: sessionEnded ? 0 : isError ? r.exitCode || 1 : 0,
       output: String(text),
