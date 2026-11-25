@@ -1,0 +1,9 @@
+/* Layout and accessibility only. All optical rendering lives in upstream glass.css and LiquiGlass.tsx. */
+.nv-liqui-root{position:relative;isolation:isolate;color:var(--lq-text);min-width:0;overflow:hidden}
+.nv-liqui-root .liqui-glass{min-width:0}
+.nv-liqui-root .liqui-glass__content{min-width:0}
+@media (prefers-reduced-motion:reduce){.nv-liqui-root .liqui-glass,.nv-liqui-root .liqui-glass *{animation:none!important;transition:none!important}}
+@media (prefers-reduced-transparency:reduce),(forced-colors:active),(prefers-contrast:more){
+  .nv-liqui-root .liqui-glass{background:var(--nv-liqui-solid,Canvas);color:var(--nv-liqui-text,CanvasText);outline:1px solid currentColor}
+  .nv-liqui-root .liqui-glass__backdrop,.nv-liqui-root .liqui-glass__refract,.nv-liqui-root .liqui-glass__copy,.nv-liqui-root .liqui-glass__tint,.nv-liqui-root .liqui-glass__specular,.nv-liqui-root .liqui-glass__shine{display:none!important}
+}

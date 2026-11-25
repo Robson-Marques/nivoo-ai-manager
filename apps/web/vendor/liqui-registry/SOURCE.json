@@ -1,0 +1,199 @@
+{
+  "repository": "https://github.com/leefanv/liqui-design",
+  "commit": "27fea1b66069fcb8dcce133486c6fe5f49744db9",
+  "license": "MIT",
+  "originalFiles": [
+    {
+      "path": "apps/web/src/vendor/liqui/LICENSE",
+      "sha": "2ac89df810fe6a5aefb14e79ae5949972cfb6ce9"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/LiquiGlass.tsx",
+      "sha": "03062617150bdbee12f42c09d452188e5da03ab3"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/backdrop.tsx",
+      "sha": "e0fa399ec7f4c25f93b35b7c107f66d71217f6cc"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/filterRegistry.ts",
+      "sha": "67f69ec7de21ab10cbbcdcd9a82e2812a6eabd9a"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/glass.css",
+      "sha": "605ca08038b5eef74a25e184b2371d5bf57a8b80"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/index.ts",
+      "sha": "09b22f2984a25e0ee29181f185a5d6f9d51edd10"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/theme.tsx",
+      "sha": "491bfc4aef6f4c99e2a920a6879497dea8bed44b"
+    },
+    {
+      "path": "apps/web/src/vendor/liqui/tokens.ts",
+      "sha": "818e93e6d408c2ceaffd1895d1d5a0dc07148c93"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/lib/lens.tsx",
+      "sha": "a7ca98a94df340915f90c66d6e434c0a4b82bf9a"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/lib/utils.ts",
+      "sha": "2819a830d242f11fda91c4e8951794ab815cec77"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/accordion.tsx",
+      "sha": "16009e48f5a9b90e0ab4370c40233eb9f815635d"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/alert-dialog.tsx",
+      "sha": "aefca20e342df77ae1d48c75c60bd4ce9bfe30db"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/autocomplete.tsx",
+      "sha": "a66864dca047784417e494040d82683a50dd84b7"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/avatar.tsx",
+      "sha": "2481f9fed5ee6b672736d78a3ad2a7fd18966c46"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/button.tsx",
+      "sha": "d13cccc6e8925c9d96935f09c6d54c0fd4e32602"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/checkbox-group.tsx",
+      "sha": "10e6dde38e796d26c16782074fb8de7ea32a805c"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/checkbox.tsx",
+      "sha": "2c2ce35ea010b764cd4db5315e9df9a54ef85806"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/collapsible.tsx",
+      "sha": "7631d60190075e451b28d7756289f7cc16f723b6"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/combobox.tsx",
+      "sha": "fe89eea0a3aec8f0fa015a455ada5968a88e30a0"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/context-menu.tsx",
+      "sha": "1cf92a6b2207b5848ff312d6401f596c494a16fe"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/dialog.tsx",
+      "sha": "79b1164d2bf54a0eacc81cee6c9c2fc9667a06da"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/drawer.tsx",
+      "sha": "7abc2d69227729cfd686d5f297954d1536d1e2ac"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/field.tsx",
+      "sha": "8f8cc39b573b4967536dbc624abccc28feb127ae"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/fieldset.tsx",
+      "sha": "8c42e652d499b353e1a94ac3acbcf5f093a751a0"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/form.tsx",
+      "sha": "b5fd15a55301b04c2dcfa8f1d4c665940d71c13b"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/input.tsx",
+      "sha": "9b2321488cf081aa6ce926a6a243e92797376be8"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/menu.tsx",
+      "sha": "a83013cb505e48b864c6c828224d586923ac5906"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/menubar.tsx",
+      "sha": "fd0fd6da55fb4e1945e7e5fa73413268522f3784"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/meter.tsx",
+      "sha": "d463f7db0cbcd25ecf7f42da1c9ebaf57baa0f41"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/navigation-menu.tsx",
+      "sha": "17e6efd0ced4e4ce2c8fd60d25407515594cf1dd"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/number-field.tsx",
+      "sha": "7c327a3275dc3f1063d71a482da4cbb7802509e5"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/otp-field.tsx",
+      "sha": "4d6ad7a71366803d0795444fc0646fe29c9707c7"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/popover.tsx",
+      "sha": "caac9e555e3c3964ca20b217762f7ce8e48aacec"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/preview-card.tsx",
+      "sha": "6b64963febfb69348fcf02ab7a3c8696d3ff803c"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/progress.tsx",
+      "sha": "9d3eb2402782c696587630eb0cd8a77c177ec277"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/radio-group.tsx",
+      "sha": "79e0985653c203c5767459bb3235be0d16b87f6d"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/scroll-area.tsx",
+      "sha": "ad20f41154bd9894aec0e8c024c5fdf50c46db51"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/select.tsx",
+      "sha": "ee9d615b00aaa64e3717631efb495b73440f713a"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/separator.tsx",
+      "sha": "e76b641b84eca64257ce7583ca75f675cba4f16d"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/slider.tsx",
+      "sha": "368e3118c18e41faf3af1d38f73e2c91f39327c3"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/switch.tsx",
+      "sha": "07663fb9fa7b3ccd384e993ed9a23a78d0c8aec0"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/tab-bar.tsx",
+      "sha": "7581d2d98c304747039acbd8ccca726129f2823a"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/tabs.tsx",
+      "sha": "343a9df054ebfacc45bc59ad39bcbd6aebd99bcb"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/toast.tsx",
+      "sha": "5853c4c625f223679a504ceabc02765cbb83c644"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/toggle-group.tsx",
+      "sha": "eaa117fd9228c25a33b23772b2099fd567ee2ca0"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/toggle.tsx",
+      "sha": "8f5da597f7ac0de8459c05ad839b027a93d14696"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/toolbar.tsx",
+      "sha": "a0c700d26f1b656b15e8f17832400ddf776e6bd1"
+    },
+    {
+      "path": "apps/web/vendor/liqui-registry/ui/tooltip.tsx",
+      "sha": "d6d5966ddf56c52aa9bc73bdc20d34da641f963c"
+    }
+  ]
+}

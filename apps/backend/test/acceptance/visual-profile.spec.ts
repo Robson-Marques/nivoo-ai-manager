@@ -25,19 +25,16 @@ describe('API — perfil visual de projeto',()=>{
     expect(result.densities.map((d:any)=>d.id)).toEqual(['compact','balanced','spacious']);
     expect(result.foundations).toHaveLength(4);
   });
-  it('expõe pacote CSS Liquid Glass como dados, sem alterar projetos',async()=>{
+  it('expõe núcleo original Liquid Glass sem alterar projetos',async()=>{
     const result=(await h.http().get('/api/projects/visual-templates/liquid-glass').expect(200)).body;
-    expect(result.id).toBe('liquid-glass');
-    expect(result.version).toBe(1);
-    expect(result.files.map((f:any)=>f.name)).toEqual(['liquid-glass.css','README.md','example.html']);
-    expect(result.files[0].content).toContain('backdrop-filter: blur(var(--nv-glass-blur,12px))');
+    expect(result.id).toBe('liquid-glass');expect(result.version).toBe(2);expect(result.engine).toBe('liqui-design');
+    expect(result.files.map((f:any)=>f.name)).toContain('engine/LiquiGlass.tsx');
   });
-  it('expõe biblioteca de componentes Liquid Glass como dados',async()=>{
+  it('expõe registry original de componentes',async()=>{
     const result=(await h.http().get('/api/projects/visual-templates/liquid-glass/components').expect(200)).body;
-    expect(result.version).toBe(1);
-    expect(result.requires).toEqual({id:'liquid-glass',version:1});
-    expect(result.components.map((c:any)=>c.id)).toEqual(['buttons','navigation','dialog','form','table','panels']);
-    expect(result.files.map((f:any)=>f.name)).toEqual(['components.css','components.json','components.html','components-demo.js','components.md']);
+    expect(result.version).toBe(2);expect(result.requires).toEqual({id:'liquid-glass',version:2});
+    expect(result.components).toHaveLength(38);
+    expect(result.files.map((f:any)=>f.name)).toContain('registry/ui/button.tsx');
   });
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;

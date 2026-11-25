@@ -1,0 +1,1004 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "liqui",
+  "homepage": "https://liqui.design",
+  "items": [
+    {
+      "name": "liqui",
+      "type": "registry:style",
+      "title": "liqui",
+      "description": "Liquid glass surfaces for Base UI. Installs the refraction kernel and the glass design tokens.",
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass",
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "utils"
+      ],
+      "files": [],
+      "cssVars": {
+        "theme": {
+          "lq-radius": "16px"
+        },
+        "light": {
+          "lq-text": "rgba(0, 0, 0, 0.85)",
+          "lq-text-dim": "rgba(0, 0, 0, 0.5)",
+          "lq-tint": "rgba(255, 255, 255, 0.48)",
+          "lq-tint-deep": "rgba(255, 255, 255, 0.14)",
+          "lq-rim-hi": "rgba(255, 255, 255, 0.85)",
+          "lq-rim-lo": "rgba(255, 255, 255, 0.28)",
+          "lq-shadow": "0 24px 60px rgba(10, 15, 40, 0.35), 0 4px 14px rgba(10, 15, 40, 0.18)",
+          "lq-highlight": "rgba(255, 255, 255, 0.5)",
+          "lq-control": "rgba(255, 255, 255, 0.72)",
+          "lq-control-rim": "rgba(28, 28, 40, 0.16)",
+          "lq-accent": "#0088ff",
+          "lq-danger": "#ff383c",
+          "lq-danger-text": "#e0262b",
+          "lq-scrim": "rgba(12, 14, 28, 0.32)"
+        },
+        "dark": {
+          "lq-text": "rgba(255, 255, 255, 0.85)",
+          "lq-text-dim": "rgba(255, 255, 255, 0.55)",
+          "lq-tint": "rgba(30, 32, 46, 0.62)",
+          "lq-tint-deep": "rgba(18, 20, 32, 0.4)",
+          "lq-rim-hi": "rgba(255, 255, 255, 0.5)",
+          "lq-rim-lo": "rgba(255, 255, 255, 0.12)",
+          "lq-shadow": "0 24px 60px rgba(0, 0, 5, 0.55), 0 4px 14px rgba(0, 0, 5, 0.35)",
+          "lq-highlight": "rgba(255, 255, 255, 0.18)",
+          "lq-control": "rgba(126, 128, 146, 0.3)",
+          "lq-control-rim": "rgba(255, 255, 255, 0.22)",
+          "lq-accent": "#0091ff",
+          "lq-danger": "#ff4245",
+          "lq-danger-text": "#ff6467",
+          "lq-scrim": "rgba(0, 0, 6, 0.48)"
+        }
+      },
+      "docs": "liqui's refraction only renders in Chromium today; Safari and Firefox fall back to frosted blur automatically. Glass needs something to refract — put surfaces over imagery or a gradient, not a flat fill."
+    },
+    {
+      "name": "utils",
+      "type": "registry:lib",
+      "title": "cn",
+      "description": "clsx + tailwind-merge class combiner.",
+      "dependencies": [
+        "clsx",
+        "tailwind-merge"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/lib/utils.ts",
+          "type": "registry:lib",
+          "target": "@lib/utils.ts"
+        }
+      ]
+    },
+    {
+      "name": "lens",
+      "type": "registry:lib",
+      "title": "Lens kernel",
+      "description": "Refraction kernel for the small controls: glass profiles, displacement and specular maps, the SVG filter chain, and a spring integrator.",
+      "dependencies": [
+        "@liqui-design/glass"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/lib/lens.tsx",
+          "type": "registry:lib",
+          "target": "@lib/lens.tsx"
+        }
+      ]
+    },
+    {
+      "name": "button",
+      "type": "registry:ui",
+      "title": "Glass Button",
+      "description": "A refracting glass surface by default, and a solid fill when it carries a brand colour.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass",
+        "class-variance-authority"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/button.tsx",
+          "type": "registry:ui",
+          "target": "@ui/button.tsx"
+        }
+      ]
+    },
+    {
+      "name": "checkbox",
+      "type": "registry:ui",
+      "title": "Checkbox",
+      "description": "A flat control — a hairline box at rest, a solid accent fill when checked.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/checkbox.tsx",
+          "type": "registry:ui",
+          "target": "@ui/checkbox.tsx"
+        }
+      ]
+    },
+    {
+      "name": "field",
+      "type": "registry:ui",
+      "title": "Glass Field",
+      "description": "A labelled form field whose control sits on its own glass surface.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/field.tsx",
+          "type": "registry:ui",
+          "target": "@ui/field.tsx"
+        }
+      ]
+    },
+    {
+      "name": "accordion",
+      "type": "registry:ui",
+      "title": "Glass Accordion",
+      "description": "Collapsible panels where each item is its own resizing glass surface.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/accordion.tsx",
+          "type": "registry:ui",
+          "target": "@ui/accordion.tsx"
+        }
+      ]
+    },
+    {
+      "name": "alert-dialog",
+      "type": "registry:ui",
+      "title": "Glass Alert Dialog",
+      "description": "A modal confirmation dialog on the library's largest glass surface.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/alert-dialog.tsx",
+          "type": "registry:ui",
+          "target": "@ui/alert-dialog.tsx"
+        }
+      ]
+    },
+    {
+      "name": "context-menu",
+      "type": "registry:ui",
+      "title": "Glass Context Menu",
+      "description": "A right-click menu with submenus, checkbox and radio items, on a keep-mounted glass popup.",
+      "meta": {
+        "added": "2026-08-06"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/context-menu.tsx",
+          "type": "registry:ui",
+          "target": "@ui/context-menu.tsx"
+        }
+      ]
+    },
+    {
+      "name": "dialog",
+      "type": "registry:ui",
+      "title": "Glass Dialog",
+      "description": "A dismissible modal on glass, with a corner dismiss that stays flat.",
+      "meta": {
+        "added": "2026-08-13"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/dialog.tsx",
+          "type": "registry:ui",
+          "target": "@ui/dialog.tsx"
+        }
+      ]
+    },
+    {
+      "name": "popover",
+      "type": "registry:ui",
+      "title": "Glass Popover",
+      "description": "A glass panel anchored to a trigger, with a drawn tail.",
+      "meta": {
+        "added": "2026-08-13"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/popover.tsx",
+          "type": "registry:ui",
+          "target": "@ui/popover.tsx"
+        }
+      ]
+    },
+    {
+      "name": "tooltip",
+      "type": "registry:ui",
+      "title": "Glass Tooltip",
+      "description": "The smallest floating surface, frosted harder so it stays readable.",
+      "meta": {
+        "added": "2026-08-13"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/tooltip.tsx",
+          "type": "registry:ui",
+          "target": "@ui/tooltip.tsx"
+        }
+      ]
+    },
+    {
+      "name": "switch",
+      "type": "registry:ui",
+      "title": "Glass Switch",
+      "description": "A lip-bezel lens: an opaque white pill at rest that swells out of its track and turns to glass under your finger.",
+      "meta": {
+        "added": "2026-08-10"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils",
+        "lens"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/switch.tsx",
+          "type": "registry:ui",
+          "target": "@ui/switch.tsx"
+        }
+      ]
+    },
+    {
+      "name": "slider",
+      "type": "registry:ui",
+      "title": "Glass Slider",
+      "description": "A convex-lens thumb that magnifies the rail it rides, swelling out of it when grabbed.",
+      "meta": {
+        "added": "2026-08-10"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils",
+        "lens"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/slider.tsx",
+          "type": "registry:ui",
+          "target": "@ui/slider.tsx"
+        }
+      ]
+    },
+    {
+      "name": "select",
+      "type": "registry:ui",
+      "title": "Glass Select",
+      "description": "A select with a glass trigger and a glass popup, kept from overlapping each other.",
+      "meta": {
+        "added": "2026-08-10"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/select.tsx",
+          "type": "registry:ui",
+          "target": "@ui/select.tsx"
+        }
+      ]
+    },
+    {
+      "name": "tabs",
+      "type": "registry:ui",
+      "title": "Glass Tabs",
+      "description": "A segmented control whose indicator is the refracting surface, sliding along a flat groove.",
+      "meta": {
+        "added": "2026-08-14"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/tabs.tsx",
+          "type": "registry:ui",
+          "target": "@ui/tabs.tsx"
+        }
+      ]
+    },
+    {
+      "name": "tab-bar",
+      "type": "registry:ui",
+      "title": "Glass Tab Bar",
+      "description": "The iOS floating tab bar: the bar is the lens, and the selection pill stretches as it travels.",
+      "meta": {
+        "added": "2026-09-05"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils",
+        "lens"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/tab-bar.tsx",
+          "type": "registry:ui",
+          "target": "@ui/tab-bar.tsx"
+        }
+      ]
+    },
+    {
+      "name": "toggle",
+      "type": "registry:ui",
+      "title": "Toggle",
+      "description": "A two-state button, flat in both of them, filling with accent while it is on.",
+      "meta": {
+        "added": "2026-08-14"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/toggle.tsx",
+          "type": "registry:ui",
+          "target": "@ui/toggle.tsx"
+        }
+      ]
+    },
+    {
+      "name": "toggle-group",
+      "type": "registry:ui",
+      "title": "Glass Toggle Group",
+      "description": "One glass strip holding several toggles, which flatten so the strip keeps the lens.",
+      "meta": {
+        "added": "2026-08-14"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "https://liqui.design/r/toggle.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/toggle-group.tsx",
+          "type": "registry:ui",
+          "target": "@ui/toggle-group.tsx"
+        }
+      ]
+    },
+    {
+      "name": "menu",
+      "type": "registry:ui",
+      "title": "Glass Menu",
+      "description": "A dropdown menu with submenus, checkbox and radio items, and type-to-filter, on a keep-mounted glass popup.",
+      "meta": {
+        "added": "2026-08-20"
+      },
+      "dependencies": [
+        "@base-ui/react@^1.9.0",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/menu.tsx",
+          "type": "registry:ui",
+          "target": "@ui/menu.tsx"
+        }
+      ]
+    },
+    {
+      "name": "radio-group",
+      "type": "registry:ui",
+      "title": "Radio Group",
+      "description": "A list of flat controls, each filling with accent when it is the one selected.",
+      "meta": {
+        "added": "2026-08-20"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/radio-group.tsx",
+          "type": "registry:ui",
+          "target": "@ui/radio-group.tsx"
+        }
+      ]
+    },
+    {
+      "name": "progress",
+      "type": "registry:ui",
+      "title": "Glass Progress",
+      "description": "A progress bar whose track is the refracting surface, filled by a wash of accent.",
+      "meta": {
+        "added": "2026-08-20"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/progress.tsx",
+          "type": "registry:ui",
+          "target": "@ui/progress.tsx"
+        }
+      ]
+    },
+    {
+      "name": "menubar",
+      "type": "registry:ui",
+      "title": "Glass Menubar",
+      "description": "One glass strip holding several menus, whose triggers flatten inside it.",
+      "meta": {
+        "added": "2026-08-21"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "https://liqui.design/r/menu.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/menubar.tsx",
+          "type": "registry:ui",
+          "target": "@ui/menubar.tsx"
+        }
+      ]
+    },
+    {
+      "name": "number-field",
+      "type": "registry:ui",
+      "title": "Glass Number Field",
+      "description": "One glass group holding a numeric input and two flattened steppers.",
+      "meta": {
+        "added": "2026-08-21"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/number-field.tsx",
+          "type": "registry:ui",
+          "target": "@ui/number-field.tsx"
+        }
+      ]
+    },
+    {
+      "name": "toast",
+      "type": "registry:ui",
+      "title": "Glass Toast",
+      "description": "Notifications laid out in a column, so every surface keeps the page behind it.",
+      "meta": {
+        "added": "2026-08-21"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/toast.tsx",
+          "type": "registry:ui",
+          "target": "@ui/toast.tsx"
+        }
+      ]
+    },
+    {
+      "name": "separator",
+      "type": "registry:ui",
+      "title": "Glass Separator",
+      "description": "A hairline groove cut into the surface, lit the way the kernel lights an edge.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/separator.tsx",
+          "type": "registry:ui",
+          "target": "@ui/separator.tsx"
+        }
+      ]
+    },
+    {
+      "name": "avatar",
+      "type": "registry:ui",
+      "title": "Glass Avatar",
+      "description": "A lens with a picture set into it, inset by the width of its own bezel.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/avatar.tsx",
+          "type": "registry:ui",
+          "target": "@ui/avatar.tsx"
+        }
+      ]
+    },
+    {
+      "name": "collapsible",
+      "type": "registry:ui",
+      "title": "Glass Collapsible",
+      "description": "A lens on the trigger, frost on the panel — the box that grows has no map to rebuild.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/collapsible.tsx",
+          "type": "registry:ui",
+          "target": "@ui/collapsible.tsx"
+        }
+      ]
+    },
+    {
+      "name": "meter",
+      "type": "registry:ui",
+      "title": "Glass Meter",
+      "description": "A reading on a refracting track, with a wash that changes colour but never slides.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/meter.tsx",
+          "type": "registry:ui",
+          "target": "@ui/meter.tsx"
+        }
+      ]
+    },
+    {
+      "name": "input",
+      "type": "registry:ui",
+      "title": "Glass Input",
+      "description": "A transparent input inside a glass surface, with slots that stay on the same lens.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/input.tsx",
+          "type": "registry:ui",
+          "target": "@ui/input.tsx"
+        }
+      ]
+    },
+    {
+      "name": "fieldset",
+      "type": "registry:ui",
+      "title": "Glass Fieldset",
+      "description": "A legend and a gap — the container deliberately isn't a surface.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/fieldset.tsx",
+          "type": "registry:ui",
+          "target": "@ui/fieldset.tsx"
+        }
+      ]
+    },
+    {
+      "name": "form",
+      "type": "registry:ui",
+      "title": "Glass Form",
+      "description": "Server errors routed to the field they belong to, and no surface of its own.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/form.tsx",
+          "type": "registry:ui",
+          "target": "@ui/form.tsx"
+        }
+      ]
+    },
+    {
+      "name": "checkbox-group",
+      "type": "registry:ui",
+      "title": "Checkbox Group",
+      "description": "Shared state for a stack of checkboxes, with a parent box that goes mixed rather than dim.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "https://liqui.design/r/checkbox.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/checkbox-group.tsx",
+          "type": "registry:ui",
+          "target": "@ui/checkbox-group.tsx"
+        }
+      ]
+    },
+    {
+      "name": "scroll-area",
+      "type": "registry:ui",
+      "title": "Glass Scroll Area",
+      "description": "An overlay scrollbar whose thumb is the smallest lens in the library, and no track behind it.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/scroll-area.tsx",
+          "type": "registry:ui",
+          "target": "@ui/scroll-area.tsx"
+        }
+      ]
+    },
+    {
+      "name": "toolbar",
+      "type": "registry:ui",
+      "title": "Glass Toolbar",
+      "description": "One strip of glass with flat controls on it — ToggleGroup's rule, generalised.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "https://liqui.design/r/toggle.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/toolbar.tsx",
+          "type": "registry:ui",
+          "target": "@ui/toolbar.tsx"
+        }
+      ]
+    },
+    {
+      "name": "preview-card",
+      "type": "registry:ui",
+      "title": "Glass Preview Card",
+      "description": "Popover's surface with the frost turned up, because this one lands on a sentence.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/preview-card.tsx",
+          "type": "registry:ui",
+          "target": "@ui/preview-card.tsx"
+        }
+      ]
+    },
+    {
+      "name": "navigation-menu",
+      "type": "registry:ui",
+      "title": "Glass Navigation Menu",
+      "description": "One panel that moves between triggers and snaps to size, because resizing rebuilds the map.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/navigation-menu.tsx",
+          "type": "registry:ui",
+          "target": "@ui/navigation-menu.tsx"
+        }
+      ]
+    },
+    {
+      "name": "combobox",
+      "type": "registry:ui",
+      "title": "Glass Combobox",
+      "description": "A glass field and popup whose height snaps as you filter, because every height is a map.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/combobox.tsx",
+          "type": "registry:ui",
+          "target": "@ui/combobox.tsx"
+        }
+      ]
+    },
+    {
+      "name": "autocomplete",
+      "type": "registry:ui",
+      "title": "Glass Autocomplete",
+      "description": "Combobox's surfaces on a field whose value is the text you typed.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/autocomplete.tsx",
+          "type": "registry:ui",
+          "target": "@ui/autocomplete.tsx"
+        }
+      ]
+    },
+    {
+      "name": "drawer",
+      "type": "registry:ui",
+      "title": "Glass Drawer",
+      "description": "The largest surface in the library, dragged on one cached map.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/drawer.tsx",
+          "type": "registry:ui",
+          "target": "@ui/drawer.tsx"
+        }
+      ]
+    },
+    {
+      "name": "otp-field",
+      "type": "registry:ui",
+      "title": "Glass OTP Field",
+      "description": "Six identical surfaces that cost one, because the map cache is keyed on size and optics.",
+      "meta": {
+        "added": "2026-08-29"
+      },
+      "dependencies": [
+        "@base-ui/react",
+        "@liqui-design/glass"
+      ],
+      "registryDependencies": [
+        "https://liqui.design/r/liqui.json",
+        "utils"
+      ],
+      "files": [
+        {
+          "path": "registry/liqui/ui/otp-field.tsx",
+          "type": "registry:ui",
+          "target": "@ui/otp-field.tsx"
+        }
+      ]
+    }
+  ]
+}

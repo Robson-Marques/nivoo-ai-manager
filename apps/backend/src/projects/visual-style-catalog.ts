@@ -112,7 +112,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "tintOpacity": 0.56,
     "blurPx": 5,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(255,255,255,.36), inset 1px 0 0 rgba(255,255,255,.48)",
-    "guidance": "Vidro cristalino: contorno polido, reflexo especular e camadas flutuantes. Preserve conteúdo opaco; evite confundir aproximação CSS com refração óptica."
+    "guidance": "Crystal: adaptação Nivoo do motor original com frost reduzido; use glassPreset e preserve legibilidade."
   },
   {
     "id": "frosted-glass",
@@ -122,7 +122,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "tintOpacity": 0.76,
     "blurPx": 20,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.48)",
-    "guidance": "Vidro fosco: maior difusão e tonalidade leitosa, contornos delicados, sem reflexos excessivos. Conteúdo legível e estável."
+    "guidance": "Frosted: preset clássico oficial defaultGlassTheme, com difusão e refração automática conforme suporte."
   },
   {
     "id": "dark-glass",
@@ -132,7 +132,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "tintOpacity": 0.68,
     "blurPx": 14,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.36), inset 0 -1px 0 rgba(0,0,0,.25)",
-    "guidance": "Vidro fumê: prefira tema escuro se delegado, reflexos discretos e profundidade. Se o tema claro foi escolhido, adapte o material sem contrariar a decisão."
+    "guidance": "Dark: adaptação Nivoo do preset clássico com tema escuro recomendado e frost maior. Preserve tema explícito."
   },
   {
     "id": "prism-glass",
@@ -142,7 +142,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "tintOpacity": 0.62,
     "blurPx": 8,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.85), inset 1px 0 0 rgba(96,165,250,.75), inset -1px 0 0 rgba(216,180,254,.75), inset 0 -1px 0 rgba(94,234,212,.55)",
-    "guidance": "Vidro prismático: reflexos iridescentes pontuais e separação de planos. A aparência cromática CSS não é refração real; não imponha shader ou WebGL. Preserve a paleta da marca no conteúdo."
+    "guidance": "Prism: preset oficial prismGlassTheme, dispersão cromática e iluminação direcional do núcleo original. Preserve legibilidade e paleta."
   }
 ];
 export function findGlassVariant(id:string):GlassVariant|undefined{

@@ -1,0 +1,114 @@
+/**
+ * The liqui design tokens, and the only copy of them.
+ *
+ * They used to live in `tokens.css`, which meant they lived in three places —
+ * that stylesheet, the `cssVars` block the shadcn registry hands the CLI, and
+ * anything in JavaScript that needed to know a default in order to diff against
+ * it. Three hand-maintained copies of one palette are a drift bug with a
+ * schedule. `tokens.css` is now generated from this file at build time
+ * (tsdown.config.ts) and the registry's copy is checked against it
+ * (apps/www/scripts/build-registry.mts).
+ *
+ * No imports on purpose: the build config and the registry script both read
+ * this module directly, outside any bundler and without React.
+ */
+
+/**
+ * The themeable properties — the ones that describe the material globally.
+ * Deliberately not the whole `--lq-` namespace: `--lq-tail-rim`,
+ * `--lq-fade-start` and friends are plumbing set by the one component that
+ * needs them, and `--lq-radius` is written per surface from the `radius` prop,
+ * so putting either in a theme would ship a control that does nothing.
+ */
+export const LIQUI_TOKENS = [
+  'text',
+  'text-dim',
+  'tint',
+  'tint-deep',
+  'rim-hi',
+  'rim-lo',
+  'shadow',
+  'highlight',
+  'control',
+  'control-rim',
+  'accent',
+  'danger',
+  'danger-text',
+  'scrim',
+] as const;
+
+export type LiquiTokenName = (typeof LIQUI_TOKENS)[number];
+export type LiquiTokens = Record<LiquiTokenName, string>;
+
+export const defaultTokens: { light: LiquiTokens; dark: LiquiTokens } = {
+  light: {
+    // Apple's label colours (macOS 27 kit: Labels/Primary, Labels/Secondary).
+    text: 'rgba(0, 0, 0, 0.85)',
+    'text-dim': 'rgba(0, 0, 0, 0.5)',
+    // Full-strength ("regular") tint; the frost prop scales layer opacity.
+    tint: 'rgba(255, 255, 255, 0.48)',
+    'tint-deep': 'rgba(255, 255, 255, 0.14)',
+    'rim-hi': 'rgba(255, 255, 255, 0.85)',
+    'rim-lo': 'rgba(255, 255, 255, 0.28)',
+    shadow: '0 24px 60px rgba(10, 15, 40, 0.35), 0 4px 14px rgba(10, 15, 40, 0.18)',
+    highlight: 'rgba(255, 255, 255, 0.5)',
+    // The two below are the *flat* control surface: the resting fill and
+    // hairline of a checkbox, radio or toggle. They are not a glass tint —
+    // nothing blurs or refracts behind them — which is the whole point. See
+    // `control` in the token list above.
+    control: 'rgba(255, 255, 255, 0.72)',
+    'control-rim': 'rgba(28, 28, 40, 0.16)',
+    // Accents/Blue and Accents/Red from the macOS 27 kit.
+    accent: '#0088ff',
+    danger: '#ff383c',
+    // The darker variant, used where the red has to survive as *text* on a
+    // light surface rather than as a fill with white on top of it.
+    'danger-text': '#e0262b',
+    // Scrim behind modal surfaces.
+    scrim: 'rgba(12, 14, 28, 0.32)',
+  },
+  dark: {
+    text: 'rgba(255, 255, 255, 0.85)',
+    'text-dim': 'rgba(255, 255, 255, 0.55)',
+    tint: 'rgba(30, 32, 46, 0.62)',
+    'tint-deep': 'rgba(18, 20, 32, 0.4)',
+    'rim-hi': 'rgba(255, 255, 255, 0.5)',
+    'rim-lo': 'rgba(255, 255, 255, 0.12)',
+    shadow: '0 24px 60px rgba(0, 0, 5, 0.55), 0 4px 14px rgba(0, 0, 5, 0.35)',
+    highlight: 'rgba(255, 255, 255, 0.18)',
+    control: 'rgba(126, 128, 146, 0.3)',
+    'control-rim': 'rgba(255, 255, 255, 0.22)',
+    accent: '#0091ff',
+    danger: '#ff4245',
+    'danger-text': '#ff6467',
+    scrim: 'rgba(0, 0, 6, 0.48)',
+  },
+};
+
+/**
+ * Dark mode is keyed on both `[data-theme="dark"]` (liqui's own demo and
+ * playground convention) and `.dark` (what shadcn's next-themes setup writes).
+ */
+export const DARK_SELECTOR = "[data-theme='dark'], .dark";
+
+/** The shipped stylesheet, emitted into dist by the package build. */
+export function tokensStylesheet(): string {
+  const block = (selector: string, tokens: LiquiTokens) =>
+    `${selector} {\n` +
+    LIQUI_TOKENS.map((name) => `  --lq-${name}: ${tokens[name]};`).join('\n') +
+    '\n}\n';
+
+  return (
+    `/* liqui glass tokens — generated from src/tokens.ts, do not edit.\n` +
+    ` *\n` +
+    ` * Shipped as a standalone stylesheet so a non-shadcn consumer can just\n` +
+    ` * \`@import "@liqui-design/glass/tokens.css"\`. Registry users get the same\n` +
+    ` * values injected into their own globals.css through each item's \`cssVars\`,\n` +
+    ` * which is why nothing here is required by the anatomy in glass.css — every\n` +
+    ` * rule there carries a fallback.\n` +
+    ` */\n\n` +
+    block(':root', defaultTokens.light) +
+    '\n' +
+    block(DARK_SELECTOR.replace(', ', ',\n'), defaultTokens.dark)
+  );
+}

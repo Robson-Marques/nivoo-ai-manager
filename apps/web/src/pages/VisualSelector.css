@@ -79,3 +79,21 @@
 .nv-vs-mini .nv-vs-preview-dock,.nv-vs-mobile .nv-vs-preview-dock{display:flex}
 @media(max-width:480px){.nv-vs-preview-sidebar{display:none}.nv-vs-preview-dock{display:flex}}
 @media(forced-colors:active){.nv-vs-selected{outline:2px solid Highlight;box-shadow:none}}
+
+/* Layout of the optical preview. No tint, blur, specular or refraction imitation. */
+.nv-vs-optical-backdrop{position:absolute;inset:0;z-index:-1;pointer-events:none}
+.nv-vs-optical.nv-vs-preview{isolation:isolate;position:relative;gap:10px;padding:12px;border-radius:22px;background:var(--vs-bg);color:var(--vs-text)}
+.nv-vs-optical-content{display:grid;gap:10px;min-width:0}
+.nv-vs-optical-nav,.nv-vs-optical-dock{display:flex;align-items:center;justify-content:space-between;gap:5px;padding:9px 12px}
+.nv-vs-optical-dock{font-size:.82em;justify-content:space-around}
+.nv-vs-optical .nv-vs-optical-stats>div{display:block;padding:0;background:none;border:0;border-radius:var(--lq-radius);box-shadow:none}
+.nv-vs-optical-stat,.nv-vs-optical-chart,.nv-vs-optical-table{padding:12px;display:grid;gap:5px}
+.nv-vs-optical-stat strong{font-size:1.8em;line-height:1.2}
+.nv-vs-optical-chart>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.nv-vs-optical-data{display:grid;gap:6px;padding:7px;background:var(--vs-surface);color:var(--vs-text);border-radius:var(--vs-control-radius)}
+.nv-vs-optical-data>div{display:flex;justify-content:space-between;gap:5px}
+.nv-vs-optical .nv-vs-preview-action{border-radius:999px}
+.nv-vs-optical .nv-vs-preview-title{padding:3px}
+.nv-vs-optical .nv-vs-preview-stats span{color:var(--vs-text)}
+.nv-vs-optical.nv-vs-mini{font-size:11px}
+.nv-vs-optical.nv-vs-mini .nv-vs-optical-stat,.nv-vs-optical.nv-vs-mini .nv-vs-optical-table{padding:9px}

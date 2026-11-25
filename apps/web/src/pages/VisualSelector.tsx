@@ -2,7 +2,7 @@ import { useEffect,useRef,useState,type CSSProperties } from 'react';
 import { api } from '../api';
 import { buildVisualSelection,DELEGATE,delegatedChoices,emptyChoices,type Catalog,type Choices,type VisualProfile,type VisualQuestion,type Style,type Palette,type Font,type GlassVariant } from './visual-selection';
 import './VisualSelector.css';
-import './GlassMaterial.css';
+import { NivooGlassRoot,NivooGlassSurface } from '../vendor/liqui/nivoo';
 import './VisualFonts.css';
 import { LOCAL_FONTS,loadVisualFont,type FontStates } from './visual-fonts';
 
@@ -18,28 +18,50 @@ function Preview({style,palette,dark,mobile,density,heading,body,catalog,variant
   const colors=dark?palette.dark:palette.light;
   const glass=style.id==='liquid-glass';
   const material=glass?(variant??catalog.glassVariants[0]):undefined;
-  const rgb=[1,3,5].map(i=>parseInt(colors.surfaceRaised.slice(i,i+2),16));
+
   const f=catalog.foundations.find(x=>x.styleId===style.id);
   const d=catalog.densities.find(x=>x.id===density);
   const vars={
     '--vs-bg':colors.background,'--vs-surface':colors.surface,'--vs-raised':colors.surfaceRaised,'--vs-text':colors.text,'--vs-muted':colors.muted,'--vs-border':colors.border,'--vs-accent':colors.accent,'--vs-on-accent':colors.onAccent,'--vs-success':colors.success,
     '--vs-radius':(f?.radius.panel??10)+'px','--vs-control-radius':(f?.radius.control??6)+'px','--vs-shadow':f?.shadow.panel??'none',
-    '--vs-glass-tint':'rgba('+rgb.join(',')+','+(material?.tintOpacity??0.94)+')','--vs-glass-blur':(material?.blurPx??12)+'px','--vs-glass-highlight':material?.highlight??'inset 0 1px 0 rgba(255,255,255,.18)',
-    '--vs-gap':Math.max(4,d?.spacing.sm??8)+'px','--vs-heading':fontPreview(heading,fontStates).stack,'--vs-body':fontPreview(body,fontStates).stack,
-    '--nv-glass-background':colors.background,'--nv-glass-surface':colors.surface,'--nv-glass-surface-raised':colors.surfaceRaised,'--nv-glass-text':colors.text,'--nv-glass-border':colors.border,'--nv-glass-accent':colors.accent,'--nv-glass-on-accent':colors.onAccent,'--nv-glass-success':colors.success,'--nv-glass-radius-panel':(f?.radius.panel??10)+'px','--nv-glass-radius-control':(f?.radius.control??6)+'px','--nv-glass-shadow-panel':f?.shadow.panel??'none','--nv-glass-tint':'rgba('+rgb.join(',')+','+(material?.tintOpacity??0.76)+')','--nv-glass-blur':(material?.blurPx??12)+'px','--nv-glass-highlight':material?.highlight??'inset 0 1px 0 #ffffff55',
+    '--vs-gap':Math.max(4,d?.spacing.sm??8)+'px','--vs-heading':fontPreview(heading,fontStates).stack,'--vs-body':fontPreview(body,fontStates).stack,'--nv-liqui-solid':colors.surface,'--nv-liqui-text':colors.text,
   } as CSSProperties;
-  return <div className={'nv-vs-preview'+(glass?' nv-glass-stage':'')+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} data-nivoo-glass={glass?'':undefined} data-style={style.id} data-glass-variant={material?.id} data-mode={dark?'dark':'light'} style={vars} aria-hidden={mini?true:undefined}>
-    <div className="nv-vs-preview-nav nv-glass-material"><span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span></div>
+  if(glass){
+    const variantId=material?.id??'frosted-glass';
+    // Deliberately structured background: the upstream lens bends its edges.
+    // No CSS approximation of the optical effect and no unlicensed photography.
+    const backdrop=<div aria-hidden="true" className="nv-vs-optical-backdrop" style={{background:dark
+      ?'linear-gradient(145deg,#070c19 0 34%,#2a4464 34% 55%,#132f45 55% 72%,#060e1e 72%)'
+      :'linear-gradient(145deg,#f4f8fc 0 34%,#b9cce5 34% 55%,#d7e7ee 55% 72%,#eef1f8 72%)'}}/>;
+    return <NivooGlassRoot variant={variantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop}
+      className={'nv-vs-preview nv-vs-optical'+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} style={vars} aria-hidden={mini?true:undefined}>
+      <NivooGlassSurface radius={20} refraction={75} bezel={15} blur={2} contentClassName="nv-vs-optical-nav">
+        <span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span>
+      </NivooGlassSurface>
+      <div className="nv-vs-optical-content">
+        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>Visão geral</strong></div><span className="nv-vs-preview-action">+ Novo</span></div>
+        <div className="nv-vs-preview-stats nv-vs-optical-stats">
+          <NivooGlassSurface radius={19} refraction={110} bezel={21} contentClassName="nv-vs-optical-stat"><span>Clientes</span><strong>24</strong><small>+4 neste mês</small></NivooGlassSurface>
+          <NivooGlassSurface radius={19} refraction={110} bezel={21} contentClassName="nv-vs-optical-stat"><span>Ativos</span><strong>18</strong><small>75% da base</small></NivooGlassSurface>
+        </div>
+        {!mini&&<NivooGlassSurface radius={20} refraction={120} bezel={22} contentClassName="nv-vs-optical-chart"><div><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div></NivooGlassSurface>}
+        <NivooGlassSurface radius={20} refraction={100} bezel={20} contentClassName="nv-vs-optical-table"><strong>Clientes recentes</strong><div className="nv-vs-optical-data"><div><span>Cliente A</span><span className="nv-vs-preview-status">Ativo</span></div>{!mini&&<div><span>Cliente B</span><span className="nv-vs-preview-status">Ativo</span></div>}</div></NivooGlassSurface>
+      </div>
+      <NivooGlassSurface radius={24} refraction={95} bezel={17} contentClassName="nv-vs-optical-dock"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span></NivooGlassSurface>
+    </NivooGlassRoot>;
+  }
+  return <div className={'nv-vs-preview'+''+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} data-style={style.id} data-glass-variant={material?.id} data-mode={dark?'dark':'light'} style={vars} aria-hidden={mini?true:undefined}>
+    <div className="nv-vs-preview-nav"><span className="nv-vs-brand"><i>N</i><strong>Workspace</strong></span><span className="nv-vs-online"><span className="nv-vs-dot"/> Online</span><span className="nv-vs-avatar">JD</span></div>
     <div className="nv-vs-preview-content">
-      <div className="nv-vs-preview-sidebar nv-glass-material"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span><span>⚙ Ajustes</span></div>
+      <div className="nv-vs-preview-sidebar"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span><span>⚙ Ajustes</span></div>
       <div className="nv-vs-preview-main">
-        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>Visão geral</strong></div><span className="nv-vs-preview-action nv-glass-control nv-glass-primary">+ Novo</span></div>
+        <div className="nv-vs-preview-title"><div><small>GESTÃO DE CLIENTES</small><strong>Visão geral</strong></div><span className="nv-vs-preview-action">+ Novo</span></div>
         <div className="nv-vs-preview-stats"><div className="nv-glass-panel"><span>Clientes</span><strong>24</strong><small>+4 neste mês</small></div><div className="nv-glass-panel"><span>Ativos</span><strong>18</strong><small>75% da base</small></div></div>
-        <div className="nv-vs-preview-chart nv-glass-panel"><div><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div></div>
-        <div className="nv-vs-preview-table nv-glass-content"><strong>Clientes recentes</strong><div><span className="nv-glass-control nv-vs-search">⌕ Pesquisar</span></div><div><span>Cliente A</span><span className="nv-vs-preview-status">Ativo</span></div><div><span>Cliente B</span><span className="nv-vs-preview-status">Ativo</span></div></div>
+        <div className="nv-vs-preview-chart"><div><strong>Novos clientes</strong><small>Últimos 7 dias</small></div><div className="nv-vs-bars" aria-hidden="true">{[30,56,42,78,61,90,72].map((n,i)=><i key={i} style={{height:n+'%'}}/>)}</div></div>
+        <div className="nv-vs-preview-table"><strong>Clientes recentes</strong><div><span className="nv-glass-control nv-vs-search">⌕ Pesquisar</span></div><div><span>Cliente A</span><span className="nv-vs-preview-status">Ativo</span></div><div><span>Cliente B</span><span className="nv-vs-preview-status">Ativo</span></div></div>
       </div>
     </div>
-    <div className="nv-vs-preview-dock nv-glass-material"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span></div>
+    <div className="nv-vs-preview-dock"><span className="nv-vs-active">◈ Resumo</span><span>◎ Clientes</span><span>▥ Relatórios</span></div>
   </div>;
 }
 
@@ -111,7 +133,7 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
           <strong>{o.rotulo}</strong><small>{o.descricao}</small>{pair&&<small>{[...new Set([sample.label,bodySample.label,monoSample.label])].join(" · ")}</small>}
         </label>;
       })}
-    </div>{q.id==='style'&&<fieldset className="nv-vs-variants" disabled={saving}><legend>Variações Liquid Glass</legend><p>Escolha diretamente o material de vidro. As amostras usam CSS, sem refração óptica real.</p><div className="nv-vs-options nv-vs-styles">{catalog.glassVariants.map(v=><label key={v.id} className={'nv-vs-option'+(choices.style==='liquid-glass'&&choices.glassVariant===v.id?' nv-vs-selected':'')}><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===v.id} onChange={()=>chooseGlass(v.id)}/><Preview mini fontStates={fontStates} style={catalog.styles.find(s=>s.id==='liquid-glass')!} variant={v} palette={palette} dark={v.preferredTheme==='dark'||(v.preferredTheme==='system'&&choices.theme==='dark')} catalog={catalog}/><strong>{v.name}</strong><small>{v.description}</small></label>)}<label className="nv-vs-option"><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===DELEGATE} onChange={()=>chooseGlass(DELEGATE)}/>Liquid Glass — IA escolhe o material</label></div></fieldset>}</fieldset>)}
+    </div>{q.id==='style'&&<fieldset className="nv-vs-variants" disabled={saving}><legend>Variações Liquid Glass</legend><p>Escolha diretamente o material de vidro. Motor original Liqui Design (Canvas/SVG); a qualidade óptica depende do navegador.</p><div className="nv-vs-options nv-vs-styles">{catalog.glassVariants.map(v=><label key={v.id} className={'nv-vs-option'+(choices.style==='liquid-glass'&&choices.glassVariant===v.id?' nv-vs-selected':'')}><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===v.id} onChange={()=>chooseGlass(v.id)}/><Preview mini fontStates={fontStates} style={catalog.styles.find(s=>s.id==='liquid-glass')!} variant={v} palette={palette} dark={v.preferredTheme==='dark'||(v.preferredTheme==='system'&&choices.theme==='dark')} catalog={catalog}/><strong>{v.name}</strong><small>{v.description}</small></label>)}<label className="nv-vs-option"><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===DELEGATE} onChange={()=>chooseGlass(DELEGATE)}/>Liquid Glass — IA escolhe o material</label></div></fieldset>}</fieldset>)}
     <fieldset disabled={saving}><legend>Paleta de cores</legend><div className="nv-vs-options">
       {catalog.palettes.map(p=><label key={p.id} className={'nv-vs-option'+(choices.palette===p.id?' nv-vs-selected':'')}><input type="radio" name="visual-palette" checked={choices.palette===p.id} onChange={()=>choose('palette',p.id)}/><div className="nv-vs-swatches" aria-hidden="true">{[p.light.accent,p.dark.accent,p.light.background,p.dark.surface].map((c,i)=><span key={i} style={{background:c}}/>)}</div><strong>{p.name}</strong></label>)}
       <label className="nv-vs-option"><input type="radio" name="visual-palette" checked={choices.palette===DELEGATE} onChange={()=>choose('palette',DELEGATE)}/>IA escolhe</label>

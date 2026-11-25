@@ -3,20 +3,18 @@ import type { Skill } from '../skills';
 /** Original Nivoo engineering guidance, inspired by public visual references,
  * not a copy of the prompt library or Apple's proprietary rendering technology. */
 export const LIQUID_GLASS_SKILL:Skill={
-  id:'software-liquid-glass',domain:'software',
-  description:'Liquid Glass para interfaces funcionais',
-  source:'https://liquidglassdesign.com/prompts',
-  sourceAttribution:'Liquid Glass Design — referência visual e guia público; orientação de engenharia original Nivoo',
-  action:'Use vidro em camadas seletivas, preserve legibilidade e identidade, e trate refração como aprimoramento opcional com alternativa opaca.',
+  id:'software-liquid-glass',domain:'software',description:'Liquid Glass com motor óptico original Liqui Design',
+  source:'https://github.com/leefanv/liqui-design',
+  sourceAttribution:'Liqui Design — Fan Li, MIT; núcleo e componentes originais fixados no commit 27fea1b66069fcb8dcce133486c6fe5f49744db9',
+  action:'Reutilize o núcleo original e a variante aprovada em toda a identidade do software, preservando legibilidade, semântica e desempenho.',
   body:[
-    'Adote Liquid Glass somente quando o pedido ou o perfil visual aprovado o autorizar. Preserve marca, tema, paleta, fontes, densidade, contratos, componentes e tecnologia do projeto. Não aplique o material a todas as superfícies nem transforme uma correção pontual em redesign. O catálogo de prompts é referência estética de imagens, não código, licença de ativos ou prova de viabilidade de uma interface.',
-    'Separe conteúdo de navegação e controles. Use material translúcido em barras, menus, controles, painéis flutuantes e overlays apropriados. Tabelas, textos longos, dados financeiros, formulários críticos e áreas de edição precisam de fundos estáveis e contraste. Preserve semântica e hierarquia; evite camadas de vidro sobre vidro, reflexos que encobrem rótulos e transparência exagerada.',
-    'Construa a sensação de material com fundo de tonalidade controlada, contorno fino, destaque especular discreto, raios coerentes, sombra suave e separação real de planos. Reutilize os design tokens selecionados e componentes existentes. Não imponha cores pastel, neon, gradientes ou uma imagem de fundo a todo projeto. Ajuste luminosidade para o tema claro e escuro, sem tornar o conteúdo dependente de uma fotografia.',
-    'Diferencie vidro fosco de refração óptica. CSS com translucidez, backdrop-filter e highlights simula o material, mas não desvia a imagem de fundo. Quando a refração for necessária e autorizada, avalie deslocamento por SVG ou shader/canvas conforme suporte real e recursos do projeto. Não afirme refração verdadeira sem verificar deformação do fundo. Não instale biblioteca nem crie renderizador pesado só para reproduzir uma referência.',
-    'Implemente melhoria progressiva: superfície opaca legível como base, efeito CSS sob detecção de suporte e refração avançada apenas quando comprovadamente compatível. SVG filters aplicados ao próprio elemento não equivalem automaticamente à refração do backdrop; valide o mecanismo e cada navegador pertinente. Não presuma suporte a filtros SVG no backdrop, captura de DOM ou acesso a pixels de conteúdo arbitrário. Não capture dados privados, telas ou imagens externas para simular vidro.',
-    'Garanta contraste de texto e controles sobre os fundos mais difíceis, incluindo conteúdo móvel. Tokens opacos anteriores não certificam vidro translúcido. Use tonalidade suficiente, fallback sólido, opção de reduzir/desligar transparência quando pertinente, foco visível, teclado, zoom e toque. Respeite prefers-reduced-motion e, quando disponível, preferências de contraste/transparência; não dependa de suporte a uma única media query para a acessibilidade. Não comunique status apenas por cor ou efeito.',
-    'Use movimento sutil e funcional, ligado a estados reais. Não exija inclinação do dispositivo, rastreamento de ponteiro contínuo, partículas ou animação por frame. Limite áreas de blur e contextos gráficos; descarte recursos, preserve fluidez e forneça fallback estático em dispositivos limitados. Não prometa desempenho sem medições.',
-    'Confira a renderização, as ações, foco, contraste composto, responsividade e fallback com as ferramentas existentes, nos temas e navegadores pertinentes. Diferencie observação real, código implementado e teste não realizado. Não copie os 199 prompts, imagens, assets, fontes ou implementações de terceiros; não alegue equivalência com Apple. Não acione geração de imagem, nova sessão, revisão automática, dependência ou etapa obrigatória por esta Skill. Template e componentes reutilizáveis são frentes complementares.',
+    'A galeria liquidglassdesign.com é referência visual, não biblioteca de código. Use o pacote original Liqui Design fornecido no contexto, sem inventar um novo efeito óptico CSS ou shader.',
+    'Use NivooGlassRoot e NivooGlassSurface do adaptador local, que usa LiquiBackdrop, LiquiThemeProvider e LiquiGlass originais. O preset Prism é oficial, Frosted usa o clássico oficial, Crystal e Dark são adaptações Nivoo dos parâmetros existentes.',
+    'Aplique a identidade em shell, navegação, painéis, controles, listas, formulários, menus, modais e estados. Os componentes oficiais estão no registry local; use os adequados à tecnologia aprovada e suas dependências documentadas. Para projetos React sem Tailwind use o núcleo e adaptadores semânticos locais; não imponha troca de framework. Não copie um dashboard de demonstração como produto.',
+    'Mantenha o texto legível e as operações reais: o próprio sistema original usa ações accent/danger sólidas, dados densos estáveis e vidro onde há superfície óptica. Não imponha translucidez a todo pixel nem abandone a identidade fora de um cartão.',
+    'O núcleo produz mapas de deslocamento via Canvas e filtros SVG; em Chromium usa o backdrop real; Safari/Firefox podem usar cópia do fundo conhecido com LiquiBackdrop ou frost conforme suporte. CSS blur sozinho não desvia a imagem de fundo; não chame fallback de refração.',
+    'Verifique o resultado no navegador e nos temas pertinentes; teste contraste composto, teclado, toque, zoom, responsividade, redução de transparência/movimento, desempenho e funcionamento dos controles. Não declare equivalência Apple nem teste não executado. Preserve licença MIT e arquivos de origem.',
+    'Não crie especialidades, novos renderizadores, novas sessões, CI ou revisões redundantes. Não instale dependências externas sem necessidade real e autorização; não use artefatos visuais não licenciados.'
   ].join('\n'),
 };
 
@@ -46,9 +44,9 @@ export function liquidGlassIntent(text:string,visualStyleId?:string):boolean{
 type Focus='material'|'camadas'|'refracao'|'acessibilidade'|'desempenho'|'movimento';
 type Facet={id:Focus;match:RegExp;rule:string};
 const FACETS:readonly Facet[]=[
-  {id:'material',match:/\b(?:vidro|glass|frosted|transluc\w*|transparen\w*|iluminac\w*|reflex\w*|borda|sombra|profundidade|materia\w*|blur|backdrop-filter)\b/,rule:'Material: use tonalidade controlada, contornos e luz discretos; mantenha raios e sombras coerentes com os tokens. CSS translúcido é aproximação de vidro fosco.'},
+  {id:'material',match:/\b(?:vidro|glass|frosted|transluc\w*|transparen\w*|iluminac\w*|reflex\w*|borda|sombra|profundidade|materia\w*|blur|backdrop-filter)\b/,rule:'Material: use tonalidade controlada, contornos e luz discretos; mantenha raios e sombras coerentes com os tokens. Reutilize a iluminação e o material do núcleo Liqui Design.'},
   {id:'camadas',match:/\b(?:botoes?|botao|menus?|navbar|toolbar|sidebar|modais?|modal|paineis?|painel|dashboard|tabelas?|formularios?|navegacao|camadas?|overlays?)\b/,rule:'Camadas: identidade estrutural do aplicativo, com material coerente na navegação, painéis, controles, menus e overlays; dados e formulários críticos em superfícies estáveis do mesmo design system. Não entregue um painel comum com uma amostra decorativa de vidro.'},
-  {id:'refracao',match:/\b(?:refra\w*|distorc\w*|displacement|svg|webgl|shaders?|canvas|optica)\b/,rule:'Refração: valide deformação real do fundo e suporte no navegador; SVG, canvas ou shader apenas se necessários. Fallback opaco/CSS não deve ser chamado de refração real.'},
+  {id:'refracao',match:/\b(?:refra\w*|distorc\w*|displacement|svg|webgl|shaders?|canvas|optica)\b/,rule:'Refração: use o núcleo original Canvas/SVG; valide a deformação real e a tier de renderização. Fallback frost/clear não equivale a refração.'},
   {id:'acessibilidade',match:/\b(?:acessib\w*|a11y|contraste|legibilidade|texto|zoom|teclado|foco|toque|mobile|celular|transparen\w*)\b/,rule:'Acessibilidade: teste contraste composto sobre fundos reais, foco, toque, zoom e alternativa opaca; preserve preferências de redução de movimento/transparência quando aplicáveis.'},
   {id:'desempenho',match:/\b(?:performance|desempenho|fps|gpu|cpu|mobile|celular|navegadores?|safari|firefox|chrome|fallback|compatib\w*)\b/,rule:'Desempenho: limite blur e camadas, use melhoria progressiva, descarte recursos e verifique fallback por navegador. Não prometa FPS sem medir.'},
   {id:'movimento',match:/\b(?:animac\w*|microinterac\w*|motion|transic\w*|movimento|hover|clique|morph\w*)\b/,rule:'Movimento: feedback breve ligado a estado real, sem loops decorativos; preserve operação sem animação e movimento reduzido.'},
@@ -61,8 +59,8 @@ export function liquidGlassContext(phase:'planner'|'execution',text:string):stri
   const ids=new Set(liquidGlassFocus(text));
   return [
     '## Liquid Glass — material, profundidade e melhoria progressiva',
-    phase==='planner'?'No plano, delimite superfícies autorizadas, preserve conteúdo legível e identidade; proponha CSS leve como aproximação e refração somente se necessária e viável.':'Na etapa atual, aplique a identidade em toda a interface no escopo, reutilize tokens e componentes; use vidro seletivo nas camadas e a mesma linguagem visual em conteúdo opaco. Preserve ações, contraste, fallback e verifique o resultado.',
+    phase==='planner'?'No plano, reutilize o núcleo original Liqui Design e o preset aprovado; preserve conteúdo legível e identidade estrutural.':'Na etapa atual, aplique a identidade em toda a interface no escopo, reutilize tokens e componentes; use vidro seletivo nas camadas e a mesma linguagem visual em conteúdo opaco. Preserve ações, contraste, fallback e verifique o resultado.',
     ...FACETS.filter(f=>ids.has(f.id)).map(f=>'- '+f.rule),
-    'Não trate blur como refração. Não copie prompts ou assets, não instale efeito pesado por padrão e não crie sessão ou revisão extra. Preserve o perfil visual aprovado; se houver conflito, mantenha o padrão e esclareça a decisão.',
+    'Não trate blur como refração. Use o pacote licenciado local; não reinvente o motor nem crie sessão ou revisão extra. Preserve o perfil visual aprovado; se houver conflito, mantenha o padrão e esclareça a decisão.',
   ];
 }
