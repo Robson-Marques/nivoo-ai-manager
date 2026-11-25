@@ -1294,6 +1294,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   const carregar = useCallback(async () => {
     try {
       setE(await api(`/projects/${projetoId}/previa`));
+      setErro(null);
     } catch (x: any) {
       setErro(x.message);
     }
@@ -1335,7 +1336,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
                 <button className={tamanho === 'computador' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('computador')}>Computador</button>
                 <button className={tamanho === 'celular' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('celular')}>Celular</button>
               </span>
-              <a className="link small" href={e.url} target="_blank" rel="noreferrer">nova aba</a>
+              <a className="link small" href={e.url} target="_blank" rel="noreferrer">Abrir em nova aba</a>
             </>
           )}
           {(estado === 'no-ar' || estado === 'ligando') && <button className="secondary" onClick={() => acao('desligar')}>Desligar</button>}
@@ -1343,13 +1344,13 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
         </span>
       </div>
       {semEndereco && (
-        <div className="aviso-sistema">A prévia ainda não tem endereço no seu domínio: no servidor, rode <code>nivoo update</code> (ou <code>nivoo dominio previa</code>).</div>
+        <div className="aviso-sistema">A prévia ainda não tem endereço público configurado. Para usar o domínio atual, execute <code>nivoo previa</code>.</div>
       )}
       {erro && <div className="error small">{erro}</div>}
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (
           <div className={`previa-moldura t-${tamanho}`}>
-            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads" />
+            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox={e.modoCaminho ? "allow-scripts allow-forms" : "allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"} />
           </div>
         ) : estado === 'ligando' ? (
           <div className="previa-info">
@@ -1366,7 +1367,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
                 className="secondary"
                 onClick={() =>
                   onPedirIa(
-                    `A prévia do projeto não ligou: ${e?.mensagem ?? ''}\n\nAjuste o projeto para a prévia funcionar: crie ou corrija o nivoo-previa.json na raiz ({"tipo":"servidor","pasta":"…","instalar":"…","comando":"… ouvindo na porta $PORT","caminho":"/"}, ou {"tipo":"estatico","pasta":"…"} para site), conferindo com o sistema ligado na porta $NIVOO_PORTA_TESTE.`,
+                    `A prévia do projeto não ligou: ${e?.mensagem ?? ''}\n\nPrimeiro identifique a causa: comando, dependências, configuração do projeto ou infraestrutura do Nivoo. Código 127 geralmente indica executável ausente. Não altere o projeto se o problema for do Nivoo. Se for necessário, ajuste a configuração do projeto: crie ou corrija o nivoo-previa.json na raiz ({"tipo":"servidor","pasta":"…","instalar":"…","comando":"… ouvindo na porta $PORT","caminho":"/"}, ou {"tipo":"estatico","pasta":"…"} para site), conferindo com o sistema ligado na porta $NIVOO_PORTA_TESTE.`,
                   )
                 }
               >

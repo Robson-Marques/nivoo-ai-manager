@@ -388,6 +388,13 @@ EOF
     echo "No SEU computador:  ssh -N -L $PORT:127.0.0.1:$PORT -L 3100:127.0.0.1:3100 root@$ip   (3100 = prévia dos projetos)"
     echo "Depois abra:        http://localhost:$PORT"
     ;;
+  previa)
+    # Usa o mesmo endereço público do Nivoo; não toca em DNS, nginx ou Cloudflare.
+    sed -i '/^NIVOO_PREVIA_URL=/d' "$ENV_FILE"
+    echo "NIVOO_PREVIA_URL=/previa" >> "$ENV_FILE"
+    systemctl restart nivoo-api
+    echo "Prévia configurada em /previa no endereço atual do Nivoo."
+    ;;
   dominio)
     PREVIA_PORT="$(sed -n 's/^NIVOO_PREVIA_PORT=//p' "$ENV_FILE" | head -1)"; PREVIA_PORT="${PREVIA_PORT:-3100}"
     # previa-<primeira parte>.<resto>: mesmo domínio do Nivoo (certificado da Cloudflare cobre) e mesmo "site" do navegador.
@@ -588,6 +595,7 @@ nivoo — administração do Nivoo AI Manager
   nivoo dominio <endereço>  publica o Nivoo num domínio seu pela Cloudflare (HTTPS, sem abrir portas)
   nivoo dominio status      mostra o túnel e testa o endereço  (nivoo dominio remover: desliga)
   nivoo dominio acesso <equipe> <aud>   entra direto pelo login da Cloudflare (sem token)
+  nivoo previa              usa /previa no endereço atual (sem DNS adicional)
   nivoo dominio previa      cria o endereço da prévia dos projetos (previa-<endereço>) no mesmo túnel
   nivoo nginx <endereço>    cria o site no nginx para o SEU domínio (upload sem limite); depois: certbot --nginx -d <endereço>
   nivoo senha [usuario]     liga o login por usuário e senha (nivoo sem-senha desliga)
