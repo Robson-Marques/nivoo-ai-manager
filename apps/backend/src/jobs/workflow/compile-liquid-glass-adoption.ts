@@ -26,13 +26,13 @@ export function compileLiquidGlassAdoption(
   const intent=adoptionIntent({...plan,criteria},area,profile,request);
   if(!intent.liquidGlass)return raw;
 
-  // Preserve the already-valid contract exactly (including a phased plan).
+  // Preserve explicit phased decisions and real test commands.
   // All other validation still runs after compilation.
   const declared=criteria.filter(c=>c.config.adoption!==undefined);
   const glass=declared.filter(c=>/^(?:liquid[ -]glass|liqui[ -]design)$/.test(normalize(object(c.config.adoption).artifact)));
   const maps=criteria.filter(c=>/^(?:mapa-de-adocao|mapa-adocao|adoption-inventory|adocao-liquid-glass)$/.test(normalize(c.key)));
   if(glass.length>1)fail('há mais de um inventário para a mesma biblioteca.');
-  let map=glass[0]??(declared.length===1&&maps.includes(declared[0])?declared[0]:undefined)??(declared.length===0&&maps.length===1?maps[0]:undefined);
+  let map:RawCriterion|undefined=glass[0]??(declared.length===1&&maps.includes(declared[0])?declared[0]:undefined)??(declared.length===0&&maps.length===1?maps[0]:undefined);
   if(!map&&declared.length)fail('identifique o inventário de Liquid Glass separadamente das outras adoções.');
   if(map&&map.kind!=='COMMAND'&&map.kind!=='FILE_EXISTS')fail('o inventário '+map.key+' deve ser COMMAND ou FILE_EXISTS.');
   const old=object(map?.config.adoption);
@@ -49,11 +49,11 @@ export function compileLiquidGlassAdoption(
     pending=[...old.pending];
   }
   const covered=families.filter(f=>!pending.includes(f));
-  const manifest=old.manifest??(map?.kind==='FILE_EXISTS'?map.config.path:undefined)??DEFAULT_MANIFEST;
+  const mapPath=map?.kind==='FILE_EXISTS'?map.config.path:undefined;
+  const manifest=old.manifest??(typeof mapPath==='string'&&mapPath.endsWith('.json')?mapPath:undefined)??DEFAULT_MANIFEST;
   const packagePath=old.packagePath??DEFAULT_PACKAGE;
   if(!validPath(manifest)||!validPath(packagePath))fail('manifest e packagePath devem ser caminhos relativos válidos do projeto.');
-  if(map?.kind==='FILE_EXISTS'&&map.config.path!==undefined&&map.config.path!==manifest)
-    fail('o caminho do inventário deve ser igual a adoption.manifest; preserve outros arquivos em critérios separados.');
+
   const adoption:Adoption={artifact:'liquid-glass',source:SOURCE,revision:LIQUI_UPSTREAM_COMMIT,mode,manifest,packagePath,families:covered,pending};
   const mapRef=capabilityReference({capability:{...object(map?.config.capability),phase:'structural'}});
   const acceptance=criteria.filter(c=>c.kind==='COMMAND'&&capabilityReference(c.config)?.phase==='acceptance'&&c!==map);
@@ -85,6 +85,15 @@ export function compileLiquidGlassAdoption(
   for(const c of integrated)if(!c.config.adoptionFamilies.length)delete c.config.adoptionFamilies;
 
   const unique=(base:string)=>{let k=base,n=2;while(criteria.some(c=>c.key===k))k=base+'-'+n++;return k;};
+  // A separate Markdown map or a legacy presence-only shell check is not
+  // the native JSON inventory. Keep the original check, but do not mistake
+  // its success for structural adoption.
+  if(map&&((map.kind==='FILE_EXISTS'&&map.config.path!==undefined&&map.config.path!==manifest)||
+    (map.kind==='COMMAND'&&/^test\s+-(?:e|f|s|d)\s+[^;&|\n]+$/.test(String(map.config.command??'').trim())))){
+    delete map.config.adoption;
+    delete map.config.capability;
+    map=undefined;
+  }
   if(!map){
     map={key:unique('adocao-liquid-glass'),kind:'FILE_EXISTS',description:'Conferir inventário, fontes originais e componentes utilizados na adoção Liquid Glass.',config:{}};
     criteria.push(map);

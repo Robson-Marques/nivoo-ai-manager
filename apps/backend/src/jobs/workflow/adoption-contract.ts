@@ -29,7 +29,7 @@ export function adoptionOf(config:unknown):Adoption|null{
  * Ordinary FILE_EXISTS criteria never qualify as structural acceptance. */
 export function nativeAdoptionInventory(c:Criterion):boolean{
   const a=adoptionOf(c.config),cfg=record(c.config);
-  return c.kind==='FILE_EXISTS'&&!!a&&cfg?.path===a.manifest&&cap(c)?.phase==='structural';
+  return c.kind==='FILE_EXISTS'&&a?.artifact==='liquid-glass'&&cfg?.path===a.manifest&&cap(c)?.phase==='structural';
 }
 function cap(c:Criterion){return record(record(c.config)?.capability);}
 function error(message:string):never{throw new BadRequestException(message);}

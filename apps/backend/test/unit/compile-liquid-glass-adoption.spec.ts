@@ -33,6 +33,13 @@ describe('Compilação determinística de adoção Liquid Glass',()=>{
     expect(criteria.some(nativeAdoptionInventory)).toBe(true);
     expect(criteria.filter(c=>c.kind==='COMMAND')).toHaveLength(1);
   });
+  it('preserva mapa documental e cria inventário nativo separado, sem aceitar simples existência como estrutura',()=>{
+    const document={...map,config:{path:'docs/mapa.md',adoption:{artifact:'liquid-glass'}}};
+    const criteria=compile([document,acceptance]);
+    expect(criteria.find(c=>c.key==='mapa-de-adocao')?.config).toEqual({path:'docs/mapa.md'});
+    expect(criteria.find(nativeAdoptionInventory)?.config).toMatchObject({path:'docs/adocao-liquid-glass.json'});
+    expect(compile(criteria)).toEqual(criteria);
+  });
   it('preserva a migração faseada e não declara adoção concluída',()=>{
     const criteria=compile([{...map,config:{...map.config,adoption:{...map.config.adoption,mode:'pilot',pending:['data','feedback']}}},acceptance]);
     expect(adoptionOf(criteria.find(nativeAdoptionInventory)!.config)).toMatchObject({mode:'pilot',pending:['data','feedback'],families:['shell','navigation','controls','forms']});
