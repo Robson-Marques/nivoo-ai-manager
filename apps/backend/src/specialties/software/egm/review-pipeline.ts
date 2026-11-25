@@ -113,9 +113,10 @@ const comprehensionComplete=(text:string)=>/What this proposes/i.test(text)&&/Ho
  * No transport has been validated merely by calling this function. */
 export async function runGoldfishReview(input:RunInput):Promise<GoldfishRunResult>{
   if(!nonempty(input.revision)||!nonempty(input.target.path))throw Error('Alvo ou revisão ausente.');
-  const split=splitGoldfishDocument(input.target.content,input.explicitBoundary);
-  // Feature-spec preset explicitly treats the entire document as the feature.
-  const effective=input.preset==='feature_spec'?{...split,feature:split.full,detailed:null}:split;
+  // The upstream feature-only preset bypasses semantic split discovery.
+  if(!input.target.content.trim())throw Error('Documento de revisão vazio.');
+  const full={start:1,end:input.target.content.split(/\r?\n/).length,text:input.target.content};
+  const effective=input.preset==='feature_spec'?{full,feature:full,detailed:null}:splitGoldfishDocument(input.target.content,input.explicitBoundary);
   const phases=goldfishPhases(input.preset,effective);
   if(input.preset===8&&!nonempty(input.initialZoomOutReport?.content))throw Error('A fase 8 isolada exige o parecer inicial da fase 5.');
   const results:GoldfishPhaseRecord[]=[];
