@@ -1,3 +1,4 @@
+import { DesignStudio } from './pages/DesignStudio';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
@@ -22,6 +23,7 @@ function App() {
           <Route path="/p/:pid" element={<Projeto />} />
           <Route path="/p/:pid/studio" element={<VideoStudio />} />
           <Route path="/studio" element={<StudioHome />} />
+          <Route path="/design-studio" element={<DesignStudio />} />
           <Route path="/studio/:pid" element={<VideoStudio />} />
           <Route path="/p/:pid/c/:cid" element={<Projeto />} />
           <Route path="/agentes" element={<Modelos />} />

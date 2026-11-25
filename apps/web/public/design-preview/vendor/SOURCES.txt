@@ -1,0 +1,4 @@
+Unmodified upstream runtime assets; licenses included.
+Liquid Glass for the web v2.0.0 — https://github.com/asimov-academy/liquid-glass-skill — 65cd87df7da3bcaea7baabb8beb5f7bafb6d403a
+Bootstrap v5.3.8 — https://github.com/twbs/bootstrap — 25aa8cc0b32f0d1a54be575347e6d84b70b1acd7
+The Nivoo preview adapter is separate from upstream. No remote scripts or npm installation required.
