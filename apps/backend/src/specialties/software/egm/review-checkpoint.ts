@@ -3,10 +3,10 @@ import type { ExecutionResult } from '../../../providers/provider.interface';
 import { measuredUsage } from '../../../worker/token-benchmark';
 import { GOLDFISH_SOURCE_REVISION,type GoldfishDispatch,type GoldfishReviewerRequest,type GoldfishReviewerResult,type GoldfishPreset,type GoldfishReference } from './review-pipeline';
 
-export type ReviewBinding={projectId:string;conversationId:string;messageId:string;providerId:string;model:string|null;revision:string;preset:GoldfishPreset|'drift';continuationOf?:string;targetHash:string;sourceRevision:string};
+export type ReviewBinding={projectId:string;conversationId:string;messageId:string;providerId:string;model:string|null;revision:string;preset:GoldfishPreset|'drift'|'lite-spec'|'lite-diff';continuationOf?:string;liteSourceId?:string;targetHash:string;sourceRevision:string};
 type Usage=ReturnType<typeof measuredUsage>;
 type Entry={key:string;fingerprint:string;stage:number;role:string;attempt:1|2;startedAt:string;finishedAt?:string;result?:GoldfishReviewerResult;usage?:Usage};
-export type GoldfishCheckpoint={version:1;binding:ReviewBinding;entries:Entry[];automaticRequest?:import('./automatic-review').AutoReviewRequest;resolution?:import('./review-resolution').ResolutionLedger;drift?:Awaited<ReturnType<typeof import('./drift').runSemanticDrift>>;loop?:import('./review-loop').LoopRecord};
+export type GoldfishCheckpoint={version:1;binding:ReviewBinding;entries:Entry[];automaticRequest?:import('./automatic-review').AutoReviewRequest;resolution?:import('./review-resolution').ResolutionLedger;drift?:Awaited<ReturnType<typeof import('./drift').runSemanticDrift>>;loop?:import('./review-loop').LoopRecord;lite?:import('./lite-review').LiteResult};
 export type ReviewTotals={costUsd:number;costKnown:boolean;inputTokens:number;outputTokens:number;tokensKnown:boolean;uncertain:number;calls:number};
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function reviewBinding(input:Omit<ReviewBinding,'targetHash'|'sourceRevision'>,target:GoldfishReference,baseline:readonly GoldfishReference[]):ReviewBinding{
@@ -30,7 +30,7 @@ export function readReviewCheckpoint(raw:unknown):GoldfishCheckpoint{
   if(!object(raw)||raw.version!==1||!object(raw.binding)||!Array.isArray(raw.entries)||raw.entries.length>20)throw Error('Checkpoint Goldfish inválido; nenhuma chamada será repetida.');
   const b=raw.binding;
   if(b.continuationOf!==undefined&&!str(b.continuationOf))throw Error('Vínculo de continuação inválido.');
-  if(!['projectId','conversationId','messageId','providerId','revision','targetHash','sourceRevision'].every(k=>str(b[k]))||!(b.model===null||typeof b.model==='string')||!['uninterrupted','feature_spec','implementation','drift',5,6,7,8,9].includes(b.preset as GoldfishPreset|'drift'))throw Error('Vínculo Goldfish inválido.');
+  if(!['projectId','conversationId','messageId','providerId','revision','targetHash','sourceRevision'].every(k=>str(b[k]))||!(b.model===null||typeof b.model==='string')||!['uninterrupted','feature_spec','implementation','drift','lite-spec','lite-diff',5,6,7,8,9].includes(b.preset as GoldfishPreset|'drift'))throw Error('Vínculo Goldfish inválido.');
   const keys=new Set<string>();
   for(const e of raw.entries){
     if(!object(e)||!str(e.key)||!str(e.fingerprint)||!str(e.role)||![5,6,7,8,9].includes(Number(e.stage))||(e.attempt!==1&&e.attempt!==2)||e.key!==e.stage+':'+e.role+':'+e.attempt||keys.has(e.key)||!str(e.startedAt))throw Error('Tentativa Goldfish inválida.');
@@ -42,7 +42,7 @@ export function readReviewCheckpoint(raw:unknown):GoldfishCheckpoint{
 }
 export function assertReviewBinding(saved:GoldfishCheckpoint,binding:ReviewBinding):void{
   const keys=Object.keys(binding) as (keyof ReviewBinding)[];
-  if(saved.binding.continuationOf!==binding.continuationOf||keys.some(k=>saved.binding[k]!==binding[k]))throw Error('Documento, revisão, projeto, provedor ou modelo mudou; checkpoint preservado sem repetir chamadas.');
+  if(saved.binding.liteSourceId!==binding.liteSourceId||saved.binding.continuationOf!==binding.continuationOf||keys.some(k=>saved.binding[k]!==binding[k]))throw Error('Documento, revisão, projeto, provedor ou modelo mudou; checkpoint preservado sem repetir chamadas.');
 }
 export function reviewTotals(checkpoint:GoldfishCheckpoint):ReviewTotals{
   let costUsd=0,inputTokens=0,outputTokens=0,costKnown=true,tokensKnown=true,uncertain=0;
