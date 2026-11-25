@@ -5,6 +5,11 @@ describe('API — perfil visual de projeto',()=>{
   let h:Harness;
   beforeAll(async()=>{h=await createHarness();await truncateAll(h.prisma);});
   afterAll(async()=>{await h.close();});
+  it('expõe catálogo estático antes da rota de ID de projeto',async()=>{
+    const result=(await h.http().get('/api/projects/visual-styles').expect(200)).body;
+    expect(result.version).toBe(1);
+    expect(result.styles.map((s:any)=>s.id)).toEqual(['liquid-glass','minimalist','corporate','premium-dark']);
+  });
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;
     const b=(await h.http().post('/api/projects').send({name:'Visual B',base:'software'}).expect(201)).body;
@@ -13,6 +18,7 @@ describe('API — perfil visual de projeto',()=>{
     expect(a.visualProfile).toBeNull();
     expect(a.visualProfileRevision).toBe(0);
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,rawCss:'a'}}).expect(400);
+    await h.http().patch(url).send({expectedRevision:0,profile:{...p,styleId:'not-in-catalog'}}).expect(400);
     const saved=(await h.http().patch(url).send({expectedRevision:0,profile:p}).expect(200)).body;
     expect(saved.visualProfile).toEqual(p);
     expect(saved.visualProfileRevision).toBe(1);

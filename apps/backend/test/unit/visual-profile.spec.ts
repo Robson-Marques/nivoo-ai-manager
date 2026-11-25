@@ -18,12 +18,22 @@ describe('Perfil visual persistente',()=>{
     expect(parseVisualProfileUpdate({expectedRevision:1,profile:null})).toEqual({expectedRevision:1,profile:null});
     for(const v of [{profile:null},{expectedRevision:-1,profile:null},{expectedRevision:1.5,profile:null},{expectedRevision:'1',profile:null},{expectedRevision:2147483647,profile:null},{expectedRevision:1},{expectedRevision:0,profile:guided,extra:true}])expect(()=>parseVisualProfileUpdate(v)).toThrow();
   });
+  it('valida novos estilos contra o catálogo sem apagar perfis legados',()=>{
+    const unknown={...guided,styleId:'legacy-style'};
+    expect(parseVisualProfile(unknown)).toEqual(unknown);
+    expect(()=>parseVisualProfileUpdate({expectedRevision:0,profile:unknown})).toThrow('Estilo visual não encontrado');
+    expect(visualProfileContext(unknown,1).join('\n')).toContain('Estilo não disponível no catálogo atual');
+    const explicit={...guided,styleId:'premium-dark',theme:'light'};
+    expect(parseVisualProfileUpdate({expectedRevision:0,profile:explicit}).profile).toEqual(explicit);
+  });
   it('compõe orientação enxuta, sem campos indefinidos e sem conteúdo não confiável',()=>{
     expect(visualProfileContext(null,0)).toEqual([]);
     const t=visualProfileContext(guided,2).join('\n');
     expect(t).toContain('revisão 2');
     expect(t).toContain('Estilo: liquid-glass');
     expect(t).toContain('Fonte de texto: manrope');
+    expect(t).toContain('Direção do estilo Liquid Glass');
+    expect(t).not.toContain('Direção do estilo Corporativo');
     expect(t).not.toContain('Paleta:');
     expect(t).not.toContain('undefined');
     expect(visualProfileContext({schemaVersion:1,mode:'delegated'},1).join('\n')).toContain('delegadas');

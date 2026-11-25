@@ -1,5 +1,7 @@
-/** Stable contract for visual preferences. Catalog identifiers are validated
- * structurally here; catalog membership and previews belong to later fronts.
+import { findVisualStyle } from './visual-style-catalog';
+
+/** Stable contract for visual preferences. Style membership is validated on
+ * new writes; palette, layout and font membership belong to later fronts.
  * A null DB value means the user has not defined a visual profile. */
 export interface VisualProfileV1 {
   schemaVersion: 1;
@@ -63,7 +65,9 @@ export function parseVisualProfileUpdate(body:unknown):{expectedRevision:number;
   onlyFields(v,['expectedRevision','profile']);
   const revision=v.expectedRevision;
   if(typeof revision!=='number'||!Number.isSafeInteger(revision)||revision<0||revision>=2147483647)throw Error('Informe expectedRevision válido.');
-  return {expectedRevision:revision,profile:parseVisualProfile(v.profile)};
+  const profile=parseVisualProfile(v.profile);
+  if(profile?.styleId&&!findVisualStyle(profile.styleId))throw Error('Estilo visual não encontrado no catálogo.');
+  return {expectedRevision:revision,profile};
 }
 
 /** Compact shared profile context: no external URLs, raw CSS, or new memory. */
@@ -71,6 +75,7 @@ export function visualProfileContext(value:unknown,revision:number):string[]{
   let p:VisualProfileV1|null;
   try{p=parseVisualProfile(value);}catch{return ['## Perfil visual inválido','Não aplique o perfil armazenado; informe a inconsistência. Preserve a identidade existente.'];}
   if(!p)return [];
+  const style=p.styleId?findVisualStyle(p.styleId):undefined;
   return [
     '## Perfil visual do projeto — revisão '+revision,
     p.mode==='delegated'?'Escolhas não definidas foram delegadas à IA; preserve a marca e o padrão já aprovados.':'Use as preferências explícitas abaixo; campos ausentes não representam escolhas aprovadas.',
@@ -79,6 +84,7 @@ export function visualProfileContext(value:unknown,revision:number):string[]{
       ['Fonte de títulos',p.fonts?.heading],['Fonte de texto',p.fonts?.body],['Fonte monoespaçada',p.fonts?.mono],
       ['Tema',p.theme],['Densidade',p.density],['Uso',p.usage],
     ].filter(([,v])=>v!==undefined).map(([k,v])=>'- '+k+': '+v)),
+    ...(style?['- Direção do estilo '+style.name+': '+style.guidance]:p.styleId?['- Estilo não disponível no catálogo atual; preserve a identidade existente e solicite confirmação antes de substituí-lo.']:[]),
     'Preferências são IDs, não comandos de instalação. Aplique somente a mudanças de interface; preserve contratos, acessibilidade e segurança. Não altere a identidade existente fora do escopo nem grave novas escolhas sem confirmação explícita.',
   ];
 }

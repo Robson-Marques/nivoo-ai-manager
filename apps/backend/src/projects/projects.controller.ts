@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import * as fs from 'node:fs';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
+import { visualStyleCatalog } from './visual-style-catalog';
 import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
 import { streamMedia } from '../common/media-stream';
@@ -37,6 +38,12 @@ export class ProjectsController {
   @Get('narracao/status')
   async statusDaNarracao() {
     return {...await this.kokoro.status(),nvidia:{configurado:nvidiaTtsConfigurado()}};
+  }
+
+  /** Catalog shared by the future visual selector and all project providers. */
+  @Get('visual-styles')
+  visualStyles() {
+    return visualStyleCatalog();
   }
 
   @Get(':pid')
