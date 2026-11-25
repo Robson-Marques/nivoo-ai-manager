@@ -8,7 +8,7 @@ function pairsOf(items:Artifact[]):Pair[]{
   for(const a of items){
     const match=/^remodelagem\/(antes|depois)\/([a-zA-Z0-9_.-]+\.(?:png|jpe?g|webp))$/i.exec(a.nome);
     if(!match)continue;
-    const key=match[2];const p=pairs.get(key)??{name:key};
+    const key=match[2];const p:Pair=pairs.get(key)??{name:key};
     if(match[1].toLowerCase()==='antes')p.before=a;else p.after=a;
     pairs.set(key,p);
   }

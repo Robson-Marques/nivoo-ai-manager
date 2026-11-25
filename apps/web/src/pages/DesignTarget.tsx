@@ -4,7 +4,7 @@ import { api } from '../api';
 type Project={id:string;name:string;gitUrl?:string|null;gitBranch?:string|null};
 type Scope={count:number;examples:string[]};
 export type Analysis={project:{id:string;name:string;url:string|null;branch:string|null};commit:string;analyzedAt:string;trackedFiles:number;technologies:{name:string;evidence:string[]}[];frontend:Scope;pages:Scope;components:Scope;styles:Scope;configs:Scope;locks:Scope;manifestCoverage:{total:number;read:number;omitted:number;unreadable:string[]};limitations:string[]};
-export function DesignTarget({projects,projectId,onChange,onImport,disabled,onAnalysis}:{projects:Project[]|null;projectId:string|null;onChange:(id:string|null)=>void;onImport:()=>void;disabled:boolean;onAnalysis:(a:Analysis|null)=>void}){
+export function DesignTarget({projects,projectId,onChange,onImport,disabled,onAnalysis,mode}:{projects:Project[]|null;projectId:string|null;onChange:(id:string|null)=>void;onImport:()=>void;disabled:boolean;onAnalysis:(a:Analysis|null)=>void;mode:'new'|'remodel'}){
   const [analysis,setAnalysis]=useState<Analysis|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
@@ -19,9 +19,9 @@ export function DesignTarget({projects,projectId,onChange,onImport,disabled,onAn
       {projectId&&!p&&<option value={projectId}>Projeto não disponível na lista</option>}
       {projects?.map(x=><option key={x.id} value={x.id}>{x.name}{x.gitBranch?' · '+x.gitBranch:''}</option>)}
     </select></label>
-    <button type="button" className="secondary" onClick={onImport} disabled={disabled}>Importar com o Novo projeto existente</button>
+    <button type="button" className="secondary" onClick={onImport} disabled={disabled}>{mode==='new'?'Criar projeto pelo formulário existente':'Importar pelo formulário existente'}</button>
     {p&&<><p>{p.gitUrl??'Projeto local, sem repositório remoto'}{p.gitBranch?' · branch remota '+p.gitBranch:''}</p><Link to={'/p/'+p.id}>Abrir projeto e configurações Git</Link>
-    <button type="button" className="secondary" disabled={disabled||busy} onClick={()=>void run()}>{busy?'Analisando commit local…':'Analisar frontend existente'}</button></>}
+    <button type="button" className="secondary" disabled={disabled||busy} onClick={()=>void run()}>{busy?'Analisando commit local…':'Analisar código do projeto'}</button></>}
     {error&&<p role="alert" className="error">{error}</p>}
     {analysis&&analysis.project.id===projectId&&<div className="design-analysis">
       <h4>Inventário do frontend</h4><p>Commit local: <code>{analysis.commit.slice(0,12)}</code> · {analysis.trackedFiles} arquivos analisáveis</p>

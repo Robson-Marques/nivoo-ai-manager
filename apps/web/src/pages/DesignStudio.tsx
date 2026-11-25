@@ -73,8 +73,8 @@ export function DesignStudio(){
           <label>Perfil salvo<select value={current?.id??''} onChange={e=>selectProfile(e.target.value)}><option value="">Novo perfil</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
           {current&&<button type="button" className="secondary" onClick={copyProfile}>Usar como novo perfil</button>}
           <label>Nome<input required maxLength={120} value={draft.title} onChange={e=>setDraft(d=>({...d,title:e.target.value}))}/></label>
-          <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode'],projectId:e.target.value==='new'?null:d.projectId}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
-          {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving} onAnalysis={setAnalysis}/>}
+          <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode'],projectId:d.projectId}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
+          {<DesignTarget mode={draft.mode} projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving} onAnalysis={setAnalysis}/>}
           <label>Estilo / motor visual<select value={draft.sourceId} onChange={e=>setDraft(d=>({...d,sourceId:e.target.value}))}>{sources.filter(s=>s.kind!=='reference').map(s=><option key={s.id} value={s.id}>{s.style} — {s.name}</option>)}</select></label>
           <label>Tema<select value={draft.theme} onChange={e=>setDraft(d=>({...d,theme:e.target.value as Fields['theme']}))}><option value="system">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label>
           {visual&&defaults&&<VisualEditor key={current?.id??'new'} value={visual} onChange={setVisual} defaults={defaults} palettes={palettes}/>}
@@ -89,10 +89,10 @@ export function DesignStudio(){
           <h4>Requisitos</h4><p>{source.requirements.join(' · ')}</p>
           {source.install&&<><h4>Comando oficial de instalação</h4><code className="design-studio-command">{source.install}</code></>}
           {related.length>0&&<><h4>Fontes complementares</h4>{related.map(s=><p key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> — {s.kind==='reference'?'referência visual':'biblioteca complementar'}</p>)}</>}
-          {draft.mode==='remodel'&&<><p>O Studio usa os projetos e as conexões Git existentes.</p><RemodelRequest key={draft.projectId??'none'} profileId={current?.id??null} revision={current?.revision??null} analysis={analysis?.project.id===draft.projectId?analysis:null} ready={source.status==='ready'&&!!source.adapter} dirty={dirty||saving}/>{draft.projectId&&<DesignComparison key={draft.projectId} projectId={draft.projectId}/>}</>}
+          {<><p>O Studio usa os projetos e as conexões Git existentes.</p><RemodelRequest mode={draft.mode} key={(draft.projectId??'none')+draft.mode} profileId={current?.id??null} revision={current?.revision??null} analysis={analysis?.project.id===draft.projectId?analysis:null} ready={source.status==='ready'&&!!source.adapter} dirty={dirty||saving}/>{draft.mode==='remodel'&&draft.projectId&&<DesignComparison key={draft.projectId} projectId={draft.projectId}/>}</>}
         </>:<p>Catálogo indisponível.</p>}
       </section>
     </div>}
-    {importing&&<NovoProjeto origemInicial="git" onFechar={()=>setImporting(false)} onCriado={id=>{setImporting(false);setDraft(d=>({...d,projectId:id}));void recarregar().catch(e=>setError(e instanceof Error?e.message:String(e)));}}/>}
+    {importing&&<NovoProjeto origemInicial={draft.mode==='new'?'zero':'git'} onFechar={()=>setImporting(false)} onCriado={id=>{setImporting(false);setDraft(d=>({...d,projectId:id}));void recarregar().catch(e=>setError(e instanceof Error?e.message:String(e)));}}/>}
   </section>;
 }

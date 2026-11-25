@@ -22,10 +22,12 @@ export type DesignAttachment={nome:string;contentBase64:string};
 export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:RemodelScope,provider:string,assets:DesignAttachment[]){
   const source=findDesignSource(profile.sourceId);
   if(!source?.adapter||source.status!=='ready')throw new BadRequestException('Escolha um motor com prévia local disponível');
+  const creating=profile.mode==='new';
+  if(creating&&(scope.kind!=='all'||!scope.notes))throw new BadRequestException('Descreva o frontend a criar');
   const tokens=JSON.stringify({schemaVersion:1,profileId:profile.id,revision:profile.revision,theme:profile.theme,sourceId:source.id,visual:profile.visual},null,2);
   const hashes=assets.map(a=>a.nome+' SHA256 '+createHash('sha256').update(Buffer.from(a.contentBase64,'base64')).digest('hex')).join('\n');
   const objective=[
-    'Remodelar o frontend existente usando a identidade visual selecionada no Studio de Design, sem alterar suas funcionalidades.',
+    creating?'Criar o frontend funcional descrito no escopo, usando a identidade visual selecionada no Studio de Design e integrando os serviços existentes quando houver.':'Remodelar o frontend existente usando a identidade visual selecionada no Studio de Design, sem alterar suas funcionalidades.',
     'Commit local analisado: '+commit+'. Este é o ponto de referência; se a base evoluiu, inspecione as mudanças antes de aplicar e não sobrescreva trabalho alheio.',
     'Motor: '+source.name+' | Fonte: '+source.url+' | Documentação: '+source.docs,
     'Escopo: '+(scope.kind==='all'?'frontend inteiro':scope.paths.join(', ')),
@@ -34,11 +36,11 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
     'Arquivos originais do motor anexados à conversa (preservar bytes e avisos de licença):\n'+hashes,
     'Preservar autenticação, autorização, rotas, APIs, dados, regras de negócio, validações e fluxos. Não recriar backend, integração Git, infraestrutura ou funcionalidades. Não trocar framework por conveniência.',
     'Use os componentes originais anexados e adapte sua integração ao framework existente; não simule Liquid Glass por blur/CSS próprio e não substitua biblioteca por outra. Se já existir a mesma biblioteca em versão compatível, reutilize sem instalar uma segunda cópia, registrando a versão.',
-    'A prévia do Studio é um demonstrador dos componentes, não uma cópia das telas do software. Use o conteúdo e a estrutura funcional reais do projeto.',
+    creating?'A prévia do Studio demonstra componentes. Crie as telas e fluxos solicitados, não copie os dados de demonstração.':'A prévia do Studio é um demonstrador dos componentes, não uma cópia das telas do software. Use o conteúdo e a estrutura funcional reais do projeto.',
   ].join('\n\n');
   const instructions=[
-    'Implemente a remodelagem diretamente no worktree deste trabalho, dentro do escopo autorizado. Leia as regras do projeto e os anexos da conversa em contexto/anexos/. Não faça commit/push diretamente no remoto; o Nivoo já controla integração e publicação.',
-    'Antes de editar, registre os fluxos e as telas afetadas. Se a prévia existente funcionar, capture as telas atuais usando os recursos já disponíveis no Nivoo e preserve as capturas como evidência antes/depois. Não invente evidências. Para o comparador do Studio, grave capturas PNG, JPG ou WebP em out/remodelagem/antes/<tela>-<viewport>.png e out/remodelagem/depois/<tela>-<viewport>.png, usando exatamente o mesmo nome, extensão, rota, viewport e estado de interface em cada par. Capture antes de editar e depois da implementação, sem usar dados reais sensíveis. Não substitua capturas faltantes por imagens simuladas.',
+    (creating?'Implemente o novo frontend':'Implemente a remodelagem')+' diretamente no worktree deste trabalho, dentro do escopo autorizado. Leia as regras do projeto e os anexos da conversa em contexto/anexos/. Não faça commit/push diretamente no remoto; o Nivoo já controla integração e publicação.',
+    creating?'Para frontend novo, registre a estrutura inicial e entregue as capturas finais quando a execução local for possível. Nunca invente uma tela anterior.':'Antes de editar, registre os fluxos e as telas afetadas. Se a prévia existente funcionar, capture as telas atuais usando os recursos já disponíveis no Nivoo e preserve as capturas como evidência antes/depois. Não invente evidências. Para o comparador do Studio, grave capturas PNG, JPG ou WebP em out/remodelagem/antes/<tela>-<viewport>.png e out/remodelagem/depois/<tela>-<viewport>.png, usando exatamente o mesmo nome, extensão, rota, viewport e estado de interface em cada par. Capture antes de editar e depois da implementação, sem usar dados reais sensíveis. Não substitua capturas faltantes por imagens simuladas.',
     'Mapeie os tokens para o mecanismo visual existente, mantendo os valores de ambos os temas, e use o motor original para componentes compatíveis. Use o arquivo de licença junto aos ativos distribuídos. Não aplique CSS global que altere telas fora do escopo.',
     'Para escopo selecionado, altere somente os arquivos selecionados e os pontos compartilhados estritamente necessários para integrar os tokens; relate esses pontos e preserve o comportamento das demais telas.',
     'Execute os comandos de build/testes que o projeto já possui, proporcionalmente ao escopo. Use a prévia e ferramentas de captura/interação existentes quando disponíveis. Não crie CI novo nem um fluxo paralelo de conferência.',
@@ -52,5 +54,5 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
     'git diff --check --cached',
     '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|[.]nivoo/)" | grep -Ei "[.](tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
   ].join(' && ');
-  return {title:'Remodelagem — '+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand,requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
+  return {title:(creating?'Novo frontend — ':'Remodelagem — ')+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:creating?'Criar frontend com identidade visual':'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand,requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
 }

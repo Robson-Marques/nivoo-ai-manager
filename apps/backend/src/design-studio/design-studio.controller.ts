@@ -28,11 +28,11 @@ export class DesignStudioController {
     if(!p||p.archivedAt)throw new NotFoundException('Projeto ativo não encontrado');
     return {project:{id:p.id,name:p.name,url:p.gitUrl,branch:p.gitBranch},...(await inspectFrontend(this.workspace.projectDirs(p.dirKey).repo))};
   }
-  @Post('profiles/:id/remodel-plan') async remodel(@Param('id',ParseUUIDPipe) id:string,@Body() body:unknown){
+  @Post(['profiles/:id/remodel-plan','profiles/:id/design-plan']) async remodel(@Param('id',ParseUUIDPipe) id:string,@Body() body:unknown){
     if(!body||typeof body!=='object'||Array.isArray(body))throw new BadRequestException('Pedido inválido');
     const b=body as Record<string,unknown>;
     const profile=this.store.get(id);
-    if(profile.mode!=='remodel'||!profile.projectId)throw new BadRequestException('Salve o perfil de remodelagem com o projeto de destino');
+    if(!profile.projectId)throw new BadRequestException('Salve o perfil com o projeto de destino');
     if(b.revision!==profile.revision)throw new BadRequestException('O perfil mudou; salve e revise novamente');
     const source=findDesignSource(profile.sourceId);
     if(!source?.adapter||source.status!=='ready')throw new BadRequestException('Este motor ainda não está disponível para remodelagem');

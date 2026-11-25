@@ -17,6 +17,13 @@ describe('Design remodel plan',()=>{
     expect(plan.steps[0].verifyCommand).toContain('git ls-files --others --exclude-standard');
     expect(()=>makeRemodelPlan({...p,sourceId:'liqui'},'abc',scope,'codex-cli',[])).toThrow();
   });
+  it('uses the same workflow for new frontends with a required brief',()=>{
+    const scope=validateScope({kind:'all',notes:'Portal de clientes'},[]);
+    const plan=makeRemodelPlan({...p,mode:'new'},'abc',scope,'codex-cli',[]);
+    expect(plan.title).toContain('Novo frontend');
+    expect(plan.objective).toContain('Portal de clientes');
+    expect(()=>makeRemodelPlan({...p,mode:'new'},'abc',{kind:'all',paths:[],notes:''},'codex-cli',[])).toThrow();
+  });
   it('rejects paths not present in the current inventory',()=>{
     expect(()=>validateScope({kind:'selected',paths:['../../.env']},['src/pages/Home.tsx'])).toThrow();
     expect(validateScope({kind:'all'},[]).paths).toEqual([]);

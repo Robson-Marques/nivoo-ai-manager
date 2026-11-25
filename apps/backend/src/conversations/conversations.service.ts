@@ -244,7 +244,7 @@ export class ConversationsService {
         const gravados=gravarAnexos(raiz,c.id,m.id,anexos);
         await tx.conversationMessage.update({where:{id:m.id},data:{attachments:gravados as unknown as Prisma.InputJsonValue}});
       }
-      const proposed=await tx.conversationMessage.create({data:{conversationId:c.id,role:'ASSISTENTE',status:'PRONTA',kind:'plano',content:'Plano de remodelagem preparado pelo Studio de Design. Revise o escopo e clique em Fazer para executar.',plan:plan as unknown as Prisma.InputJsonValue}});
+      const proposed=await tx.conversationMessage.create({data:{conversationId:c.id,role:'ASSISTENTE',status:'PRONTA',kind:'plano',content:'Plano preparado pelo Studio de Design. Revise o escopo e clique em Fazer para executar.',plan:plan as unknown as Prisma.InputJsonValue}});
       return {conversationId:c.id,messageId:proposed.id};
     });
   }
