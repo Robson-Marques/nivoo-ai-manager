@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { ResolutionDecision } from './review-resolution';
 import { runProcess,minimalEnv } from '../../../common/exec';
 
@@ -54,4 +53,3 @@ export async function detectGoldfishGitDrift(repo:string,base:string,targetPath:
 export function renderGoldfishGitDrift(drift:GitDrift):string{
   return ['EGM — divergência de revisão Git (não é parecer semântico): '+drift.status,'Base '+drift.base+' / atual '+(drift.current??'indisponível'),drift.detail,...drift.paths.map(p=>'- '+JSON.stringify(p))].join('\n');
 }
-export function proofSetHash(proofs:readonly GoldfishProof[]):string{return createHash('sha256').update(JSON.stringify(proofs)).digest('hex');}
