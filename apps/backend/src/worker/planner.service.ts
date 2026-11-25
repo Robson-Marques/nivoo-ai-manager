@@ -11,7 +11,7 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
-import { createHttpGoldfishDispatch,goldfishHttpSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
+import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
@@ -180,7 +180,7 @@ export class PlannerService {
       if(goldfishScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
-        if(!goldfishHttpSupported(tipoDe(project.provider)))return fail('O novo motor Goldfish ainda não possui transporte isolado validado em código para esta conexão. Disponível nesta etapa: NVIDIA, OpenRouter Free e Groq Free. Nenhum provedor foi trocado nem sessão iniciada.');
+        if(!goldfishTransportSupported(tipoDe(project.provider)))return fail('Goldfish indisponível nesta conexão. Nenhum provedor foi trocado nem sessão iniciada.');
         if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
         // A worker restart must not replay a multi-reviewer run and charge
         // the same completed calls again. Durable checkpoint resume is a
@@ -257,7 +257,7 @@ export class PlannerService {
         const seconds=Number.isFinite(configured)&&configured>0?configured:900;
         const configuredTurns=Number(process.env.NIVOO_PLANNER_MAX_TURNS??20);
         const maxTurns=Number.isFinite(configuredTurns)?Math.min(20,Math.max(1,Math.floor(configuredTurns))):20;
-        const dispatch=createHttpGoldfishDispatch({
+        const dispatch=createGoldfishDispatch({
           provider:this.registry.get(providerId),providerType:tipoDe(providerId),root:reviewRoot,
           jobId:'conversa',stepId:msg.conversationId,model:projectModel(project,providerId),
           deadline:Date.now()+seconds*1000,maxTurns,
