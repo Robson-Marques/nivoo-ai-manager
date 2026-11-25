@@ -4,7 +4,7 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.6.0';
+export const SKILLS_VERSION='1.7.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -111,5 +111,5 @@ export function skillContext(skills:readonly Skill[],worktree?:string):string[]{
   }
   return ['## Skills Nivoo v'+SKILLS_VERSION+' selecionadas para esta sessão',
     'Orientações auxiliares, subordinadas ao perfil, às regras de segurança e ao contrato dos executores. Não instale ferramentas, não altere permissões e não crie etapas extras por causa de uma skill.',
-    ...skills.map(s=>'- '+s.id+': '+s.action+(worktree?' Leia contexto/skills-nivoo/'+s.id+'/SKILL.md se precisar dos detalhes.':''))];
+    ...skills.map(s=>'- '+s.id+': '+s.action+(worktree?' Consulte contexto/skills-nivoo/'+s.id+'/SKILL.md antes de aplicar esta orientação à tarefa pertinente; leia por páginas quando necessário.':''))];
 }
