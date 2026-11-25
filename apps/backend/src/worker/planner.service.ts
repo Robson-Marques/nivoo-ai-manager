@@ -233,7 +233,7 @@ export class PlannerService {
             const meta=readPlanningSource(source?.plan);
             if(!source?.plan||!meta||meta.projectId!==project.id||meta.areaId!==project.areaId||meta.visualRevision!==project.visualProfileRevision)throw Error('Plano não aprovado, válido e vinculado à conversa não encontrado.');
             if(routeEgm(source.plan as unknown as Parameters<typeof routeEgm>[0],project.area).route!=='lite')throw Error('Plano não pertence à rota Lite.');
-            const requirement=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:new Date(meta.cutoff)}},orderBy:{createdAt:'desc'},select:{content:true}});
+            const requirement=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:new Date(meta.cutoff)}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{content:true}});
             if(!requirement)throw Error('Requisito original indisponível.');
             const revision=await this.workspace.headCommit(repo);
             if(!revision)throw Error('Revisão de referência indisponível.');
@@ -244,7 +244,13 @@ export class PlannerService {
             if(!job?.mergedCommit||!approved||approved.conversationId!==msg.conversationId||!approved.request||!job.objectives[0])throw Error('Trabalho incorporado com escopo aprovado nesta conversa não encontrado.');
             const plan={objective:job.objectives[0].text,defaultProvider:job.defaultProvider,steps:job.steps,criteria:job.criteria};
             const route=routeEgm(plan,project.area);
-            if(route.route!=='lite'||approved.egmResolution)throw Error('Trabalho pertence a outra rota de revisão; não duplicar auditoria estrutural ou de remediação.');
+            if(route.route!=='lite')throw Error('Trabalho pertence à rota estrutural; não duplicar auditoria.');
+            if(approved.egmResolution){
+              const previous=await this.prisma.conversationMessage.findFirst({where:{id:approved.egmResolution.reviewMessageId,conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA'},select:{goldfishState:true}});
+              const prior=readReviewCheckpoint(previous?.goldfishState);
+              if(prior.binding.projectId!==project.id||prior.binding.conversationId!==msg.conversationId||prior.binding.messageId!==approved.egmResolution.reviewMessageId||prior.binding.preset!=='lite-diff'||prior.binding.revision!==approved.egmResolution.revision)throw Error('Remediação estrutural ou origem Lite não comprovada.');
+              assertLiteReceipt(prior);
+            }
             const initial=job.attempts[0]?.contextStats;
             const baseline=previousEgmBaseline(initial);
             const checklist=executionChecklist(plan,route,{planMessageId:approved.planMessageId,approvedAt:approved.approvedAt},baseline);
