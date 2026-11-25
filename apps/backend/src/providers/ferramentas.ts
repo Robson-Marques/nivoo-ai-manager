@@ -5,7 +5,7 @@ import { tipoDe } from '../accounts/connections';
  * "não use terminal" foram escritas pensando em quem tem ferramentas de arquivo (Claude); o ChatGPT (Codex) só
  * lê arquivos com comandos e, obedecendo à regra ao pé da letra, ficava sem ler nada.
  */
-export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[] {
+export function ferramentasDaIa(providerId: string, mcp: string[] = [], readOnly=false): string[] {
   const extras = mcp.length ? [`- Ferramentas MCP liberadas para este projeto: ${mcp.join(', ')}. Use-as quando ajudarem (ex.: GitHub, documentação de uma biblioteca).`] : [];
   if (mcp.includes('servidores-ssh')) {
     extras.push(
@@ -16,7 +16,7 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
   }
   // Apagar/mover: nenhuma IA tem um comando seguro para isso (Claude e Gemini sem terminal; Codex orientado a não
   // apagar). O sistema faz por elas, ao fim da sessão, o que estiver pedido em .nivoo/remover.txt.
-  extras.push(
+  if(!readOnly)extras.push(
     '- APAGAR OU MOVER arquivos do projeto (código morto, arquivo esquecido, reorganização): escreva em .nivoo/remover.txt uma',
     '  linha por item — "caminho/do/arquivo-ou-pasta" para apagar, ou "mover antigo/caminho -> novo/caminho". O SISTEMA executa ao',
     '  fim desta sessão apenas para arquivos normais do código. Não use esse diário para out/, midia/ ou caminhos protegidos: precisam de etapa explícita e aprovação quando fora do Git.',
@@ -24,6 +24,14 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
   );
   const tipo = tipoDe(providerId);
   const titulo = '## Suas ferramentas nesta sessão (respeite a política de segurança e o escopo autorizado)';
+  if(readOnly){
+    const policy='- Sessão de planejamento: somente leitura local. Proponha alterações no plano; não edite, mova, remova ou rode testes/builds.';
+    if(tipo==='codex-cli'||tipo==='codex-api')return [titulo,policy,'- Use ls, rg, grep, cat, sed -n, git log/show/diff e outros comandos de leitura no workspace; não use apply_patch.',...extras];
+    if(tipo==='claude-code-cli'||tipo==='claude-api')return [titulo,policy,'- Read, Glob e Grep; sem Bash ou Edit/Write.',...extras];
+    if(tipo==='gemini-api')return [titulo,policy,'- read_file, read_many_files, list_directory, glob e grep_search (alias search_file_content); sem terminal, replace ou write_file.',...extras];
+    if(['nvidia-api','openrouter-free-api','groq-free-api'].includes(tipo??''))return [titulo,policy,'- listar_arquivos e ler_arquivo (paginação com proximo). Sem MCP, terminal, escrita ou notas nesta sessão.'];
+    return [];
+  }
   if (tipo === 'codex-cli' || tipo === 'codex-api') {
     return [
       titulo,
@@ -61,7 +69,7 @@ export function ferramentasDaIa(providerId: string, mcp: string[] = []): string[
   if (tipo === 'gemini-api') {
     return [
       titulo,
-      '- Você (Gemini) lê com read_file/read_many_files, lista com list_directory/glob, procura com search_file_content e edita',
+      '- Você (Gemini) lê com read_file/read_many_files, lista com list_directory/glob, procura com grep_search (alias search_file_content) e edita',
       '  com write_file/replace. Não tem terminal e não precisa dele.',
       ...extras,
     ];
