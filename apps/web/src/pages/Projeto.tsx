@@ -10,7 +10,7 @@ import { PedidosSsh } from './Ssh';
 import { BotaoDiagnostico } from './Diagnostico';
 import { SeletorModelo } from '../Pecas';
 import { VisualSelector } from './VisualSelector';
-import { PreviaRemota } from './PreviaRemota';
+import { PreviaRemota,PreviaCredenciais } from './PreviaRemota';
 import { validQuestions,type VisualProfile } from './visual-selection';
 
 /**
@@ -1371,6 +1371,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
         <div className="aviso-sistema">A prévia ainda não tem endereço público configurado. Para usar o domínio atual, execute <code>nivoo previa</code>.</div>
       )}
       {e?.sourceJobId&&<div className="aviso-sistema">Exibindo a cópia selecionada para avaliação · {String(e.sourceCommit??'').slice(0,8)}. Teste com dados descartáveis; a prévia não altera a versão principal nem aprova o trabalho.</div>}
+      {e?.loginTesteDisponivel&&<PreviaCredenciais key={String(e.ligadaEm)} projetoId={projetoId} geracao={String(e.ligadaEm)}/>}
       {erro && <div className="error small">{erro}</div>}
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (

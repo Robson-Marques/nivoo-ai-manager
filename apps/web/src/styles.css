@@ -602,8 +602,12 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .previa-remota-barra { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:7px; border-bottom:1px solid var(--line); }
 .previa-remota-barra input { flex:1; min-width:120px; max-width:320px; }
 .previa-remota-barra button { padding:4px 10px; font-size:13px; }
-.previa-remota-tela { min-height:0; flex:1; overflow:auto; display:flex; justify-content:center; align-items:flex-start; background:#e9ecf1; outline-offset:-2px; }
+.previa-remota-tela { position:relative; min-height:0; flex:1; overflow:auto; display:flex; justify-content:center; align-items:flex-start; background:#e9ecf1; outline-offset:-2px; }
 .previa-remota-tela img { display:block; width:100%; height:auto; max-width:1366px; touch-action:none; user-select:none; }
 .previa-remota.t-celular .previa-remota-tela img { max-width:390px; }
 .previa-remota-erro { padding:8px; }
 .previa-pagina { display:flex; flex-direction:column; height:100dvh; min-height:0; }
+
+.previa-remota-captura { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:0!important; opacity:0; resize:none; overflow:hidden; pointer-events:none; font-size:16px; }
+.previa-credenciais { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px; border-bottom:1px solid var(--line); }
+.previa-credenciais code { overflow-wrap:anywhere; }

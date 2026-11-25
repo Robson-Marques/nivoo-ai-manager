@@ -11,6 +11,10 @@ export class PreviaController {
     return this.previa.estado(pid);
   }
 
+  @Get('credenciais-teste')
+  @Header('Cache-Control','no-store')
+  credenciaisTeste(@Param('pid',ParseUUIDPipe) pid:string){return this.previa.credenciaisTeste(pid);}
+
   @Get('fontes')
   fontes(@Param('pid', ParseUUIDPipe) pid: string) { return this.previa.fontes(pid); }
 

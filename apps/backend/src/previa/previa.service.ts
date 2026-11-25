@@ -1,3 +1,4 @@
+import { parsePreviewLogin,createPreviewLogin,type PreviewLogin } from './preview-login';
 import { variaveisDaPrevia } from '../accounts/secrets';
 import { randomBytes } from 'node:crypto';
 import { ChildProcess, spawn } from 'node:child_process';
@@ -38,6 +39,7 @@ export interface ComoRodar {
   comando?: string;
   caminho: string;
   origem: string;
+  loginTeste?: PreviewLogin;
 }
 
 type Estado = 'parada' | 'ligando' | 'no-ar' | 'erro';
@@ -58,6 +60,7 @@ interface Previa {
   dir?: string;
   log: string;
   redact?: (value:string)=>string;
+  credenciaisTeste?: {usuario:string;senha:string};
   ultimoUso: number;
   ligadaEm?: Date;
   trabalhoEmAndamento?: boolean;
@@ -157,7 +160,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       }
       const pasta = String(c.pasta ?? '.').replace(/^\/+/, '') || '.';
       const tipo = c.tipo === 'estatico' || (!c.comando && c.tipo !== 'servidor') ? 'estatico' : 'servidor';
-      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json' };
+      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json',loginTeste:tipo==='servidor'?parsePreviewLogin(c.loginTeste):undefined };
     }
     const pacote = path.join(dir, 'package.json');
     if (fs.existsSync(pacote)) {
@@ -202,8 +205,15 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       enderecoConfigurado: !!process.env.NIVOO_PREVIA_URL,
       trabalhoEmAndamento: !!p.trabalhoEmAndamento,
       ligadaEm: p.ligadaEm ?? null,
+      loginTesteDisponivel:p.estado==='no-ar'&&!!p.credenciaisTeste,
       log: p.log.slice(-6000),
     };
+  }
+
+  credenciaisTeste(projectId:string){
+    const p=this.previas.get(projectId);
+    if(!p||p.estado!=='no-ar'||!p.credenciaisTeste)throw new BadRequestException('Esta prévia não possui login de teste automático.');
+    return {...p.credenciaisTeste};
   }
 
   /** Liga (ou religa, com a última versão da pasta principal). Volta logo; o estado diz quando está no ar. */
@@ -339,8 +349,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId));
     if(process.env.NIVOO_TESTES_PG_URL&&!banco)throw new Error('Configuração inválida do banco descartável da prévia.');
     if (cancelada(p)) return;
-    const previewVars=variaveisDaPrevia(p.projectId);
-    const secrets=[...Object.entries(previewVars).filter(([k])=>/PASSWORD|SECRET|TOKEN|KEY|URL/i.test(k)).map(([,v])=>v),...Object.entries(banco?.env??{}).filter(([k])=>/PASSWORD|URL/.test(k)).map(([,v])=>v)].filter(Boolean).sort((a,b)=>b.length-a.length);
+    const login=como.loginTeste?createPreviewLogin(como.loginTeste):undefined;
+    p.credenciaisTeste=login?.credentials;
+    const previewVars={...variaveisDaPrevia(p.projectId),...login?.env};
+    const secrets=[...Object.values(login?.env??{}).filter(v=>v!==login?.credentials.usuario&&v!=='false'),...Object.entries(previewVars).filter(([k])=>/PASSWORD|SECRET|TOKEN|KEY|URL/i.test(k)).map(([,v])=>v),...Object.entries(banco?.env??{}).filter(([k])=>/PASSWORD|URL/.test(k)).map(([,v])=>v)].filter(Boolean).sort((a,b)=>b.length-a.length);
     p.redact=value=>secrets.reduce((out,secret)=>out.split(secret).join('[SEGREDO]'),value);
     const env = ambienteDaConferencia({ ...previewVars, PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
@@ -408,6 +420,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   private async parar(p: Previa): Promise<void> {
     p.estado = 'parada';
+    p.credenciaisTeste=undefined;
     p.abort.abort();
     await this.visualizadores.fechar(p.projectId);
     await p.subida;

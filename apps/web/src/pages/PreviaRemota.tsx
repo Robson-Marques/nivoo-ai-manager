@@ -11,11 +11,11 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
   const caminho = '/projects/'+projetoId+'/previa/visualizador';
   const [imagem,setImagem] = useState('');
   const [erro,setErro] = useState('');
-  const [texto,setTexto] = useState('');
+  const composing=useRef(false);
   const [tentativa,setTentativa] = useState(0);
   const atual = useRef<{id:string; ativa:boolean; pronta:boolean; url:string; fila:Promise<unknown>; pendentes:number} | null>(null);
   const img = useRef<HTMLImageElement>(null);
-  const foco = useRef<HTMLDivElement>(null);
+  const foco = useRef<HTMLTextAreaElement>(null);
   const toque = useRef<{x:number;y:number;px:number;py:number} | null>(null);
   const scroll = useRef({x:0,y:0,dx:0,dy:0,timer:0});
   const ultimaRecarga = useRef(recarga);
@@ -55,7 +55,8 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
 
   function enviar(comando:Acao) {
     const s=atual.current;
-    if(!s?.ativa||!s.pronta||s.pendentes>=8)return;
+    if(!s?.ativa||!s.pronta)return;
+    if(s.pendentes>=256){setErro('Fila de entrada ocupada. Aguarde antes de digitar novamente.');return;}
     s.pendentes++;
     s.fila=s.fila.then(async()=>{
       if(s.ativa)await api(caminho+'/acao','POST',{id:s.id,comando});
@@ -71,7 +72,8 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
   }
   function down(e:PointerEvent<HTMLImageElement>) {
     if(e.button!==0)return;
-    e.preventDefault(); foco.current?.focus();
+    e.preventDefault();
+    const campo=foco.current;if(campo){const bounds=e.currentTarget.parentElement?.getBoundingClientRect();if(bounds){campo.style.left=(e.clientX-bounds.left)+'px';campo.style.top=(e.clientY-bounds.top)+'px';}campo.focus({preventScroll:true});}
     const p=posicao(e.clientX,e.clientY);
     if(p){toque.current={...p,px:e.clientX,py:e.clientY};e.currentTarget.setPointerCapture(e.pointerId);}
   }
@@ -102,11 +104,11 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
     el.addEventListener('wheel',wheel,{passive:false});
     return ()=>el.removeEventListener('wheel',wheel);
   },[!!imagem,caminho]);
-  function tecla(e:KeyboardEvent<HTMLDivElement>) {
-    if(e.nativeEvent.isComposing)return;
-    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
-      e.preventDefault();enviar({tipo:'texto',texto:e.key});return;
-    }
+  function tecla(e:KeyboardEvent<HTMLTextAreaElement>) {
+    if(e.nativeEvent.isComposing||composing.current)return;
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='v')return; // native paste event supplies clipboard text
+    if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey)return; // native input/IME
+
     const mods=[e.ctrlKey?'Control':'',e.metaKey?'Meta':'',e.altKey?'Alt':'',e.shiftKey?'Shift':''].filter(Boolean);
     if(teclas.has(e.key)||(mods.length>0&&/^[a-zA-Z0-9]$/.test(e.key))){
       e.preventDefault();enviar({tipo:'tecla',tecla:[...mods,e.key].join('+')});
@@ -116,15 +118,21 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
     <div className="previa-remota-barra">
       <span className="small muted">{imagem?'Navegador conectado':'Conectando navegador…'}</span>
       <button type="button" className="secondary" disabled={!imagem} onClick={()=>enviar({tipo:'voltar'})}>Voltar</button>
-      <input aria-label="Texto para o campo selecionado no software" placeholder="Digite no campo selecionado" value={texto} onChange={e=>setTexto(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&texto){enviar({tipo:'texto',texto});setTexto('');}}} />
-      <button type="button" className="secondary" disabled={!imagem||!texto} onClick={()=>{enviar({tipo:'texto',texto});setTexto('');}}>Digitar</button>
-      <button type="button" className="secondary" disabled={!imagem} onClick={()=>enviar({tipo:'tecla',tecla:'Enter'})}>Enter</button>
+      <span className="small muted">Clique no campo e digite diretamente. Tab, Enter e colar funcionam na tela.</span>
     </div>
     {erro&&<div className="error small previa-remota-erro">{erro} <button type="button" className="secondary" onClick={()=>setTentativa(x=>x+1)}>Reconectar</button></div>}
-    <div ref={foco} className="previa-remota-tela" tabIndex={0} aria-label="Tela interativa do software" onKeyDown={tecla} onPaste={e=>{e.preventDefault();enviar({tipo:'texto',texto:e.clipboardData.getData('text').slice(0,4000)});}}>
+    <div className="previa-remota-tela" aria-label="Tela interativa do software">
+      <textarea ref={foco} className="previa-remota-captura" aria-label="Teclado da aplicação em prévia" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} onKeyDown={tecla} onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={e=>{composing.current=false;const value=e.currentTarget.value;e.currentTarget.value="";if(value)enviar({tipo:"texto",texto:value.slice(0,4000)});}} onChange={e=>{if(composing.current)return;const value=e.currentTarget.value;e.currentTarget.value="";if(value)enviar({tipo:"texto",texto:value.slice(0,4000)});}} onPaste={e=>{e.preventDefault();const value=e.clipboardData.getData("text");if(value)enviar({tipo:"texto",texto:value.slice(0,4000)});}}/>
       {imagem?<img ref={img} draggable={false} alt="Tela do software em execução" src={imagem} onPointerDown={down} onPointerUp={up} onPointerCancel={()=>{toque.current=null;}}/>:<div className="previa-info">{erro?'A conexão falhou.':'Abrindo o software no Chromium do servidor…'}</div>}
     </div>
   </div>;
+}
+
+export function PreviaCredenciais({projetoId,geracao}:{projetoId:string;geracao:string}){
+  const [dados,setDados]=useState<{usuario:string;senha:string}|null>(null);
+  const [erro,setErro]=useState('');
+  useEffect(()=>{setDados(null);setErro('');},[projetoId,geracao]);
+  return <div className="previa-credenciais"><span className="small muted">Login descartável</span>{dados?<><span>Usuário: <b>{dados.usuario}</b></span><span>Senha: <code>{dados.senha}</code></span><button className="secondary" onClick={()=>void navigator.clipboard.writeText(dados.senha).catch(()=>setErro('Não foi possível copiar.'))}>Copiar senha</button><button className="secondary" onClick={()=>setDados(null)}>Ocultar</button></>:<button className="secondary" onClick={()=>void api<{usuario:string;senha:string}>('/projects/'+projetoId+'/previa/credenciais-teste').then(setDados).catch(e=>setErro(e.message))}>Mostrar usuário e senha</button>}{erro&&<span className="error small">{erro}</span>}</div>;
 }
 
 export function PreviaEmNovaAba() {
@@ -148,6 +156,7 @@ export function PreviaEmNovaAba() {
       {estado?.estado==='parada'&&<button onClick={()=>void api('/projects/'+pid+'/previa/ligar','POST').then(setEstado).catch(e=>setErro(e.message))}>Ligar prévia</button>}
     </div>
     {estado?.sourceJobId&&<div className="aviso-sistema">Cópia selecionada para avaliação · {String(estado.sourceCommit??'').slice(0,8)}. A prévia não aprova o trabalho.</div>}
+    {estado?.loginTesteDisponivel&&<PreviaCredenciais key={String(estado.ligadaEm)} projetoId={pid} geracao={String(estado.ligadaEm)}/>}
     {erro&&<div className="error">{erro}</div>}
     {estado?.estado==='no-ar'&&estado.visualizador?<PreviaRemota projetoId={pid} tamanho={tamanho} geracao={String(estado.ligadaEm)} recarga={recarga}/>:<p className="previa-info">{estado?.mensagem||'Aguardando a prévia do projeto.'}</p>}
   </main>;
