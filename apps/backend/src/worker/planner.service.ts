@@ -16,6 +16,7 @@ import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/softw
 import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
 import { approvedGoldfish,summarizeGoldfishExecution } from '../specialties/software/egm/resolution-execution';
+import { bindGoldfishProofs,detectGoldfishGitDrift,renderGoldfishGitDrift } from '../specialties/software/egm/resolution-proof';
 import { consolidateGoldfish,renderResolutionLedger,resolutionRequest,resolutionContext,readResolutionLedger,validateResolutionDecisions,renderResolutionDecisions,type ResolutionLedger } from '../specialties/software/egm/review-resolution';
 import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
@@ -270,8 +271,8 @@ export class PlannerService {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       let revision='main';
       if(resolutionLedger){
-        const current=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
-        if(current.exitCode!==0||current.stdout.trim()!==resolutionLedger.revision)return fail('A base mudou desde a revisão Goldfish. Não vou propor edições com evidência desatualizada; revise o documento na revisão atual.');
+        const drift=await detectGoldfishGitDrift(repo,resolutionLedger.revision,resolutionLedger.targetPath,signal);
+        if(drift.status!=='unchanged')return fail(renderGoldfishGitDrift(drift)+'\nRevise o documento na revisão atual antes de propor edições.');
       }
       if(goldfishScope!==null){
         const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
@@ -475,8 +476,9 @@ export class PlannerService {
           // Quem trabalha é sempre a IA escolhida para o projeto.
           plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos,project.visualProfile,adoptionRequest);
           if(resolutionLedger){
-            const proposed=plan as unknown as {steps:Array<{key:string;instructions:string;provider?:string}>};
+            const proposed=plan as unknown as {steps:Array<{key:string;instructions:string;provider?:string;verifyCommand?:string}>;criteria:Array<{key:string;kind:string;config:unknown}>};
             const decisions=validateResolutionDecisions(resolutionLedger,parsed,proposed.steps);
+            bindGoldfishProofs(decisions,proposed.criteria,proposed.steps);
             for(const step of proposed.steps){
               const fixes=decisions.filter(d=>d.stepKey===step.key);
               if(step.provider==='local-shell')throw Error('A resolução não pode encaminhar achados diretamente a um executor shell.');
