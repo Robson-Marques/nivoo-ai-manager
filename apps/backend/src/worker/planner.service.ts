@@ -376,10 +376,6 @@ export class PlannerService {
         const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:lite?lite.mode:driftIntake?'drift':intake!.preset,...(lite?{liteSourceId:lite.sourceId}:{}),...(loopParentId?{continuationOf:loopParentId}:{})},lite?lite.target:driftIntake?{path:driftIntake.directory,content:JSON.stringify(driftIntake)}:intake!.target,lite||driftIntake?[]:intake!.baseline);
         const checkpoint={...(savedReview??createReviewCheckpoint(binding)),...(autoRequest?{automaticRequest:autoRequest}:{})};
         try{assertReviewBinding(checkpoint,binding);}catch(e){return fail((e as Error).message);}
-        if(lite&&!savedReview){
-          const duplicate=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,id:{not:msg.id},AND:[{goldfishState:{path:['binding','preset'],equals:lite.mode}},{goldfishState:{path:['binding','liteSourceId'],equals:lite.sourceId}},{goldfishState:{path:['binding','targetHash'],equals:binding.targetHash}},{goldfishState:{path:['binding','revision'],equals:revision}}]},select:{id:true,status:true}});
-          if(duplicate)return fail('Revisão Lite deste mesmo conteúdo já registrada: '+duplicate.id+' ('+duplicate.status+'). Nenhuma nova chamada.');
-        }
         const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
         const persist=async(next:GoldfishCheckpoint)=>{
           const totals=reviewTotals(next);
@@ -420,7 +416,9 @@ export class PlannerService {
         });
         const journal=checkpointedGoldfishDispatch({checkpoint,dispatch:transport,save:persist,canContinue:()=>!cancelled&&!signal.aborted});
         captureUsage=journal.onUsage;
-        if(!await writeReview({goldfishState:checkpoint as unknown as Prisma.InputJsonValue,startedAt:msg.startedAt??new Date(),costUsd:reviewTotals(checkpoint).costUsd}))return;
+        try{
+          if(!await writeReview({goldfishState:checkpoint as unknown as Prisma.InputJsonValue,startedAt:msg.startedAt??new Date(),costUsd:reviewTotals(checkpoint).costUsd},lite&&!savedReview?{conversationId:msg.conversationId,preset:lite.mode,sourceId:lite.sourceId,targetHash:binding.targetHash,revision}:undefined))return;
+        }catch(e){return fail((e as Error).message);}
         registrarTempo('goldfish_inicio',{provedor:providerId,revisao:revision,modo:String(binding.preset),referencias:intake?.baseline.length??0});
         if(lite){
           const result=await runLiteReview(lite,journal.dispatch,signal);
