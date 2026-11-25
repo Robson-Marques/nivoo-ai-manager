@@ -208,7 +208,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       if (softwareInterfaceEnabled(vinculo?.area) && worktree && fs.existsSync(path.join(worktree, 'out', 'telas', 'relatorio.md'))) {
         history.push('A última conferência tirou FOTOS das telas: out/telas/*.png (computador e celular) e out/telas/relatorio.md. ABRA as fotos e corrija o visual (layout quebrado, texto cortado ou sobreposto, não cabe no celular) e os problemas do relatório.');
       }
-      if(lean&&priorAttempts.length>1)history.push('Histórico completo das tentativas anteriores: contexto/tentativas-da-etapa.md. Leia somente se necessário para evitar abordagens já refutadas.');
+      if(lean&&priorAttempts.length>1)history.push('Detalhes das últimas tentativas (até cinco): contexto/tentativas-da-etapa.md. Leia somente se necessário para evitar abordagens já refutadas.');
       if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
         history.push(lean?'Log integral em .nivoo/ultima-conferencia.txt. Consulte as linhas pertinentes se o diagnóstico abaixo for insuficiente; não releia os testes aprovados.':'A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
         // Also recover the actual diagnostic from older logs whose stdout/stderr
