@@ -31,6 +31,7 @@ import { readApprovedScope,approvedScopeDocument } from '../../jobs/approved-sco
 import { capabilityReference } from '../../jobs/workflow/capability-criteria';
 import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
+import { writeEgmHandoff,egmPlanningReferences } from '../../specialties/software/egm/planning';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -102,6 +103,16 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
+    if(worktree&&skillIds.includes('codigo')&&!etapaMidia&&!nativeImage&&step.key!==RULE_REVIEW_STEP){
+      const handoff=writeEgmHandoff(worktree,{approved,objective,steps,criteria});
+      if(handoff.route==='design')egmPlanningReferences(worktree);
+      add('egm-handoff',['## Elephant — plano vinculado à execução',
+        'contexto/egm/handoff.json contém o objetivo versionado, etapas e critérios reais, e o alinhamento aprovado quando disponível. Rota candidata: '+handoff.route+'.',
+        'Use esse registro com o estado da etapa; não crie outro checklist nem trate os estados do banco como parecer independente. Goldfish ainda não executado por esta composição.',
+        ...(!handoff.approval?['Plano anterior sem vínculo de escopo registrado: preserve o objetivo vigente, não invente aprovação ou amplie a autorização.']:[]),
+        ...(handoff.route==='design'?['Padrões originais de especificação e prontidão em contexto/egm/original/. Consulte conforme a mudança aprovada.']:[]),
+      ]);
+    }
     const adoptions=adoptionSummaries(criteria);
     if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Configuração aprovada: '+JSON.stringify(criteria.filter(c=>adoptionOf(c.config)||Array.isArray((c.config as any)?.adoptionFamilies)).map(c=>({key:c.key,config:c.config}))), 'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
     const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
