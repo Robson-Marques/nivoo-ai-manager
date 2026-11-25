@@ -59,8 +59,8 @@ export class GeminiApiProvider implements AiProvider {
 
   /** Ambiente do CLI: HOME próprio da conexão e a chave dela. */
   env(extra: Record<string, string> = {}) {
-    const home = isolatedHome(this.conexao ?? 'gemini-api');
-    GeminiApiProvider.ensureUserSettings(home);
+    const home = extra.HOME??isolatedHome(this.conexao ?? 'gemini-api');
+    if(!extra.HOME)GeminiApiProvider.ensureUserSettings(home);
     const k = segredoDaConexao(this.conexao, 'GEMINI_API_KEY');
     return minimalEnv({ ...(k ? { GEMINI_API_KEY: k } : {}), HOME: home, ...extra });
   }
