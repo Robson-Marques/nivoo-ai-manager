@@ -31,6 +31,13 @@ describe('API — perfil visual de projeto',()=>{
     expect(result.files.map((f:any)=>f.name)).toEqual(['liquid-glass.css','README.md','example.html']);
     expect(result.files[0].content).toContain('backdrop-filter: blur(12px)');
   });
+  it('expõe biblioteca de componentes Liquid Glass como dados',async()=>{
+    const result=(await h.http().get('/api/projects/visual-templates/liquid-glass/components').expect(200)).body;
+    expect(result.version).toBe(1);
+    expect(result.requires).toEqual({id:'liquid-glass',version:1});
+    expect(result.components.map((c:any)=>c.id)).toEqual(['buttons','navigation','dialog','form','table','panels']);
+    expect(result.files.map((f:any)=>f.name)).toEqual(['components.css','components.json','components.html','components-demo.js','components.md']);
+  });
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;
     const b=(await h.http().post('/api/projects').send({name:'Visual B',base:'software'}).expect(201)).body;

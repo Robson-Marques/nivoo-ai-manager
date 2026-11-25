@@ -61,7 +61,7 @@ describe('Template Liquid Glass',()=>{
       const sections=softwareEngineeringSections(selectSkills({...args,text:ui}),{phase:'execution',text:ui,worktree:dir,testDbConfigured:()=>false});
       expect(sections.find(s=>s.key==='engenharia-liquid-glass')?.lines.join('\n')).toContain('contexto/templates-nivoo/liquid-glass');
       expect(fs.readFileSync(path.join(target,'liquid-glass.css'),'utf8')).toBe(liquidGlassCss());
-      expect(fs.readdirSync(target).sort()).toEqual(['README.md','example.html','liquid-glass.css']);
+      expect(fs.readdirSync(target).sort()).toEqual(['README.md','components-demo.js','components.css','components.html','components.json','components.md','example.html','liquid-glass.css']);
       expect(fs.readFileSync(path.join(dir,'original.css'),'utf8')).toBe('intacto');
     }finally{fs.rmSync(dir,{recursive:true,force:true});}
   });

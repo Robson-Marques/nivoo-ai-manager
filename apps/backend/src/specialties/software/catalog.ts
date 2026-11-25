@@ -18,6 +18,7 @@ import { INTERFACE_MOTION_SKILL,interfaceMotionIntent,interfaceMotionContext } f
 import { COMPONENT_LIBRARY_SKILL,componentLibraryIntent,componentLibraryContext } from './component-library';
 import { LIQUID_GLASS_SKILL,liquidGlassIntent,liquidGlassContext } from './liquid-glass';
 import { liquidGlassTemplateContext } from '../../projects/liquid-glass-template';
+import { liquidGlassComponentsContext } from '../../projects/liquid-glass-components';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -61,7 +62,7 @@ const specialists:readonly Specialist[]=[
   {skill:INTERFACE_COMPOSITION_SKILL,matches:interfaceCompositionIntent,section:'engenharia-composicao-interface',guidance:input=>interfaceCompositionContext(input.phase,input.text)},
   {skill:INTERFACE_MOTION_SKILL,matches:interfaceMotionIntent,section:'engenharia-microinteracoes',guidance:input=>interfaceMotionContext(input.phase,input.text)},
   {skill:COMPONENT_LIBRARY_SKILL,matches:componentLibraryIntent,section:'engenharia-biblioteca-componentes',guidance:input=>componentLibraryContext(input.phase,input.text)},
-  {skill:LIQUID_GLASS_SKILL,matches:liquidGlassIntent,section:'engenharia-liquid-glass',guidance:input=>[...liquidGlassContext(input.phase,input.text),...liquidGlassTemplateContext(input.worktree)]},
+  {skill:LIQUID_GLASS_SKILL,matches:liquidGlassIntent,section:'engenharia-liquid-glass',guidance:input=>[...liquidGlassContext(input.phase,input.text),...liquidGlassTemplateContext(input.worktree),...liquidGlassComponentsContext(input.worktree)]},
 ];
 
 export const SOFTWARE_SKILLS:readonly Skill[]=specialists.map(s=>s.skill);

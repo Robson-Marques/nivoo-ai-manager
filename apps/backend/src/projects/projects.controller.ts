@@ -7,6 +7,7 @@ import { visualStyleCatalog } from './visual-style-catalog';
 import { visualTypographyCatalog } from './visual-typography-catalog';
 import { visualTokenCatalog } from './visual-token-catalog';
 import { liquidGlassTemplate } from './liquid-glass-template';
+import { liquidGlassComponents } from './liquid-glass-components';
 import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
 import { streamMedia } from '../common/media-stream';
@@ -63,6 +64,11 @@ export class ProjectsController {
   @Get('visual-templates/liquid-glass')
   liquidGlass() {
     return liquidGlassTemplate();
+  }
+
+  @Get('visual-templates/liquid-glass/components')
+  liquidGlassComponentLibrary() {
+    return liquidGlassComponents();
   }
 
   @Get(':pid')
