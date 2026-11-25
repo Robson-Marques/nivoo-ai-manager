@@ -3,6 +3,8 @@ import { api } from '../api';
 import { useProjetos } from '../Layout';
 import { NovoProjeto } from './NovoProjeto';
 import { DesignTarget } from './DesignTarget';
+import type { Analysis } from './DesignTarget';
+import { RemodelRequest } from './RemodelRequest';
 import './DesignStudio.css';
 import { DesignPreview } from './DesignPreview';
 import { VisualEditor } from './VisualEditor';
@@ -15,6 +17,7 @@ const empty:Fields={projectId:null,title:'',mode:'new',sourceId:'asimov-glass',t
 export function DesignStudio(){
   const {projetos,recarregar}=useProjetos();
   const [importing,setImporting]=useState(false);
+  const [analysis,setAnalysis]=useState<Analysis|null>(null);
   const [sources,setSources]=useState<Source[]>([]);
   const [profiles,setProfiles]=useState<Profile[]>([]);
   const [draft,setDraft]=useState<Fields>(empty);
@@ -51,6 +54,8 @@ export function DesignStudio(){
     } catch(e) {setError(e instanceof Error?e.message:String(e));}
     finally {setSaving(false);}
   };
+  const savedFields=current?{projectId:current.projectId,title:current.title,mode:current.mode,sourceId:current.sourceId,theme:current.theme}:null;
+  const dirty=!current||JSON.stringify(draft)!==JSON.stringify(savedFields)||JSON.stringify(visual)!==JSON.stringify(current.visual);
   const source=sources.find(s=>s.id===draft.sourceId);
   const related=sources.filter(s=>source?.related?.includes(s.id));
   return <section className="design-studio">
@@ -63,7 +68,7 @@ export function DesignStudio(){
           <label>Perfil salvo<select value={current?.id??''} onChange={e=>selectProfile(e.target.value)}><option value="">Novo perfil</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
           <label>Nome<input required maxLength={120} value={draft.title} onChange={e=>setDraft(d=>({...d,title:e.target.value}))}/></label>
           <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode'],projectId:e.target.value==='new'?null:d.projectId}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
-          {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving}/>}
+          {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving} onAnalysis={setAnalysis}/>}
           <label>Estilo / motor visual<select value={draft.sourceId} onChange={e=>setDraft(d=>({...d,sourceId:e.target.value}))}>{sources.filter(s=>s.kind!=='reference').map(s=><option key={s.id} value={s.id}>{s.style} — {s.name}</option>)}</select></label>
           <label>Tema<select value={draft.theme} onChange={e=>setDraft(d=>({...d,theme:e.target.value as Fields['theme']}))}><option value="system">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label>
           {visual&&defaults&&<VisualEditor key={current?.id??'new'} value={visual} onChange={setVisual} defaults={defaults} palettes={palettes}/>}
@@ -78,7 +83,7 @@ export function DesignStudio(){
           <h4>Requisitos</h4><p>{source.requirements.join(' · ')}</p>
           {source.install&&<><h4>Comando oficial de instalação</h4><code className="design-studio-command">{source.install}</code></>}
           {related.length>0&&<><h4>Fontes complementares</h4>{related.map(s=><p key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> — {s.kind==='reference'?'referência visual':'biblioteca complementar'}</p>)}</>}
-          {draft.mode==='remodel'&&<p>O Studio usa os projetos e as conexões Git existentes. A análise é somente leitura; a aplicação do design será uma etapa separada.</p>}
+          {draft.mode==='remodel'&&<><p>O Studio usa os projetos e as conexões Git existentes.</p><RemodelRequest key={draft.projectId??'none'} profileId={current?.id??null} revision={current?.revision??null} analysis={analysis?.project.id===draft.projectId?analysis:null} ready={source.status==='ready'&&!!source.adapter} dirty={dirty||saving}/></>}
         </>:<p>Catálogo indisponível.</p>}
       </section>
     </div>}

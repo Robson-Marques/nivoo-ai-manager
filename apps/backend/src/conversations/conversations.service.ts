@@ -231,6 +231,24 @@ export class ConversationsService {
     return { nome, conteudo };
   }
 
+  /** Plano preparado por uma ferramenta interna, usando a aprovação e os anexos normais da conversa.
+   * Não enfileira uma sessão de planejamento nem inicia trabalho sem o botão Fazer. */
+  async createPreparedPlan(projectId:string, title:string, request:string, rawPlan:unknown, rawAttachments:unknown) {
+    const plan=this.jobs.validatePlan(rawPlan);
+    const anexos=await prepararAnexos(rawAttachments);
+    const raiz=await this.raizDoProjeto(projectId);
+    return this.prisma.$transaction(async tx=>{
+      const c=await tx.conversation.create({data:{projectId,title:title.slice(0,200)}});
+      const m=await tx.conversationMessage.create({data:{conversationId:c.id,role:'USUARIO',content:request}});
+      if(anexos.length){
+        const gravados=gravarAnexos(raiz,c.id,m.id,anexos);
+        await tx.conversationMessage.update({where:{id:m.id},data:{attachments:gravados as unknown as Prisma.InputJsonValue}});
+      }
+      const proposed=await tx.conversationMessage.create({data:{conversationId:c.id,role:'ASSISTENTE',status:'PRONTA',kind:'plano',content:'Plano de remodelagem preparado pelo Studio de Design. Revise o escopo e clique em Fazer para executar.',plan:plan as unknown as Prisma.InputJsonValue}});
+      return {conversationId:c.id,messageId:proposed.id};
+    });
+  }
+
   /** Aprova o plano proposto: cria o job (validado) e, por padrão, inicia. */
   async approve(projectId: string, conversationId: string, messageId: string, body: any) {
     await this.conversation(projectId, conversationId);

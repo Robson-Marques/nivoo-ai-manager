@@ -3,15 +3,15 @@ import { Link } from 'react-router-dom';
 import { api } from '../api';
 type Project={id:string;name:string;gitUrl?:string|null;gitBranch?:string|null};
 type Scope={count:number;examples:string[]};
-type Analysis={project:{id:string;name:string;url:string|null;branch:string|null};commit:string;analyzedAt:string;trackedFiles:number;technologies:{name:string;evidence:string[]}[];frontend:Scope;pages:Scope;components:Scope;styles:Scope;configs:Scope;locks:Scope;manifestCoverage:{total:number;read:number;omitted:number;unreadable:string[]};limitations:string[]};
-export function DesignTarget({projects,projectId,onChange,onImport,disabled}:{projects:Project[]|null;projectId:string|null;onChange:(id:string|null)=>void;onImport:()=>void;disabled:boolean}){
+export type Analysis={project:{id:string;name:string;url:string|null;branch:string|null};commit:string;analyzedAt:string;trackedFiles:number;technologies:{name:string;evidence:string[]}[];frontend:Scope;pages:Scope;components:Scope;styles:Scope;configs:Scope;locks:Scope;manifestCoverage:{total:number;read:number;omitted:number;unreadable:string[]};limitations:string[]};
+export function DesignTarget({projects,projectId,onChange,onImport,disabled,onAnalysis}:{projects:Project[]|null;projectId:string|null;onChange:(id:string|null)=>void;onImport:()=>void;disabled:boolean;onAnalysis:(a:Analysis|null)=>void}){
   const [analysis,setAnalysis]=useState<Analysis|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const ticket=useRef(0);
-  useEffect(()=>{ticket.current++;setAnalysis(null);setError('');setBusy(false);return()=>{ticket.current++}},[projectId]);
+  useEffect(()=>{ticket.current++;setAnalysis(null);onAnalysis(null);setError('');setBusy(false);return()=>{ticket.current++}},[projectId]);
   const p=projects?.find(x=>x.id===projectId);
-  const run=async()=>{if(!projectId)return;const request=++ticket.current;setBusy(true);setAnalysis(null);setError('');try{const data=await api<Analysis>('/design-studio/projects/'+projectId+'/analysis');if(request===ticket.current)setAnalysis(data);}catch(e){if(request===ticket.current)setError(e instanceof Error?e.message:String(e));}finally{if(request===ticket.current)setBusy(false);}};
+  const run=async()=>{if(!projectId)return;const request=++ticket.current;setBusy(true);setAnalysis(null);onAnalysis(null);setError('');try{const data=await api<Analysis>('/design-studio/projects/'+projectId+'/analysis');if(request===ticket.current){setAnalysis(data);onAnalysis(data);}}catch(e){if(request===ticket.current)setError(e instanceof Error?e.message:String(e));}finally{if(request===ticket.current)setBusy(false);}};
   return <section className="design-target">
     <h3>Software de destino</h3>
     <label>Projeto do Nivoo<select disabled={disabled||projects===null} value={projectId??''} onChange={e=>onChange(e.target.value||null)}>
