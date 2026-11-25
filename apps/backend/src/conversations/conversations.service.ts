@@ -1,5 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import { VISUAL_DISCOVERY_KIND,visualDiscoveryIntent,visualDiscoveryQuestions,profileFromVisualAnswers,validateVisualSelection,visualDecisionText } from '../projects/visual-discovery';
+import type { VisualProfileV1 } from '../projects/visual-profile';
 import { optString, reqString } from '../common/validate';
 import { JobsService } from '../jobs/jobs.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -254,6 +257,11 @@ export class ConversationsService {
     // e a IA os referencia pelo caminho — sem recópia (o arquivo já está na mídia do projeto).
     const midia = await this.prepararMidiaAnexada(projectId, body?.midia);
     const temAnexo = anexos.length > 0 || midia.length > 0;
+    const visualAnswer=body?.visualAnswer;
+    if(visualAnswer!==undefined){
+      if(!visualAnswer||typeof visualAnswer!=='object'||typeof visualAnswer.messageId!=='string'||temAnexo)throw new BadRequestException('Resposta visual inválida.');
+      conteudoRecebido='Confirmação de perfil visual.';
+    }
     const corpo = { content: conteudoRecebido };
     const content = temAnexo ? (optString(corpo, 'content', MAX_TEXTO_MENSAGEM) ?? '').trim() : reqString(corpo, 'content', MAX_TEXTO_MENSAGEM);
     const raiz = anexos.length ? await this.raizDoProjeto(projectId) : '';
@@ -262,14 +270,45 @@ export class ConversationsService {
       await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${conversationId} FOR UPDATE`;
       const pendente = await tx.conversationMessage.findFirst({ where: { conversationId, status: 'PENDENTE' } });
       if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
-      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content } });
+      const current=await tx.conversation.findFirst({where:{id:conversationId,projectId,archivedAt:null}});
+      if(!current)throw new ConflictException('A conversa mudou de projeto ou foi arquivada.');
+      const project=await tx.project.findUniqueOrThrow({where:{id:projectId},include:{area:true}});
+      const latest=await tx.conversationMessage.findFirst({where:{conversationId},orderBy:[{createdAt:'desc'},{id:'desc'}]});
+      const question=latest?.role==='ASSISTENTE'&&latest.kind===VISUAL_DISCOVERY_KIND&&latest.status==='PRONTA'?latest:null;
+      let choice:VisualProfileV1|null=null;
+      if(visualAnswer!==undefined){
+        if(!question||question.id!==visualAnswer.messageId||project.visualProfile!==null||!softwareInterfaceEnabled(project.area))throw new ConflictException('As perguntas visuais não estão mais disponíveis.');
+        try{choice=validateVisualSelection(visualAnswer.profile,projectId,project.visualProfileRevision,question.perguntas);}
+        catch(e){throw new BadRequestException(e instanceof Error?e.message:'Resposta visual inválida.');}
+      }else if(question&&project.visualProfile===null&&softwareInterfaceEnabled(project.area)&&!temAnexo){
+        choice=profileFromVisualAnswers(content,question.perguntas,projectId,project.visualProfileRevision);
+      }
+      if(choice){
+        const changed=await tx.project.updateMany({where:{id:projectId,areaId:project.areaId,visualProfileRevision:project.visualProfileRevision},data:{visualProfile:choice as unknown as Prisma.InputJsonValue,visualProfileRevision:{increment:1}}});
+        if(!changed.count)throw new ConflictException('O perfil visual mudou. Recarregue antes de confirmar.');
+      }
+      // Ask only on a first, clearly new UI request in a project without
+      // existing work, imported repository or a configured profile.
+      const discover=!latest&&!temAnexo&&visualAnswer===undefined&&project.visualProfile===null&&!project.gitUrl&&softwareInterfaceEnabled(project.area)&&visualDiscoveryIntent(content)
+        &&!(await tx.job.count({where:{projectId}}))
+        &&!(await tx.conversationMessage.findFirst({where:{conversation:{projectId},kind:VISUAL_DISCOVERY_KIND},select:{id:true}}));
+      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content } });
       if (temAnexo) {
         const gravados = anexos.length ? gravarAnexos(raiz, conversationId, minha.id, anexos) : [];
         const todos = [...gravados, ...midia];
         await tx.conversationMessage.update({ where: { id: minha.id }, data: { attachments: todos as unknown as Prisma.InputJsonValue } });
       }
-      const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE' } });
-      await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
+      if(discover){
+        await tx.conversationMessage.create({data:{
+          conversationId,role:'ASSISTENTE',status:'PRONTA',kind:VISUAL_DISCOVERY_KIND,
+          content:'Antes do plano, escolha como deseja utilizar e visualizar o software. Você pode delegar cada decisão à IA ou responder livremente.',
+          perguntas:visualDiscoveryQuestions(content,projectId,project.visualProfileRevision) as unknown as Prisma.InputJsonValue,
+          costUsd:0,completedAt:new Date(),
+        }});
+      }else{
+        const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE' } });
+        await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
+      }
       // Conversa nova ganha como título o começo da primeira mensagem (como no ChatGPT).
       const primeira = (await tx.conversationMessage.count({ where: { conversationId, role: 'USUARIO' } })) === 1;
       const inicio = textoOriginal?.trim() || content || [...anexos, ...midia].map((a) => a.de ?? a.nome).join(', ');

@@ -32,6 +32,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
       'frase que precisa das respostas — não repita as perguntas nem as opções no texto.',
       'NUNCA mande "perguntas" e plano na mesma resposta: com pergunta que bloqueia, responda só com as perguntas (tipo "resposta") e',
       'mande o plano depois das respostas (com "continuacao": true, ele começa sozinho). Se nada bloqueia, plano direto, sem perguntas.',
+      ...(softwareInterface?['PERFIL VISUAL: o Nivoo pode apresentar escolhas estruturadas antes do plano de um novo software. Se o perfil estiver definido, respeite-o e não repita perguntas visuais; se o usuário delegou, decida apenas os campos ausentes. Se ele respondeu livremente, trate o texto como briefing, sem afirmar que foi persistido nem inventar aprovação. A confirmação do perfil visual não é autorização para executar o primeiro plano: apresente o plano do pedido original para aprovação.']:[]),
       'PERGUNTE POUCO: o que está claro no pedido, na conversa, na memória ou nos arquivos, faça. Decisão reversível com uma opção',
       'claramente melhor: decida, siga e conte o que decidiu. Pergunte só o que bloqueia e só o usuário sabe — com opções e a sua recomendação.',
       'Nunca peça ao usuário para fazer o que o sistema faz: rodar testes ou build (é a conferência das etapas), mexer em arquivos do',
