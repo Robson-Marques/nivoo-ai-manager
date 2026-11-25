@@ -646,9 +646,10 @@ export class WorkspaceService {
    * Só acontece se a pasta principal não mudou desde a verificação (main contida na branch do job);
    * senão devolve ok=false e a conclusão reintegra e reverifica.
    */
-  async integrateIntoMain(dirKey: string, jobId: string, message: string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
+  async integrateIntoMain(dirKey: string, jobId: string, message: string, approvedBase?:string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
     const repo = this.projectDirs(dirKey).repo;
     const branch = this.jobBranch(jobId);
+    if(approvedBase&&(await this.headCommit(repo))!==approvedBase)return {ok:false,commit:null};
     if ((await this.git(repo, ['merge-base', '--is-ancestor', 'main', branch])).exitCode !== 0) return { ok: false, commit: null };
     const sq = await this.git(repo, ['merge', '--squash', '-q', branch]);
     if (sq.exitCode !== 0) {
