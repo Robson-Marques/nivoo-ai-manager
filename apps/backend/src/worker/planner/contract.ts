@@ -83,6 +83,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
         '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',
         '  "dev"/"start" são detectados; se o projeto liga de outro jeito (monorepo, outra pasta, comando próprio), inclua no plano',
         '  um nivoo-previa.json na raiz: {"tipo":"servidor","pasta":"apps/web","instalar":"pnpm install","comando":"pnpm dev --port $PORT","caminho":"/"}',
+        '  Se o software exigir outras variáveis para iniciar, declare seus nomes e configure/teste valores sintéticos próprios da prévia. O operador pode cadastrar PREVIA_ENV_<NOME> nas variáveis do projeto; somente a prévia recebe <NOME>. Nunca use credenciais de produção, nem registre senhas no Git. Não suprima a causa de uma falha de inicialização: registre código e detalhe seguro, sem segredos.',
         '  O comando de início precisa funcionar em uma cópia limpa, com banco descartável vazio e somente as variáveis oferecidas pelo Nivoo. Inclua na preparação/início as migrações reais necessárias, sem depender de arquivos ignorados, dados ou processos da conferência. A aceitação existente deve exercitar esse mesmo comando e caminho; não criar outra revisão por IA.',
         '  (o sistema ouve em $PORT e recebe o banco de teste) ou {"tipo":"estatico","pasta":"dist"}.',
       ] : []),

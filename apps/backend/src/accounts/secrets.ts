@@ -83,6 +83,19 @@ export function apagarSegredosDaConexao(conexao: string): void {
  * IA) e entram só no ambiente da conferência. Chave: `confenv:<projectId>:<NOME>`.
  */
 const PREFIXO_CONFENV = 'confenv:';
+const PREFIXO_PREVIA_ENV='PREVIA_ENV_';
+export function nomeAmbientePrevia(nome:string):string|null{
+  if(!nome.startsWith(PREFIXO_PREVIA_ENV))return null;
+  const target=nome.slice(PREFIXO_PREVIA_ENV.length);
+  if(!/^[A-Z][A-Z0-9_]{0,79}$/.test(target)||/^(?:PORT|HOST|NODE_ENV|PATH|HOME|SHELL|BASH_ENV|ENV|DATABASE_URL(?:_TEST)?|TEST_DATABASE_URL|CI)$|^(?:NIVOO_|PG|LD_|DYLD_|NODE_|NPM_|COREPACK_|GIT_|PYTHON)/i.test(target))return null;
+  return target;
+}
+/** Explicit preview-only configuration. Never forward Git tokens or ordinary conference credentials. */
+export function variaveisDaPrevia(projectId:string):Record<string,string>{
+  const p=PREFIXO_CONFENV+projectId+':',env:Record<string,string>={};
+  for(const [k,v] of Object.entries(readAll()))if(k.startsWith(p)&&v){const name=nomeAmbientePrevia(k.slice(p.length));if(name)env[name]=v;}
+  return env;
+}
 const NOME_VAR_OK = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export function nomeDeVariavelValido(nome: string): boolean {
@@ -108,7 +121,7 @@ export function variaveisDaConferencia(projectId: string): Record<string, string
   const all = readAll() as Record<string, string>;
   const p = `${PREFIXO_CONFENV}${projectId}:`;
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v) env[k.slice(p.length)] = v;
+  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v&&!k.slice(p.length).startsWith(PREFIXO_PREVIA_ENV)) env[k.slice(p.length)] = v;
   return env;
 }
 
@@ -129,7 +142,7 @@ export function referenciasDaConferencia(projectId: string): Record<string, stri
   const all = readAll() as Record<string, string>;
   const p = `${PREFIXO_CONFREF}${projectId}:`;
   const refs: Record<string, string> = {};
-  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v) refs[k.slice(p.length)] = v;
+  for (const [k, v] of Object.entries(all)) if (k.startsWith(p) && v&&!k.slice(p.length).startsWith(PREFIXO_PREVIA_ENV)) refs[k.slice(p.length)] = v;
   return refs;
 }
 
