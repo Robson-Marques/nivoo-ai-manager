@@ -182,6 +182,16 @@ export class PlannerService {
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
         if(!goldfishHttpSupported(tipoDe(project.provider)))return fail('O novo motor Goldfish ainda não possui transporte isolado validado em código para esta conexão. Disponível nesta etapa: NVIDIA, OpenRouter Free e Groq Free. Nenhum provedor foi trocado nem sessão iniciada.');
         if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
+        // A worker restart must not replay a multi-reviewer run and charge
+        // the same completed calls again. Durable checkpoint resume is a
+        // separate feature; preserve what was actually recorded.
+        if(msg.startedAt){
+          await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
+            status:'ERRO',kind:'erro',content:['Revisão Goldfish interrompida anteriormente. Não foi repetida automaticamente. Relatórios e custos já gravados foram preservados; a retomada por fase ainda não está disponível.',msg.content].filter(Boolean).join('\n\n'),completedAt:new Date(),
+          }});
+          await this.queue.complete(task.id,workerId);
+          return;
+        }
       }
       const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
