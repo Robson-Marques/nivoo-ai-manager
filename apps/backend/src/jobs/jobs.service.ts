@@ -8,6 +8,7 @@ import { compileWorkflowDefinition } from './workflow/compile-plan';
 import { hasMotionCommand } from './motion/command';
 import { parseSteps } from './workflow/step-contract';
 import { parseCriteria } from './workflow/criteria-contract';
+import { validateCapabilityCriteria } from './workflow/capability-criteria';
 import { dependenciasDeMontagemPorArquivo } from './workflow/media-dependencies';
 import { assertAcyclic } from './workflow/graph';
 export { normalizarInstrucaoDeEtapa } from './workflow/step-contract';
@@ -74,6 +75,7 @@ export class JobsService {
     const steps = parseSteps(this.registry,brutas, defaultProvider);
     assertAcyclic(steps);
     const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(area));
+    validateCapabilityCriteria(criteria,steps);
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
     const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
     return { title, objective, defaultProvider, steps: brutas, criteria, limits };
@@ -90,6 +92,7 @@ export class JobsService {
     const steps = parseSteps(this.registry,compiled.steps,defaultProvider);
     assertAcyclic(steps);
     const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(project.area));
+    validateCapabilityCriteria(criteria,steps);
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
     // independente de IA por padrão; só se a pessoa solicitar conferência
     // explicitamente. Testes técnicos necessários permanecem nos executores.
@@ -210,6 +213,8 @@ export class JobsService {
       const current=await tx.job.findUniqueOrThrow({where:{id:jobId},include:{steps:true}});
       if(current.status==='CONCLUIDO')throw new ConflictException('Job concluído');
       const existing=current.steps;
+      const currentCriteria=await tx.acceptanceCriterion.findMany({where:{jobId}});
+      validateCapabilityCriteria(currentCriteria,[...existing,...parsed]);
       const keys=new Set(existing.map(s=>s.key));
       if(parsed.some(s=>keys.has(s.key)))throw new ConflictException('Etapa já existente; recarregue o trabalho.');
       const linked=dependenciasDeMontagemPorArquivo([...existing,...parsed],current.defaultProvider) as Array<{key:string;dependsOn:string[]}>;
@@ -236,6 +241,7 @@ export class JobsService {
     const job = await this.get(projectId, jobId);
     if (job.status === 'CONCLUIDO') throw new ConflictException('Job concluído');
     const criteria = parseCriteria(body.criteria ?? [], job.criteria.map((c) => c.key), mediaEnabledForArea(job.project.area));
+    validateCapabilityCriteria([...job.criteria,...criteria],job.steps);
     await this.prisma.acceptanceCriterion.createMany({ data: criteria.map((c) => ({ ...c, jobId })) });
     await this.logs.log(jobId, `Critérios adicionados: ${criteria.map((c) => c.key).join(', ')}`);
     return this.get(projectId, jobId);
