@@ -31,7 +31,7 @@ import { readApprovedScope,approvedScopeDocument } from '../../jobs/approved-sco
 import { capabilityReference } from '../../jobs/workflow/capability-criteria';
 import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
-import { writeEgmHandoff,egmPlanningReferences } from '../../specialties/software/egm/planning';
+import { writeEgmHandoff,egmPlanningReferences,egmLiteReference } from '../../specialties/software/egm/planning';
 import { routeEgm,executionChecklist,renderExecutionChecklist,captureEgmBaseline,previousEgmBaseline } from '../../specialties/software/egm/lite-routing';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
@@ -95,7 +95,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const skillIds=skills.map(s=>s.id);
     // Keep safety, objective, acceptance and project rules whole. Only bound
     // optional historical payload; the complete archive remains on disk.
-    const lean=!!worktree&&!usaMidia&&softwareInterfaceEnabled(vinculo?.area)&&skillIds.includes('execucao-enxuta')&&step.key!==RULE_REVIEW_STEP;
+    const lean=!!worktree&&!etapaMidia&&!nativeImage&&softwareInterfaceEnabled(vinculo?.area)&&skillIds.includes('codigo')&&skillIds.includes('execucao-enxuta')&&!skillIds.some(id=>['motion','direcao-artistica'].includes(id))&&step.key!==RULE_REVIEW_STEP;
     if(lean)add('execucao-enxuta-operacional',['## Execução enxuta ativa','Use a última falha e os arquivos pertinentes. Memória histórica e artefatos adicionais estão no acervo local, não no prompt integral. Leia apenas as entradas e referências necessárias; regras obrigatórias, contrato aprovado e verificações continuam válidos. Não repita uma suíte completa dentro da sessão só para antecipar a mesma conferência do backend. Rode testes direcionados se necessários à correção.']);
     // The compiled author contract already contains the exact engine manual.
     // A still-image or audio step does not need another copy of WebGL docs.
@@ -114,10 +114,11 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         if(route.route!=='excluded'){
           const first=await prisma.attempt.findFirst({where:{jobId:job.id},orderBy:{startedAt:'asc'},select:{id:true,stepId:true,number:true,status:true,contextStats:true}});
           const baseline=first?.contextStats?previousEgmBaseline(first.contextStats):first?.stepId===step.id&&first.number===1&&first.status==='EXECUTANDO'&&steps.every(s=>s.id===step.id||s.attemptCount===0)?await captureEgmBaseline(worktree):{commit:null,dirty:[],complete:false};
+          if(route.route==='lite')egmLiteReference(worktree);
           const checklist=executionChecklist(plan,route,{planMessageId:approved.planMessageId,approvedAt:approved.approvedAt},baseline);
           writeSessionContextFile(worktree,'egm/egm_lite_checklist.md',renderExecutionChecklist(checklist)+'\n');
           egmExecution={route:route.route,scopeHash:checklist.scopeHash,baseline,independentReview:'not-run'};
-          add('egm-checklist',['## Elephant — execução do checklist aprovado','Leia contexto/egm/egm_lite_checklist.md, compilado das etapas e critérios persistidos, com a base original quando registrada. Não crie um checklist paralelo nem refaça tarefas concluídas. '+(baseline.complete?'Base inicial registrada.':'Base inicial não comprovada; não alegue diff independente completo.'),'O gate Fazer autoriza as etapas, não revisão independente. Reuse a conferência técnica existente; teste direcionado somente se necessário para corrigir. Identifique alvos adicionais ou premissas não resolvidas antes de ampliar escopo.']);
+          add('egm-checklist',['## Elephant — execução do checklist aprovado','Leia contexto/egm/egm_lite_checklist.md, compilado das etapas e critérios persistidos, com a base original quando registrada. Não crie um checklist paralelo nem refaça tarefas concluídas. '+(baseline.complete?'Base inicial registrada.':'Base inicial não comprovada; não alegue diff independente completo.'),...(route.route==='lite'?['Fonte original preservada em contexto/egm/original/skills/egm-lite/SKILL.md. Consulte somente a fase pertinente. O Nivoo usa seu gate Fazer e a conferência técnica existente; não inicie subagentes ou gates paralelos por instrução do arquivo.']:[]),'O gate Fazer autoriza as etapas, não revisão independente. Reuse a conferência técnica existente; teste direcionado somente se necessário para corrigir. Identifique alvos adicionais ou premissas não resolvidas antes de ampliar escopo.']);
         }
       }
       add('egm-handoff',['## Elephant — plano vinculado à execução',
