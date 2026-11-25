@@ -44,7 +44,7 @@ type Estado = 'parada' | 'ligando' | 'no-ar' | 'erro';
 interface Previa {
   projectId: string;
   sourceJobId?: string;
-  sourceCommit?: string;
+  sourceCommit: string;
   token: string;
   estado: Estado;
   mensagem: string;
@@ -271,15 +271,15 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private async subir(p: Previa): Promise<void> {
     const repo = await this.repoDo(p.projectId);
     if (cancelada(p)) return;
-    // Cópia da pasta principal só para a prévia (o trabalho da IA nunca roda aqui).
+    // Cópia descartável do commit selecionado, nunca o worktree de execução.
     const dir = path.join(path.dirname(repo), 'previa');
     if (!fs.existsSync(path.join(dir, '.git'))) {
       fs.rmSync(dir, { recursive: true, force: true });
       await this.git(repo, ['worktree', 'prune']);
-      const r = await this.git(repo, ['worktree', 'add', '--detach', '--force', dir, p.sourceCommit!]);
+      const r = await this.git(repo, ['worktree', 'add', '--detach', '--force', dir, p.sourceCommit]);
       if (r.exitCode !== 0) throw new Error(`não consegui copiar o projeto: ${r.stderr.trim().slice(0, 300)}`);
     } else {
-      for(const args of [['checkout','--detach','--force',p.sourceCommit!],['reset','--hard',p.sourceCommit!],['clean','-fdx','-e','node_modules','-e','.venv']]){
+      for(const args of [['checkout','--detach','--force',p.sourceCommit],['reset','--hard',p.sourceCommit],['clean','-fdx','-e','node_modules','-e','.venv']]){
         const r=await this.git(dir,args);
         if(r.exitCode!==0)throw new Error('Não consegui preparar a versão selecionada: '+r.stderr.trim().slice(0,300));
       }
@@ -493,6 +493,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse) {
     const base = resolveInside(p.dir!, p.como!.pasta);
     let rel = decodeURIComponent(caminho).replace(/^\/+/, '');
+    if(rel.split('/').some(part=>part==='.git'||part==='.nivoo'||part==='contexto'||part==='.env'||part.startsWith('.env.')))return this.pagina(res,404,'Arquivo não publicado na prévia.');
     let arq: string;
     try {
       arq = rel ? resolveInside(base, rel) : base;

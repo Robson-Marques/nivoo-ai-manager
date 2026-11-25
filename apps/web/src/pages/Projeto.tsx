@@ -1358,7 +1358,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
       {semEndereco && (
         <div className="aviso-sistema">A prévia ainda não tem endereço público configurado. Para usar o domínio atual, execute <code>nivoo previa</code>.</div>
       )}
-      {e?.sourceJobId&&<div className="aviso-sistema">Exibindo uma cópia do resultado ainda não incorporado · {String(e.sourceCommit??'').slice(0,8)}. Teste com dados descartáveis; a prévia não altera a versão principal nem aprova o trabalho.</div>}
+      {e?.sourceJobId&&<div className="aviso-sistema">Exibindo a cópia selecionada para avaliação · {String(e.sourceCommit??'').slice(0,8)}. Teste com dados descartáveis; a prévia não altera a versão principal nem aprova o trabalho.</div>}
       {erro && <div className="error small">{erro}</div>}
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (

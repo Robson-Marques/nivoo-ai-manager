@@ -130,6 +130,40 @@ describe('Prévia do projeto', () => {
     expect((await pedir(`${base}/`, cookie)).status).toBe(404);
   });
 
+  it('permite testar a versão pendente sem incorporá-la e não aceita trabalho de outro projeto', async () => {
+    const p=await projetoCom('Avaliação de software',{'index.html':'<h1>Versão principal</h1>'});
+    const outro=await projetoCom('Outro projeto',{'index.html':'<h1>Outro</h1>'});
+    const base='/api/projects/'+p.id;
+    h.worker.start();
+    const j=(await h.http().post(base+'/jobs').send({
+      title:'Nova interface',objective:'Disponibilizar a versão em avaliação',defaultProvider:'local-shell',
+      steps:[{key:'a',instructions:"printf '<h1>Resultado em avaliação</h1>' > index.html"}],
+      criteria:[{key:'html',kind:'COMMAND',description:'Resultado presente',config:{command:"grep -q 'Resultado em avaliação' index.html"}},
+        {key:'aceite',kind:'MANUAL_APPROVAL',description:'Aceitar resultado funcional'}],
+    }).expect(201)).body;
+    await h.http().post(base+'/jobs/'+j.id+'/start').expect(201);
+    await waitFor(async()=>{
+      const state=(await h.http().get(base+'/jobs/'+j.id).expect(200)).body;
+      return state.status==='AGUARDANDO_APROVACAO'?state:null;
+    },60000);
+    expect((await h.http().get(base+'/previa/fontes').expect(200)).body).toEqual(expect.arrayContaining([expect.objectContaining({id:j.id})]));
+    await h.http().post('/api/projects/'+outro.id+'/previa/ligar').send({jobId:j.id}).expect(400);
+    await h.http().post(base+'/previa/ligar').send({jobId:j.id}).expect(201);
+    const e=await noAr(p.id);
+    expect(e).toMatchObject({estado:'no-ar',sourceJobId:j.id});
+    expect(e.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+    const {base:origin,cookie}=await abrir(e.url);
+    expect((await pedir(origin+'/',cookie)).corpo).toContain('Resultado em avaliação');
+    expect(fs.readFileSync(path.join(p.workspacePath,'repo','index.html'),'utf8')).toContain('Versão principal');
+    expect((await h.http().get(base+'/jobs/'+j.id).expect(200)).body.status).toBe('AGUARDANDO_APROVACAO');
+    await h.http().post(base+'/previa/ligar').send({}).expect(201);
+    const principal=await noAr(p.id);
+    expect(principal).toMatchObject({estado:'no-ar',sourceJobId:null});
+    const original=await abrir(principal.url);
+    expect((await pedir(original.base+'/',original.cookie)).corpo).toContain('Versão principal');
+    await h.http().post(base+'/previa/desligar').expect(201);
+  });
+
   it('projeto sem nada para mostrar: explica o que fazer (nivoo-previa.json)', async () => {
     const p = await projetoCom('Vazio', { 'LEIAME.md': 'só texto' });
     await h.http().post(`/api/projects/${p.id}/previa/ligar`).expect(201);

@@ -147,7 +147,7 @@ export function PreviaEmNovaAba() {
       <button className="secondary" onClick={()=>setRecarga(x=>x+1)}>Recarregar</button>
       {estado?.estado==='parada'&&<button onClick={()=>void api('/projects/'+pid+'/previa/ligar','POST').then(setEstado).catch(e=>setErro(e.message))}>Ligar prévia</button>}
     </div>
-    {estado?.sourceJobId&&<div className="aviso-sistema">Resultado ainda não incorporado · {String(estado.sourceCommit??'').slice(0,8)}. A prévia não aprova o trabalho.</div>}
+    {estado?.sourceJobId&&<div className="aviso-sistema">Cópia selecionada para avaliação · {String(estado.sourceCommit??'').slice(0,8)}. A prévia não aprova o trabalho.</div>}
     {erro&&<div className="error">{erro}</div>}
     {estado?.estado==='no-ar'&&estado.visualizador?<PreviaRemota projetoId={pid} tamanho={tamanho} geracao={String(estado.ligadaEm)} recarga={recarga}/>:<p className="previa-info">{estado?.mensagem||'Aguardando a prévia do projeto.'}</p>}
   </main>;
