@@ -20,7 +20,7 @@ export class AreasService {
 
   /** Garante a base padrão ("Geral"), onde ficam os projetos sem base escolhida. Idempotente. */
   /**
-   * Garante o modelo padrão ("Geral") e os modelos prontos instalados (ex.: Studio Workflow). Um modelo que
+   * Garante o modelo padrão ("Geral") e os modelos prontos instalados. Um modelo que
    * já existe não é tocado: o usuário pode ter editado as regras e os materiais.
    */
   async ensureDefaultAreas(): Promise<void> {

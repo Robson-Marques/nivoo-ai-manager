@@ -8,9 +8,6 @@
  * conferência automática das regras cobra no fim de cada trabalho.
  */
 
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-
 /** Regra do modelo de vídeo sobre o resultado final (a de antes dizia que juntar ainda não era feito). */
 export const LINHA_VIDEO_ANTIGA = '- Os vídeos ficam separados por cena (juntar as cenas num vídeo só ainda não é feito pelo sistema).';
 export const LINHA_VIDEO_COMPLETO =
@@ -209,41 +206,8 @@ export const AREA_TEMPLATES: AreaTemplate[] = [
   },
 ];
 
-/**
- * Modelos prontos que vêm como PACOTE (pasta em apps/backend/modelos-prontos/<pasta>): o arquivo de regras
- * vira "Como a IA deve funcionar" e os demais arquivos viram os materiais do modelo. Para atualizar o
- * pacote, troque a pasta e mantenha o índice (README) e as regras dentro de 8.000 caracteres.
- */
-export const PACOTES_DIR = path.join(__dirname, '..', '..', 'modelos-prontos');
-
-function pacote(key: string, name: string, description: string, pasta: string, arquivoRegras: string): AreaTemplate {
-  const dir = path.join(PACOTES_DIR, pasta);
-  const baseFiles: Record<string, string> = {};
-  const walk = (d: string) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const abs = path.join(d, e.name);
-      if (e.isDirectory()) walk(abs);
-      else if (e.isFile()) baseFiles[path.relative(dir, abs).split(path.sep).join('/')] = fs.readFileSync(abs, 'utf8');
-    }
-  };
-  walk(dir);
-  const instructions = baseFiles[arquivoRegras].trim();
-  delete baseFiles[arquivoRegras];
-  return { key, name, description, instructions, baseFiles };
-}
-
-AREA_TEMPLATES.push(
-  pacote(
-    'studio-workflow',
-    'Software — Studio Workflow',
-    'Software com o método STUDIO-WORKFLOW: relatório de alinhamento no plano, doutrina de engenharia (arquitetura, segurança, testes, domínio, interface) e especialidades no repositório do projeto.',
-    'studio-workflow',
-    'NIVOO-REGRAS.md',
-  ),
-);
-
 /** Modelos prontos que já aparecem criados no sistema (além do padrão "Geral"). */
-export const AREAS_INSTALADAS = ['studio-workflow', 'video-veo', 'design-video'];
+export const AREAS_INSTALADAS = ['software', 'video-veo', 'design-video'];
 
 export const DEFAULT_AREA = 'geral';
 

@@ -104,6 +104,7 @@ model Area {
   description         String   @default("")
   template            String   @default("generica")
   instructionsVersion Int      @default(1)
+  retiredStudioWorkflow Boolean @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

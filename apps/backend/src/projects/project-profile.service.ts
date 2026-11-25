@@ -4,6 +4,7 @@ import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.serv
 import { currentMediaBaseRules } from '../specialties/media/runtime-profile';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { visualProfileContext } from './visual-profile';
+import { activeBaseMaterial } from '../areas/retired-studio';
 
 const MAX_LISTED_FILES = 300;
 
@@ -32,7 +33,7 @@ export class ProjectProfileService {
       this.prisma.areaInstruction.findFirst({ where: { areaId: project.areaId }, orderBy: { version: 'desc' } }),
       this.prisma.projectRule.findFirst({ where: { projectId }, orderBy: { version: 'desc' } }),
     ]);
-    const baseFiles = this.workspace.listKnowledge(this.workspace.areaDirs(project.area.slug).base);
+    const baseFiles = this.workspace.listKnowledge(this.workspace.areaDirs(project.area.slug).base).filter(f=>activeBaseMaterial(f.path,project.area.retiredStudioWorkflow));
     const knowledge = this.workspace.listKnowledge(this.workspace.projectDirs(project.dirKey).knowledge);
     const list = (dir: string, files: Array<{ path: string }>) =>
       files.length

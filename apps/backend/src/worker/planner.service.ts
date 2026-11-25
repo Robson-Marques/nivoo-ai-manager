@@ -184,7 +184,7 @@ export class PlannerService {
       }else{
         await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
       }
-      this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp);
+      this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp,project.area.retiredStudioWorkflow);
       // A cópia não tem .git: o histórico vai num arquivo (e o prompt explica que "not a git repository" é esperado).
       if(goldfishScope===null)fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
       // Instruções de agente do repositório do projeto: legíveis em contexto/repositorio/, inertes.

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { appConfig } from '../config';
+import { activeBaseMaterial } from '../areas/retired-studio';
 import { minimalEnv, runProcess } from '../common/exec';
 import { operationPath,outsideGit,resolveOperation } from '../common/file-operations';
 import { caminhoDoProjeto, resolveInside, resolveMidiaOuTrabalho } from '../common/path-guard';
@@ -162,13 +163,14 @@ export class WorkspaceService {
    * Copia uma pasta de conhecimento para <destino> (ex.: area/ ou conhecimento/ no worktree): somente
    * leitura para o trabalho, fora do git do projeto, renovada a cada sessão. Nunca segue links.
    */
-  copyKnowledgeInto(dir: string, dest: string, maxBytes = 50 * 1024 * 1024): { files: number; bytes: number; skipped: number } {
+  copyKnowledgeInto(dir: string, dest: string, maxBytes = 50 * 1024 * 1024, include: (file: KnowledgeFile) => boolean = () => true): { files: number; bytes: number; skipped: number } {
     if (fs.existsSync(dest) || this.isLink(dest)) fs.rmSync(dest, { recursive: true, force: true });
     fs.mkdirSync(dest, { recursive: true });
     let bytes = 0;
     let files = 0;
     let skipped = 0;
     for (const f of this.listKnowledge(dir)) {
+      if (!include(f)) continue;
       if (bytes + f.size > maxBytes) {
         skipped++;
         continue;
@@ -186,10 +188,10 @@ export class WorkspaceService {
    * Prepara contexto/ no diretório de trabalho da IA: contexto/base (padrões da base) e
    * contexto/conhecimento (conhecimento do projeto). Devolve quantos arquivos ficaram de fora pelo limite.
    */
-  prepareSessionContext(areaSlug: string, projectDirKey: string, workdir: string): { skipped: number } {
+  prepareSessionContext(areaSlug: string, projectDirKey: string, workdir: string, retiredStudioWorkflow = false): { skipped: number } {
     const root = path.join(workdir, SESSION_CONTEXT_DIR);
     if (fs.existsSync(root) || this.isLink(root)) fs.rmSync(root, { recursive: true, force: true });
-    const a = this.copyKnowledgeInto(this.areaDirs(areaSlug).base, path.join(root, 'base'));
+    const a = this.copyKnowledgeInto(this.areaDirs(areaSlug).base, path.join(root, 'base'), 50 * 1024 * 1024, f=>activeBaseMaterial(f.path,retiredStudioWorkflow));
     const b = this.copyKnowledgeInto(this.projectDirs(projectDirKey).knowledge, path.join(root, 'conhecimento'));
     return { skipped: a.skipped + b.skipped };
   }

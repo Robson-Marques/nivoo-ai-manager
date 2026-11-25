@@ -13,7 +13,7 @@ import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER } from '../../jobs/motion/aut
 import { resolveInside } from '../../common/path-guard';
 import type { ExecutionLog } from './types';
 
-type SessionJob=Job&{project:{dirKey:string;area:AreaScope&{slug:string}}};
+type SessionJob=Job&{project:{dirKey:string;area:AreaScope&{slug:string;retiredStudioWorkflow?:boolean}}};
 
 /** Materializes existing facts and assets; never dispatches a provider or changes job state. */
 export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:WorkspaceService,artifacts:ArtifactStoreService,job:SessionJob,step:Step,providerId:string,isAi:boolean,worktree:string,knowledgeDir:string,L:ExecutionLog){
@@ -43,7 +43,7 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
     let docsPendentes = new Map<string, Buffer>();
     if (isAi) {
       // Padrões da base e conhecimento do projeto, renovados a cada sessão (leitura; fora do git).
-      const ctx = workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree);
+      const ctx = workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree,job.project.area.retiredStudioWorkflow);
       if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
       // Anexos da conversa que originou este trabalho (imagens e documentos enviados no chat).
       const origem = await prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
