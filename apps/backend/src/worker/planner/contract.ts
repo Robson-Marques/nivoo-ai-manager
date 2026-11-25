@@ -74,9 +74,10 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
       ...(softwareInterface ? [
         ...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : ['- Este servidor não oferece banco de teste: testes que precisam de PostgreSQL ficam de fora (diga quais).']),
         ...TEXTO_SISTEMA_RODANDO,
-        ...TEXTO_FOTOS,
-        ...TEXTO_ROTEIRO,
-        ...TEXTO_PADRAO_DAS_TELAS,
+        ...(studioWorkflow?[
+          '- Ferramentas disponíveis para a evidência prevista pelo método: nivoo-fotos, nivoo-roteiro e nivoo-conferir-telas. Na construção, a validação é mínima e proporcional; a evidência integrada ocorre na aceitação da Capability quando estruturalmente completa. Não exija homologação global por slice.',
+          '- Siga a disciplina original de integridade visual/interativa; a referência da tela, os estados e as evidências são determinados pelo método, sem inspecionar código antes do gate.',
+        ]:[...TEXTO_FOTOS,...TEXTO_ROTEIRO,...TEXTO_PADRAO_DAS_TELAS]),
         '- PRÉVIA: o usuário vê o site/sistema rodando ao lado da conversa ("Ver o projeto"). Site com index.html e package.json com',
         '  "dev"/"start" são detectados; se o projeto liga de outro jeito (monorepo, outra pasta, comando próprio), inclua no plano',
         '  um nivoo-previa.json na raiz: {"tipo":"servidor","pasta":"apps/web","instalar":"pnpm install","comando":"pnpm dev --port $PORT","caminho":"/"}',

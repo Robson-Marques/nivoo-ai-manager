@@ -79,9 +79,9 @@ O relatório recusa redução percentual se houver contagens ausentes/parciais, 
 
 Consolidação: gravação de mensagens usa ordenação temporal explícita dentro da transação (o now() do PostgreSQL pode ser igual nas duas linhas); lock do projeto impede dois questionários iniciais concorrentes. Codex com mais de um evento de uso na mesma chamada é marcado parcial para não presumir se contadores são cumulativos. O relatório exige execução efetiva nos dois grupos e presença da Skill em todas as chamadas de execução do grupo otimizado, além da ausência na referência.
 
-## Correção pós-teste — retirada do Studio Workflow
+## Studio Workflow e Skills
 
-O pacote de metodologia foi retirado dos modelos disponíveis e dos arquivos distribuídos. A base Software é instalada por padrão. A migração converte áreas cujo template era studio-workflow para software, sem mudar seus IDs, slugs, projetos, caminhos ou históricos. Acrescenta uma versão de instruções nativas de Software (instruções antigas, inclusive personalizações, continuam no histórico e não são mais ativas). A marca retiredStudioWorkflow existe apenas para isolar os nomes dos materiais antigos do pacote; esses arquivos continuam disponíveis no armazenamento da base e histórico Git, mas não são entregues às sessões de planejamento/execução nem ao índice do perfil. Outros materiais e regras próprias do projeto permanecem. Não se apagam planos antigos: não aprove planos anteriores que proponham criar especialidades locais; repita o teste em projeto novo. Skills são auxiliares do resultado, não artefatos obrigatórios. Nenhuma reescrita das 27 Skills nesta fase. A migração e a compilação serão executadas pelo nivoo update; validação real pendente.
+O Studio Workflow voltou como base de software selecionável, com o pacote original e suas responsabilidades metodológicas. A base Software nativa continua disponível. Consulte [integração do Studio Workflow](studio-workflow-integracao.md) para os limites, migração e validação pendente.
 
 ## Correção pós-teste — materiais Liquid Glass
 

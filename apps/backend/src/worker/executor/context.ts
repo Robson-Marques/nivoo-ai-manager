@@ -92,7 +92,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const origem = await contextoDaOrigem(prisma, workspace, vinculo?.projetoOrigemId);
     if (origem.length) add('origem', origem);
     const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
-    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(softwareInterfaceEnabled(vinculo?.area) ? [...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS] : [])]);
+    if (ferramentas.length) add('ferramentas', [...ferramentas, ...(softwareInterfaceEnabled(vinculo?.area) ? [...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...(vinculo?.area?.template==='studio-workflow'?['- Ferramentas disponíveis sob o plano aprovado: nivoo-fotos, nivoo-roteiro e nivoo-conferir-telas. Use conforme evidência prevista no contrato da capacidade e na disciplina de testes. Não repita aceitação integrada durante a construção de slices.']: [...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS])] : [])]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
       const emOut = fs.existsSync(path.join(worktree, 'out'))
