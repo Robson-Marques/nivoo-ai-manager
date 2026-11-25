@@ -407,7 +407,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
+        mcp: resolutionLedger?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
@@ -485,7 +485,11 @@ export class PlannerService {
           registrarTempo('validacao_plano_aprovada');
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
-          if(resolutionLedger)content+='\n\n'+renderResolutionDecisions(validateResolutionDecisions(resolutionLedger,parsed,(plan as unknown as {steps:Array<{key:string}>}).steps));
+          if(resolutionLedger){
+            const decisions=validateResolutionDecisions(resolutionLedger,parsed,(plan as unknown as {steps:Array<{key:string}>}).steps);
+            content+='\n\n'+renderResolutionDecisions(decisions);
+            plan={...(plan as unknown as Record<string,Prisma.InputJsonValue>),egmResolution:{reviewMessageId:resolutionSourceId,revision:resolutionLedger.revision,decisions} as unknown as Prisma.InputJsonValue} as Prisma.InputJsonValue;
+          }
         } catch (e: any) {
           // Um plano inválido não deve ser devolvido ao usuário para ele depurar JSON.
           // Uma única correção interna, com o erro exato do contrato, e nova validação.
