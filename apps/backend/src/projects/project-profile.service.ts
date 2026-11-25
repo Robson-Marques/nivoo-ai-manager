@@ -47,6 +47,7 @@ export class ProjectProfileService {
       '',
       `## Regras da base "${project.area.name}" (versão ${baseRules?.version ?? 0})`,
       currentMediaBaseRules(project.area, baseRules?.text ?? '(sem regras)'),
+      ...(project.area.template==='studio-workflow'?['','## Studio Workflow — método ativo','Siga o pacote original de contexto/base/ conforme seu índice README.md e prompt-alinhamento.md. Use as Skills nativas como recursos da especialidade na execução, subordinadas às regras do projeto e ao método. O Nivoo executa as verificações existentes; não abra um novo revisor ou ciclo só por causa da metodologia. Distingua alinhamento, maturidade estrutural, Capability Contract, slices e aceitação integrada.']:[]),
       '',
       `## Regras deste projeto (versão ${projectRules?.version ?? 0})`,
       projectRules?.text ?? '(o projeto ainda não tem regras próprias; valem as da base)',

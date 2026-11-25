@@ -28,7 +28,7 @@ describe('Fronteiras do planejador', () => {
   ] as const)('carrega somente capacidades da área %s',async(template,media,softwareInterface)=>{
     const registry={has:jest.fn(()=>true),status:jest.fn(async()=>({available:true}))};
     const c=await selectPlannerCapabilities({template},registry as any);
-    expect(c).toEqual({media,softwareInterface,paidVideo:media,paidImage:media});
+    expect(c).toEqual({media,softwareInterface,paidVideo:media,paidImage:media,...(template==='studio-workflow'?{studioWorkflow:true}:{})});
     const prompt=plannerRules(c).join('\n');
     expect(prompt.includes('nivoo-roteiro')).toBe(softwareInterface);
     expect(prompt.includes('nivoo-renderizar-motion')).toBe(media);

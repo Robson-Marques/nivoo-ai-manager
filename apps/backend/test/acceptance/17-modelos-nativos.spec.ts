@@ -5,18 +5,24 @@ import { WorkspaceService } from '../../src/storage/workspace.service';
 import { createHarness, Harness, truncateAll } from '../support/harness';
 import { findTemplate,AREAS_INSTALADAS } from '../../src/areas/area-templates';
 
-describe('Modelos nativos e aposentadoria do Studio Workflow',()=>{
+describe('Modelos nativos e Studio Workflow',()=>{
   let h:Harness;
   beforeAll(async()=>{h=await createHarness();await truncateAll(h.prisma);});
   afterAll(()=>h.close());
-  it('oferece Software e não instala a metodologia retirada',async()=>{
-    expect(findTemplate('studio-workflow')).toBeUndefined();
+  it('oferece Software nativo e Studio Workflow como bases distintas',async()=>{
+    expect(findTemplate('studio-workflow')?.instructions).toContain('Relatório de alinhamento');
     expect(AREAS_INSTALADAS).toContain('software');
-    expect((await h.http().get('/api/areas/templates')).body.map((t:any)=>t.key)).not.toContain('studio-workflow');
+    expect((await h.http().get('/api/areas/templates')).body.map((t:any)=>t.key)).toContain('studio-workflow');
     const p=(await h.http().post('/api/projects').send({name:'Software nativo',base:'software'}).expect(201)).body;
     const profile=await h.app.get(ProjectProfileService).build(p.id);
     expect(profile.text).toContain('Código limpo');
     expect(profile.text).not.toContain('Relatório de alinhamento');
+    const studio=(await h.http().post('/api/projects').send({name:'Software com método',base:'studio-workflow'}).expect(201)).body;
+    const sp=await h.app.get(ProjectProfileService).build(studio.id);
+    expect(sp.text).toContain('Studio Workflow — método ativo');
+    expect(sp.text).toContain('contexto/base/capability-contract.md');
+    expect(sp.text).toContain('contexto/base/architecture-baseline.md');
+    expect(sp.text).toContain('contexto/base/architecture-blueprint.md');
   });
   it('preserva materiais antigos no disco, mas não entrega o pacote retirado à IA',async()=>{
     const p=(await h.http().post('/api/projects').send({name:'Software migrado',base:'software'}).expect(201)).body;

@@ -24,6 +24,16 @@ async function main() {
   console.log('Base padrão garantida.');
   const prisma = app.get(PrismaService);
   const ws = app.get(WorkspaceService);
+  // Restore missing shipped materials only. Keep user-edited documents and git history.
+  const workflow = findTemplate('studio-workflow')!;
+  for (const area of await prisma.area.findMany({ where: { template: 'studio-workflow' } })) {
+    const dir = ws.areaDirs(area.slug).base;
+    await ws.ensureKnowledge(dir, workflow.baseFiles);
+    const existing = new Set(ws.listKnowledge(dir).map(f=>f.path));
+    const missing = Object.entries(workflow.baseFiles).filter(([p])=>!existing.has(p))
+      .map(([p,content])=>({path:p,content:Buffer.from(content,'utf8')}));
+    if(missing.length) await ws.writeKnowledge(dir,missing,'sistema','restaura materiais ausentes do Studio Workflow');
+  }
   const pastas = [
     ...(await prisma.area.findMany({ select: { slug: true, name: true } })).map((a) => ({ dir: ws.areaDirs(a.slug).base, nome: `modelo ${a.name}` })),
     ...(await prisma.project.findMany({ select: { dirKey: true, name: true } })).map((p) => ({ dir: ws.projectDirs(p.dirKey).knowledge, nome: `projeto ${p.name}` })),
