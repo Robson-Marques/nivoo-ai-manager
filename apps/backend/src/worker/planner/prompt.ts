@@ -12,6 +12,7 @@ import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
 import { selectSkills,skillContext } from '../../specialties/skills';
+import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { bancoDeTesteDisponivel } from '../../common/banco-de-teste';
@@ -25,7 +26,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
   const task=entrega??currentMessage.join('\n');
-  const skills=selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile)});
+  const skills=selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
   onSkills?.(skills.map(s=>s.id));
     return [
       '# Você é a IA deste projeto no Nivoo',

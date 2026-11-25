@@ -243,7 +243,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // para que o orçamento do job e do projeto continue valendo.
     if (r.aborted || r.timedOut) {
       const est = ClaudeCodeCliProvider.estimateFromStream(r.stdout);
-      const base = { exitCode: -1, output: '', costUsd: est.costUsd, costEstimated: true, inputTokens: est.inputTokens, outputTokens: est.outputTokens };
+      const base = { exitCode: -1, output: '', costUsd: est.costUsd, costEstimated: true, usagePartial:true, inputTokens: est.inputTokens, outputTokens: est.outputTokens };
       return r.aborted ? { ...base, interrupted: true, error: 'interrompido' } : { ...base, error: `timeout após ${req.timeoutMs} ms` };
     }
     if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
@@ -281,6 +281,10 @@ export class ClaudeCodeCliProvider implements AiProvider {
       costUsd: typeof parsed?.total_cost_usd === 'number' ? parsed.total_cost_usd : undefined,
       inputTokens: parsed?.usage?.input_tokens,
       outputTokens: parsed?.usage?.output_tokens,
+      inputExcludesCache:true,
+      cacheReadInputTokens:parsed?.usage?.cache_read_input_tokens,
+      cacheWriteInputTokens:parsed?.usage?.cache_creation_input_tokens,
+      usagePartial:!parsed,
     };
   }
 }

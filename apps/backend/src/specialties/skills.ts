@@ -41,6 +41,8 @@ export interface SkillIntent {
   phase:'planner'|'execution'; text:string; media:boolean; software:boolean;
   nativeImage?:boolean; motionAuthor?:boolean; resume?:boolean; previousError?:boolean; executor?:boolean;
   visualStyleId?:string;
+  /** Only the operator-configured benchmark reference suppresses this auxiliary skill. */
+  omitLeanSkill?:boolean;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -51,8 +53,7 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   const resume=intent.resume||/\b(retom\w*|continu\w*|checkpoint|reaproveit\w*)\b/.test(t);
   if(resume)selected.add('retomada');
   if(intent.previousError||/\b(erro|falh\w*|bloque\w*|bug|diagnostic\w*|timeout|repetic\w*)\b/.test(t))selected.add('diagnostico');
-  if(intent.phase==='execution')selected.add('execucao-enxuta');
-  else if(/\b(workflow|fluxo|tokens?|orquestr\w*|automac\w*)\b/.test(t))selected.add('execucao-enxuta');
+  if(!intent.omitLeanSkill&&(intent.phase==='execution'||/\b(workflow|fluxo|tokens?|orquestr\w*|automac\w*)\b/.test(t)))selected.add('execucao-enxuta');
   // General areas may authorize both domains. Explicit UI motion is not audiovisual
   // authoring; explicit media contracts or actual audiovisual requests still win.
   const softwareIds=intent.software&&!intent.nativeImage&&!intent.motionAuthor?selectSoftwareSkillIds(t,intent.visualStyleId):[];

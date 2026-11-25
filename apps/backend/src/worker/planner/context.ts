@@ -64,7 +64,9 @@ export async function collectPlannerContext(prisma:PrismaService,workspace:Works
   const recent=past.slice(0,worktree?8:20).reverse().map(m=>renderMessage(m,!worktree));
   const conversa=[...(archive?['Histórico integral anterior à mensagem atual: '+archive+'. Em retomadas e pedidos de continuidade, consulte as páginas relevantes antes de planejar.']:[]),...recent].join('\n\n');
   const deles=atual?anexos.filter(a=>a.mensagem===atual.id):[];
+  const originalVisualRequest=atual?.kind==='perfil-visual-confirmado'?past.find(m=>m.role==='USUARIO'):undefined;
   const currentMessage=[
+    ...(originalVisualRequest?['Pedido original confirmado: '+originalVisualRequest.content]:[]),
     atual?.content||'(sem texto: o usuário só enviou anexos)',
     ...(deles.length?['','Anexos desta mensagem (LEIA/VEJA cada um antes de responder; imagens: abra o arquivo com a sua ferramenta de leitura):',...deles.map(a=>'- '+descreverAnexo(a))]:[])
   ];

@@ -2,7 +2,10 @@ import type { Job,Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { LogService } from '../../jobs/log.service';
 import type { ProviderRegistry } from '../../providers/provider-registry.service';
-import type { AiProvider,ExecutionResult } from '../../providers/provider.interface';
+import type { AiProvider,ExecutionResult,ExecutionRequest } from '../../providers/provider.interface';
+import { measureAiCall } from '../token-benchmark';
+import { SKILLS_VERSION } from '../../specialties/skills';
+import type { ContextStats } from '../context-builder';
 import { registrarErro } from '../../diagnostico/erros';
 import { projectModel } from '../../providers/project-model';
 import { mcpDoProjeto } from '../../mcp/mcp';
@@ -15,7 +18,7 @@ export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'
 }
 
 /** Dispatch exactly once. The caller owns attempt creation, outcome and retry. */
-export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,providerId:string,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number):Promise<ExecutionResult>{
+export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,providerId:string,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number,contextStats?:ContextStats|null):Promise<ExecutionResult>{
   const isAi=provider.kind!=='executor';
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
@@ -31,7 +34,7 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
       });
     }, 60_000);
     try {
-      result = await provider.execute({
+      const request:ExecutionRequest = {
         jobId: job.id,
         stepId: step.id,
         attemptId: attempt.id,
@@ -62,7 +65,8 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
             logs.log(job.id, line, { stepId: step.id, attemptId: attempt.id, level, source: `provider:${providerId}` }).catch(() => undefined),
           );
         },
-      });
+      };
+      result=isAi?await measureAiCall({projectId:job.projectId,provider:providerId,model:request.options?.model,phase:'execution',jobId:job.id,stepId:step.id,attemptId:attempt.id,skillsVersion:SKILLS_VERSION,skillIds:contextStats?.skillIds,promptChars:contextStats?.promptChars},()=>provider.execute(request)):await provider.execute(request);
     } catch (e: any) {
       result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
       registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);

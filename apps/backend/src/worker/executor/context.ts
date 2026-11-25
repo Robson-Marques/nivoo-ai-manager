@@ -19,6 +19,7 @@ import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } 
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
+import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
@@ -69,7 +70,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const skills=selectSkills({
       phase:'execution',text:task,
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(vinculo?.visualProfile),
-      nativeImage,motionAuthor,
+      nativeImage,motionAuthor,omitLeanSkill:benchmarkVariant(job.projectId)==='reference',
       resume:motionEdit||priorAttempts.length>0,previousError,
     });
     const skillIds=skills.map(s=>s.id);

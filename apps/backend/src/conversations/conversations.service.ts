@@ -292,7 +292,7 @@ export class ConversationsService {
       const discover=!latest&&!temAnexo&&visualAnswer===undefined&&project.visualProfile===null&&!project.gitUrl&&softwareInterfaceEnabled(project.area)&&visualDiscoveryIntent(content)
         &&!(await tx.job.count({where:{projectId}}))
         &&!(await tx.conversationMessage.findFirst({where:{conversation:{projectId},kind:VISUAL_DISCOVERY_KIND},select:{id:true}}));
-      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content } });
+      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content,...(choice?{kind:'perfil-visual-confirmado'}:{}) } });
       if (temAnexo) {
         const gravados = anexos.length ? gravarAnexos(raiz, conversationId, minha.id, anexos) : [];
         const todos = [...gravados, ...midia];

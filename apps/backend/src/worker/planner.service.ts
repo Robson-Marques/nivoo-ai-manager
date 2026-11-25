@@ -8,6 +8,7 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { GOLDFISH_SKILL,goldfishRequest,goldfishProviderSupported,goldfishReviewPrompt,goldfishReviewOutcome } from '../specialties/software/goldfish';
 import { SKILLS_VERSION,skillContext } from '../specialties/skills';
+import { measureAiCall } from './token-benchmark';
 import { AGENT_RULES } from '../security/policy';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
@@ -205,9 +206,10 @@ export class PlannerService {
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
+      let routedSkillIds:readonly string[]=goldfishScope!==null?[GOLDFISH_SKILL.id]:[];
       const prompt = goldfishScope!==null
         ? goldfishReviewPrompt(goldfishScope,revision,AGENT_RULES,skillContext([GOLDFISH_SKILL],tmp))
-        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp},ids=>registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length}));
+        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
       if(goldfishScope!==null)registrarTempo('goldfish_inicio',{provedor:providerId,skillsVersion:SKILLS_VERSION,skill:GOLDFISH_SKILL.id,revisao:revision});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
@@ -232,7 +234,7 @@ export class PlannerService {
       });
       const iniciouIaMs = Date.now();
       registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs, promptBaseCaracteres:prompt.length,perfilCaracteres:profile.text.length });
-      const result = await this.registry.get(providerId).execute({
+      const result = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:goldfishScope!==null?'goldfish':'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
         attemptId: msg.id,
@@ -252,7 +254,7 @@ export class PlannerService {
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
         },
         onLog: (linha) => gravarAndamento(linha),
-      }).catch((e: unknown) => {
+      })).catch((e: unknown) => {
         registrarTempo('ia_chamada_excecao', { provedor: providerId, duracaoMs: Date.now() - iniciouIaMs, tipo: e instanceof Error ? e.name : 'erro' });
         throw e;
       });
@@ -263,8 +265,8 @@ export class PlannerService {
         recursoIndisponivel: !!result.resourceUnavailable,
         erroHttp: /\bHTTP\s*(\d{3})\b/i.exec(String(result.error ?? ''))?.[1] ?? null,
         respostaCaracteres: result.output?.length ?? 0,
-        tokensEntrada: result.inputTokens ?? 0,
-        tokensSaida: result.outputTokens ?? 0,
+        tokensEntrada: result.inputTokens ?? null,
+        tokensSaida: result.outputTokens ?? null,
       });
       await gravando;
       if (result.interrupted) {
@@ -347,7 +349,7 @@ export class PlannerService {
             ].join('\n');
             const iniciouReparoMs = Date.now();
             registrarTempo('reparo_ia_inicio', { provedor: providerId });
-            const reparo = await this.registry.get(providerId).execute({
+            const reparo = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'repair',messageId:msg.id,skillsVersion:SKILLS_VERSION,promptChars:instrucaoReparo.length},()=>this.registry.get(providerId).execute({
               jobId: 'conversa', stepId: msg.conversationId, attemptId: msg.id,
               instructions: instrucaoReparo, context: '', cwd: tmp,
               outputDir: path.join(tmp, 'out'), systemPrompt: profile.text,
@@ -356,7 +358,7 @@ export class PlannerService {
               signal,
               options: { maxTurns: 3, model: projectModel(project, providerId) },
               onLog: (linha) => gravarAndamento(linha),
-            });
+            }));
             registrarTempo('reparo_ia_fim', {
               provedor: providerId,
               duracaoMs: Date.now() - iniciouReparoMs,
@@ -364,8 +366,8 @@ export class PlannerService {
               recursoIndisponivel: !!reparo.resourceUnavailable,
               erroHttp: /\bHTTP\s*(\d{3})\b/i.exec(String(reparo.error ?? ''))?.[1] ?? null,
               respostaCaracteres: reparo.output?.length ?? 0,
-              tokensEntrada: reparo.inputTokens ?? 0,
-              tokensSaida: reparo.outputTokens ?? 0,
+              tokensEntrada: reparo.inputTokens ?? null,
+              tokensSaida: reparo.outputTokens ?? null,
             });
             if (reparo.interrupted || signal.aborted) return;
             if (reparo.exitCode !== 0 || reparo.resourceUnavailable) throw new Error(reparo.error ?? 'reparo indisponível');

@@ -402,7 +402,7 @@ export class StepExecutorService {
     const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
     const mediaBefore=captureMediaOutputs(job,step,this.pastaDeMidia(job.project.dirKey));
     const started = Date.now();
-    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started);
+    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
 
     if (isAi && !result.interrupted) {
       // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
@@ -454,6 +454,7 @@ export class StepExecutorService {
             data: {
               status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),
               costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
+              inputTokens:result.inputTokens,outputTokens:result.outputTokens,
             },
           }),
           this.prisma.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } }),

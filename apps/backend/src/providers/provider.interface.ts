@@ -64,6 +64,11 @@ export interface ExecutionResult {
   costEstimated?: boolean;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheWriteInputTokens?: number;
+  /** True only when the provider input count explicitly excludes cached tokens. */
+  inputExcludesCache?: boolean;
+  usagePartial?: boolean;
   /**
    * A sessão do agente terminou por limite da própria sessão (ex.: turnos), sem erro.
    * Não é falha nem conclusão: o trabalho continua em uma nova sessão.
