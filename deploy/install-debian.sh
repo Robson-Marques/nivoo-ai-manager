@@ -304,7 +304,100 @@ install -m 755 "$APP_DIR/apps/backend/bin/nivoo-conferir-motion" /usr/local/bin/
 node -e "require(require.resolve('playwright-core',{paths:['$APP_DIR']})); console.log('ok: Playwright resolvido pelo executável instalado')" 
 
 # Prévia dos projetos: com domínio da Cloudflare já configurado, cria o endereço previa-<endereço> no mesmo túnel.
-if [ -f /etc/cloudflared/config.yml ] && ! grep -q 'hostname: previa-' /etc/cloudflared/config.yml && [ -x /usr/local/bin/nivoo ]; then
+if ! grep -Eq '^NIVOO_PREVIA_URL=(https?://[^/]+)?/previa/? /etc/cloudflared/config.yml && [ -x /usr/local/bin/nivoo ]; then
+  step "Endereço da prévia dos projetos (Cloudflare)"
+  /usr/local/bin/nivoo dominio previa || warn "não consegui criar agora; rode depois: nivoo dominio previa"
+fi
+sed -i "s#^APP_DIR=.*#APP_DIR=$APP_DIR#" /usr/local/bin/nivoo
+
+# -----------------------------------------------------------------------------
+step "9/9 Serviços systemd"
+if has_systemd; then
+  for svc in api worker; do
+    if [ "$svc" = api ]; then CMD="dist/main.js"; DESC="API e interface"; else CMD="dist/worker.js"; DESC="worker (execuções duráveis)"; fi
+    # O worker roda as IAs: o ChatGPT (Codex) isola cada comando com namespaces do Linux (bubblewrap); sem eles,
+    # nenhum comando dele funciona ("não tenho terminal"). A API continua sem namespaces.
+    if [ "$svc" = worker ]; then NAMESPACES="RestrictNamespaces=false"; else NAMESPACES="RestrictNamespaces=true"; fi
+    cat > "/etc/systemd/system/nivoo-$svc.service" <<EOF
+[Unit]
+Description=Nivoo AI Manager — $DESC
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=$NIVOO_USER
+Group=$NIVOO_USER
+WorkingDirectory=$APP_DIR/apps/backend
+EnvironmentFile=$ENV_FILE
+Environment=HOME=$NIVOO_HOME
+Environment=PATH=$NODE_DIR/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$NODE_DIR/bin/node $CMD
+Restart=always
+RestartSec=3
+# Isolamento em nível de sistema operacional
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$NIVOO_HOME
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+$NAMESPACES
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  done
+  systemctl daemon-reload
+  systemctl enable nivoo-api nivoo-worker >/dev/null 2>&1
+  systemctl restart nivoo-api nivoo-worker
+  for _ in $(seq 1 40); do curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
+  if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
+    ok "nivoo-api e nivoo-worker ativos"
+  else
+    die "a API não respondeu. Veja: journalctl -u nivoo-api -n 50"
+  fi
+else
+  warn "systemd ausente: serviços não criados (inicie manualmente; ver docs/INSTALACAO-DEBIAN.md)"
+fi
+
+# -----------------------------------------------------------------------------
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+echo
+echo "${c_b}Instalação concluída.${c_0}"
+echo
+LOGIN_USR="$(sed -n 's/^NIVOO_LOGIN_USUARIO=//p' "$ENV_FILE" 2>/dev/null)"
+if [ -n "$LOGIN_USR" ]; then
+  echo "  Interface: acesse pelo seu domínio e entre com usuário (\"$LOGIN_USR\") e senha."
+elif [ "${HOST}" = 127.0.0.1 ]; then
+  echo "  Interface (só local). No SEU computador, abra um túnel SSH:"
+  echo "      ssh -N -L $PORT:127.0.0.1:$PORT root@${IP:-SEU_SERVIDOR}"
+  echo "  e acesse: http://localhost:$PORT"
+else
+  echo "  Interface: http://${IP:-SEU_SERVIDOR}:$PORT"
+  echo "  Token de API (cole em 'Conectores e configurações'): $(sed -n 's/^NIVOO_API_TOKEN=//p' "$ENV_FILE")"
+fi
+echo
+echo "  Próximos passos:"
+echo "    nivoo login-claude     # login oficial do Claude Code para o worker"
+echo "    nivoo login-codex      # login oficial do Codex (código de dispositivo)"
+echo "    nivoo check            # confere conectores e serviços"
+echo "    nivoo help             # todos os comandos"
+ "$ENV_FILE" && [ -f /etc/cloudflared/config.yml ] && ! grep -q 'hostname: previa-' /etc/cloudflared/config.yml && [ -x /usr/local/bin/nivoo ]; then
   step "Endereço da prévia dos projetos (Cloudflare)"
   /usr/local/bin/nivoo dominio previa || warn "não consegui criar agora; rode depois: nivoo dominio previa"
 fi

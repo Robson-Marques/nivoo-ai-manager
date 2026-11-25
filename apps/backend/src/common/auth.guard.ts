@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { timingSafeEqual } from 'node:crypto';
 import { acessoCloudflareConfigurado, acessoCloudflareValido } from './cf-access';
 import { loginConfigurado, sessaoValida } from './login';
+import { modoCaminho,bloquearApiDaPrevia } from '../previa/previa-path';
 
 /**
  * Entrada protegida (instância única, sem multi-tenant). Formas de entrar, qualquer uma basta:
@@ -15,6 +16,7 @@ import { loginConfigurado, sessaoValida } from './login';
 export class ApiTokenGuard implements CanActivate {
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest();
+    if(modoCaminho()&&bloquearApiDaPrevia(req))throw new UnauthorizedException('Origem de prévia não autorizada na API administrativa');
     if (req.path === '/api/health' || req.path === '/api/login' || req.path === '/api/login/status') return true;
     const token = process.env.NIVOO_API_TOKEN;
     const temLogin = loginConfigurado();
