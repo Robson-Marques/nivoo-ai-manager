@@ -4,7 +4,7 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.5.0';
+export const SKILLS_VERSION='1.6.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -44,6 +44,8 @@ export interface SkillIntent {
   /** Only the operator-configured benchmark reference suppresses this auxiliary skill. */
   omitLeanSkill?:boolean;
   capabilityWork?:boolean;
+  /** Enable phase-specific EGM routing for the live software workflow, not only Capability jobs. */
+  softwareLifecycle?:boolean;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -70,6 +72,13 @@ export function selectSkills(intent:SkillIntent):Skill[]{
     const specialists=[...softwareIds,...(intent.capabilityWork?['software-requisitos','software-especificacao','software-contexto-arquitetural']:[])];
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
+    if(intent.softwareLifecycle&&selected.has('codigo')){
+      // A local maintenance job without a Capability still has requirements and
+      // contracts. Use the relevant EGM phase in the existing productive session.
+      for(const id of intent.phase==='planner'
+        ? ['software-requisitos','software-especificacao']
+        : ['software-contexto-arquitetural'])selected.add(id);
+    }
     // A prior failure can deepen an actual code step without routing on raw logs.
     if(intent.phase==='execution'&&intent.previousError&&selected.has('codigo'))selected.add('software-manutencao');
   }
