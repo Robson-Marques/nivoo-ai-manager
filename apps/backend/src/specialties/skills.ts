@@ -4,7 +4,7 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.4.9';
+export const SKILLS_VERSION='1.5.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -40,6 +40,7 @@ export const NIVOO_SKILLS:readonly Skill[]=[
 export interface SkillIntent {
   phase:'planner'|'execution'; text:string; media:boolean; software:boolean;
   nativeImage?:boolean; motionAuthor?:boolean; resume?:boolean; previousError?:boolean; executor?:boolean;
+  visualStyleId?:string;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -54,7 +55,7 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   else if(/\b(workflow|fluxo|tokens?|orquestr\w*|automac\w*)\b/.test(t))selected.add('execucao-enxuta');
   // General areas may authorize both domains. Explicit UI motion is not audiovisual
   // authoring; explicit media contracts or actual audiovisual requests still win.
-  const softwareIds=intent.software&&!intent.nativeImage&&!intent.motionAuthor?selectSoftwareSkillIds(t):[];
+  const softwareIds=intent.software&&!intent.nativeImage&&!intent.motionAuthor?selectSoftwareSkillIds(t,intent.visualStyleId):[];
   const interfaceMotionOnly=softwareIds.includes('software-microinteracoes')&&!/\b(video|videos|reels|audiovisual|locucao|trilha|ffmpeg|renderizar-motion)\b/.test(t);
   if(intent.media){
     if(intent.nativeImage||/\b(arte|artes|imagem|imagens|poster|posters|criativo|foto|fotografia|recorte|banner|layout)\b/.test(t))selected.add('direcao-artistica');

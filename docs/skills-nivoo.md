@@ -153,3 +153,7 @@ Validação pós-update: usar `nivoo update` na branch que contém a expansão; 
 ## Nivoo Visual Design System
 
 Nova expansão aprovada: [modelagem, perfil visual e plano de validação prática](visual-design-system.md). A primeira frente preserva todas as Skills e adiciona armazenamento de identidade visual opcional no projeto. O benchmark de tokens será realizado após a expansão, com dados reais e comparação controlada.
+
+### Visual Design System — frente 05 (1.5.0)
+
+Nova Skill software-liquid-glass: 27 IDs, 26 anteriores preservados. Roteamento por intenção explícita ou perfil Liquid Glass validado e trabalho visual pertinente. Orientação original inspirada nas referências públicas do Liquid Glass Design; CSS leve não equivale a refração óptica. Mantém isolamento de domínio e sessões existentes. Ver docs/visual-design-system.md e docs/third-party/liquid-glass/README.md.

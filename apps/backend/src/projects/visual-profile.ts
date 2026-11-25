@@ -78,6 +78,11 @@ export function parseVisualProfileUpdate(body:unknown):{expectedRevision:number;
   return {expectedRevision:revision,profile};
 }
 
+/** Only a structurally valid, known persisted choice may route visual skills. */
+export function selectedVisualStyleId(value:unknown):string|undefined{
+  try{const id=parseVisualProfile(value)?.styleId;return id&&findVisualStyle(id)?id:undefined;}catch{return undefined;}
+}
+
 /** Compact shared profile context: no external URLs, raw CSS, or new memory. */
 export function visualProfileContext(value:unknown,revision:number):string[]{
   let p:VisualProfileV1|null;

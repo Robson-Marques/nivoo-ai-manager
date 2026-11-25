@@ -19,6 +19,7 @@ import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } 
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
+import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
@@ -57,7 +58,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     // "Fine-tune do projeto": regras da base + regras do projeto + conhecimento. Prende a IA ao projeto.
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
-    const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, area: { select: { template: true, slug: true } } } });
+    const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, visualProfile: true, area: { select: { template: true, slug: true } } } });
     const motionEdit=step.instructions.includes(MOTION_EDIT_MARKER);
     const motionAuthor=motionEdit||step.instructions.includes(MOTION_CONTRACT_MARKER);
     const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || motionAuthor;
@@ -67,7 +68,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const previousError=priorAttempts.some(a=>!!a.error);
     const skills=selectSkills({
       phase:'execution',text:task,
-      media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),
+      media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(vinculo?.visualProfile),
       nativeImage,motionAuthor,
       resume:motionEdit||priorAttempts.length>0,previousError,
     });
