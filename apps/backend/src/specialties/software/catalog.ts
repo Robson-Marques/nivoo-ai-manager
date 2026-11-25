@@ -13,6 +13,7 @@ import { ARCHITECTURAL_KNOWLEDGE_SKILL,architecturalKnowledgeIntent,architectura
 import { GOLDFISH_SKILL } from './goldfish';
 import { VISUAL_REFINEMENT_SKILL,visualRefinementIntent,visualRefinementContext } from './visual-refinement';
 import { ART_DIRECTION_SKILL,artDirectionIntent,artDirectionContext } from './art-direction';
+import { INTERFACE_COMPOSITION_SKILL,interfaceCompositionIntent,interfaceCompositionContext } from './interface-composition';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -40,7 +41,7 @@ const specialists:readonly Specialist[]=[
     body:'Trabalhe sobre a revisão real do workspace. Consulte contexto/acervo/arquitetura-indice.md quando disponibilizado; ele é um índice, não prova de leitura ou de completude. Identifique pontos de entrada, componente dono, interfaces, consumidores e persistência/efeitos quando pertinentes. Leia manifestos, configurações de aliases e implementações completas relevantes antes de editar. Trace uma operação desde a entrada até o resultado, incluindo caminhos de erro. Confirme os consumidores de contratos alterados, inclusive referências dinâmicas não visíveis no mapa. Preserve o comportamento não solicitado e altere conjuntamente os contratos afetados. Não invente arquitetura nem crie um serviço paralelo para contornar uma falha. Faça a análise durante a mesma sessão produtiva, sem relatório obrigatório ou nova revisão.'},
     matches:text=>/\b(arquitetur\w*|blueprint|dependencias?|modulariz\w*|estrutura do (?:codigo|projeto|sistema)|refator\w*)\b/.test(text)},
   {skill:BACKEND_SKILL,matches:backendIntent,section:'engenharia-backend',guidance:input=>backendEngineeringContext(input.phase,input.text)},
-  {skill:FRONTEND_SKILL,matches:text=>frontendIntent(text)||visualRefinementIntent(text)||artDirectionIntent(text),section:'engenharia-frontend',guidance:input=>frontendEngineeringContext(input.phase,input.text)},
+  {skill:FRONTEND_SKILL,matches:text=>frontendIntent(text)||visualRefinementIntent(text)||artDirectionIntent(text)||interfaceCompositionIntent(text),section:'engenharia-frontend',guidance:input=>frontendEngineeringContext(input.phase,input.text)},
   {skill:DATA_SKILL,matches:dataIntent,section:'engenharia-dados',guidance:input=>dataEngineeringContext(input.phase,input.text,input.testDbConfigured())},
   {skill:INTEGRATION_SKILL,matches:integrationIntent,section:'engenharia-integracoes',guidance:input=>integrationEngineeringContext(input.phase,input.text)},
   {skill:SECURITY_SKILL,matches:securityIntent,section:'engenharia-seguranca',guidance:input=>securityEngineeringContext(input.phase,input.text)},
@@ -53,6 +54,7 @@ const specialists:readonly Specialist[]=[
   {skill:GOLDFISH_SKILL,matches:()=>false},
   {skill:VISUAL_REFINEMENT_SKILL,matches:visualRefinementIntent,section:'engenharia-refinamento-visual',guidance:input=>visualRefinementContext(input.phase,input.text)},
   {skill:ART_DIRECTION_SKILL,matches:artDirectionIntent,section:'engenharia-direcao-artistica',guidance:input=>artDirectionContext(input.phase,input.text)},
+  {skill:INTERFACE_COMPOSITION_SKILL,matches:interfaceCompositionIntent,section:'engenharia-composicao-interface',guidance:input=>interfaceCompositionContext(input.phase,input.text)},
 ];
 
 export const SOFTWARE_SKILLS:readonly Skill[]=specialists.map(s=>s.skill);
