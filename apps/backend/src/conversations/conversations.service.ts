@@ -9,7 +9,7 @@ import { readPlanningSource,type ApprovedScope } from '../jobs/approved-scope';
 import { minimalEnv,runProcess } from '../common/exec';
 import { readReviewCheckpoint,reviewBinding,assertReviewBinding } from '../specialties/software/egm/review-checkpoint';
 import { litePlanTarget } from '../specialties/software/egm/lite-review';
-import { validateLiteSpecRevision } from '../specialties/software/egm/lite-resolution';
+import { assertLiteReceipt,liteDiffLedger,validateLiteSpecRevision } from '../specialties/software/egm/lite-resolution';
 import { readResolutionLedger,validateResolutionDecisions } from '../specialties/software/egm/review-resolution';
 import { bindApprovedGoldfish,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
 import { PrismaService } from '../prisma/prisma.service';
@@ -392,7 +392,7 @@ export class ConversationsService {
       if(typeof binding.reviewMessageId!=='string'||typeof binding.revision!=='string')throw new ConflictException('Vínculo Goldfish incompleto.');
       const review=await this.prisma.conversationMessage.findFirst({where:{id:binding.reviewMessageId,conversationId,status:'PRONTA',role:'ASSISTENTE'},select:{goldfishState:true}});
       try{
-        const state=readReviewCheckpoint(review?.goldfishState),ledger=readResolutionLedger(state.resolution);
+        const state=readReviewCheckpoint(review?.goldfishState),ledger=state.binding.preset==='lite-diff'?liteDiffLedger(assertLiteReceipt(state)):readResolutionLedger(state.resolution);
         if(!ledger.ready||state.binding.projectId!==projectId||state.binding.conversationId!==conversationId||state.binding.messageId!==binding.reviewMessageId||state.binding.revision!==binding.revision||ledger.revision!==binding.revision)throw Error('Revisão não corresponde ao plano.');
         if(!Array.isArray(plan.steps))throw Error('Etapas Goldfish inválidas.');
         const decisions=validateResolutionDecisions(ledger,{tipo:'plano',egmDecisions:binding.decisions},plan.steps);
@@ -416,7 +416,7 @@ export class ConversationsService {
           this.prisma.conversationMessage.findFirst({where:{id:b.reviewMessageId,conversationId,role:'ASSISTENTE',status:'PRONTA'},select:{goldfishState:true}}),
           this.prisma.conversationMessage.findFirst({where:{id:b.originalPlanId,conversationId,role:'ASSISTENTE',kind:'plano',status:'PRONTA',jobId:null,approvedAt:null},select:{plan:true}})
         ]);
-        const state=readReviewCheckpoint(review?.goldfishState),result=state.lite,meta=readPlanningSource(original?.plan);
+        const state=readReviewCheckpoint(review?.goldfishState),result=assertLiteReceipt(state),meta=readPlanningSource(original?.plan);
         if(!original?.plan||!meta||!request||meta.projectId!==projectId||meta.areaId!==project.areaId||meta.visualRevision!==project.visualProfileRevision||meta.cutoff!==source?.cutoff||state.binding.projectId!==projectId||state.binding.conversationId!==conversationId||state.binding.messageId!==b.reviewMessageId||state.binding.preset!=='lite-spec'||state.binding.liteSourceId!==b.originalPlanId||!result||result.sourceId!==b.originalPlanId||result.revision!==b.revision||state.binding.revision!==b.revision)throw Error('Checklist ou revisão Lite não corresponde à proposta.');
         assertReviewBinding(state,reviewBinding({...state.binding},litePlanTarget(original.plan,request.content),[]));
         const decisions=validateLiteSpecRevision(result,original.plan,msg.plan,b.decisions);
