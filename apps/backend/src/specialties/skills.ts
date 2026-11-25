@@ -43,6 +43,7 @@ export interface SkillIntent {
   visualStyleId?:string;
   /** Only the operator-configured benchmark reference suppresses this auxiliary skill. */
   omitLeanSkill?:boolean;
+  capabilityWork?:boolean;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -66,7 +67,7 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   }
   if(!intent.nativeImage&&/\b(arquivo|arquivos|gravar|gravacao|salvar|escrever|editar|exportar|planilha|documento|relatorio|file|files)\b/.test(t))selected.add('arquivos');
   if(intent.software&&!intent.nativeImage&&!intent.motionAuthor){
-    const specialists=softwareIds;
+    const specialists=[...softwareIds,...(intent.capabilityWork?['software-requisitos','software-especificacao','software-contexto-arquitetural']:[])];
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
     // A prior failure can deepen an actual code step without routing on raw logs.
@@ -75,6 +76,11 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   // No full skill bank in the prompt. The relevant detailed guidance is
   // materialized in the already disposable, read-only session context.
   return NIVOO_SKILLS.filter(s=>selected.has(s.id));
+}
+
+/** Only compact alignment guidance at the pre-gate; no repository audit. */
+export function studioAlignmentSkills():Skill[]{
+  return NIVOO_SKILLS.filter(s=>s.id==='software-requisitos'||s.id==='software-especificacao');
 }
 
 export function skillContext(skills:readonly Skill[],worktree?:string):string[]{

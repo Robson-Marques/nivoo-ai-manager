@@ -11,7 +11,7 @@ import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectPlannerCapabilities } from './capabilities';
 import { buildMediaPlannerContext } from '../../specialties/media/context';
 import { collectPlannerContext } from './context';
-import { selectSkills,skillContext } from '../../specialties/skills';
+import { selectSkills,skillContext,studioAlignmentSkills } from '../../specialties/skills';
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
@@ -26,7 +26,8 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const midia=capabilities.media;
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
   const task=entrega??currentMessage.join('\n');
-  const skills=capabilities.studioWorkflow&&!entrega?[]:selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
+  const preGate=!!capabilities.studioWorkflow&&!entrega;
+  const skills=preGate?studioAlignmentSkills():selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
   onSkills?.(skills.map(s=>s.id));
     return [
       '# Você é a IA deste projeto no Nivoo',
@@ -60,8 +61,8 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '## Conversa até aqui',
       conversa || '(primeira mensagem)',
       '',
-      ...skillContext(skills,request.worktree),
-      ...softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines),
+      ...(preGate?['## Skills auxiliares do alinhamento (somente orientação, sem leitura analítica adicional)',...skills.map(s=>'- '+s.id+': '+s.action),'Aplique esta orientação exclusivamente às fontes pré-gate permitidas pelo Studio Workflow. Não leia implementações, não abra revisão independente e não execute trabalho antes de Fazer.']:skillContext(skills,request.worktree)),
+      ...(preGate?[]:softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines)),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [

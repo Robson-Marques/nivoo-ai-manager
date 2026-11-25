@@ -1,3 +1,4 @@
+import {studioAlignmentSkills,selectSkills} from '../../src/specialties/skills';
 import {findTemplate,AREAS_INSTALADAS} from '../../src/areas/area-templates';
 import {plannerRules} from '../../src/worker/planner/contract';
 describe('Studio Workflow e Skills coexistem',()=>{
@@ -8,6 +9,13 @@ describe('Studio Workflow e Skills coexistem',()=>{
     expect(Object.keys(t.baseFiles)).toHaveLength(18);
     expect(t.baseFiles['capability-contract.md']).toContain('Capability Acceptance');
     expect(t.baseFiles['architecture-baseline.md']).toContain('Architecture Recovery');
+  });
+  it('ativa requisitos e especificação no alinhamento e preserva as três orientações na capacidade',()=>{
+    expect(studioAlignmentSkills().map(s=>s.id)).toEqual(expect.arrayContaining(['software-requisitos','software-especificacao']));
+    expect(studioAlignmentSkills()).toHaveLength(2);
+    const ids=selectSkills({phase:'execution',text:'Entregar dashboard',software:true,media:false,capabilityWork:true}).map(s=>s.id);
+    expect(ids).toEqual(expect.arrayContaining(['software-requisitos','software-especificacao','software-contexto-arquitetural']));
+    expect(ids).not.toContain('software-revisao-independente');
   });
   it('não contradiz alinhamento, escopo ou aceitação do método',()=>{
     const rules=plannerRules({media:false,softwareInterface:true,studioWorkflow:true,paidVideo:false}).join('\n');

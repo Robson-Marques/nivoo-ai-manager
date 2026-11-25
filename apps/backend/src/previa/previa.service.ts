@@ -1,3 +1,4 @@
+import { variaveisDaPrevia } from '../accounts/secrets';
 import { randomBytes } from 'node:crypto';
 import { ChildProcess, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -56,6 +57,7 @@ interface Previa {
   subida?: Promise<void>;
   dir?: string;
   log: string;
+  redact?: (value:string)=>string;
   ultimoUso: number;
   ligadaEm?: Date;
   trabalhoEmAndamento?: boolean;
@@ -263,7 +265,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     p.subida = this.subir(p).catch((e) => {
       if (cancelada(p)) return;
       p.estado = 'erro';
-      p.mensagem = String(e?.message ?? e).slice(0, 1000);
+      p.mensagem = (p.redact?.(String(e?.message ?? e))??String(e?.message ?? e)).slice(0,1000);
     });
     return this.estado(projectId);
   }
@@ -277,7 +279,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   }
 
   private registrar(p: Previa, texto: string) {
-    p.log = `${p.log}${texto}`.slice(-200_000);
+    const joined=p.log+texto;
+    p.log=(p.redact?.(joined)??joined).slice(-200_000);
   }
 
   private async subir(p: Previa): Promise<void> {
@@ -334,7 +337,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId));
     if(process.env.NIVOO_TESTES_PG_URL&&!banco)throw new Error('Configuração inválida do banco descartável da prévia.');
     if (cancelada(p)) return;
-    const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
+    const previewVars=variaveisDaPrevia(p.projectId);
+    const secrets=[...Object.entries(previewVars).filter(([k])=>/PASSWORD|SECRET|TOKEN|KEY|URL/i.test(k)).map(([,v])=>v),...Object.entries(banco?.env??{}).filter(([k])=>/PASSWORD|URL/.test(k)).map(([,v])=>v)].filter(Boolean).sort((a,b)=>b.length-a.length);
+    p.redact=value=>secrets.reduce((out,secret)=>out.split(secret).join('[SEGREDO]'),value);
+    const env = ambienteDaConferencia({ ...previewVars, PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
     if (como.instalar) {
       p.mensagem = 'instalando as dependências e preparando o frontend';
