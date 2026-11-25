@@ -10,8 +10,8 @@ import { ambienteDaConferencia, portaLivre, runProcess } from '../common/exec';
 import { resolveInside } from '../common/path-guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
-import { modoCaminho, baseSessao, separarCaminho, caminhoPublico, headersCaminho, headersProjeto, headersRespostaProjeto } from './previa-path';
-import { adaptarBuildVite } from './previa-vite';
+import { modoCaminho } from './previa-path';
+import { VisualizadoresPrevia } from './previa-browser';
 
 /**
  * Prévia do projeto: o site ou o sistema do projeto rodando, para o usuário ver ao lado da conversa.
@@ -49,6 +49,7 @@ interface Previa {
   como?: ComoRodar;
   porta?: number;
   processo?: ChildProcess;
+  servidorEstatico?: http.Server;
   dir?: string;
   log: string;
   ultimoUso: number;
@@ -80,6 +81,7 @@ const OCIOSA_MS = Number(process.env.NIVOO_PREVIA_OCIOSA_MIN ?? 120) * 60_000;
 export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Previa');
   private readonly previas = new Map<string, Previa>();
+  private readonly visualizadores = new VisualizadoresPrevia();
   private portao?: http.Server;
   private porta = 0;
   private faxina?: NodeJS.Timeout;
@@ -184,8 +186,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       mensagem: p.mensagem,
       tipo: p.como?.tipo ?? null,
       origem: p.como?.origem ?? null,
-      url: p.estado === 'no-ar' ? (modoCaminho() ? caminhoPublico(baseSessao(p.token),p.como?.caminho??'/') : `${this.urlPublica()}/__nivoo_previa/abrir?t=${p.token}&caminho=${encodeURIComponent(p.como?.caminho ?? '/')}`) : null,
+      url: p.estado === 'no-ar' ? (modoCaminho() ? '/previa/'+p.projectId : `${this.urlPublica()}/__nivoo_previa/abrir?t=${p.token}&caminho=${encodeURIComponent(p.como?.caminho ?? '/')}`) : null,
       modoCaminho: modoCaminho(),
+      visualizador: modoCaminho(),
       enderecoConfigurado: !!process.env.NIVOO_PREVIA_URL,
       trabalhoEmAndamento: !!p.trabalhoEmAndamento,
       ligadaEm: p.ligadaEm ?? null,
@@ -233,7 +236,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       await this.git(dir, ['clean', '-fdx', '-e', 'node_modules', '-e', '.venv']); // dependências ficam (mais rápido)
     }
     p.dir = dir;
-    const como = PreviaService.comoRodar(dir,modoCaminho()?baseSessao(p.token):undefined);
+    const como = PreviaService.comoRodar(dir);
     if (!como) {
       // A prévia mostra a PASTA PRINCIPAL: se um trabalho em andamento vai criar a prévia, ela só aparece quando ele concluir.
       const rodando = await this.prisma.job.findFirst({ where: { projectId: p.projectId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO', 'AGUARDANDO_APROVACAO'] } }, select: { title: true } });
@@ -247,6 +250,18 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     p.como = como;
     const pastaAbs = resolveInside(dir, como.pasta);
     if (como.tipo === 'estatico') {
+      if (modoCaminho()) {
+        const servidor = http.createServer((req,res) => {
+          try { this.servirArquivo(p,new URL(req.url ?? '/', 'http://previa').pathname,req,res); }
+          catch { this.pagina(res,400,'Caminho inválido.'); }
+        });
+        p.servidorEstatico = servidor;
+        await new Promise<void>((ok,falha) => {
+          servidor.once('error',falha);
+          servidor.listen(0,'127.0.0.1',()=>{p.porta=(servidor.address() as net.AddressInfo).port;ok();});
+        });
+        if (p.estado === 'parada') { servidor.close(); return; }
+      }
       p.estado = 'no-ar';
       p.mensagem = `site estático (${como.origem})`;
       p.ligadaEm = new Date();
@@ -254,24 +269,16 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     }
     p.porta = await portaLivre();
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId)).catch(() => null);
-    const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(modoCaminho()?{NIVOO_PREVIA_BASE_PATH:baseSessao(p.token)}:{}), ...(banco?.env ?? {}) });
+    const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
-    let instalar=como.instalar;
-    if(modoCaminho()&&instalar){
-      const pacote=path.join(pastaAbs,'package.json');
-      let build:unknown;
-      if(fs.existsSync(pacote)){
-        try{build=JSON.parse(fs.readFileSync(pacote,'utf8')).scripts?.build;}catch{/* custom project configuration */}
-      }
-      instalar=adaptarBuildVite(instalar,build,baseSessao(p.token));
-      if(instalar!==como.instalar)this.registrar(p,'[prévia] Build Vite adaptado ao caminho da sessão (somente na cópia da prévia).\n');
-    }
-    if (instalar) {
+    if (como.instalar) {
       p.mensagem = 'instalando as dependências e preparando o frontend';
-      const r = await runProcess('bash', ['-o', 'pipefail', '-c', instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
-      this.registrar(p, `$ ${como.instalar}\n${r.stdout}${r.stderr}\n`);
-      if (r.exitCode !== 0) throw new Error(`a instalação das dependências falhou (exit ${r.exitCode}); veja o registro abaixo`);
+      const r = await runProcess('bash', ['-o', 'pipefail', '-c', como.instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
+      this.registrar(p, '$ '+como.instalar+'\n'+r.stdout+r.stderr+'\n');
+      if (p.estado === 'parada') return;
+      if (r.exitCode !== 0) throw new Error('a instalação das dependências falhou (exit '+r.exitCode+'); veja o registro abaixo');
     }
+    if (p.estado === 'parada') return;
     p.mensagem = `ligando o sistema (${como.comando})`;
     this.registrar(p, `$ ${como.comando}\n`);
     const filho = spawn('bash', ['-c', como.comando!], { cwd: pastaAbs, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -294,8 +301,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const esperaSeg = Number(process.env.NIVOO_PREVIA_ESPERA_SEG ?? 180);
     const limite = Date.now() + esperaSeg * 1000;
     while (Date.now() < limite) {
+      if (p.estado === 'parada') return;
       if (saiu !== undefined) throw new Error(`o sistema parou antes de responder (código ${saiu}); veja o registro abaixo`);
-      if (await this.responde(p.porta,como.manterPrefixo?baseSessao(p.token):'/')) {
+      if (await this.responde(p.porta)) {
         p.estado = 'no-ar';
         p.mensagem = `sistema no ar (${como.origem})`;
         p.ligadaEm = new Date();
@@ -326,6 +334,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   private async parar(p: Previa): Promise<void> {
     p.estado = 'parada';
+    await this.visualizadores.fechar(p.projectId);
+    p.servidorEstatico?.closeAllConnections();
+    p.servidorEstatico?.close();
     if (p.processo?.pid) {
       try {
         process.kill(-p.processo.pid, 'SIGTERM');
@@ -346,6 +357,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async desligarOciosas(): Promise<void> {
+    await this.visualizadores.limpar();
     for (const p of [...this.previas.values()]) {
       if (Date.now() - p.ultimoUso > OCIOSA_MS) await this.desligar(p.projectId).catch(() => undefined);
     }
@@ -355,67 +367,27 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return runProcess('git', ['-c', 'safe.directory=*', ...args], { cwd, env: ambienteDaConferencia(), timeoutMs: 120_000 });
   }
 
-  /** Mounted before the administrative SPA/API parsers, only when path mode is configured. */
-  async atenderCaminho(req:http.IncomingMessage,res:http.ServerResponse):Promise<void>{
-    if(!modoCaminho())return this.pagina(res,404,'Prévia por caminho desativada.');
-    const route=separarCaminho(req.url??'');
-    if(!route)return this.pagina(res,404,'Abra a prévia pelo botão Ver o projeto no Nivoo.');
-    const p=[...this.previas.values()].find(x=>x.token===route.token&&x.estado==='no-ar');
-    if(!p)return this.pagina(res,404,'Esta sessão de prévia não está mais no ar.');
-    if(!headersCaminho(res,req,route.base))return this.pagina(res,400,'Endereço de prévia inválido.');
-    p.ultimoUso=Date.now();
-    if(req.method==='OPTIONS'){res.writeHead(204);return void res.end();}
-    try{
-      if(p.como?.tipo==='estatico'){
-        if(req.method!=='GET'&&req.method!=='HEAD')return this.pagina(res,405,'Método indisponível para site estático.');
-        return this.servirArquivo(p,new URL(route.local,'http://previa').pathname,req,res,true);
-      }
-      const upstream=p.como?.manterPrefixo?(req.url??'/'):route.local;
-      const destino=http.request({host:'127.0.0.1',port:p.porta,method:req.method,path:upstream,headers:{...headersProjeto(req),host:`127.0.0.1:${p.porta}`}},r=>{
-        const h=headersRespostaProjeto(r.headers);
-        if(r.headers.location){
-          // Only redirects within the preview; never redirect to the manager or another origin.
-          const loc=r.headers.location;
-          if(!loc.startsWith('/')||loc.startsWith('//')||/[\\\r\n]/.test(loc)){r.resume();return this.pagina(res,502,'Redirecionamento externo não permitido na prévia por caminho.');}
-          const next=loc.startsWith(route.base)?loc:caminhoPublico(route.base,loc);
-          if(!separarCaminho(next)){r.resume();return this.pagina(res,502,'Redirecionamento inválido na prévia.');}
-          h.location=next;
-        }
-        res.writeHead(r.statusCode??502,h);r.pipe(res);
-      });
-      destino.on('error',e=>this.pagina(res,502,'O sistema da prévia não respondeu: '+e.message));
-      req.on('aborted',()=>destino.destroy());
-      req.pipe(destino);
-    }catch(e:any){this.pagina(res,500,'Erro na prévia: '+String(e?.message??e));}
+  private sessaoVisual(projectId: string, id: unknown) {
+    if (!modoCaminho()) throw new BadRequestException('Modo visualizador não ativado.');
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(id)) throw new BadRequestException('Identificador de visualizador inválido.');
+    const p = this.previas.get(projectId);
+    if (!p || p.estado !== 'no-ar' || !p.porta) throw new BadRequestException('Ligue a prévia do projeto primeiro.');
+    p.ultimoUso = Date.now();
+    return { p, id };
   }
-
-  atenderUpgradeCaminho(req:http.IncomingMessage,socket:net.Socket,cabeca:Buffer){
-    const route=modoCaminho()?separarCaminho(req.url??''):null;
-    const p=route&&[...this.previas.values()].find(x=>x.token===route.token&&x.estado==='no-ar');
-    if(!route||!p||!p.porta||p.como?.tipo!=='servidor')return void socket.destroy();
-    p.ultimoUso=Date.now();
-    if(String(req.headers.upgrade??'').toLowerCase()!=='websocket'||req.method!=='GET')return void socket.destroy();
-    const destino=http.request({host:'127.0.0.1',port:p.porta,path:p.como?.manterPrefixo?req.url:route.local,method:'GET',headers:{...headersProjeto(req),host:`127.0.0.1:${p.porta}`,connection:'Upgrade',upgrade:'websocket'}});
-    destino.on('response',r=>{r.resume();socket.destroy();});
-    destino.on('upgrade',(r,alvo,head)=>{
-      if(r.statusCode!==101||String(r.headers.upgrade??'').toLowerCase()!=='websocket'){alvo.destroy();return void socket.destroy();}
-      // Rebuild the handshake. A project cannot inject Set-Cookie or another HTTP response.
-      const accept=r.headers['sec-websocket-accept'];
-      if(typeof accept!=='string'||!/^[A-Za-z0-9+/]{27}=$/.test(accept)){alvo.destroy();return void socket.destroy();}
-      const linhas=['HTTP/1.1 101 Switching Protocols','Connection: Upgrade','Upgrade: websocket','Sec-WebSocket-Accept: '+accept];
-      for(const k of ['sec-websocket-protocol','sec-websocket-extensions']){
-        const v=r.headers[k];if(typeof v==='string'&&!/[\r\n]/.test(v))linhas.push(k+': '+v);
-      }
-      socket.write(linhas.join('\r\n')+'\r\n\r\n');
-      if(head.length)socket.write(head);
-      if(cabeca.length)alvo.write(cabeca);
-      alvo.on('error',()=>socket.destroy());socket.on('error',()=>alvo.destroy());
-      alvo.on('close',()=>socket.destroy());socket.on('close',()=>alvo.destroy());
-      alvo.pipe(socket);socket.pipe(alvo);
-    });
-    destino.on('error',()=>socket.destroy());
-    socket.on('error',()=>destino.destroy());
-    destino.end();
+  quadroVisual(projectId: string, id: unknown, tamanho: unknown) {
+    const s = this.sessaoVisual(projectId,id);
+    if (tamanho !== 'computador' && tamanho !== 'celular') throw new BadRequestException('Tamanho de visualizador inválido.');
+    return this.visualizadores.quadro(projectId,s.p.token,s.p.porta!,s.p.como?.caminho ?? '/',s.id,tamanho);
+  }
+  async acaoVisual(projectId: string, id: unknown, comando: unknown) {
+    const s = this.sessaoVisual(projectId,id);
+    await this.visualizadores.acao(projectId,s.p.token,s.id,comando);
+    return { ok: true };
+  }
+  async fecharVisual(projectId: string, id: unknown) {
+    if (typeof id === 'string' && /^[a-zA-Z0-9-]{16,80}$/.test(id)) await this.visualizadores.fechar(projectId,id);
+    return { ok: true };
   }
 
   // ---------------- portão ----------------
