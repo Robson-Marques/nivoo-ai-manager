@@ -13,6 +13,9 @@ import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
 import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
+import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
+import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
+import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
 import { trocarParaReserva } from '../projects/mover-trabalho';
@@ -168,6 +171,7 @@ export class PlannerService {
 
     // Explicit Goldfish request only: no reviewer is added to normal planning or jobs.
     let goldfishScope:string|null=null;
+    let savedReview:GoldfishCheckpoint|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
     if(!specialtyResume&&msg.kind!=='entrega'){
@@ -182,15 +186,14 @@ export class PlannerService {
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
         if(!goldfishTransportSupported(tipoDe(project.provider)))return fail('Goldfish indisponível nesta conexão. Nenhum provedor foi trocado nem sessão iniciada.');
         if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
-        // A worker restart must not replay a multi-reviewer run and charge
-        // the same completed calls again. Durable checkpoint resume is a
-        // separate feature; preserve what was actually recorded.
-        if(msg.startedAt){
-          await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
-            status:'ERRO',kind:'erro',content:['Revisão Goldfish interrompida anteriormente. Não foi repetida automaticamente. Relatórios e custos já gravados foram preservados; a retomada por fase ainda não está disponível.',msg.content].filter(Boolean).join('\n\n'),completedAt:new Date(),
-          }});
-          await this.queue.complete(task.id,workerId);
-          return;
+        if(msg.goldfishState!==null){
+          try{savedReview=readReviewCheckpoint(msg.goldfishState);}catch(e){return fail((e as Error).message);}
+          const b=savedReview.binding;
+          if(b.projectId!==project.id||b.conversationId!==msg.conversationId||b.messageId!==msg.id||b.providerId!==project.provider||b.model!==(projectModel(project,project.provider)??null))return fail('O vínculo da revisão mudou. Checkpoint e consumo preservados; nenhuma chamada repetida.');
+        }else if(msg.startedAt){
+          // Legacy messages have no durable call receipt. Never assume they
+          // have not spent tokens.
+          return fail('Revisão anterior sem checkpoint por revisor. Não será repetida automaticamente.');
         }
       }
       const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
@@ -242,7 +245,7 @@ export class PlannerService {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
       let revision='main';
       if(goldfishScope!==null){
-        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
+        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
         revision=rev.stdout.trim();
         if(rev.exitCode!==0||!/^[a-f0-9]{40,64}$/.test(revision))return fail('Não foi possível identificar a revisão da pasta principal para análise independente.');
         const snapshot=await runProcess('bash',['-c','set -o pipefail; git -C "$1" archive "$3" | tar -x -C "$2"','_',repo,tmp,revision],{cwd:tmp,env:minimalEnv(),timeoutMs:120_000});
@@ -251,13 +254,24 @@ export class PlannerService {
         let intake:ReturnType<typeof loadGoldfishTarget>;
         try{intake=loadGoldfishTarget(tmp,goldfishScope);}catch(e){return fail('Goldfish: '+(e as Error).message);}
         const reviewRoot=fs.mkdtempSync(path.join(tmp,'goldfish-run-'));
-        let cost=0,costKnown=true,cancelled=false;
+        let cancelled=false;
+        const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:intake.preset},intake.target,intake.baseline);
+        const checkpoint=savedReview??createReviewCheckpoint(binding);
+        try{assertReviewBinding(checkpoint,binding);}catch(e){return fail((e as Error).message);}
+        const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
+        const persist=async(next:GoldfishCheckpoint)=>{
+          const totals=reviewTotals(next);
+          const ok=await writeReview({goldfishState:next as unknown as Prisma.InputJsonValue,costUsd:totals.costUsd});
+          if(!ok)cancelled=true;
+          return ok;
+        };
+        let captureUsage:(result:ExecutionResult)=>void=()=>undefined;
         const reports:GoldfishPhaseRecord[]=[];
         const configured=Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC??900);
         const seconds=Number.isFinite(configured)&&configured>0?configured:900;
         const configuredTurns=Number(process.env.NIVOO_PLANNER_MAX_TURNS??20);
         const maxTurns=Number.isFinite(configuredTurns)?Math.min(20,Math.max(1,Math.floor(configuredTurns))):20;
-        const dispatch=createGoldfishDispatch({
+        const transport=createGoldfishDispatch({
           provider:this.registry.get(providerId),providerType:tipoDe(providerId),root:reviewRoot,
           jobId:'conversa',stepId:msg.conversationId,model:projectModel(project,providerId),
           deadline:Date.now()+seconds*1000,maxTurns,
@@ -266,44 +280,41 @@ export class PlannerService {
           invoke:async(req,meta)=>{
             const current=await this.prisma.conversationMessage.findFirst({where:{id:msg.id,status:'PENDENTE'},select:{id:true}});
             if(!current||signal.aborted){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
-            await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{andamento:'Goldfish: fase '+meta.stage+' — '+meta.role}});
+            if(!await writeReview({andamento:'Goldfish: fase '+meta.stage+' — '+meta.role})){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
             const result=await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'goldfish',messageId:msg.id,attemptId:req.attemptId,skillsVersion:SKILLS_VERSION,skillIds:[GOLDFISH_SKILL.id],promptChars:req.instructions.length},()=>this.registry.get(providerId).execute(req));
             this.registry.registrarResultado(providerId,result.exitCode===0&&!result.resourceUnavailable,result.error);
             registrarTempo('goldfish_revisor_fim',{provedor:providerId,fase:meta.stage,revisor:meta.role,tentativa:meta.attempt,codigoSaida:result.exitCode,recursoIndisponivel:!!result.resourceUnavailable});
             return result;
           },
-          onUsage:async result=>{
-            if(typeof result.costUsd==='number'&&Number.isFinite(result.costUsd)&&result.costUsd>=0)cost+=result.costUsd;
-            else costKnown=false;
-            if(result.costEstimated)costKnown=false;
-            if(signal.aborted)return;
-            const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{costUsd:cost}});
-            if(!saved.count)cancelled=true;
-          },
+          onUsage:async result=>{captureUsage(result);},
         });
-        await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE',startedAt:null},data:{startedAt:new Date()}});
+        const journal=checkpointedGoldfishDispatch({checkpoint,dispatch:transport,save:persist,canContinue:()=>!cancelled&&!signal.aborted});
+        captureUsage=journal.onUsage;
+        if(!await writeReview({goldfishState:checkpoint as unknown as Prisma.InputJsonValue,startedAt:msg.startedAt??new Date(),costUsd:reviewTotals(checkpoint).costUsd}))return;
         registrarTempo('goldfish_inicio',{provedor:providerId,revisao:revision,modo:String(intake.preset),referencias:intake.baseline.length});
         let run:Awaited<ReturnType<typeof runGoldfishReview>>;
         try{
-          run=await runGoldfishReview({preset:intake.preset,revision,target:intake.target,baseline:intake.baseline,signal,dispatch,onPhase:async phase=>{
+          run=await runGoldfishReview({preset:intake.preset,revision,target:intake.target,baseline:intake.baseline,signal,dispatch:journal.dispatch,onPhase:async phase=>{
             reports.push(phase);
             registrarTempo('goldfish_fase_fim',{fase:phase.stage,estado:phase.status,revisores:phase.reviewers.length});
             if(signal.aborted)return;
-            const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{content:reports.map(p=>p.markdown).join('\n\n'),costUsd:cost,andamento:'Goldfish: fase '+phase.stage+' — '+phase.status}});
-            if(!saved.count)cancelled=true;
+            const saved=await writeReview({content:reports.map(p=>p.markdown).join('\n\n'),andamento:'Goldfish: fase '+phase.stage+' — '+phase.status});
+            if(!saved)cancelled=true;
           }});
         }catch(e){
           if(signal.aborted)return;
-          await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),costUsd:cost,completedAt:new Date()}});
+          await writeReview({status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),completedAt:new Date()});
           await this.queue.complete(task.id,workerId);
           return;
         }
-        if(signal.aborted)return; // lease lost: do not overwrite the next worker.
-        const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
+        if(signal.aborted||cancelled)return; // lease lost: do not overwrite the next worker.
+        const totals=journal.totals();
+        const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
+        const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,costKnown),costUsd:cost,completedAt:new Date(),
-        }});
-        registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved.count>0,custoUsdInformado:cost,custoIntegralConhecido:costKnown});
+          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+accounting,costUsd:totals.costUsd,completedAt:new Date(),
+        });
+        registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
         await this.queue.complete(task.id,workerId);
         return;
       }else{
