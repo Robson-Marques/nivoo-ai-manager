@@ -1,4 +1,5 @@
-import { liteFindings,liteDiffLedger,validateLiteSpecRevision,liteSpecContext,renderLiteSpecDecisions } from '../../src/specialties/software/egm/lite-resolution';
+import { createReviewCheckpoint,reviewBinding } from '../../src/specialties/software/egm/review-checkpoint';
+import { assertLiteReceipt,liteFindings,liteDiffLedger,validateLiteSpecRevision,liteSpecContext,renderLiteSpecDecisions } from '../../src/specialties/software/egm/lite-resolution';
 import { readResolutionLedger } from '../../src/specialties/software/egm/review-resolution';
 import type { LiteResult } from '../../src/specialties/software/egm/lite-review';
 
@@ -37,6 +38,14 @@ describe('Lite resolution',()=>{
   });
   it('rejects removed items, changed objective, provider and attachments',()=>{
     for(const plan of [{...revised,steps:[original.steps[0]]},{...revised,objective:'Other task'},{...revised,defaultProvider:'other'},{...revised,anexosNoProjeto:[{anexo:'private',para:'new'}]}])expect(()=>validateLiteSpecRevision(result,original,plan,[fix])).toThrow();
+  });
+  it('requires the native receipt for the exact persisted report and mode',()=>{
+    const state=createReviewCheckpoint(reviewBinding({projectId:'p',conversationId:'c',messageId:'m',providerId:'codex-cli',model:null,revision:result.revision,preset:'lite-spec',liteSourceId:result.sourceId},{path:'lite-review.md',content:'target'},[]));
+    state.lite=result;
+    expect(()=>assertLiteReceipt(state)).toThrow(/recibo/);
+    state.entries.push({key:'7:lite-spec:1',fingerprint:'fingerprint',stage:7,role:'lite-spec',attempt:1,startedAt:'2026-11-25T12:00:00Z',finishedAt:'2026-11-25T12:01:00Z',result:{status:'completed',report,receipt:{sessionId:'fresh',freshContext:true,readOnly:true,access:'document-only'}}});
+    expect(assertLiteReceipt(state)).toEqual(result);
+    expect(()=>assertLiteReceipt({...state,lite:{...result,sessionId:'other'}})).toThrow(/recibo/);
   });
   it('allows a contest proposal only without changes and with declared evidence',()=>{
     const contest={...fix,category:'CONTEST',changes:[]};
