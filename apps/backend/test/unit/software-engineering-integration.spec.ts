@@ -6,17 +6,17 @@ import { SOFTWARE_SKILLS,softwareEngineeringSections } from '../../src/specialti
 
 describe('Integração de engenharia de software',()=>{
   const base={phase:'execution' as const,media:false,software:true};
-  const task='Refatorar arquitetura backend e frontend React, migração Prisma, integração webhook, autorização RBAC, testes Jest, desempenho, requisitos, especificação técnica, contexto arquitetural e redesign de dashboard';
+  const task='Refatorar arquitetura backend e frontend React, migração Prisma, integração webhook, autorização RBAC, testes Jest, desempenho, requisitos, especificação técnica, contexto arquitetural redesign de dashboard e identidade visual do site';
   const input={phase:'execution' as const,text:task,testDbConfigured:()=>false};
   it('mantém IDs estáveis e registra uma orientação por especialidade selecionada',()=>{
-    expect(SKILLS_VERSION).toBe('1.4.4');
-    expect(NIVOO_SKILLS).toHaveLength(22);
-    expect(SOFTWARE_SKILLS.map(s=>s.id)).toEqual(['software-arquitetura','software-backend','software-frontend','software-dados','software-integracoes','software-seguranca','software-qualidade','software-manutencao','software-requisitos','software-especificacao','software-contexto-arquitetural','software-revisao-independente','software-refinamento-visual']);
+    expect(SKILLS_VERSION).toBe('1.4.5');
+    expect(NIVOO_SKILLS).toHaveLength(23);
+    expect(SOFTWARE_SKILLS.map(s=>s.id)).toEqual(['software-arquitetura','software-backend','software-frontend','software-dados','software-integracoes','software-seguranca','software-qualidade','software-manutencao','software-requisitos','software-especificacao','software-contexto-arquitetural','software-revisao-independente','software-refinamento-visual','software-direcao-artistica']);
     const skills=selectSkills({...base,text:task});
     expect(skills.filter(s=>s.id.startsWith('software-')).map(s=>s.id)).toEqual(SOFTWARE_SKILLS.filter(s=>s.id!=='software-revisao-independente').map(s=>s.id));
     const exec=softwareEngineeringSections(skills,input);
     const planner=softwareEngineeringSections(selectSkills({...base,phase:'planner',text:task}),{...input,phase:'planner'});
-    const expected=['engenharia-backend','engenharia-frontend','engenharia-dados','engenharia-integracoes','engenharia-seguranca','engenharia-qualidade','engenharia-manutencao','engenharia-requisitos','engenharia-especificacao','engenharia-contexto-arquitetural','engenharia-refinamento-visual'];
+    const expected=['engenharia-backend','engenharia-frontend','engenharia-dados','engenharia-integracoes','engenharia-seguranca','engenharia-qualidade','engenharia-manutencao','engenharia-requisitos','engenharia-especificacao','engenharia-contexto-arquitetural','engenharia-refinamento-visual','engenharia-direcao-artistica'];
     expect(exec.map(s=>s.key)).toEqual(expected);
     expect(planner.map(s=>s.key)).toEqual(expected);
     expect(exec.every(s=>s.lines.join('\n').includes('Na etapa atual'))).toBe(true);
