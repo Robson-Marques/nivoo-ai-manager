@@ -152,7 +152,7 @@ export class CodexCliProvider implements AiProvider {
     if (model) args.push('--model', model);
     req.onLog(`codex ${args.join(' ')} -${req.mcp?.length ? ` + ferramentas MCP: ${req.mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
     // Ferramentas MCP do projeto: só para esta execução (o config.toml da conta não muda).
-    if (req.mcp?.length) args.push(...argsCodex(req.mcp));
+    if (req.options?.readOnlyReview!==true&&req.mcp?.length) args.push(...argsCodex(req.mcp));
     args.push('-');
     let pendente = '';
     const r = await runProcess(this.bin, args, {
