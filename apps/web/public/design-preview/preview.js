@@ -4,7 +4,7 @@ const engine=new URLSearchParams(location.search).get('engine')==='liquid-glass'
 const glass=engine==='liquid-glass';
 const root=document.getElementById('app');
 const vendorCss=document.createElement('link');vendorCss.rel='stylesheet';vendorCss.href='vendor/'+engine+'.css';document.head.prepend(vendorCss);
-if(glass){const script=document.createElement('script');script.src='vendor/liquid-glass.js';document.head.append(script);}
+if(glass){const script=document.createElement('script');script.src='vendor/liquid-glass.js';script.addEventListener('load',()=>{if(config)apply()});document.head.append(script);}
 let config=null,theme='system',current='',active='Visão geral';
 const media=matchMedia('(prefers-color-scheme: dark)');
 const safe=(v,fallback)=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v)?v:fallback;
@@ -13,7 +13,7 @@ function contrastText(hex){const rgb=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16
 function button(label,primary=false){return '<button type="button" class="'+(glass?(primary?'glass lg-button':'plain-button'):(primary?'btn btn-primary':'btn btn-outline-secondary'))+'" '+(glass&&primary?'data-glass-interactive data-glass-tint="#2563EB"':'')+'>'+label+'</button>';}
 function nav(){return '<nav class="demo-nav '+(glass?'glass':'card')+'" aria-label="Navegação da demonstração">'+['Visão geral','Clientes','Relatórios'].map(x=>button(x)).join('')+'</nav>';}
 function card(html){return '<div class="'+(glass?'demo-card':'card')+'">'+html+'</div>';}
-function table(){return '<div class="table-wrap"><table class="'+(glass?'':'table')+'"><thead><tr><th>Cliente</th><th>Status</th><th>Valor</th></tr></thead><tbody><tr><td>Ana Silva</td><td>Ativo</td><td>R$ 250</td></tr><tr><td>João Santos</td><td>Pendente</td><td>R$ 180</td></tr><tr><td>Maria Lima</td><td>Ativo</td><td>R$ 420</td></tr></tbody></table></div>';}
+function table(){return '<div class="table-wrap"><table class="'+(glass?'':'table')+'"><thead><tr><th>Cliente</th><th>Status</th><th>Valor</th></tr></thead><tbody><tr><td>Ana Silva</td><td class="status-success">Ativo</td><td>R$ 250</td></tr><tr><td>João Santos</td><td class="status-warning">Pendente</td><td>R$ 180</td></tr><tr><td>Maria Lima</td><td class="status-success">Ativo</td><td>R$ 420</td></tr></tbody></table></div>';}
 function dashboard(){return '<div class="demo-metrics">'+card('<span class="muted">Receita</span><p><strong>R$ 24.800</strong></p>')+card('<span class="muted">Clientes</span><p><strong>1.284</strong></p>')+card('<span class="muted">Crescimento</span><p><strong>18,5%</strong></p>')+'</div>'+card('<h2>Desempenho</h2><div class="chart" role="img" aria-label="Gráfico ilustrativo de crescimento">'+[22,45,36,65,52,80,68,96].map(h=>'<span style="height:'+h+'%"></span>').join('')+'</div>')+card(table());}
 function form(){return card('<form class="demo-form"><label>Nome<input class="'+(glass?'':'form-control')+'" required placeholder="Nome completo"></label><label>E-mail<input type="email" class="'+(glass?'':'form-control')+'" required placeholder="cliente@exemplo.com"></label><label>Plano<select class="'+(glass?'':'form-select')+'"><option>Inicial</option><option>Profissional</option></select></label><button type="submit" class="'+(glass?'glass lg-button':'btn btn-primary')+'" '+(glass?'data-glass-interactive data-glass-tint="#2563EB"':'')+'>Salvar exemplo</button></form>');}
 function controls(){return card('<h2>Controles reais</h2><div class="demo-row">'+button('Ação primária',true)+button('Ação secundária')+'</div><p><label class="'+(glass?'lg-switch':'form-check form-switch')+'"><input type="checkbox" '+(glass?'':'class="form-check-input"')+' aria-label="Notificações" checked></label> Notificações</p><div class="'+(glass?'lg-slider':'')+'"><input type="range" '+(glass?'':'class="form-range"')+' min="0" max="100" value="60" aria-label="Intensidade"></div>');}
@@ -34,11 +34,12 @@ function apply(){if(!config)return;const c=dark()?config.darkColors:config.color
   s.setProperty('--space',({compact:'8px',normal:'14px',comfortable:'20px'})[config.density]||'14px');
   s.setProperty('--radius',Math.max(0,Math.min(32,Number(config.radius)||0))+'px');
   s.setProperty('--shadow',({none:'none',soft:'0 3px 14px #0002',strong:'0 12px 28px #0004'})[config.shadow]||'none');
-  document.documentElement.dataset.bsTheme=dark()?'dark':'light';document.documentElement.dataset.glassAppearance=dark()?'dark':'light';
+  const appearance=dark()?'dark':'light';if(document.documentElement.dataset.bsTheme!==appearance)document.documentElement.dataset.bsTheme=appearance;if(document.documentElement.dataset.glassAppearance!==appearance)document.documentElement.dataset.glassAppearance=appearance;
   if(current!==config.component||!root.firstElementChild){current=config.component;draw();}
   root.firstElementChild.dataset.layout=['sidebar','topbar','bento'].includes(config.layout)?config.layout:'sidebar';
   root.firstElementChild.dataset.motion=String(config.motion!==false&&!matchMedia('(prefers-reduced-motion: reduce)').matches);
-  for(const b of root.querySelectorAll('[data-glass-tint]'))b.setAttribute('data-glass-tint',primary);
+  for(const b of root.querySelectorAll('[data-glass-tint]')){if(b.getAttribute('data-glass-tint')!==primary){b.setAttribute('data-glass-tint',primary);window.LiquidGlass?.apply(b,{tint:primary});}}
+  s.setProperty('--lg-switch-on',safe(c.success,'#15803D'));s.setProperty('--lg-slider-fill',primary);
 }
 window.addEventListener('message',e=>{if(e.source!==window.parent||e.data?.type!=='nivoo-design-preview'||!e.data.visual)return;config=e.data.visual;theme=e.data.theme;apply();});
 media.addEventListener('change',apply);

@@ -60,7 +60,7 @@ export function DesignStudio(){
           <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode']}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
           <label>Estilo / motor visual<select value={draft.sourceId} onChange={e=>setDraft(d=>({...d,sourceId:e.target.value}))}>{sources.filter(s=>s.kind!=='reference').map(s=><option key={s.id} value={s.id}>{s.style} — {s.name}</option>)}</select></label>
           <label>Tema<select value={draft.theme} onChange={e=>setDraft(d=>({...d,theme:e.target.value as Fields['theme']}))}><option value="system">Automático</option><option value="light">Claro</option><option value="dark">Escuro</option></select></label>
-          {visual&&defaults&&<VisualEditor value={visual} onChange={setVisual} defaults={defaults} palettes={palettes}/>}
+          {visual&&defaults&&<VisualEditor key={current?.id??'new'} value={visual} onChange={setVisual} defaults={defaults} palettes={palettes}/>}
           <button type="submit" disabled={!source||!visual||!draft.title.trim()||saving}>{saving?'Salvando…':'Salvar perfil'}</button>
         </fieldset>
         {notice&&<p role="status">{notice}</p>}

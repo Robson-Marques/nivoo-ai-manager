@@ -18,3 +18,5 @@
 .demo [data-active=true]{outline:2px solid var(--primary);outline-offset:2px}.demo :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .demo[data-motion=false] *,.demo[data-motion=false] *::before,.demo[data-motion=false] *::after{animation-duration:0s!important;transition-duration:0s!important}
 @media(max-width:520px){.demo[data-layout=sidebar]{grid-template-columns:minmax(0,1fr)}.demo[data-layout=sidebar] .demo-nav{flex-direction:row;align-items:center}.demo-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.demo[data-layout=bento] .demo-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.demo .status-success{color:var(--success)}.demo .status-warning{color:var(--warning)}.demo .table{--bs-table-color:var(--text);--bs-table-bg:var(--surface);--bs-table-border-color:var(--border)}.demo .lg-button{font-family:var(--font)}
