@@ -43,6 +43,10 @@ export function DesignStudio(){
     setCurrent(p);setDraft(p?{projectId:p.projectId??null,title:p.title,mode:p.mode,sourceId:p.sourceId,theme:p.theme}:empty);
     setVisual(p?.visual??defaults);setError('');setNotice('');
   };
+  const copyProfile=()=>{
+    if(!current||!visual)return;
+    setCurrent(null);setDraft(d=>({...d,title:(d.title+' — cópia').slice(0,120),projectId:null}));setAnalysis(null);setNotice('Cópia independente. Selecione o destino e salve.');setError('');
+  };
   const save=async()=>{
     setSaving(true);setError('');setNotice('');
     try {
@@ -66,6 +70,7 @@ export function DesignStudio(){
         <h3>Configuração</h3>
         <fieldset disabled={saving}>
           <label>Perfil salvo<select value={current?.id??''} onChange={e=>selectProfile(e.target.value)}><option value="">Novo perfil</option>{profiles.map(p=><option key={p.id} value={p.id}>{p.title}</option>)}</select></label>
+          {current&&<button type="button" className="secondary" onClick={copyProfile}>Usar como novo perfil</button>}
           <label>Nome<input required maxLength={120} value={draft.title} onChange={e=>setDraft(d=>({...d,title:e.target.value}))}/></label>
           <label>Modo<select value={draft.mode} onChange={e=>setDraft(d=>({...d,mode:e.target.value as Fields['mode'],projectId:e.target.value==='new'?null:d.projectId}))}><option value="new">Criar frontend</option><option value="remodel">Remodelar frontend existente</option></select></label>
           {draft.mode==='remodel'&&<DesignTarget projects={projetos} projectId={draft.projectId} onChange={id=>setDraft(d=>({...d,projectId:id}))} onImport={()=>setImporting(true)} disabled={saving} onAnalysis={setAnalysis}/>}

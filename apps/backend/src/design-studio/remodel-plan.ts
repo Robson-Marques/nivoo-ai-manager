@@ -44,5 +44,13 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
     'Execute os comandos de build/testes que o projeto já possui, proporcionalmente ao escopo. Use a prévia e ferramentas de captura/interação existentes quando disponíveis. Não crie CI novo nem um fluxo paralelo de conferência.',
     'Entregue código funcional, não apenas um mockup ou relatório. Grave out/remodelagem.md com arquivos alterados, aplicação dos tokens e motor, resultados reais dos testes/build, evidências antes/depois quando obtidas, limitações e funcionalidades preservadas. Se não conseguir implementar, não declare sucesso.',
   ].join('\n');
-  return {title:'Remodelagem — '+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand:'test -s out/remodelagem.md && git diff --check && git diff --check --cached',requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
+  // Check real frontend changes relative to the worktree fork point; include newly created files.
+  // This is part of the existing step verification, not another review/CI phase.
+  const verifyCommand=[
+    'test -s out/remodelagem.md',
+    'git diff --check',
+    'git diff --check --cached',
+    '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|\\.nivoo/)" | grep -Ei "\\.(tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
+  ].join(' && ');
+  return {title:'Remodelagem — '+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand,requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
 }
