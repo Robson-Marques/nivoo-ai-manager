@@ -27,7 +27,8 @@ describe('EGM Lite independent review contract',()=>{
   });
   it('enforces mutually exclusive LGTM, material findings and incomplete coverage',()=>{
     expect(parseLiteResult('[✅ LGTM]')).toBe('lgtm');
-    expect(parseLiteResult('[P1] invoice.ts: duplicate charge')).toBe('findings');
+    expect(parseLiteResult('[P1] '+JSON.stringify({scope:'invoice.ts:12',description:'duplicate charge',evidence:'join repeated',recommendation:'aggregate'}))).toBe('findings');
+    expect(parseLiteResult('[P1] invoice.ts: duplicate charge')).toBe('incomplete');
     expect(parseLiteResult('[✅ LGTM]\n[P1] defect')).toBe('incomplete');
     expect(parseLiteResult('NIVOO_LITE_INCOMPLETE missing diff')).toBe('incomplete');
     expect(parseLiteResult('Everything looks fine')).toBe('incomplete');
