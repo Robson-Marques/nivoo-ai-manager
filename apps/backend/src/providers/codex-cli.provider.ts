@@ -1,4 +1,5 @@
 import { executeGoldfishCli } from './goldfish-cli';
+import { cliReadOnly,codexLocalArgs } from './cli-session-policy';
 import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, imageEventFailure, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
@@ -109,8 +110,10 @@ export class CodexCliProvider implements AiProvider {
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     if(req.options?.goldfishIsolatedReview===true)return executeGoldfishCli('codex',this.bin,this.env(),req);
     // project_doc_max_bytes=0: não carrega AGENTS.md do workspace (canal de contexto fora do prompt auditado).
-    const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-C', req.cwd];
+    const readOnly=cliReadOnly(req);
+    const args=codexLocalArgs(req.cwd,readOnly);
     const target = nativeImageTarget(req.options?.visualAsset);
+    if(readOnly&&target)return {exitCode:1,output:'',error:'Produção visual exige etapa aprovada; planejamento não gera ativos.'};
     const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId });
     const startedAt = Date.now();
     const savedPaths:string[]=[];
@@ -155,7 +158,7 @@ export class CodexCliProvider implements AiProvider {
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
       env,
-      input: buildPrompt(req)+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta nativa image_gen (image_gen.imagegen nas versões novas) integrada à conta Codex para gerar UMA imagem PNG conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'Use transparent_background=false. ')+(attachedReferences.length?'As '+attachedReferences.length+' referências foram anexadas nesta sessão. Para gerar ou editar com fidelidade visual, passe num_last_images_to_include='+attachedReferences.length+' à ferramenta; não combine com referenced_image_paths. Preserve a identidade visual. ':'Gere a partir do briefing, sem inventar referências. ')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
+      input: buildPrompt(req)+(readOnly?'\n\nModo de planejamento: sandbox local somente leitura. Não edite, não aplique patches nem execute verificações de implementação. Ferramentas externas explicitamente autorizadas têm política própria.':'')+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta nativa image_gen (image_gen.imagegen nas versões novas) integrada à conta Codex para gerar UMA imagem PNG conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'Use transparent_background=false. ')+(attachedReferences.length?'As '+attachedReferences.length+' referências foram anexadas nesta sessão. Para gerar ou editar com fidelidade visual, passe num_last_images_to_include='+attachedReferences.length+' à ferramenta; não combine com referenced_image_paths. Preserve a identidade visual. ':'Gere a partir do briefing, sem inventar referências. ')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
