@@ -7,6 +7,7 @@ import { INTEGRATION_SKILL,integrationIntent,integrationEngineeringContext } fro
 import { SECURITY_SKILL,securityIntent,securityEngineeringContext } from './security';
 import { QUALITY_SKILL,qualityIntent,qualityEngineeringContext } from './quality';
 import { MAINTENANCE_SKILL,maintenanceIntent,maintenanceEngineeringContext } from './maintenance';
+import { REQUIREMENTS_SKILL,requirementsIntent,requirementsEngineeringContext } from './requirements';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -40,6 +41,7 @@ const specialists:readonly Specialist[]=[
   {skill:SECURITY_SKILL,matches:securityIntent,section:'engenharia-seguranca',guidance:input=>securityEngineeringContext(input.phase,input.text)},
   {skill:QUALITY_SKILL,matches:qualityIntent,section:'engenharia-qualidade',guidance:input=>qualityEngineeringContext(input.phase,input.text)},
   {skill:MAINTENANCE_SKILL,matches:maintenanceIntent,section:'engenharia-manutencao',guidance:input=>maintenanceEngineeringContext(input.phase,input.text,input.previousError)},
+  {skill:REQUIREMENTS_SKILL,matches:requirementsIntent,section:'engenharia-requisitos',guidance:input=>requirementsEngineeringContext(input.phase,input.text)},
 ];
 
 export const SOFTWARE_SKILLS:readonly Skill[]=specialists.map(s=>s.skill);

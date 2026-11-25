@@ -4,9 +4,9 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.3.9';
+export const SKILLS_VERSION='1.4.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
-export type Skill={id:string;description:string;action:string;body:string;source?:string;domain?:'software'};
+export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
   {id:'retomada',description:'Continuidade de trabalho e checkpoints',source:upstream+'nemo-rl-session-memory',
     action:'Leia o estado desta etapa e o último erro; preserve as saídas e etapas concluídas. Retome do ponto verificável, não do começo.',
@@ -75,7 +75,7 @@ export function skillContext(skills:readonly Skill[],worktree?:string):string[]{
   if(!skills.length)return [];
   if(worktree){
     for(const s of skills){
-      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em NVIDIA Agent Skills (Apache-2.0), '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n');
+      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em '+(s.sourceAttribution??'NVIDIA Agent Skills (Apache-2.0)')+', '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n');
     }
   }
   return ['## Skills Nivoo v'+SKILLS_VERSION+' selecionadas para esta sessão',

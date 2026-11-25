@@ -21,8 +21,8 @@ describe('Skills Nivoo',()=>{
   });
   it('especializa software por domínio e preserva a seleção de mídia',()=>{
     const sw={...base,media:false,software:true};
-    expect(NIVOO_SKILLS).toHaveLength(17);
-    expect(new Set(NIVOO_SKILLS.map(s=>s.id)).size).toBe(17);
+    expect(NIVOO_SKILLS).toHaveLength(18);
+    expect(new Set(NIVOO_SKILLS.map(s=>s.id)).size).toBe(18);
     expect(ids({...sw,text:'Corrigir endpoint'})).toEqual(['execucao-enxuta','codigo','software-backend']);
     expect(ids({...sw,text:'Ajustar componente React'})).toEqual(['execucao-enxuta','codigo','software-frontend']);
     expect(ids({...sw,text:'Migração Prisma e testes'})).toEqual(['execucao-enxuta','codigo','software-dados','software-qualidade']);
