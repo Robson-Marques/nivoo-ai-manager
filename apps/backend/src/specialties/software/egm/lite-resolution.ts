@@ -63,7 +63,8 @@ export function liteSpecContext(result:LiteResult,original:unknown,reviewId:stri
 export function validateLiteSpecRevision(result:LiteResult,original:unknown,revised:unknown,raw:unknown):SpecDecision[]{
   const findings=liteFindings(result.report),before=readPlan(original),after=readPlan(revised);
   if(result.mode!=='lite-spec'||result.status!=='findings'||!findings?.length||!result.sessionId||!Array.isArray(raw)||raw.length!==findings.length)throw Error('Triagem Lite deve cobrir todos os achados.');
-  if(before.objective!==after.objective||before.defaultProvider!==after.defaultProvider)throw Error('Objetivo ou provedor mudou; solicite outro plano.');
+  if(before.objective!==after.objective||before.defaultProvider!==after.defaultProvider||before.title!==after.title)throw Error('Título, objetivo ou provedor mudou; solicite outro plano.');
+  if(fingerprint((before as unknown as Record<string,unknown>).anexosNoProjeto??[])!==fingerprint((after as unknown as Record<string,unknown>).anexosNoProjeto??[]))throw Error('Anexos originais alterados sem autorização.');
   const changes=new Set<string>();
   for(const [prefix,a,b] of [['step',before.steps,after.steps],['criterion',before.criteria,after.criteria]] as const){
     for(const old of a)if(!b.some(x=>x.key===old.key))throw Error('Item original removido: '+old.key);
