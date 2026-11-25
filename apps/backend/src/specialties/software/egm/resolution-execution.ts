@@ -5,7 +5,7 @@ type StepSpec={key:string;instructions:string;verifyCommand?:string|null;provide
 type BoundAction={id:string;findingIds:string[];severity:string;scope:string;decision:ResolutionDecision};
 export type ApprovedGoldfishResolution={version:1;reviewMessageId:string;revision:string;targetPath:string;actions:BoundAction[];steps:{key:string;fingerprint:string;verifyCommand:string}[]};
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const fingerprint=(s:StepSpec)=>hash([s.key,s.instructions,s.verifyCommand??null,s.provider??null]);
+const fingerprint=(s:StepSpec)=>hash([s.key,s.instructions.trim(),s.verifyCommand?.trim()||null,s.provider?.trim()||null]);
 const obj=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const sha=(v:unknown):v is string=>typeof v==='string'&&/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(v);
 const meaningful=(s:string)=>!!s.trim()&&!/^(?:true|:|exit 0|echo\s+.*)$/i.test(s.trim());
@@ -14,7 +14,7 @@ export function bindApprovedGoldfish(reviewMessageId:string,ledger:ResolutionLed
   if(!sha(ledger.revision)||!ledger.ready||!reviewMessageId)throw Error('Revisão Goldfish não vinculável.');
   const bound=steps.map(s=>{
     if(!s.verifyCommand||!meaningful(s.verifyCommand))throw Error('Correção Goldfish sem comando de verificação significativo: '+s.key);
-    return {key:s.key,fingerprint:fingerprint(s),verifyCommand:s.verifyCommand};
+    return {key:s.key,fingerprint:fingerprint(s),verifyCommand:s.verifyCommand.trim()};
   });
   return {version:1,reviewMessageId,revision:ledger.revision,targetPath:ledger.targetPath,
     actions:ledger.actions.map(a=>{
