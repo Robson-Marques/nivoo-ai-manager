@@ -596,3 +596,14 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
 .proj-linha .proj-excluir { visibility: visible; color: #c0a2a2; }
 .proj-linha .proj-excluir:hover, .proj-linha .proj-excluir:focus-visible { color: var(--bad); }
 @media (max-width:900px){.proj-linha .proj-excluir{width:40px;height:40px;}}
+
+/* Remote preview: the only DOM on the manager origin belongs to Nivoo. */
+.previa-remota { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; overflow:hidden; background:var(--panel); }
+.previa-remota-barra { display:flex; flex-wrap:wrap; align-items:center; gap:6px; padding:7px; border-bottom:1px solid var(--line); }
+.previa-remota-barra input { flex:1; min-width:120px; max-width:320px; }
+.previa-remota-barra button { padding:4px 10px; font-size:13px; }
+.previa-remota-tela { min-height:0; flex:1; overflow:auto; display:flex; justify-content:center; align-items:flex-start; background:#e9ecf1; outline-offset:-2px; }
+.previa-remota-tela img { display:block; width:100%; height:auto; max-width:1366px; touch-action:none; user-select:none; }
+.previa-remota.t-celular .previa-remota-tela img { max-width:390px; }
+.previa-remota-erro { padding:8px; }
+.previa-pagina { display:flex; flex-direction:column; height:100dvh; min-height:0; }

@@ -11,12 +11,14 @@ import { Projeto } from './pages/Projeto';
 import { VideoStudio } from './pages/VideoStudio';
 import { StudioHome } from './pages/StudioHome';
 import { TelaDeEntrada } from './TelaDeEntrada';
+import { PreviaEmNovaAba } from './pages/PreviaRemota';
 
 function App() {
   return (
     <BrowserRouter>
       <TelaDeEntrada />
       <Routes>
+        <Route path="/previa/:pid" element={<PreviaEmNovaAba />} />
         <Route element={<Layout />}>
           <Route path="/" element={<Inicio />} />
           <Route path="/p/:pid" element={<Projeto />} />

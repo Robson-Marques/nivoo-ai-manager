@@ -1,20 +1,18 @@
-# Prévia por caminho no domínio do Nivoo
 
-Ative em uma instalação atualizada com `nivoo previa`. O comando grava `NIVOO_PREVIA_URL=/previa` e reinicia somente a API. Não muda DNS, Cloudflare, nginx nem portas públicas. O proxy HTTP que já entrega o Nivoo precisa encaminhar /previa e WebSockets à mesma API.
+# Prévia no domínio do Nivoo, sem reescrever o software
 
-Cada execução recebe uma URL temporária /previa/<sessão>/, revogada ao desligar ou reiniciar. O link não deve ser compartilhado: concede acesso à prévia enquanto ela estiver ativa.
+Em `NIVOO_PREVIA_URL=/previa` (comando `nivoo previa`), a interface do Nivoo exibe um navegador Chromium do servidor por meio da API autenticada. A página `/previa/<id do projeto>` contém somente o visualizador Nivoo. O software roda na raiz de seu próprio endereço loopback e preserva navegação, API, cookies, localStorage e build de produção. Não há HTML ou scripts do software na origem administrativa, nem adaptação de caminhos no projeto.
 
-## Compatibilidade
-- Sites estáticos com arquivos e rotas relativos.
-- Vite detectado automaticamente recebe --base com a base da sessão.
-- Servidores próprios recebem NIVOO_PREVIA_BASE_PATH. Use rotas/arquivos relativos ou respeite essa base. Se o servidor precisa receber o prefixo, declare "manterPrefixo": true em nivoo-previa.json.
-- Aplicações que exigem cookies de login, localStorage, service workers, URLs absolutas de raiz ou recursos de origem externa podem não funcionar nesse modo. A política é intencional: não afrouxe o sandbox para fazer um software funcionar.
-- O modo de subdomínio separado permanece disponível para aplicações que necessitem de uma origem própria.
+## Uso e limites
 
-## Segurança
-O modo por caminho usa sandbox de origem opaca tanto no iframe quanto no cabeçalho CSP de todas as respostas da sessão; não encaminha cookies, Authorization ou cabeçalhos do acesso administrativo, filtra cabeçalhos retornados pelo software e limita recursos e redirecionamentos à sessão. A API administrativa rejeita solicitações de origem opaca e solicitações de navegador cross-site sem bearer. Não é substituto de isolamento de origem para aplicações arbitrárias: mantenha a prévia por domínio separado para esse uso.
+- Clique, rolagem, teclado, texto e navegação de volta; computador 1366×900 e celular 390×844.
+- Abra a prévia na conversa ou em nova aba; cada visualizador tem contexto independente.
+- O navegador só é iniciado quando solicitado. Capturas JPEG são pedidas no máximo a cada 500 ms enquanto a página estiver visível; quatro sessões simultâneas, fechamento ao sair e expiração após inatividade. O processo do software e banco de teste seguem a política existente.
+- O proxy local limita tráfego HTTP/WebSocket ao endereço do software. Chromium usa sandbox (sem fallback para --no-sandbox); o instalador permite namespaces na API para esse fim e mantém as outras restrições systemd. O ambiente do navegador não recebe credenciais do Nivoo. Isso não é isolamento completo de código de projeto no sistema operacional: o servidor do software continua executando com o modelo de confiança existente.
+- URLs externas, pop-ups, downloads, diálogos nativos e service workers não são suportados nesse visualizador. A imagem interativa não substitui um navegador local para acessibilidade ou ferramentas de desenvolvimento.
+- O modo antigo de subdomínio de origem separada continua disponível.
+- Nenhuma alteração de DNS, nginx ou Cloudflare necessária. `nivoo update` instala a versão, `nivoo previa` ativa o modo caso ainda não esteja ativado.
 
-## Verificação inicial
-Depois de `nivoo update` e `nivoo previa`, execute `curl -i http://127.0.0.1:3001/previa`. O retorno esperado sem sessão é 404 com a orientação da prévia, não o HTML da interface principal. Abra o projeto, desligue a prévia antiga e ligue novamente. Não copie a URL temporária nem os tokens em diagnósticos públicos.
+## Aceitação
 
-- Builds Vite reconhecidos (`vite build` ou `tsc ... && vite build`, chamados ao final do comando de instalação) recebem `--base` automaticamente na cópia da prévia. Isso não reescreve chamadas de API, configurações de roteador nem dependências de armazenamento; esses recursos precisam respeitar a base e o sandbox.
+Abrir o projeto e verificar Dashboard, Clientes, CRUD com dados de teste, navegação e recarga. Uma resposta HTTP do processo só indica servidor iniciado; não é evidência de funcionamento do software. O workflow de desenvolvimento e a qualidade do design são responsabilidades distintas desta correção.

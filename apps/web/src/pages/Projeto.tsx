@@ -10,6 +10,7 @@ import { PedidosSsh } from './Ssh';
 import { BotaoDiagnostico } from './Diagnostico';
 import { SeletorModelo } from '../Pecas';
 import { VisualSelector } from './VisualSelector';
+import { PreviaRemota } from './PreviaRemota';
 import { validQuestions,type VisualProfile } from './visual-selection';
 
 /**
@@ -1324,7 +1325,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   return (
     <section className="previa">
       <div className="previa-barra">
-        <span className={`previa-estado e-${estado}`}>● {rotulo[estado] ?? estado}</span>
+        <span className={`previa-estado e-${estado}`}>● {estado==='no-ar'&&e?.visualizador?'Servidor iniciado':rotulo[estado] ?? estado}</span>
         {estado === 'no-ar' && e?.mensagem && <span className="muted small previa-origem">{e.mensagem}</span>}
         <span className="previa-acoes">
           {(estado === 'parada' || estado === 'erro') && <button onClick={() => acao('ligar')}>Ligar a prévia</button>}
@@ -1349,8 +1350,8 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
       {erro && <div className="error small">{erro}</div>}
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (
-          <div className={`previa-moldura t-${tamanho}`}>
-            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox={e.modoCaminho ? "allow-scripts allow-forms" : "allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"} />
+          e.visualizador ? <PreviaRemota projetoId={projetoId} tamanho={tamanho} geracao={String(e.ligadaEm)} recarga={recarga}/> : <div className={`previa-moldura t-${tamanho}`}>
+            <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads" />
           </div>
         ) : estado === 'ligando' ? (
           <div className="previa-info">

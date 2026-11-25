@@ -1,17 +1,15 @@
-import { baseSessao,separarCaminho,caminhoPublico,headersProjeto,headersRespostaProjeto,bloquearApiDaPrevia } from '../src/previa/previa-path';
-import type { IncomingMessage } from 'node:http';
-describe('Prévia por caminho',()=>{
-  const t='a'.repeat(48), base=baseSessao(t);
-  it('routes only temporary capability paths',()=>{
-    expect(separarCaminho(base+'assets/app.js?q=1')).toEqual({token:t,local:'/assets/app.js?q=1',base});
-    expect(separarCaminho(base+'../api')).toBeNull();
-    expect(separarCaminho(base+'%2e%2e/api')).toBeNull();
-    expect(separarCaminho('/previa/api')).toBeNull();
-    expect(caminhoPublico(base,'//outside')).toBe(base);
+import { modoCaminho,bloquearApiDaPrevia } from '../src/previa/previa-path';
+describe('Prévia no domínio do Nivoo',()=>{
+  it('selects the viewer only for /previa',()=>{
+    const antigo=process.env.NIVOO_PREVIA_URL;
+    try{
+      process.env.NIVOO_PREVIA_URL='/previa';
+      expect(modoCaminho()).toBe(true);
+      process.env.NIVOO_PREVIA_URL='https://previa.example.com';
+      expect(modoCaminho()).toBe(false);
+    }finally{if(antigo===undefined)delete process.env.NIVOO_PREVIA_URL;else process.env.NIVOO_PREVIA_URL=antigo;}
   });
-  it('does not forward administrative credentials or privileged response headers',()=>{
-    expect(headersProjeto({headers:{authorization:'Bearer secret',cookie:'admin=secret','cf-access-jwt-assertion':'secret',accept:'text/html'}} as unknown as IncomingMessage)).toEqual({accept:'text/html'});
-    expect(headersRespostaProjeto({'set-cookie':['admin=x'],'clear-site-data':'"*"', 'content-security-policy':'unsafe','content-type':'text/html'})).toEqual({'content-type':'text/html'});
+  it('rejects opaque or cross-site requests to administrative API',()=>{
     expect(bloquearApiDaPrevia({headers:{origin:'null'}})).toBe(true);
     expect(bloquearApiDaPrevia({headers:{'sec-fetch-site':'cross-site'}})).toBe(true);
     expect(bloquearApiDaPrevia({headers:{'sec-fetch-site':'same-origin'}})).toBe(false);
