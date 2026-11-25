@@ -174,6 +174,7 @@ export class CodexCliProvider implements AiProvider {
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     let cacheReadInputTokens:number|undefined;
+    let usageEvents=0;
     const errors: string[] = [];
     let comandosOk = 0;
     const bloqueios: string[] = [];
@@ -184,6 +185,7 @@ export class CodexCliProvider implements AiProvider {
         if (ev.type === 'thread.started') sessionId = ev.thread_id ?? sessionId;
         if (ev.type === 'item.completed' && ev.item?.type === 'agent_message') lastMessage = ev.item.text ?? lastMessage;
         if (ev.type === 'turn.completed' && ev.usage) {
+          usageEvents++;
           inputTokens = ev.usage.input_tokens;
           outputTokens = ev.usage.output_tokens;
           cacheReadInputTokens = ev.usage.cached_input_tokens;
@@ -212,6 +214,7 @@ export class CodexCliProvider implements AiProvider {
         inputTokens,
         outputTokens,
       cacheReadInputTokens,
+      usagePartial:usageEvents!==1,
       };
     }
     if(target){
@@ -220,12 +223,12 @@ export class CodexCliProvider implements AiProvider {
         if(receipt)recordVisualReceipt(req.cwd,target,receipt);
         publishVisualPreview(req.cwd,req.outputDir,target);
         req.onLog('ImageGen: PNG recuperado e decodificado em '+file);
-        return {exitCode:0,output:'Ativo visual produzido: '+file,sessionId:nativeThread??sessionId,inputTokens,outputTokens,cacheReadInputTokens,stopReason:'completed'};
+        return {exitCode:0,output:'Ativo visual produzido: '+file,sessionId:nativeThread??sessionId,inputTokens,outputTokens,cacheReadInputTokens,usagePartial:usageEvents!==1,stopReason:'completed'};
       }catch(e){
         const detail=String((e as Error).message);
         const providerError=[...imageFailures,...errors,r.stderr].filter(Boolean).join('; ');
         const unavailable=looksLikeResourceProblem(providerError)||/usage.?limit.?exceeded/i.test(providerError);
-        return {exitCode:1,output:lastMessage,error:'ImageGen: '+detail+(providerError.trim()?' — '+providerError.slice(0,500):''),sessionId:nativeThread??sessionId,inputTokens,outputTokens,cacheReadInputTokens,resourceUnavailable:unavailable,stopReason:'visual_asset_error'};
+        return {exitCode:1,output:lastMessage,error:'ImageGen: '+detail+(providerError.trim()?' — '+providerError.slice(0,500):''),sessionId:nativeThread??sessionId,inputTokens,outputTokens,cacheReadInputTokens,usagePartial:usageEvents!==1,resourceUnavailable:unavailable,stopReason:'visual_asset_error'};
       }
     }
     const failed = r.exitCode !== 0 || errors.length > 0;
@@ -240,6 +243,7 @@ export class CodexCliProvider implements AiProvider {
       inputTokens,
       outputTokens,
       cacheReadInputTokens,
+      usagePartial:usageEvents!==1,
     };
   }
 }

@@ -272,6 +272,8 @@ export class ConversationsService {
       if (pendente) throw new ConflictException('A IA ainda está respondendo a mensagem anterior');
       const current=await tx.conversation.findFirst({where:{id:conversationId,projectId,archivedAt:null}});
       if(!current)throw new ConflictException('A conversa mudou de projeto ou foi arquivada.');
+      // Serialize visual discovery across conversations of the same project.
+      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
       const project=await tx.project.findUniqueOrThrow({where:{id:projectId},include:{area:true}});
       const latest=await tx.conversationMessage.findFirst({where:{conversationId},orderBy:[{createdAt:'desc'},{id:'desc'}]});
       const question=latest?.role==='ASSISTENTE'&&latest.kind===VISUAL_DISCOVERY_KIND&&latest.status==='PRONTA'?latest:null;
@@ -292,7 +294,11 @@ export class ConversationsService {
       const discover=!latest&&!temAnexo&&visualAnswer===undefined&&project.visualProfile===null&&!project.gitUrl&&softwareInterfaceEnabled(project.area)&&visualDiscoveryIntent(content)
         &&!(await tx.job.count({where:{projectId}}))
         &&!(await tx.conversationMessage.findFirst({where:{conversation:{projectId},kind:VISUAL_DISCOVERY_KIND},select:{id:true}}));
-      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content,...(choice?{kind:'perfil-visual-confirmado'}:{}) } });
+      // PostgreSQL now() is transaction-scoped; explicit monotonic timestamps
+      // preserve user/question order even when both rows are inserted together.
+      const sentAt=new Date(Math.max(Date.now(),latest?latest.createdAt.getTime()+1:0));
+      const responseAt=new Date(sentAt.getTime()+1);
+      const minha = await tx.conversationMessage.create({ data: { conversationId, role: 'USUARIO', content:choice?visualDecisionText(choice):content,createdAt:sentAt,...(choice?{kind:'perfil-visual-confirmado'}:{}) } });
       if (temAnexo) {
         const gravados = anexos.length ? gravarAnexos(raiz, conversationId, minha.id, anexos) : [];
         const todos = [...gravados, ...midia];
@@ -303,10 +309,10 @@ export class ConversationsService {
           conversationId,role:'ASSISTENTE',status:'PRONTA',kind:VISUAL_DISCOVERY_KIND,
           content:'Antes do plano, escolha como deseja utilizar e visualizar o software. Você pode delegar cada decisão à IA ou responder livremente.',
           perguntas:visualDiscoveryQuestions(content,projectId,project.visualProfileRevision) as unknown as Prisma.InputJsonValue,
-          costUsd:0,completedAt:new Date(),
+          costUsd:0,createdAt:responseAt,completedAt:responseAt,
         }});
       }else{
-        const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE' } });
+        const resposta = await tx.conversationMessage.create({ data: { conversationId, role: 'ASSISTENTE', content: '', status: 'PENDENTE',createdAt:responseAt } });
         await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: resposta.id } });
       }
       // Conversa nova ganha como título o começo da primeira mensagem (como no ChatGPT).

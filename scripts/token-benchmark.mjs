@@ -28,6 +28,8 @@ function summarize(g,variant){
   const allCost=finished.length===rows.length&&rows.length>0&&finished.every(r=>typeof r.costUsd==='number'&&Number.isFinite(r.costUsd)&&r.costUsd>=0&&!r.costEstimated);
   return {calls:rows.length,finished:finished.length,incomplete,providers:[...new Set(finished.map(r=>r.provider))],models:[...new Set(finished.map(r=>r.model))],skillsVersions:[...new Set(finished.map(r=>r.skillsVersion))],
     leanCalls:finished.filter(r=>r.skillIds?.includes('execucao-enxuta')).length,
+    executionCalls:finished.filter(r=>r.phase==='execution').length,
+    executionWithoutLean:finished.filter(r=>r.phase==='execution'&&!r.skillIds?.includes('execucao-enxuta')).length,
     byPhase:Object.fromEntries(['planner','repair','execution','goldfish'].map(p=>[p,finished.filter(r=>r.phase===p).length])),
     failed:finished.filter(r=>r.exitCode!==0||r.interrupted||r.resourceUnavailable).length,
     inputTokens:comparable?sum('inputTotal'):null,outputTokens:comparable?sum('outputTokens'):null,
@@ -37,6 +39,6 @@ function summarize(g,variant){
 }
 const a=summarize(groups.get(reference),'reference'),b=summarize(groups.get(optimized),'optimized');
 const same=(x,y)=>x.length===1&&y.length===1&&x[0]!=null&&x[0]===y[0];
-const valid=!malformed&&a.totalTokens>0&&b.totalTokens!==null&&same(a.providers,b.providers)&&same(a.models,b.models)&&same(a.skillsVersions,b.skillsVersions)&&a.leanCalls===0&&b.leanCalls>0;
+const valid=!malformed&&a.totalTokens>0&&b.totalTokens!==null&&same(a.providers,b.providers)&&same(a.models,b.models)&&same(a.skillsVersions,b.skillsVersions)&&a.leanCalls===0&&a.executionCalls>0&&b.executionCalls>0&&b.executionWithoutLean===0;
 console.log(JSON.stringify({reference:a,optimized:b,malformed,tokenReductionPct:valid?100*(a.totalTokens-b.totalTokens)/a.totalTokens:null,
   warning:'Comparação preliminar: confirme mesma versão real do modelo, briefing, ambiente, cache, ferramentas, período completo e qualidade funcional/visual equivalente. Custo reportado não é necessariamente cobrança da assinatura. Duração é soma das chamadas, não tempo total do trabalho. null = indisponível ou comparação inválida.'},null,2));
