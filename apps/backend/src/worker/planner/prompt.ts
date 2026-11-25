@@ -15,6 +15,7 @@ import { selectSkills,skillContext,studioAlignmentSkills } from '../../specialti
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
+import { egmPlanningContext } from '../../specialties/software/egm/planning';
 import { bancoDeTesteDisponivel } from '../../common/banco-de-teste';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
@@ -63,6 +64,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       ...(preGate?['## Skills auxiliares do alinhamento (somente orientação, sem leitura analítica adicional)',...skills.map(s=>'- '+s.id+': '+s.action),'Aplique esta orientação exclusivamente às fontes pré-gate permitidas pelo Studio Workflow. Não leia implementações, não abra revisão independente e não execute trabalho antes de Fazer.']:skillContext(skills,request.worktree)),
       ...(preGate?[]:softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines)),
+      ...(capabilities.softwareInterface?egmPlanningContext(skills,preGate,request.worktree):[]),
       ...plannerRules(capabilities),
       ...(resultados.length
         ? [
