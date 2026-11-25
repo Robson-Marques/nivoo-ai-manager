@@ -6,7 +6,7 @@ import { GOLDFISH_SOURCE_REVISION,type GoldfishDispatch,type GoldfishReviewerReq
 export type ReviewBinding={projectId:string;conversationId:string;messageId:string;providerId:string;model:string|null;revision:string;preset:GoldfishPreset|'drift';continuationOf?:string;targetHash:string;sourceRevision:string};
 type Usage=ReturnType<typeof measuredUsage>;
 type Entry={key:string;fingerprint:string;stage:number;role:string;attempt:1|2;startedAt:string;finishedAt?:string;result?:GoldfishReviewerResult;usage?:Usage};
-export type GoldfishCheckpoint={version:1;binding:ReviewBinding;entries:Entry[];resolution?:import('./review-resolution').ResolutionLedger;drift?:Awaited<ReturnType<typeof import('./drift').runSemanticDrift>>;loop?:import('./review-loop').LoopRecord};
+export type GoldfishCheckpoint={version:1;binding:ReviewBinding;entries:Entry[];automaticRequest?:import('./automatic-review').AutoReviewRequest;resolution?:import('./review-resolution').ResolutionLedger;drift?:Awaited<ReturnType<typeof import('./drift').runSemanticDrift>>;loop?:import('./review-loop').LoopRecord};
 export type ReviewTotals={costUsd:number;costKnown:boolean;inputTokens:number;outputTokens:number;tokensKnown:boolean;uncertain:number;calls:number};
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function reviewBinding(input:Omit<ReviewBinding,'targetHash'|'sourceRevision'>,target:GoldfishReference,baseline:readonly GoldfishReference[]):ReviewBinding{
