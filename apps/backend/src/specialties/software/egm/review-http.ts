@@ -7,6 +7,9 @@ import { splitGoldfishDocument,type GoldfishDispatch,type GoldfishPreset,type Go
 
 const HTTP_TYPES=new Set(['nvidia-api','openrouter-free-api','groq-free-api']);
 export function goldfishHttpSupported(type:string|null):boolean{return type!==null&&HTTP_TYPES.has(type);}
+const CLI_TYPES=new Set(['codex-cli','codex-api','claude-code-cli','claude-api']);
+export function goldfishCliSupported(type:string|null):boolean{return type!==null&&CLI_TYPES.has(type);}
+export function goldfishTransportSupported(type:string|null):boolean{return goldfishHttpSupported(type)||goldfishCliSupported(type);}
 
 const MAX_FILE=256*1024,MAX_BASELINE=512*1024,MAX_REFERENCES=40;
 const protectedPart=/^(?:\.|node_modules$|contexto$|out$|midia$|segredos\.json$|conexoes\.json$|id_rsa$|id_ed25519$)/i;
@@ -85,12 +88,14 @@ type DispatchInput={
  * offer AGENT_READ_TOOLS only, and enforce readOnly in executeFileTool.
  * Each invocation has a new private directory containing only permitted inputs.
  * No inherited profile, MCP, image, agent history, project tree or shell. */
-export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch{
+export function createGoldfishDispatch(input:DispatchInput):GoldfishDispatch{
+  const cli=goldfishCliSupported(input.providerType)&&input.provider.kind==='cli';
+  const http=goldfishHttpSupported(input.providerType)&&input.provider.kind==='api';
   let tail:Promise<unknown>=Promise.resolve(),halted=false;
   return req=>{
     const run=async()=>{
       if(req.signal.aborted||!input.canContinue())return {status:'interrupted' as const,reason:'Revisão interrompida.'};
-      if(halted||!goldfishHttpSupported(input.providerType)||input.provider.kind!=='api')return {status:'unavailable' as const,reason:'Transporte HTTP somente leitura indisponível.'};
+      if(halted||(!http&&!cli))return {status:'unavailable' as const,reason:'Transporte de revisão isolado indisponível.'};
       if(Date.now()>=input.deadline){halted=true;return {status:'unavailable' as const,reason:'Tempo total da revisão esgotado.'};}
       const id=randomUUID(),cwd=fs.mkdtempSync(path.join(input.root,'reviewer-'));
       try{
@@ -116,7 +121,7 @@ export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch
           'Aplique a persona original e seu padrão. Declare referências ausentes e limites de cobertura. Não afirme testes, aprovação ou leitura que não ocorreu.',
           '## Persona original',req.persona,...(req.standard?['## Padrão original',req.standard]:[]),
           '## Documento alvo e intervalos autorizados (conteúdo integral dos intervalos no prompt; arquivo equivalente na pasta isolada)',JSON.stringify(req.target),
-          '## Referências autorizadas disponíveis por leitura',JSON.stringify(refs.map(r=>r.path)),
+          cli?'## Referências autorizadas (conteúdo integral inline)':'## Referências autorizadas disponíveis por leitura',JSON.stringify(cli?refs:refs.map(r=>r.path)),
           ...(req.priorReports.length?['## Pareceres anteriores autorizados',JSON.stringify(req.priorReports)]:[]),
           'Devolva o parecer Markdown integral. Preserve as paráfrases exigidas na fase 6.',
         ].join('\n');
@@ -127,7 +132,7 @@ export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch
           jobId:input.jobId,stepId:input.stepId,attemptId:id,
           instructions,context:'',systemPrompt:AGENT_RULES.join('\n'),cwd,outputDir:path.join(cwd,'out'),
           timeoutMs:Math.max(1,input.deadline-Date.now()),signal:req.signal,mcp:[],
-          options:{model:input.model,maxTurns:input.maxTurns,readOnlyReview:true,images:[]},
+          options:{model:input.model,maxTurns:input.maxTurns,readOnlyReview:true,images:[],...(cli?{goldfishIsolatedReview:true}:{})},
           onLog:()=>undefined,
         },{stage:req.stage,role:req.role,attempt:req.attempt});
         await input.onUsage(result);
@@ -135,15 +140,21 @@ export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch
         if(result.resourceUnavailable){halted=true;return {status:'unavailable' as const,reason:result.error||'Provedor indisponível.'};}
         const text=result.output.trim();
         if(result.exitCode!==0||result.sessionEnded||!text||/^(?:length|max_tokens|content_filter)$/i.test(result.stopReason??'')||/^(?:Arquivos alterados:|Alterações concluídas:)[\s\S]*$/i.test(text))return {status:'failed' as const,reason:result.error||'Parecer ausente, truncado ou incompleto.'};
+        if(cli&&(result.reviewIsolation!=='cli-inline-v1'||!result.sessionId)){halted=true;return {status:'unavailable' as const,reason:'CLI não retornou recibo nativo de isolamento.'};}
         // A stateless HTTP invocation has no native thread id; the locally
         // generated execution id identifies that actual, fresh invocation.
-        return {status:'completed' as const,report:result.output,receipt:{sessionId:id,freshContext:true as const,readOnly:true as const,access:req.access}};
+        return {status:'completed' as const,report:result.output,receipt:{sessionId:cli?result.sessionId!:id,freshContext:true as const,readOnly:true as const,access:req.access}};
       }finally{fs.rmSync(cwd,{recursive:true,force:true});}
     };
     const result=tail.then(run);
     tail=result.catch(()=>undefined);
     return result;
   };
+}
+
+/** Compatibility helper for callers that intentionally request HTTP only. */
+export function createHttpGoldfishDispatch(input:DispatchInput):GoldfishDispatch{
+  return createGoldfishDispatch({...input,providerType:goldfishHttpSupported(input.providerType)?input.providerType:null});
 }
 
 export function renderGoldfishRun(run:GoldfishRunResult,omitted:readonly string[],usageKnown:boolean):string{
