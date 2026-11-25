@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
-import { killProcessGroup,minimalEnv,runProcess } from '../common/exec';
+import { killProcessGroup } from '../common/exec';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -29,6 +29,7 @@ import type { ContextStats } from './context-builder';
 import { buildExecutionContext } from './executor/context';
 import { readApprovedScope } from '../jobs/approved-scope';
 import { approvedGoldfish,checkApprovedGoldfishStep,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
+import { detectGoldfishGitDrift,renderGoldfishGitDrift } from '../specialties/software/egm/resolution-proof';
 import { prepareExecutionWorkspace } from './executor/workspace';
 import { dispatchExecution,executionTimeoutMs } from './executor/dispatch';
 import { verifyExecution } from './executor/verification';
@@ -133,9 +134,9 @@ export class StepExecutorService {
       if(egm){
         checkApprovedGoldfishStep(egm,step);
         const repo=this.workspace.projectDirs(job.project.dirKey).repo;
-        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:repo,env:minimalEnv(),timeoutMs:60000,signal});
+        const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath,signal);
         if(signal.aborted)return 'INTERROMPIDO';
-        if(rev.exitCode!==0||rev.stdout.trim()!==egm.revision)throw Error('A base principal divergiu da revisão Goldfish aprovada; evidências precisam ser reconciliadas antes de continuar.');
+        if(drift.status!=='unchanged')throw Error(renderGoldfishGitDrift(drift)+'\nEvidências precisam ser reconciliadas antes de continuar.');
       }
     }catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
     const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
