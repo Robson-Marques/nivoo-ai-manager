@@ -7,7 +7,7 @@ const MAX_WRITE=320_000,MAX_READ=1_000_000,MAX_RESULT=23_000;
 const BLOCKED=/^(node_modules|\.git|\.env(?:\..*)?|\.claude|\.codex|\.gemini|segredos\.json|conexoes\.json|id_rsa|id_ed25519)$/i;
 const BINARY_EXT=/\.(?:png|jpe?g|webp|gif|avif|ico|pdf|docx?|xlsx?|pptx?|zip|gz|7z|rar|mp[34]|wav|m4a|ogg|webm|mov|ttf|otf|woff2?|exe|dll|so|bin)$/i;
 const INTERNAL=/^(?:contexto|\.nivoo)(?:\/|$)/;
-const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)(?:\/|$)|contexto\/(?:estado-etapa\.md|conversa-do-pedido\.md|historico-git\.txt|publicacao-midia\.json)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
+const READ_ONLY=/^(?:contexto\/(?:skills-nivoo|base|conhecimento|repositorio|resultados|fontes-anteriores|anexos|acervo)(?:\/|$)|contexto\/(?:estado-etapa\.md|tentativas-da-etapa\.md|conversa-do-pedido\.md|historico-git\.txt|publicacao-midia\.json)|\.nivoo\/(?:memoria\.md|ultima-conferencia\.txt))$/;
 function contextAllowed(rel:string):boolean{
   // The Elephant handoff and pinned originals are generated, read-only
   // context. HTTP agents previously could not read these paths.
@@ -164,3 +164,18 @@ export const AGENT_FILE_TOOLS: Array<Record<string, unknown>> = [
 
 /** Explicit review sessions expose only the existing read/list tools. */
 export const AGENT_READ_TOOLS=AGENT_FILE_TOOLS.filter(tool=>['ler_arquivo','listar_arquivos'].includes(String((tool.function as {name?:string})?.name??'')));
+
+export type SkillReadReceipt={path:string;sha256:string;start:number;end:number;total:number};
+/** Tool response is produced locally from bytes actually read, not from
+ * the model's description. Never log file contents. A page is not a proof
+ * that a model understood or applied the skill. */
+export function skillReadReceipt(name:string,result:string):SkillReadReceipt|null{
+  if(name!=='ler_arquivo')return null;
+  let v:any;try{v=JSON.parse(result);}catch{return null;}
+  if(typeof v?.caminho!=='string'||!/^contexto\/(?:skills-nivoo\/[a-z0-9-]+\/SKILL\.md|egm\/original\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+)$/.test(v.caminho)||typeof v.sha256!=='string'||!/^[a-f0-9]{64}$/.test(v.sha256)||![v.inicio,v.proximo,v.total].every(Number.isSafeInteger)||v.inicio<0||v.proximo<=v.inicio||v.proximo>v.total||typeof v.conteudo!=='string'||v.conteudo.length!==v.proximo-v.inicio)return null;
+  return {path:v.caminho,sha256:v.sha256,start:v.inicio,end:v.proximo,total:v.total};
+}
+export function announceSkillRead(name:string,result:string,log:(line:string)=>void):void{
+  const r=skillReadReceipt(name,result);
+  if(r)log('Skill — conteúdo retornado pela ferramenta: '+r.path+' sha256='+r.sha256+' intervalo='+r.start+'..'+r.end+'/'+r.total+'; leitura não comprova aplicação.');
+}
