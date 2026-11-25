@@ -186,7 +186,7 @@ export class PlannerService {
         try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
         if(!goldfishTransportSupported(tipoDe(project.provider)))return fail('Goldfish indisponível nesta conexão. Nenhum provedor foi trocado nem sessão iniciada.');
         if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
-        if(msg.goldfishState!==null){
+        if(msg.goldfishState!=null){
           try{savedReview=readReviewCheckpoint(msg.goldfishState);}catch(e){return fail((e as Error).message);}
           const b=savedReview.binding;
           if(b.projectId!==project.id||b.conversationId!==msg.conversationId||b.messageId!==msg.id||b.providerId!==project.provider||b.model!==(projectModel(project,project.provider)??null))return fail('O vínculo da revisão mudou. Checkpoint e consumo preservados; nenhuma chamada repetida.');
@@ -238,7 +238,7 @@ export class PlannerService {
     }
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
-    const tmp = path.join(project.workspacePath, 'conversas-tmp', msg.id);
+    const tmp = path.join(project.workspacePath, 'conversas-tmp', goldfishScope!==null?msg.id+'-goldfish-'+task.claims:msg.id);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
     try {
@@ -261,9 +261,11 @@ export class PlannerService {
         const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
         const persist=async(next:GoldfishCheckpoint)=>{
           const totals=reviewTotals(next);
-          const ok=await writeReview({goldfishState:next as unknown as Prisma.InputJsonValue,costUsd:totals.costUsd});
-          if(!ok)cancelled=true;
-          return ok;
+          try{
+            const ok=await writeReview({goldfishState:next as unknown as Prisma.InputJsonValue,costUsd:totals.costUsd});
+            if(!ok)cancelled=true;
+            return ok;
+          }catch(e){cancelled=true;throw e;}
         };
         let captureUsage:(result:ExecutionResult)=>void=()=>undefined;
         const reports:GoldfishPhaseRecord[]=[];
@@ -303,8 +305,7 @@ export class PlannerService {
           }});
         }catch(e){
           if(signal.aborted)return;
-          await writeReview({status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),completedAt:new Date()});
-          await this.queue.complete(task.id,workerId);
+          if(await writeReview({status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id,workerId);
           return;
         }
         if(signal.aborted||cancelled)return; // lease lost: do not overwrite the next worker.
@@ -312,10 +313,10 @@ export class PlannerService {
         const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
         const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+accounting,costUsd:totals.costUsd,completedAt:new Date(),
+          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+accounting,completedAt:new Date(),
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
-        await this.queue.complete(task.id,workerId);
+        if(saved)await this.queue.complete(task.id,workerId);
         return;
       }else{
         await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
