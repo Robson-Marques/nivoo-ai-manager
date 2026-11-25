@@ -1,8 +1,7 @@
 import { minimalEnv,runProcess } from '../../../common/exec';
 import { goldfishSource,type GoldfishDispatch,type GoldfishReference } from './review-pipeline';
-import { routeEgm,previousEgmBaseline,type EgmBaseline } from './lite-routing';
+import { type EgmBaseline } from './lite-routing';
 import { validRelative } from './review-http';
-import { readApprovedScope,readPlanningSource } from '../../../jobs/approved-scope';
 
 export type LiteMode='lite-spec'|'lite-diff';
 export type LiteIntake={mode:LiteMode;sourceId:string;revision:string;target:GoldfishReference};
