@@ -1,4 +1,6 @@
 import { readApprovedScope } from './approved-scope';
+import { approvedGoldfish,checkApprovedGoldfishStep,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
+import { assertGoldfishProofContracts,goldfishProofEvidence,detectGoldfishGitDrift,renderGoldfishGitDrift,type GoldfishProof } from '../specialties/software/egm/resolution-proof';
 import { adoptionOf,adoptionSummaries,nativeAdoptionInventory } from './workflow/adoption-contract';
 import { verifyAdoptionInventory,verifyAdoptionCoverage } from './workflow/adoption-evidence';
 import { Injectable } from '@nestjs/common';
@@ -310,7 +312,22 @@ export class CompletionService {
       return report;
     }
 
-    const worktree = await this.workspace.ensureJobWorktree(job.project.dirKey, job.id);
+    let egm:ApprovedGoldfishResolution|null=null;
+    const repo=this.workspace.projectDirs(job.project.dirKey).repo;
+    try{
+      egm=approvedGoldfish(job.approvedScope);
+      if(egm){
+        if(!egm.proofs)throw Error('Correção Goldfish sem contrato de regressão individual. Atualize o plano; nenhuma evidência será presumida.');
+        assertGoldfishProofContracts(egm.proofs,job.criteria);
+        if(job.steps.length!==egm.steps.length)throw Error('Etapas divergentes do contrato de resolução aprovado.');
+        for(const step of job.steps)checkApprovedGoldfishStep(egm,step);
+        const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath);
+        if(drift.status!=='unchanged')throw Error(renderGoldfishGitDrift(drift));
+      }
+    }catch(e){return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
+    let worktree:string;
+    try{worktree=await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm?.revision);}
+    catch(e){if(!egm)throw e;return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
     let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
     let completion: Awaited<ReturnType<CompletionService['prepareCompletion']>> | null = null;
@@ -323,6 +340,7 @@ export class CompletionService {
       if (!sync.ok) return this.blockConflict(job, report, sync.files);
       report.criteria = [];
       report.pendencias = [];
+      const verifiedTree=egm?await this.workspace.repairSourceHash(worktree):null;
       const evaluated=new Map<string,boolean>();
       const deferred:string[]=[];
       let environmentFailure:VerificationProblem|undefined;
@@ -333,7 +351,7 @@ export class CompletionService {
           await this.prisma.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});
           continue; // No invented failed/pass evidence; this check was not executed.
         }
-        const r = await this.check(job, c, worktree);
+        const r = await this.check(job, c, worktree,egm?.proofs?.filter(p=>p.criterionKey===c.key)??[]);
         evaluated.set(c.key,r.passed);
         if(r.verificationProblem)environmentFailure=r.verificationProblem;
         report.criteria.push(r);
@@ -375,7 +393,7 @@ export class CompletionService {
         status = 'CONCLUIDO';
       }
       report.pendencias.push(...deferred.map(d=>'critério ainda não executado: '+d));
-      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && failed.length) {
+      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && failed.length && !egm) {
         if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree)) {
           report.finalStatus = 'EXECUTANDO';
           return report;
@@ -383,12 +401,20 @@ export class CompletionService {
       }
       if (status !== 'CONCLUIDO') break;
 
+      // A proof only describes the tree on which its command ran. Test side
+      // effects must not silently change the tracked result before publication.
+      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou durante a verificação dos achados. Evidências anteriores não cobrem a árvore atual; arquivos preservados.');
       // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão.
       completion = await this.prepareCompletion(job, worktree);
+      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou na preparação da publicação. Evidências preservadas, sem incorporação.');
       const ff = await this.prisma.$transaction(
         async (tx) => {
           await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:' + job.projectId}))) AS l`;
-          return this.workspace.integrateIntoMain(job.project.dirKey, job.id, await this.commitMessage(job));
+          if(egm){
+            const current=await this.workspace.headCommit(repo);
+            if(current!==egm.revision)return {ok:false,commit:null,mudou:false};
+          }
+          return this.workspace.integrateIntoMain(job.project.dirKey, job.id, await this.commitMessage(job),egm?.revision);
         },
         { timeout: 120_000, maxWait: 120_000 },
       );
@@ -396,6 +422,10 @@ export class CompletionService {
         mergedCommit = ff.commit;
         trouxeMudanca = ff.mudou !== false;
         break;
+      }
+      if(egm){
+        const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath);
+        return this.blockGoldfishEvaluation(job,report,renderGoldfishGitDrift(drift)+'\nIncorporação não confirmada; não repetir automaticamente.');
       }
       if (rodada >= 3) return this.blockConflict(job, report, ['a pasta principal mudou repetidamente durante a verificação; retome o job']);
       await this.logs.log(jobId, 'A pasta principal do projeto mudou durante a verificação: integrando de novo e reverificando os critérios', { source: 'evaluator', level: 'WARN' });
@@ -470,7 +500,11 @@ export class CompletionService {
     if (!plano) return;
     const approved=checks.filter(c=>c.passed);
     const adoption=adoptionSummaries(await this.prisma.acceptanceCriterion.findMany({where:{jobId}}));
-    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption, ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
+    const egmProofLines=approvedGoldfish(job.approvedScope)?checks.flatMap(c=>{
+      const p=c.evidence.egmProof as {observed?:{actionId:string;scenario:string}[]}|undefined;
+      return c.passed?(p?.observed??[]).map(e=>'- '+e.actionId+' — cenário registrado no teste '+c.key+': '+e.scenario):[];
+    }):[];
+    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption,...(egmProofLines.length?['Evidências de regressão Goldfish (contratos executados, não revisão semântica independente):',...egmProofLines]:[]), ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
@@ -549,7 +583,21 @@ export class CompletionService {
     return report;
   }
 
-  private async check(job: Job, c: AcceptanceCriterion, worktree: string): Promise<CriterionResult> {
+  private async blockGoldfishEvaluation(job:Job,report:EvaluationReport,detail:string):Promise<EvaluationReport>{
+    const r=await this.prisma.$transaction(async tx=>{
+      await OrchestratorService.lockJob(tx,job.id);
+      return tx.job.updateMany({where:{id:job.id,status:{in:['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:BlockedReason.VERIFICACAO_IMPOSSIVEL,statusDetail:detail}});
+    });
+    if(r.count){
+      await this.logs.log(job.id,'Goldfish: publicação não autorizada. '+detail,{source:'evaluator',level:'WARN'});
+      await avisarConversaQueParou(this.prisma,job.id,detail);
+    }
+    report.finalStatus=r.count?'BLOQUEADO':(await this.prisma.job.findUniqueOrThrow({where:{id:job.id}})).status;
+    report.pendencias.push(detail);
+    return report;
+  }
+
+  private async check(job: Job, c: AcceptanceCriterion, worktree: string,proofs:readonly GoldfishProof[]=[]): Promise<CriterionResult> {
     const cfg = (c.config ?? {}) as Record<string, any>;
     const base = { key: c.key, kind: c.kind };
     // A mídia (vídeos) fica em <projeto>/midia/, FORA do git: um caminho "midia/..." resolve na pasta do projeto,
@@ -588,11 +636,12 @@ export class CompletionService {
           const expected = cfg.expectExitCode ?? 0;
           const problem=verificationPassed(r,expected)?null:verificationProblem(r,cmd);
           const missing=verificationPassed(r,expected)&&Array.isArray(cfg.adoptionFamilies)?verifyAdoptionCoverage(r.stdout,cfg.adoptionFamilies):[];
+          const proof=proofs.length?goldfishProofEvidence(verificationPassed(r,expected)?r.stdout:'',proofs):null;
           return {
             ...base,
-            passed: verificationPassed(r,expected)&&!missing.length,
+            passed: verificationPassed(r,expected)&&!missing.length&&!proof?.missing.length,
             ...(problem?{verificationProblem:problem}:{}),
-            evidence: { ...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(Array.isArray(cfg.adoptionFamilies)?{adoptionCoverage:{expected:cfg.adoptionFamilies,missing}}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
+            evidence: { ...(proof?{egmProof:proof}:{}),...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(Array.isArray(cfg.adoptionFamilies)?{adoptionCoverage:{expected:cfg.adoptionFamilies,missing}}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
           };
         }
         case 'FILE_EXISTS': {
