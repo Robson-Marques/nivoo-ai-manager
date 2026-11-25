@@ -26,7 +26,7 @@ describe('Template Liquid Glass',()=>{
     expect(css).toContain('--nv-glass-radius-panel: '+f.radius.panel+'px');
     expect(css).toContain('@media (prefers-color-scheme: dark)');
     expect(css).toContain('@supports');
-    expect(css).toContain('-webkit-backdrop-filter: blur(12px)');
+    expect(css).toContain('-webkit-backdrop-filter: blur(var(--nv-glass-blur,12px))');
     expect(css).toContain('data-transparency="opaque"');
     expect(css).toContain('prefers-reduced-transparency');
     expect(css).toContain('prefers-reduced-motion');

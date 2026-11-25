@@ -1,6 +1,6 @@
 import { useEffect,useRef,useState,type CSSProperties } from 'react';
 import { api } from '../api';
-import { buildVisualSelection,DELEGATE,delegatedChoices,emptyChoices,type Catalog,type Choices,type VisualProfile,type VisualQuestion,type Style,type Palette,type Font } from './visual-selection';
+import { buildVisualSelection,DELEGATE,delegatedChoices,emptyChoices,type Catalog,type Choices,type VisualProfile,type VisualQuestion,type Style,type Palette,type Font,type GlassVariant } from './visual-selection';
 import './VisualSelector.css';
 
 type Props={questions:VisualQuestion[];onConfirm:(profile:VisualProfile)=>Promise<void>;onFree?: (text:string)=>Promise<void>};
@@ -12,16 +12,21 @@ function fontPreview(font?:Font):{stack:string;label:string}{
   const fallback=font.stack.split(',').slice(1).join(',').trim()||'system-ui, sans-serif';
   return {stack:fallback,label:font.name+' — amostra em fallback; fonte original não incorporada'};
 }
-function Preview({style,palette,dark,mobile,density,heading,body,catalog,mini=false}:{style:Style;palette:Palette;dark:boolean;mobile?:boolean;density?:string;heading?:Font;body?:Font;catalog:Catalog;mini?:boolean}){
+function Preview({style,palette,dark,mobile,density,heading,body,catalog,variant,mini=false}:{style:Style;variant?:GlassVariant;palette:Palette;dark:boolean;mobile?:boolean;density?:string;heading?:Font;body?:Font;catalog:Catalog;mini?:boolean}){
   const colors=dark?palette.dark:palette.light;
+  const glass=style.id==='liquid-glass';
+  const material=glass?(variant??catalog.glassVariants[0]):undefined;
+  const rgb=[1,3,5].map(i=>parseInt(colors.surfaceRaised.slice(i,i+2),16));
   const f=catalog.foundations.find(x=>x.styleId===style.id);
   const d=catalog.densities.find(x=>x.id===density);
   const vars={
     '--vs-bg':colors.background,'--vs-surface':colors.surface,'--vs-raised':colors.surfaceRaised,'--vs-text':colors.text,'--vs-muted':colors.muted,'--vs-border':colors.border,'--vs-accent':colors.accent,'--vs-on-accent':colors.onAccent,'--vs-success':colors.success,
     '--vs-radius':(f?.radius.panel??10)+'px','--vs-control-radius':(f?.radius.control??6)+'px','--vs-shadow':f?.shadow.panel??'none',
+    '--vs-glass-tint':'rgba('+rgb.join(',')+','+(material?.tintOpacity??0.94)+')','--vs-glass-blur':(material?.blurPx??12)+'px','--vs-glass-highlight':material?.highlight??'inset 0 1px 0 rgba(255,255,255,.18)',
     '--vs-gap':Math.max(4,d?.spacing.sm??8)+'px','--vs-heading':fontPreview(heading).stack,'--vs-body':fontPreview(body).stack,
   } as CSSProperties;
-  return <div className={'nv-vs-preview'+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} data-style={style.id} data-mode={dark?'dark':'light'} style={vars} aria-hidden={mini?true:undefined}>
+  return <div className={'nv-vs-preview'+(mobile?' nv-vs-mobile':'')+(mini?' nv-vs-mini':'')} data-style={style.id} data-glass-variant={material?.id} data-mode={dark?'dark':'light'} style={vars} aria-hidden={mini?true:undefined}>
+    {glass&&<div className="nv-vs-glass-scene"><div className="nv-vs-glass-orb"/><div className="nv-vs-glass-orb nv-vs-glass-orb-second"/><div className="nv-vs-glass-float"><span className="nv-vs-glass-glyph" aria-hidden="true">◇</span><div><strong>{material?.name??'Liquid Glass'}</strong><small>Material translúcido</small></div><span className="nv-vs-glass-pill" aria-hidden="true"/></div><div className="nv-vs-glass-dock"><span>Visão geral</span><span>Clientes</span><span>Relatórios</span></div></div>}
     <div className="nv-vs-preview-nav"><strong>Workspace</strong><span>Visão geral</span><span className="nv-vs-dot"/></div>
     <div className="nv-vs-preview-content">
       <div className="nv-vs-preview-sidebar"><span>Resumo</span><span>Clientes</span><span>Relatórios</span></div>
@@ -49,17 +54,18 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
     let live=true;
     setLoading(true);setErro('');
     Promise.all([
-      api<{version:number;styles:Catalog['styles']}>('/projects/visual-styles'),
+      api<{version:number;styles:Catalog['styles'];glassVariants:Catalog['glassVariants']}>('/projects/visual-styles'),
       api<{version:number;fonts:Catalog['fonts'];pairings:Catalog['pairings']}>('/projects/visual-typography'),
       api<{version:number;palettes:Catalog['palettes'];densities:Catalog['densities'];foundations:Catalog['foundations']}>('/projects/visual-tokens'),
     ]).then(([s,f,t])=>{
       if(!live)return;
-      if(s.version!==1||f.version!==1||t.version!==1||!s.styles.length||!t.palettes.length)throw Error('Catálogo visual incompatível. Atualize a página.');
-      setCatalog({styles:s.styles,fonts:f.fonts,pairings:f.pairings,palettes:t.palettes,densities:t.densities,foundations:t.foundations});
+      if(s.version!==1||f.version!==1||t.version!==1||!s.styles.length||!Array.isArray(s.glassVariants)||!s.glassVariants.length||!t.palettes.length)throw Error('Catálogo visual incompatível. Atualize a página.');
+      setCatalog({styles:s.styles,glassVariants:s.glassVariants,fonts:f.fonts,pairings:f.pairings,palettes:t.palettes,densities:t.densities,foundations:t.foundations});
     }).catch(e=>{if(live)setErro(e instanceof Error?e.message:'Não foi possível carregar o catálogo visual.');}).finally(()=>{if(live)setLoading(false);});
     return ()=>{live=false;};
   },[retry]);
-  const choose=(key:keyof Choices,id:string)=>setChoices(c=>({...c,[key]:id}));
+  const choose=(key:keyof Choices,id:string)=>setChoices(c=>({...c,[key]:id,...(key==='style'&&id!=='liquid-glass'?{glassVariant:DELEGATE}:{})}));
+  const chooseGlass=(id:string)=>{setChoices(c=>({...c,style:'liquid-glass',glassVariant:id}));setDark(id==='dark-glass');};
   const send=async(profile:VisualProfile)=>{
     if(sending.current)return;
     sending.current=true;setSaving(true);setErro('');
@@ -76,6 +82,7 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
   const profile=buildVisualSelection(choices,questions,catalog);
   const style=catalog.styles.find(s=>s.id===choices.style)??catalog.styles.find(s=>s.id==='corporate')??catalog.styles[0];
   const palette=catalog.palettes.find(p=>p.id===choices.palette)??catalog.palettes.find(p=>p.id==='ocean-blue')??catalog.palettes[0];
+  const variant=catalog.glassVariants.find(v=>v.id===choices.glassVariant);
   const pairing=catalog.pairings.find(p=>p.id===choices.typography);
   const heading=catalog.fonts.find(f=>f.id===pairing?.fonts.heading);
   const body=catalog.fonts.find(f=>f.id===pairing?.fonts.body);
@@ -95,7 +102,7 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
           <strong>{o.rotulo}</strong><small>{o.descricao}</small>{pair&&<small>{sample.label}</small>}
         </label>;
       })}
-    </div></fieldset>)}
+    </div>{q.id==='style'&&<fieldset className="nv-vs-variants" disabled={saving}><legend>Variações Liquid Glass</legend><p>Escolha diretamente o material de vidro. As amostras usam CSS, sem refração óptica real.</p><div className="nv-vs-options nv-vs-styles">{catalog.glassVariants.map(v=><label key={v.id} className={'nv-vs-option'+(choices.style==='liquid-glass'&&choices.glassVariant===v.id?' nv-vs-selected':'')}><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===v.id} onChange={()=>chooseGlass(v.id)}/><Preview mini style={catalog.styles.find(s=>s.id==='liquid-glass')!} variant={v} palette={palette} dark={v.preferredTheme==='dark'||(v.preferredTheme==='system'&&choices.theme==='dark')} catalog={catalog}/><strong>{v.name}</strong><small>{v.description}</small></label>)}<label className="nv-vs-option"><input type="radio" name="visual-glass-variant" checked={choices.style==='liquid-glass'&&choices.glassVariant===DELEGATE} onChange={()=>chooseGlass(DELEGATE)}/>Liquid Glass — IA escolhe o material</label></div></fieldset>}</fieldset>)}
     <fieldset disabled={saving}><legend>Paleta de cores</legend><div className="nv-vs-options">
       {catalog.palettes.map(p=><label key={p.id} className={'nv-vs-option'+(choices.palette===p.id?' nv-vs-selected':'')}><input type="radio" name="visual-palette" checked={choices.palette===p.id} onChange={()=>choose('palette',p.id)}/><div className="nv-vs-swatches" aria-hidden="true">{[p.light.accent,p.dark.accent,p.light.background,p.dark.surface].map((c,i)=><span key={i} style={{background:c}}/>)}</div><strong>{p.name}</strong></label>)}
       <label className="nv-vs-option"><input type="radio" name="visual-palette" checked={choices.palette===DELEGATE} onChange={()=>choose('palette',DELEGATE)}/>IA escolhe</label>
@@ -107,7 +114,7 @@ export function VisualSelector({questions,onConfirm,onFree}:Props){
     <div className="nv-vs-live"><h4>Prévia da combinação</h4><div className="nv-vs-toolbar">
       <button type="button" className="secondary" aria-pressed={previewDark} disabled={choices.theme==='light'||choices.theme==='dark'} onClick={()=>setDark(v=>!v)}>{previewDark?'Escuro':'Claro'}</button>
       <button type="button" className="secondary" aria-pressed={previewMobile} disabled={choices.usage==='desktop'||choices.usage==='mobile'} onClick={()=>setDevice(v=>v==='desktop'?'mobile':'desktop')}>{previewMobile?'Celular':'Computador'}</button>
-    </div><Preview style={style} palette={palette} dark={previewDark} mobile={previewMobile} density={choices.density} heading={heading} body={body} catalog={catalog}/>
+    </div><Preview style={style} variant={variant} palette={palette} dark={previewDark} mobile={previewMobile} density={choices.density} heading={heading} body={body} catalog={catalog}/>
     <small>{fontPreview(heading).label}. {fontPreview(body).label}. Dados fictícios. Valores de amostra para escolhas ainda não definidas não serão gravados.</small></div>
     {erro&&<p role="alert" className="nv-vs-error">{erro}</p>}
     <button type="button" disabled={!profile||saving} onClick={()=>profile&&send(profile)}>{saving?'Confirmando…':'Confirmar identidade e continuar'}</button>

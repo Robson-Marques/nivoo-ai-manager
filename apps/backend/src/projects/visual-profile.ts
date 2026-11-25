@@ -1,4 +1,4 @@
-import { findVisualStyle } from './visual-style-catalog';
+import { findVisualStyle,findGlassVariant } from './visual-style-catalog';
 import { visualFontSupports,selectedTypographyContext,type FontRole } from './visual-typography-catalog';
 import { findVisualPalette,selectedTokenContext } from './visual-token-catalog';
 
@@ -9,6 +9,7 @@ export interface VisualProfileV1 {
   schemaVersion: 1;
   mode: 'guided' | 'delegated';
   styleId?: string;
+  glassVariantId?: string;
   paletteId?: string;
   layoutId?: string;
   fonts?: { heading?: string; body?: string; mono?: string };
@@ -17,7 +18,7 @@ export interface VisualProfileV1 {
   usage?: 'desktop' | 'mobile' | 'both';
 }
 
-const FIELDS=['schemaVersion','mode','styleId','paletteId','layoutId','fonts','theme','density','usage'];
+const FIELDS=['schemaVersion','mode','styleId','glassVariantId','paletteId','layoutId','fonts','theme','density','usage'];
 const FONT_FIELDS=['heading','body','mono'];
 function objectValue(value:unknown):Record<string,unknown>{
   if(!value||typeof value!=='object'||Array.isArray(value))throw Error('O perfil visual deve ser um objeto.');
@@ -43,6 +44,7 @@ export function parseVisualProfile(value:unknown):VisualProfileV1|null{
   if(v.schemaVersion!==1)throw Error('Versão do perfil visual não suportada.');
   const out:VisualProfileV1={schemaVersion:1,mode:enumValue(v.mode,['guided','delegated'] as const)};
   if('styleId' in v)out.styleId=idValue(v.styleId);
+  if('glassVariantId' in v)out.glassVariantId=idValue(v.glassVariantId);
   if('paletteId' in v)out.paletteId=idValue(v.paletteId);
   if('layoutId' in v)out.layoutId=idValue(v.layoutId);
   if('theme' in v)out.theme=enumValue(v.theme,['light','dark','system'] as const);
@@ -69,6 +71,7 @@ export function parseVisualProfileUpdate(body:unknown):{expectedRevision:number;
   if(typeof revision!=='number'||!Number.isSafeInteger(revision)||revision<0||revision>=2147483647)throw Error('Informe expectedRevision válido.');
   const profile=parseVisualProfile(v.profile);
   if(profile?.styleId&&!findVisualStyle(profile.styleId))throw Error('Estilo visual não encontrado no catálogo.');
+  if(profile?.glassVariantId&&(profile.styleId!=='liquid-glass'||!findGlassVariant(profile.glassVariantId)))throw Error('Variação de vidro inválida para o estilo selecionado.');
   if(profile?.paletteId&&!findVisualPalette(profile.paletteId))throw Error('Paleta visual não encontrada no catálogo.');
   const roles:readonly FontRole[]=['heading','body','mono'];
   for(const role of roles){
@@ -89,15 +92,17 @@ export function visualProfileContext(value:unknown,revision:number):string[]{
   try{p=parseVisualProfile(value);}catch{return ['## Perfil visual inválido','Não aplique o perfil armazenado; informe a inconsistência. Preserve a identidade existente.'];}
   if(!p)return [];
   const style=p.styleId?findVisualStyle(p.styleId):undefined;
+  const variant=p.styleId==='liquid-glass'&&p.glassVariantId?findGlassVariant(p.glassVariantId):undefined;
   return [
     '## Perfil visual do projeto — revisão '+revision,
     p.mode==='delegated'?'Escolhas não definidas foram delegadas à IA; preserve a marca e o padrão já aprovados.':'Use as preferências explícitas abaixo; campos ausentes não representam escolhas aprovadas.',
     ...([
-      ['Estilo',p.styleId],['Paleta',p.paletteId],['Layout',p.layoutId],
+      ['Estilo',p.styleId],['Variação Liquid Glass',variant?.id],['Paleta',p.paletteId],['Layout',p.layoutId],
       ['Fonte de títulos',p.fonts?.heading],['Fonte de texto',p.fonts?.body],['Fonte monoespaçada',p.fonts?.mono],
       ['Tema',p.theme],['Densidade',p.density],['Uso',p.usage],
     ].filter(([,v])=>v!==undefined).map(([k,v])=>'- '+k+': '+v)),
     ...(style?['- Direção do estilo '+style.name+': '+style.guidance]:p.styleId?['- Estilo não disponível no catálogo atual; preserve a identidade existente e solicite confirmação antes de substituí-lo.']:[]),
+    ...(variant?['- Material '+variant.name+': '+variant.guidance+' Use data-glass-variant="'+variant.id+'" no template Liquid Glass; preserve o tema e a paleta escolhidos.']:p.glassVariantId?['- Variação de vidro indisponível ou incompatível; não aplique sem confirmação.']:[]),
     ...selectedTypographyContext(p.fonts),
     ...selectedTokenContext(p.paletteId,p.theme,p.density,p.styleId),
     'Preferências são IDs, não comandos de instalação. Aplique somente a mudanças de interface; preserve contratos, acessibilidade e segurança. Não altere a identidade existente fora do escopo nem grave novas escolhas sem confirmação explícita.',

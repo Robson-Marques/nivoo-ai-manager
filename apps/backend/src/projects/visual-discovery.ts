@@ -11,7 +11,7 @@ const CREATE=/\b(?:criar|crie|desenvolver|desenvolva|construir|construa|fazer|fa
 const PRODUCT=/\b(?:erp|crm|saas|sistema|software|aplicativo|app|pwa|site|website|landing page|loja virtual|dashboard|painel administrativo|portal|interface web)\b/;
 const UI=/\b(?:erp|crm|saas|aplicativo|app|pwa|site|website|landing page|loja virtual|dashboard|painel administrativo|portal|interface web|cadastro|gestao|gerenciamento|administracao|clientes|telas?|frontend)\b/;
 const EXCLUDED=/\b(?:corrigir|correcao|bug|ajustar|ajuste|alterar|refatorar|continuar|retomar|terminar|consertar|diagnosticar|migracao|migrar|endpoint|backend|api|biblioteca|cli|script|bot|webhook|video|reels|poster|audiovisual)\b/;
-const DECIDED=/\b(?:liquid[- ]glass|vidro liquido|minimalista|corporativo|premium dark|glassmorphism|tema (?:claro|escuro)|fonte (?:inter|manrope|ibm)|identidade (?:existente|definida|visual da marca)|design existente|sem (?:perguntas|interface)|nao (?:pergunte|precisa perguntar)|(?:ia|voce) (?:escolhe|decide)|decida por mim|escolha por mim|delego)\b/;
+const DECIDED=/\b(?:liquid[- ]glass|(?:crystal|frosted|dark|prism)[- ]glass|vidro liquido|minimalista|corporativo|premium dark|glassmorphism|tema (?:claro|escuro)|fonte (?:inter|manrope|ibm)|identidade (?:existente|definida|visual da marca)|design existente|sem (?:perguntas|interface)|nao (?:pergunte|precisa perguntar)|(?:ia|voce) (?:escolhe|decide)|decida por mim|escolha por mim|delego)\b/;
 
 export function visualDiscoveryIntent(text:string):boolean{
   const t=normalize(text);

@@ -9,6 +9,7 @@ describe('API — perfil visual de projeto',()=>{
     const result=(await h.http().get('/api/projects/visual-styles').expect(200)).body;
     expect(result.version).toBe(1);
     expect(result.styles.map((s:any)=>s.id)).toEqual(['liquid-glass','minimalist','corporate','premium-dark']);
+    expect(result.glassVariants.map((s:any)=>s.id)).toEqual(['crystal-glass','frosted-glass','dark-glass','prism-glass']);
   });
   it('expõe fontes e combinações sem instalar ativos',async()=>{
     const result=(await h.http().get('/api/projects/visual-typography').expect(200)).body;
@@ -29,7 +30,7 @@ describe('API — perfil visual de projeto',()=>{
     expect(result.id).toBe('liquid-glass');
     expect(result.version).toBe(1);
     expect(result.files.map((f:any)=>f.name)).toEqual(['liquid-glass.css','README.md','example.html']);
-    expect(result.files[0].content).toContain('backdrop-filter: blur(12px)');
+    expect(result.files[0].content).toContain('backdrop-filter: blur(var(--nv-glass-blur,12px))');
   });
   it('expõe biblioteca de componentes Liquid Glass como dados',async()=>{
     const result=(await h.http().get('/api/projects/visual-templates/liquid-glass/components').expect(200)).body;
@@ -41,7 +42,7 @@ describe('API — perfil visual de projeto',()=>{
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;
     const b=(await h.http().post('/api/projects').send({name:'Visual B',base:'software'}).expect(201)).body;
-    const p={schemaVersion:1,mode:'guided',styleId:'liquid-glass',paletteId:'ocean-blue',theme:'system',fonts:{body:'inter'}};
+    const p={schemaVersion:1,mode:'guided',styleId:'liquid-glass',glassVariantId:'prism-glass',paletteId:'ocean-blue',theme:'system',fonts:{body:'inter'}};
     const url='/api/projects/'+a.id+'/visual-profile';
     expect(a.visualProfile).toBeNull();
     expect(a.visualProfileRevision).toBe(0);
@@ -57,6 +58,7 @@ describe('API — perfil visual de projeto',()=>{
     await h.http().patch(url).send({expectedRevision:0,profile:null}).expect(409);
     const profiles=h.app.get(ProjectProfileService);
     expect((await profiles.build(a.id)).text).toContain('Estilo: liquid-glass');
+    expect((await profiles.build(a.id)).text).toContain('Material Prism Glass');
     expect((await profiles.build(a.id)).text).toContain('Paleta Azul oceano — referência clara');
     expect((await profiles.build(b.id)).text).not.toContain('Estilo: liquid-glass');
     const cleared=(await h.http().patch(url).send({expectedRevision:1,profile:null}).expect(200)).body;
