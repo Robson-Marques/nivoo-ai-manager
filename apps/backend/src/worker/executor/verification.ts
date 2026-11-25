@@ -5,10 +5,8 @@ import type { ExecutionLog } from './types';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { referenciasDaConferencia,variaveisDaConferencia } from '../../accounts/secrets';
-import { getGitAccount } from '../../git/git-accounts';
-import { ambienteDaConferencia,portaLivre,faltaCredencial,problemaDoAmbiente,runProcess,semLockfile } from '../../common/exec';
-import { prepararBancoDeTeste } from '../../common/banco-de-teste';
+import { problemaDoAmbiente,runProcess,semLockfile } from '../../common/exec';
+import { prepareVerificationEnvironment,verificationProblem,redactVerificationResult,verificationPassed } from '../../common/verification-environment';
 import { conferenciaTecnicaDeVideo,customMediaVerification } from '../../jobs/video-step-verification';
 import { inspectMediaDelivery } from '../../jobs/native-video-result';
 import { mediaDeliveries } from '../../specialties/media/delivery';
@@ -109,21 +107,13 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       if (saidaMotionCorrigida) {
         await L(`Conferência: saída motion ajustada automaticamente (${saidaMotionCorrigida}); não é necessário refazer a composição nem abrir outra sessão.`, 'WARN', attempt.id);
       }
-      // Banco de teste descartável do trabalho (testes de integração do projeto).
-      const banco = await prepararBancoDeTeste(job.id).catch(async (e) => {
-        await L(`Banco de teste indisponível: ${e?.message ?? e}`, 'WARN', attempt.id);
-        return null;
-      });
-      const porta = await portaLivre().catch(() => 0);
-      // Variáveis da conferência: valores fixos + as que apontam para o token de uma conta Git conectada
-      // (resolvido aqui; o token nunca entra na sessão da IA, só na conferência).
-      const envDaConferencia: Record<string, string> = { ...variaveisDaConferencia(job.projectId) };
-      for (const [nome, contaId] of Object.entries(referenciasDaConferencia(job.projectId))) {
-        try {
-          envDaConferencia[nome] = getGitAccount(contaId).token;
-        } catch {
-          /* conta apagada: a variável fica sem valor e o 401 orienta de novo */
-        }
+      const prepared=await prepareVerificationEnvironment(job.projectId,job.id,outputDir,mediaDir);
+      if(!prepared.ok){
+        const problem=prepared.problem;
+        if(problem.kind==='credential')credencialFaltando=problem.detail;else ambiente=problem.detail;
+        await L('Verificação não iniciada: '+problem.detail,'WARN',attempt.id);
+        result={...result,exitCode:1,error:'verificação não executada: '+problem.detail};
+        return {result,verified:false,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando};
       }
       // A conferência pode levar minutos (instalar, testar, compilar): registra o andamento para a tela não parecer
       // parada — a última linha da saída a cada 15 s e um "ainda rodando" a cada minuto.
@@ -133,7 +123,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       let ultimaLinha = '';
       let ultimoRegistro = Date.now();
       const anotar = (pedaco: string) => {
-        const l = pedaco.split('\n').map((x) => x.replace(/\x1b\[[0-9;]*m/g, '').trim()).filter(Boolean).pop();
+        const l = prepared.redact(pedaco).split('\n').map((x) => x.replace(/\x1b\[[0-9;]*m/g, '').trim()).filter(Boolean).pop();
         if (l) ultimaLinha = l;
         if (ultimaLinha && Date.now() - ultimoRegistro > avisoMs) {
           ultimoRegistro = Date.now();
@@ -150,19 +140,19 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
-          env: ambienteDaConferencia({ NIVOO_JOB_ID: job.id, NIVOO_OUTPUT_DIR: outputDir, NIVOO_PORTA_TESTE: String(porta), NIVOO_MIDIA_DIR: mediaDir, ...envDaConferencia, ...(banco?.env ?? {}) }),
+          env: prepared.env,
           encerrarGrupoAoSair: true,
           // A conferência pode instalar dependências, rodar os testes e o build do projeto: até 30 min (configurável).
           timeoutMs: Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800) * 1000,
           maxBuffer: 20 * 1024 * 1024,
           signal,
-        });
+        }).then(r=>redactVerificationResult(r,prepared.redact));
       let v: Awaited<ReturnType<typeof conferir>>;
       try {
       v = await conferir();
       // Cache do corepack quebrado (download interrompido: "pnpm.cjs" ausente): o sistema refaz o cache e confere
       // de novo, sozinho — não é coisa que a IA conserte.
-      if (v.exitCode !== 0 && !v.aborted && /corepack/i.test(`${v.stdout}${v.stderr}`) && problemaDoAmbiente(`${v.stdout}${v.stderr}`)) {
+      if (!verificationPassed(v) && !v.aborted && !v.timedOut && /corepack/i.test(`${v.stdout}${v.stderr}`) && problemaDoAmbiente(`${v.stdout}${v.stderr}`)) {
         const cache = process.env.COREPACK_HOME ?? path.join(process.env.HOME ?? os.homedir(), '.cache', 'node', 'corepack');
         fs.rmSync(cache, { recursive: true, force: true });
         await L(`Conferência: cache do corepack quebrado no servidor; refeito (${cache}) e conferindo de novo`, 'WARN', attempt.id);
@@ -171,7 +161,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       // "npm ci" sem package-lock.json (projeto que não commita o lockfile): o npm aborta com EUSAGE antes de testar.
       // A IA não tem terminal para gerar o lockfile nem pode mudar o comando: o sistema refaz a conferência com
       // "npm ci" → "npm install" (igual para yarn/pnpm "--frozen-lockfile"), uma vez. Não é falha do código.
-      if (v.exitCode !== 0 && !v.aborted && semLockfile(`${v.stdout}${v.stderr}`) && /npm ci|--frozen-lockfile|--immutable/.test(verifyCommandEfetivo)) {
+      if (!verificationPassed(v) && !v.aborted && !v.timedOut && semLockfile(`${v.stdout}${v.stderr}`) && /npm ci|--frozen-lockfile|--immutable/.test(verifyCommandEfetivo)) {
         verifyCommandEfetivo = verifyCommandEfetivo
           .replace(/npm ci/g, 'npm install')
           .replace(/\s--frozen-lockfile/g, '')
@@ -183,13 +173,13 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       // identificadores como pulledImageDigest só pela letra D maiúscula.
       // Reexecuta apenas a checagem curta test -f && grep; nunca afrouxa
       // testes de compilação, nem conclui uma etapa sem executar o comando.
-      if (v.exitCode !== 0 && !v.aborted) {
+      if (!verificationPassed(v) && !v.aborted && !v.timedOut) {
         const compativel = conferenciaGrepAlternativasLegada(verifyCommandEfetivo);
         if (compativel) {
           const original = verifyCommandEfetivo;
           verifyCommandEfetivo = compativel;
           const alternativa = await conferir();
-          if (alternativa.exitCode === 0) {
+          if (verificationPassed(alternativa)) {
             v = alternativa;
             await L('Conferência legada: marcadores alternativos encontrados ignorando apenas maiúsculas/minúsculas; o teste foi executado novamente e passou. Não substitui testes de comportamento.', 'WARN', attempt.id);
           } else {
@@ -198,9 +188,10 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         }
       }
       } finally { clearInterval(pulso); }
-      if (v.exitCode !== 0 && !v.aborted) ambiente = problemaDoAmbiente(`${v.stdout}${v.stderr}`);
-      // 401/403 num registro de pacotes privado: falta um token (segredo) que a IA não pode fornecer.
-      if (v.exitCode !== 0 && !v.aborted && !ambiente) credencialFaltando = faltaCredencial(`${v.stdout}${v.stderr}`);
+      const problem=verificationProblem(v,verifyCommandEfetivo);
+      if(problem?.kind==='infrastructure')ambiente=problem.detail;
+      if(problem?.kind==='credential')credencialFaltando=problem.detail;
+      if(problem?.kind==='tool')faltaPrograma=problem.detail;
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
       const falhaDeParecer = v.exitCode !== 0 ? diagnosticoParecerVisual(worktree, verifyCommand) : null;
@@ -214,21 +205,13 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         /* melhor esforço */
       }
       await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
-      verified = v.exitCode === 0;
-      // 127 = o comando da conferência não existe no servidor: nenhuma sessão vai resolver isso.
-      // 127 com um programa que a PRÓPRIA conferência chama (ex.: "rg" em "rg x && …"): nenhuma sessão resolve.
-      // Programa que falta dentro do projeto (ex.: jest num "npm test") a IA corrige: segue o fluxo normal.
-      if (v.exitCode === 127) {
-        const falta = /(\S+): (?:command not found|comando não encontrado|not found)/.exec(vOut)?.[1]?.replace(/^.*:\s*/, '') ?? '';
-        const daConferencia = verifyCommand.split(/&&|\|\||;|\|/).map((x) => x.trim().replace(/^\(+\s*/, '').split(/\s+/)[0]).filter(Boolean);
-        if (falta && daConferencia.includes(falta)) faltaPrograma = falta;
-      }
+      verified = verificationPassed(v);
       if (v.aborted) result = { ...result, interrupted: true };
-      else if (v.exitCode === 0 && result.sessionEnded && !target && !deliveries.length) {
+      else if (verified && result.sessionEnded && !target && !deliveries.length) {
         // A time/turn-limited coding session may already have satisfied its real check.
         result={...result,exitCode:0,error:undefined};
-      } else if (v.exitCode !== 0) {
-        result = { ...result, exitCode: result.sessionEnded ? 0 : v.exitCode ?? 1, error: `verificação da etapa falhou (exit ${v.exitCode}): ${vOut}` };
+      } else if (!verified) {
+        result = { ...result, exitCode: result.sessionEnded ? 0 : (v.exitCode || 1), error: `verificação da etapa falhou (exit ${v.exitCode}${v.timedOut?', tempo esgotado':''}): ${vOut||v.spawnError||'sem saída'}` };
       }
     }
 

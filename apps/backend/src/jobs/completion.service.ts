@@ -3,7 +3,8 @@ import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { sha256, sha256File } from '../common/hash';
-import { ambienteDaConferencia, minimalEnv, portaLivre, runProcess } from '../common/exec';
+import { minimalEnv, runProcess } from '../common/exec';
+import { prepareVerificationEnvironment,verificationProblem,redactVerificationResult,verificationPassed,type VerificationProblem } from '../common/verification-environment';
 import { resolveInside } from '../common/path-guard';
 import { BlockedReason } from '../common/status';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,7 +18,7 @@ import { conferenciasDasEtapas, lerRevisao, RULE_REVIEW_REPORT, RULE_REVIEW_STEP
 import { assinaturasDasFalhas, MARCADOR_RECUPERACAO, MAX_OCORRENCIAS_MESMA_FALHA, recorrenciasDasFalhas } from './recovery-signature';
 import { capturasMotionDesatualizadas } from './motion-capture-freshness';
 import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
-import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-teste';
+import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
 import { ProviderRegistry } from '../providers/provider-registry.service';
@@ -28,6 +29,7 @@ export interface CriterionResult {
   kind: string;
   passed: boolean;
   pendingApproval?: boolean;
+  verificationProblem?: VerificationProblem;
   evidence: Record<string, unknown>;
 }
 
@@ -319,8 +321,9 @@ export class CompletionService {
       report.pendencias = [];
       const evaluated=new Map<string,boolean>();
       const deferred:string[]=[];
+      let environmentFailure:VerificationProblem|undefined;
       for (const c of orderedCapabilityCriteria(job.criteria)) {
-        const wait=deferredCapabilityCriterion(c,evaluated,job.criteria);
+        const wait=environmentFailure?'aguarda resolução da falha do ambiente de verificação':deferredCapabilityCriterion(c,evaluated,job.criteria);
         if(wait){
           deferred.push(c.key+': '+wait);
           await this.prisma.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});
@@ -328,6 +331,7 @@ export class CompletionService {
         }
         const r = await this.check(job, c, worktree);
         evaluated.set(c.key,r.passed);
+        if(r.verificationProblem)environmentFailure=r.verificationProblem;
         report.criteria.push(r);
         const ev = await this.artifacts.storeContent(
           { projectId: job.projectId, jobId, name: `criterios/${c.key}.evidencia.json`, kind: 'CRITERION_EVIDENCE' },
@@ -349,6 +353,10 @@ export class CompletionService {
         status = 'BLOQUEADO';
         reason = BlockedReason.SEM_CRITERIOS;
         report.pendencias.push('job sem critérios de aceitação verificáveis: conclusão não permitida');
+      } else if (environmentFailure) {
+        status = 'BLOQUEADO';
+        reason = BlockedReason.VERIFICACAO_IMPOSSIVEL;
+        report.pendencias.push('Verificação indisponível ('+environmentFailure.kind+'): '+environmentFailure.detail+'. Resultado preservado. Nenhuma sessão de IA será aberta para corrigir o ambiente.');
       } else if (failed.length > 0) {
         status = 'BLOQUEADO';
         reason = BlockedReason.CRITERIOS_NAO_ATENDIDOS;
@@ -540,25 +548,23 @@ export class CompletionService {
           await this.logs.log(job.id, `Conferência final: critério "${c.key}" rodando (${cmd.replace(/\s+/g, ' ').slice(0, 160)})`, { source: 'evaluator' });
           const pol = evaluatePolicy(cmd);
           if (!pol.allowed) return { ...base, passed: false, evidence: { erro: 'comando bloqueado pela política', motivos: pol.reasons } };
-          const r = await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
+          const prepared=await prepareVerificationEnvironment(job.projectId,job.id,`${worktree}/out`,dirs.midia);
+          if(!prepared.ok)return {...base,passed:false,verificationProblem:prepared.problem,evidence:{executado:false,problema:prepared.problem}};
+          const r = redactVerificationResult(await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
             cwd: worktree,
-            env: ambienteDaConferencia({
-              NIVOO_JOB_ID: job.id,
-              NIVOO_OUTPUT_DIR: `${worktree}/out`,
-              NIVOO_MIDIA_DIR: dirs.midia,
-              NIVOO_PORTA_TESTE: String(await portaLivre().catch(() => 0)),
-              ...((await prepararBancoDeTeste(job.id).catch(() => null))?.env ?? {}),
-            }),
+            env: prepared.env,
             encerrarGrupoAoSair: true,
             // Critério pode rodar testes e build (como a conferência das etapas): mesmo limite, 30 min por padrão.
             timeoutMs: (cfg.timeoutSec ?? Number(process.env.NIVOO_VERIFY_TIMEOUT_SEC ?? 1800)) * 1000,
             maxBuffer: 20 * 1024 * 1024,
-          });
+          }),prepared.redact);
           const expected = cfg.expectExitCode ?? 0;
+          const problem=verificationPassed(r,expected)?null:verificationProblem(r,cmd);
           return {
             ...base,
-            passed: r.exitCode === expected && !r.timedOut,
-            evidence: { comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
+            passed: verificationPassed(r,expected),
+            ...(problem?{verificationProblem:problem}:{}),
+            evidence: { comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
           };
         }
         case 'FILE_EXISTS': {
