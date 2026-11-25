@@ -300,7 +300,7 @@ export class StepExecutorService {
 
     // Workspace isolado do job (worktree na branch job/<id>).
     let worktree:string;
-    try{worktree=await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm?.revision);}
+    try{worktree=egm?await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm.revision):await this.workspace.ensureJobWorktree(job.project.dirKey,job.id);}
     catch(e){if(!egm)throw e;return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
     const previous=orphanRows.length?[...orphanRows].sort((a,b)=>b.number-a.number)[0]:
       step.attemptCount>0?await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id,number:step.attemptCount,status:'INTERROMPIDA'}}):null;
