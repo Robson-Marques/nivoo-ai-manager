@@ -16,3 +16,5 @@ O modo por caminho usa sandbox de origem opaca tanto no iframe quanto no cabeça
 
 ## Verificação inicial
 Depois de `nivoo update` e `nivoo previa`, execute `curl -i http://127.0.0.1:3001/previa`. O retorno esperado sem sessão é 404 com a orientação da prévia, não o HTML da interface principal. Abra o projeto, desligue a prévia antiga e ligue novamente. Não copie a URL temporária nem os tokens em diagnósticos públicos.
+
+- Builds Vite reconhecidos (`vite build` ou `tsc ... && vite build`, chamados ao final do comando de instalação) recebem `--base` automaticamente na cópia da prévia. Isso não reescreve chamadas de API, configurações de roteador nem dependências de armazenamento; esses recursos precisam respeitar a base e o sandbox.

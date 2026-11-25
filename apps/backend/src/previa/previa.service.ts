@@ -11,6 +11,7 @@ import { resolveInside } from '../common/path-guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
 import { modoCaminho, baseSessao, separarCaminho, caminhoPublico, headersCaminho, headersProjeto, headersRespostaProjeto } from './previa-path';
+import { adaptarBuildVite } from './previa-vite';
 
 /**
  * Prévia do projeto: o site ou o sistema do projeto rodando, para o usuário ver ao lado da conversa.
@@ -255,9 +256,19 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId)).catch(() => null);
     const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(modoCaminho()?{NIVOO_PREVIA_BASE_PATH:baseSessao(p.token)}:{}), ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
-    if (como.instalar) {
-      p.mensagem = `instalando as dependências (${como.instalar})`;
-      const r = await runProcess('bash', ['-o', 'pipefail', '-c', como.instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
+    let instalar=como.instalar;
+    if(modoCaminho()&&instalar){
+      const pacote=path.join(pastaAbs,'package.json');
+      let build:unknown;
+      if(fs.existsSync(pacote)){
+        try{build=JSON.parse(fs.readFileSync(pacote,'utf8')).scripts?.build;}catch{/* custom project configuration */}
+      }
+      instalar=adaptarBuildVite(instalar,build,baseSessao(p.token));
+      if(instalar!==como.instalar)this.registrar(p,'[prévia] Build Vite adaptado ao caminho da sessão (somente na cópia da prévia).\n');
+    }
+    if (instalar) {
+      p.mensagem = 'instalando as dependências e preparando o frontend';
+      const r = await runProcess('bash', ['-o', 'pipefail', '-c', instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
       this.registrar(p, `$ ${como.instalar}\n${r.stdout}${r.stderr}\n`);
       if (r.exitCode !== 0) throw new Error(`a instalação das dependências falhou (exit ${r.exitCode}); veja o registro abaixo`);
     }
