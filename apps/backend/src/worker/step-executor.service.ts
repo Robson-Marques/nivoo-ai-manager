@@ -27,6 +27,7 @@ import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { evaluatePolicy } from '../security/policy';
 import type { ContextStats } from './context-builder';
 import { buildExecutionContext } from './executor/context';
+import { readApprovedScope } from '../jobs/approved-scope';
 import { prepareExecutionWorkspace } from './executor/workspace';
 import { dispatchExecution,executionTimeoutMs } from './executor/dispatch';
 import { verifyExecution } from './executor/verification';
@@ -383,7 +384,7 @@ export class StepExecutorService {
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
     const {profileText,context,stats:contextStats}=await prepareExecutionPrompt(isAi,
-      async()=> (await this.profiles.build(job.projectId)).text,
+      async()=> (await this.profiles.build(job.projectId,readApprovedScope(job.approvedScope,job.projectId)?.visual)).text,
       profile=>this.buildContext(job,step,profile,worktree),
       ()=>[...this.workspace.docsEditaveis(repoHarness),...docsPendentes.keys()]);
     // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).

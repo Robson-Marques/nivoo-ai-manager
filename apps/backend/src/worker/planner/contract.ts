@@ -24,7 +24,7 @@ export function plannerRules(capabilities:PlannerCapabilities):string[]{
       'Termine SEMPRE com UM bloco ```json``` em um destes formatos:',
       '1) {"tipo":"resposta","texto":"..."} — para perguntas, esclarecimentos ou quando faltar informação que BLOQUEIA o trabalho.',
       '2) {"tipo":"plano","texto":"explicação curta para o usuário","continuacao":true|false,"job":{...}} — quando houver trabalho a executar.',
-      '   "continuacao": true somente quando o plano CONTINUA um trabalho já aprovado nesta conversa. Pedido novo ou primeiro plano: false (ele aprova). Responder perguntas não equivale a aprovar o plano.',
+      studioWorkflow?'   Studio Workflow: continuacao=false para todo novo plano; o gate Fazer é obrigatório. Os slices do mesmo job aprovado continuam sem outro clique, salvo decisão material conforme o método.':'   "continuacao": true somente quando o plano CONTINUA um trabalho já aprovado nesta conversa. Pedido novo ou primeiro plano: false (ele aprova). Responder perguntas não equivale a aprovar o plano.',
       'PERGUNTAS COM OPÇÕES: quando precisar perguntar algo ao usuário (em qualquer formato, inclusive na entrega), coloque no JSON',
       '"perguntas": [{"pergunta":"texto completo, que se entende sozinho","opcoes":[{"rotulo":"curto (1 a 5 palavras)","descricao":"o que',
       'acontece se escolher"}],"multipla":false}] — de 1 a 4 perguntas, cada uma com 2 a 4 opções; a recomendada PRIMEIRO, com',

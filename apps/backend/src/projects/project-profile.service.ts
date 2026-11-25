@@ -27,7 +27,7 @@ export class ProjectProfileService {
     private readonly workspace: WorkspaceService,
   ) {}
 
-  async build(projectId: string): Promise<ProjectProfile> {
+  async build(projectId: string, visual?:{revision:number;profile:unknown}): Promise<ProjectProfile> {
     const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, include: { area: true } });
     const [baseRules, projectRules] = await Promise.all([
       this.prisma.areaInstruction.findFirst({ where: { areaId: project.areaId }, orderBy: { version: 'desc' } }),
@@ -54,7 +54,7 @@ export class ProjectProfileService {
       '',
       '## Sobre o projeto',
       project.description || '(sem descrição)',
-      ...(softwareInterfaceEnabled(project.area) ? visualProfileContext(project.visualProfile, project.visualProfileRevision) : []),
+      ...(softwareInterfaceEnabled(project.area) ? visualProfileContext(visual?visual.profile:project.visualProfile, visual?visual.revision:project.visualProfileRevision) : []),
       '',
       '## Materiais de referência (somente leitura; leia o que for relevante ANTES de decidir)',
       `- Padrões da base: ${list('base', baseFiles)}`,

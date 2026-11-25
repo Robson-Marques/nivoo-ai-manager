@@ -411,7 +411,7 @@ export class CompletionService {
         return null;
       });
       if (pasta) await this.logs.log(jobId, `Resultados guardados na pasta do projeto: ${pasta}/`, { source: 'evaluator' });
-      await this.pedirEntrega(job.id);
+      await this.pedirEntrega(job.id,report.criteria);
     }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
@@ -432,9 +432,11 @@ export class CompletionService {
    * Entrega na conversa (padrão, qualquer IA): o trabalho aprovado no chat terminou → a IA volta sozinha com o
    * que fez, onde estão os arquivos e as perguntas que dependem do usuário, numeradas, com recomendação.
    */
-  private async pedirEntrega(jobId: string): Promise<void> {
+  private async pedirEntrega(jobId: string,checks:CriterionResult[]): Promise<void> {
     const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
     if (!plano) return;
+    const approved=checks.filter(c=>c.passed);
+    const content=['Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
@@ -445,7 +447,7 @@ export class CompletionService {
         data: {
           conversationId: plano.conversationId,
           role: 'ASSISTENTE',
-          content: 'Trabalho concluído. Os arquivos e as prévias produzidas estão disponíveis abaixo para conferência. Nenhuma aprovação adicional será solicitada automaticamente.',
+          content,
           status: 'PRONTA',
           kind: 'entrega',
           jobId,
