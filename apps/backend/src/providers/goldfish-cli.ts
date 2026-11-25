@@ -12,6 +12,10 @@ export const GOLD_FISH_CODEX_CONFIG=[
   'memories.use_memories=false','memories.generate_memories=false',
   'features.multi_agent=false','features.apps=false','features.hooks=false',
   'features.view_image=false','features.image_generation=false','features.plugins=false',
+  'features.multi_agent_v2=false','features.code_mode=false','features.tool_search=false',
+  'features.goals=false','features.skip_host_skill_discovery=true','features.omit_skill_descriptions=true',
+  'features.skill_mcp_dependency_install=false','features.remote_plugin=false','features.standalone_web_search=false',
+  'features.apply_patch_freeform=false','features.request_permissions_tool=false',
   'mcp_servers={}',
 ] as const;
 
@@ -36,6 +40,9 @@ export function checkGoldfishCliContext(type:ReviewCli,env:NodeJS.ProcessEnv,cwd
   const home=env.HOME||os.homedir();
   const global=type==='codex'?(env.CODEX_HOME||path.join(home,'.codex')):(env.CLAUDE_CONFIG_DIR||path.join(home,'.claude'));
   if(type==='codex'){
+    for(const file of ['/etc/codex/config.toml','/etc/codex/requirements.toml']){
+      if(fs.existsSync(file))return 'Configuração gerenciada do Codex presente; precedência das restrições de revisão não validada.';
+    }
     for(const file of ['AGENTS.md','AGENTS.override.md']){
       if(fs.existsSync(path.join(global,file)))return 'Instruções globais do Codex presentes; exclusão ainda não comprovada neste ambiente.';
     }
