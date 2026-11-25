@@ -98,7 +98,7 @@ const nomeDe = (c) => (c.replace(/^\/+|\/+$/g, '').replace(/[^a-zA-Z0-9]+/g, '-'
         r.designObservado = await pagina.evaluate(async () => {
           const root = document.querySelector('[data-nivoo-profile-revision][data-nivoo-design-engine]');
           if (!root) return null;
-          await document.fonts.ready;
+          await Promise.race([document.fonts.ready,new Promise(resolve=>setTimeout(resolve,1500))]);
           const css = getComputedStyle(root);
           const heading = root.querySelector('h1,h2,h3');
           return {

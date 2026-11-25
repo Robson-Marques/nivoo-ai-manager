@@ -10,7 +10,7 @@ export function visualFontAssetsContext(profile:unknown,worktree?:string,target=
   let p;try{p=parseVisualProfile(profile);}catch{return [];}
   const selected=new Set(Object.values(p?.fonts??{}));
   const fonts=FONTS.filter(font=>selected.has(font.id));
-  if(!fonts.length){writeSessionContextFile(worktree,target+'fonts.css','/* Fontes do sistema, sem download. */\n');return [];}
+  if(!fonts.length){if(target!=='templates-nivoo/visual-fonts/')writeSessionContextFile(worktree,target+'fonts.css','/* Fontes do sistema, sem download. */\n');return [];}
   const root=path.resolve(__dirname,'../../../web/public/visual-fonts');
   const css:string[]=[];
   for(const font of fonts){
