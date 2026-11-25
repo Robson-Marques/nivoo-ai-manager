@@ -1,5 +1,6 @@
 import { planFpsResume } from './planner/fps-resume';
 import { validatedPlannerJob } from './planner/validated-job';
+import { bindPlanningSource } from '../jobs/approved-scope';
 import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -90,6 +91,7 @@ export class PlannerService {
       return;
     }
     const project = msg.conversation.project;
+    const planningSource={projectId:project.id,areaId:project.areaId,cutoff:msg.createdAt.toISOString(),visualRevision:project.visualProfileRevision};
     const fail = async (texto: string) => {
       // Só se ainda estiver pendente: o usuário pode ter cancelado a resposta.
       registrarTempo('erro_antes_ou_sem_execucao', {
@@ -157,7 +159,7 @@ export class PlannerService {
       }
       const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
-        const plan=this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue;
+        const plan=bindPlanningSource(this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue,planningSource);
         const saved=await this.prisma.conversationMessage.updateMany({
           where:{id:msg.id,status:'PENDENTE'},
           data:{status:'PRONTA',kind:'plano',content:'Vou recuperar a composição do trabalho anterior e renderizar somente na taxa de quadros solicitada. O vídeo anterior será preservado.',plan,completedAt:new Date(),costUsd:0},
@@ -439,6 +441,7 @@ export class PlannerService {
         kind = 'resposta';
         content = `${content}\n\nDepois das suas respostas, eu mando o plano.`.trim();
       }
+      if(plan)plan=bindPlanningSource(plan,planningSource);
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
       const gravada = await this.prisma.conversationMessage.updateMany({
@@ -481,6 +484,8 @@ export class PlannerService {
    */
   private async seguirSozinho(projectId: string, conversationId: string, messageId: string, continuacao: boolean): Promise<void> {
     if (!continuacao) return;
+    const modo=await this.prisma.project.findUnique({where:{id:projectId},select:{area:{select:{template:true}}}});
+    if(modo?.area.template==='studio-workflow')return; // gate Fazer do método; slices do mesmo job continuam normalmente
     // Uma montagem de vídeo é uma entrega final, não a autorização para
     // criar e executar outra montagem automaticamente depois do resultado.
     const ultimaAprovacao = await this.prisma.conversationMessage.findFirst({
@@ -534,7 +539,7 @@ export class PlannerService {
       });
       return;
     }
-    await this.conversations.approve(projectId, conversationId, messageId, { decidedBy: 'Nivoo (seguindo o seu pedido)' }).catch(async (e) => {
+    await this.conversations.approve(projectId, conversationId, messageId, { decidedBy: 'Nivoo (seguindo o seu pedido)' },true).catch(async (e) => {
       await this.prisma.conversationMessage.create({
         data: { conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `Não consegui começar o próximo plano sozinho (${e?.message ?? e}); clique em "Fazer".` },
       });

@@ -23,6 +23,8 @@ import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { visualFontAssetsContext } from '../../projects/visual-font-assets';
 import { approvedDesignContext } from '../../projects/approved-design';
+import { readApprovedScope,approvedScopeDocument } from '../../jobs/approved-scope';
+import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
@@ -62,6 +64,12 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     add('perfil', [profileText]);
     // Esta pasta é o projeto (e o repositório ligado): nada de pedir "a pasta original" ou o endereço do GitHub.
     const vinculo = await prisma.project.findUnique({ where: { id: job.projectId }, select: { dirKey: true, gitUrl: true, gitBranch: true, projetoOrigemId: true, visualProfile: true, visualProfileRevision: true, area: { select: { template: true, slug: true } } } });
+    const approved=readApprovedScope(job.approvedScope,job.projectId);
+    const visual=approved?.visual??{profile:vinculo?.visualProfile,revision:vinculo?.visualProfileRevision??0};
+    if(approved){
+      if(worktree)writeSessionContextFile(worktree,'escopo-aprovado.md',approvedScopeDocument(approved));
+      add('escopo-aprovado',worktree?['## Escopo aprovado pelo usuário','Leia contexto/escopo-aprovado.md: contém o pedido vinculado, o texto integral do plano aprovado e a revisão visual. O objetivo versionado e os critérios abaixo complementam o registro. Não interprete outras mensagens como autorização para expandir.']: [approvedScopeDocument(approved)]);
+    }
     const motionEdit=step.instructions.includes(MOTION_EDIT_MARKER);
     const motionAuthor=motionEdit||step.instructions.includes(MOTION_CONTRACT_MARKER);
     const etapaMidia = hasNativeMediaOperation([step], job.defaultProvider) || motionAuthor;
@@ -71,7 +79,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const previousError=priorAttempts.some(a=>!!a.error);
     const skills=selectSkills({
       phase:'execution',text:task,
-      media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(vinculo?.visualProfile),
+      media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(visual.profile),
       nativeImage,motionAuthor,omitLeanSkill:benchmarkVariant(job.projectId)==='reference',
       resume:motionEdit||priorAttempts.length>0,previousError,
     });
@@ -85,8 +93,8 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
     if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
-      const bound=skillIds.includes('software-liquid-glass')?approvedDesignContext(vinculo?.visualProfile,vinculo?.visualProfileRevision??0,worktree):[];
-      if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(vinculo?.visualProfile,worktree));
+      const bound=skillIds.includes('software-liquid-glass')?approvedDesignContext(visual.profile,visual.revision,worktree):[];
+      if(bound.length)add('design-aprovado',bound);else add('fontes-visuais',visualFontAssetsContext(visual.profile,worktree));
     }
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
@@ -162,7 +170,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     // Versão declarada × última etiqueta do Git: a IA sobe o número certo (o mesmo que o Nivoo vai publicar).
     const versao = textoDaVersao(await infoDeVersao(workspace.projectDirs((job as any).project?.dirKey ?? (await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { dirKey: true } })).dirKey).repo).catch(() => null));
     if (versao.length) add('versao', versao);
-    add('objetivo', [`## Objetivo original (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
+    add('objetivo', [`## Objetivo vigente (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
     add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
     const conferencia = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;

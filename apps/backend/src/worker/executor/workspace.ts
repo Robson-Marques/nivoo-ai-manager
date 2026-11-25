@@ -6,6 +6,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { ArtifactStoreService } from '../../storage/artifact-store.service';
 import { copiarAnexosParaSessao } from '../../conversations/attachments';
 import { jobsDaConversa } from '../../conversations/jobs-da-conversa';
+import { readApprovedScope } from '../../jobs/approved-scope';
 import { mediaEnabledForArea,type AreaScope } from '../../specialties/media/scope';
 import { conversaComoTexto } from './conversation';
 import { restoreMotionResume,validMotionResumeId } from '../../jobs/motion/fps-resume';
@@ -17,15 +18,16 @@ type SessionJob=Job&{project:{dirKey:string;area:AreaScope&{slug:string;retiredS
 
 /** Materializes existing facts and assets; never dispatches a provider or changes job state. */
 export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:WorkspaceService,artifacts:ArtifactStoreService,job:SessionJob,step:Step,providerId:string,isAi:boolean,worktree:string,knowledgeDir:string,L:ExecutionLog){
+    const approved=readApprovedScope(job.approvedScope,job.projectId);
+    const origemDoPlano=async()=>approved?{conversationId:approved.conversationId,createdAt:new Date(approved.cutoff)}:await prisma.conversationMessage.findFirst({where:{jobId:job.id,kind:'plano'},select:{conversationId:true,createdAt:true}});
+    const historicoAprovado=(o:{conversationId:string;createdAt:Date})=>({conversationId:o.conversationId,createdAt:{lte:o.createdAt}});
     // Etapa determinística de importação: disponibiliza os anexos do chat no
     // worktree para o binário nivoo-importar-imagem. Não abre sessão de IA.
     if (!isAi && providerId === 'local-shell' && /\bnivoo-importar-imagem\b/.test(step.instructions)) {
-      const origemImportacao = await prisma.conversationMessage.findFirst({
-        where: { jobId: job.id }, select: { conversationId: true },
-      });
+      const origemImportacao = await origemDoPlano();
       if (origemImportacao) {
         const mensagens = await prisma.conversationMessage.findMany({
-          where: { conversationId: origemImportacao.conversationId, role: 'USUARIO',
+          where: { ...historicoAprovado(origemImportacao), role: 'USUARIO',
             NOT: { attachments: { equals: Prisma.DbNull } } },
           orderBy: { createdAt: 'desc' },
           select: { id: true, conversationId: true, attachments: true },
@@ -46,10 +48,10 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
       const ctx = workspace.prepareSessionContext(job.project.area.slug, job.project.dirKey, worktree,job.project.area.retiredStudioWorkflow);
       if (ctx.skipped) await L(`Contexto: ${ctx.skipped} arquivo(s) de referência não copiados por exceder o limite de tamanho`, 'WARN');
       // Anexos da conversa que originou este trabalho (imagens e documentos enviados no chat).
-      const origem = await prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
+      const origem = await origemDoPlano();
       if (origem) {
         const comAnexos = await prisma.conversationMessage.findMany({
-          where: { conversationId: origem.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
+          where: { ...historicoAprovado(origem), role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
           orderBy: { createdAt: 'desc' },
           select: { id: true, conversationId: true, attachments: true },
         });
@@ -58,13 +60,13 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
         // A conversa inteira que gerou o trabalho: o pedido do usuário (ex.: "as 16 seções") fica disponível em
         // cada sessão — antes só o resumo do objetivo chegava e a IA perguntava ao usuário o que ele já tinha dito.
         const conversa = await prisma.conversationMessage.findMany({
-          where: { conversationId: origem.conversationId },
+          where: historicoAprovado(origem),
           orderBy: { createdAt: 'asc' },
           select: { role: true, content: true, kind: true, createdAt: true, attachments: true },
         });
         fs.writeFileSync(path.join(worktree, SESSION_CONTEXT_DIR, 'conversa-do-pedido.md'), conversaComoTexto(conversa));
         // Resultados dos OUTROS trabalhos desta conversa (ex.: o plano de limpeza que este trabalho vai executar).
-        const outros = (await jobsDaConversa(prisma, origem.conversationId)).filter((id) => id !== job.id);
+        const outros = (await jobsDaConversa(prisma, origem.conversationId,origem.createdAt)).filter((id) => id !== job.id);
         const resultados = await artifacts.copiarResultados(job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'));
         if (resultados.length) await L(`Resultados de trabalhos anteriores da conversa disponíveis para a IA: ${resultados.length} arquivo(s) em contexto/resultados/`);
         if (mediaEnabledForArea(job.project.area) || step.instructions.includes(MOTION_CONTRACT_MARKER)||step.instructions.includes(MOTION_EDIT_MARKER)) {
@@ -119,7 +121,7 @@ export async function prepareExecutionWorkspace(prisma:PrismaService,workspace:W
         where: { jobId: job.id }, select: { conversationId: true },
       });
       if (origem) {
-        const outros = (await jobsDaConversa(prisma, origem.conversationId))
+        const outros = (await jobsDaConversa(prisma, origem.conversationId,origem.createdAt))
           .filter(id => id !== job.id);
         const resultados = await artifacts.copiarResultados(
           job.projectId, outros, path.join(worktree, SESSION_CONTEXT_DIR, 'resultados'),

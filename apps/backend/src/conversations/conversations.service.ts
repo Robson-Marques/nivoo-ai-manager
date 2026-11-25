@@ -5,6 +5,7 @@ import { VISUAL_DISCOVERY_KIND,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,VISUAL
 import type { VisualProfileV1 } from '../projects/visual-profile';
 import { optString, reqString } from '../common/validate';
 import { JobsService } from '../jobs/jobs.service';
+import { readPlanningSource,type ApprovedScope } from '../jobs/approved-scope';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import * as fs from 'node:fs';
@@ -362,22 +363,29 @@ export class ConversationsService {
   }
 
   /** Aprova o plano proposto: cria o job (validado) e, por padrão, inicia. */
-  async approve(projectId: string, conversationId: string, messageId: string, body: any) {
+  async approve(projectId: string, conversationId: string, messageId: string, body: any, automatic = false) {
     await this.conversation(projectId, conversationId);
     const decidedBy = reqString(body, 'decidedBy', 100);
     const msg = await this.prisma.conversationMessage.findFirst({ where: { id: messageId, conversationId } });
     if (!msg) throw new NotFoundException('Mensagem não encontrada');
     if (msg.kind !== 'plano' || msg.status !== 'PRONTA' || !msg.plan) throw new BadRequestException('Esta mensagem não contém um plano para aprovar');
     if (msg.jobId || msg.approvedAt) throw new ConflictException('Este plano já foi aprovado');
-    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { area: { select: { template: true, slug: true } } } });
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { areaId:true,visualProfile:true,visualProfileRevision:true,area: { select: { template: true, slug: true } } } });
+    if(automatic&&project.area.template==='studio-workflow')throw new ConflictException('Studio Workflow: este plano exige o gate Fazer.');
+    const source=readPlanningSource(msg.plan);
+    if(source&&(source.projectId!==projectId||source.areaId!==project.areaId||source.visualRevision!==project.visualProfileRevision))throw new ConflictException('O projeto, a base ou o perfil visual mudou desde este plano. Peça o plano atualizado antes de aprovar.');
+    const cutoff=new Date(Math.min(msg.createdAt.getTime(),source?Date.parse(source.cutoff):msg.createdAt.getTime()));
+    const request=await this.prisma.conversationMessage.findFirst({where:{conversationId,role:'USUARIO',createdAt:{lte:cutoff}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{id:true,content:true,kind:true}});
     const plan = this.jobs.validatePlan(msg.plan, project.area);
+    const approvedAt=new Date();
+    const scope:ApprovedScope={version:1,projectId,conversationId,planMessageId:msg.id,cutoff:cutoff.toISOString(),approvedAt:approvedAt.toISOString(),approvedBy:decidedBy,areaTemplate:project.area.template??project.area.slug,alignment:msg.content,request,visual:{revision:project.visualProfileRevision,profile:project.visualProfile}};
     // Reserva o plano antes de criar o job: dois cliques em "Fazer" nunca criam dois trabalhos.
-    const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt: new Date(), approvedBy: decidedBy } });
+    const reserva = await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, jobId: null, approvedAt: null }, data: { approvedAt, approvedBy: decidedBy } });
     if (!reserva.count) throw new ConflictException('Este plano já foi aprovado');
     let job: Awaited<ReturnType<JobsService['create']>>;
     try {
       // O plano aprovado na conversa trabalha até terminar (limites do plano da IA não se aplicam).
-      job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy });
+      job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy },scope);
     } catch (e) {
       await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { approvedAt: null, approvedBy: null } });
       throw e;

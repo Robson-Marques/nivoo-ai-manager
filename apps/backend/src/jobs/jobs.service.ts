@@ -79,7 +79,7 @@ export class JobsService {
     return { title, objective, defaultProvider, steps: brutas, criteria, limits };
   }
 
-  async create(projectId: string, body: any) {
+  async create(projectId: string, body: any, approvedScope?: import('./approved-scope').ApprovedScope) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { area: true } });
     if (!project) throw new NotFoundException('Projeto não encontrado');
     const title = reqString(body, 'title', 300);
@@ -114,6 +114,7 @@ export class JobsService {
         projectId,
         title,
         defaultProvider,
+        ...(approvedScope?{approvedScope:approvedScope as unknown as Prisma.InputJsonValue}:{}),
         maxAttemptsPerStep: optNumber(limits, 'maxAttemptsPerStep', 1, 100),
         // 0 = sem limite (sessões e tempo).
         maxDurationSec: limits.maxDurationSec === 0 ? 0 : optNumber(limits, 'maxDurationSec', 10, 7 * 24 * 3600),

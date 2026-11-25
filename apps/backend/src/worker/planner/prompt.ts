@@ -96,7 +96,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
             '2) Onde está: os caminhos exatos dos arquivos principais (o usuário abre pela tela clicando neles).',
             ...(midia ? ['   Vídeo: o resultado é o vídeo COMPLETO (…-completo.mp4, com player e "baixar" na conversa); cite as cenas só como peças.'] : []),
             '3) SE FALTA PARTE DO PEDIDO do usuário (veja a conversa e o objetivo) e nada bloqueia: NÃO pare. Responda com',
-            '   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se falta uma resposta do',
+            capabilities.studioWorkflow?'   {"tipo":"plano","continuacao":false,...} com o alinhamento do novo trabalho: aguarde Fazer. Se falta uma resposta do':'   {"tipo":"plano","continuacao":true,...} com o plano do que falta: o sistema começa sozinho. Se falta uma resposta do',
             '   usuário que bloqueia, NÃO mande plano: só as perguntas (tipo "resposta"); o plano vem depois que ele responder.',
             '4) Perguntas: SÓ o que bloqueia e só o usuário decide — no campo "perguntas" (cartões com opções). Nada de pedir para ele rodar',
             '   testes, build, comandos ou atualizar o servidor quando o sistema pode fazer isso (conferências e ferramenta SSH).',

@@ -247,6 +247,7 @@ model Job {
   statusDetail       String?
   defaultProvider    String     @default("local-shell")
   objectiveVersion   Int        @default(1)
+  approvedScope      Json?      // origem e alinhamento aprovado no chat; não é memória nem novo estado de Capability
   maxAttemptsPerStep Int        @default(3)
   maxDurationSec     Int        @default(3600)
   maxCostUsd         Decimal    @default(0) @db.Decimal(12, 4) // 0 = sem trava neste trabalho (o limite do projeto, se houver, vale)
