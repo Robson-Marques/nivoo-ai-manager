@@ -24,6 +24,7 @@ import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { visualFontAssetsContext } from '../../projects/visual-font-assets';
 import { approvedDesignContext } from '../../projects/approved-design';
 import { readApprovedScope,approvedScopeDocument } from '../../jobs/approved-scope';
+import { capabilityReference } from '../../jobs/workflow/capability-criteria';
 import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
@@ -171,7 +172,8 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const versao = textoDaVersao(await infoDeVersao(workspace.projectDirs((job as any).project?.dirKey ?? (await prisma.project.findUniqueOrThrow({ where: { id: job.projectId }, select: { dirKey: true } })).dirKey).repo).catch(() => null));
     if (versao.length) add('versao', versao);
     add('objetivo', [`## Objetivo vigente (v${objective?.version}, sha256 ${objective?.sha256})`, objective?.text ?? '']);
-    add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => `- [${c.status}] ${c.key} (${c.kind}): ${c.description}`)]);
+    add('criterios', ['## Critérios de aceitação do job (verificados pelo backend, não por você)', ...criteria.map((c) => {const ref=capabilityReference(c.config);return `- [${c.status}] ${c.key} (${c.kind}): ${c.description}${ref?' — Capability '+ref.id+'; contrato '+ref.contract+'; fase '+ref.phase:''}`;})]);
+    if(criteria.some(c=>capabilityReference(c.config)))add('capability',['## Capability vinculada ao trabalho','Leia e mantenha o contrato real indicado nos critérios e as referências do Baseline/Blueprint. Mantenha estados e gaps reais no projeto. Construção não equivale a aceitação; não declare accepted por conta própria. A avaliação final executará structural antes de acceptance e solicitará decision após as evidências técnicas. Não escreva testes para passar sem exercitar o comportamento.']);
     add('etapas', ['## Etapas', ...steps.map((s) => `- [${s.status}] ${s.key}: ${s.title}${s.id === step.id ? '  <== ETAPA ATUAL' : ''}`)]);
     const conferencia = step.key === RULE_REVIEW_STEP ? RULE_REVIEW_STEP_CHECK : step.verifyCommand;
     if (conferencia) add('verificacao', ['## Verificação desta etapa (executada pelo backend ao fim da sessão)', '```', conferencia, '```']);

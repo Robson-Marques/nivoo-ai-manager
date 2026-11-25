@@ -21,6 +21,7 @@ import { descartarBancoDeTeste, prepararBancoDeTeste } from '../common/banco-de-
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { capabilityReference,orderedCapabilityCriteria,deferredCapabilityCriterion } from './workflow/capability-criteria';
 
 export interface CriterionResult {
   key: string;
@@ -236,7 +237,10 @@ export class CompletionService {
       .filter(Boolean) as string[];
     // Depois da correção, as conferências das etapas (testes, build, fotos) rodam de novo: a correção não pode
     // quebrar o que já passava, e a revisão precisa de evidência nova.
-    const confere = [...new Set([...confereCriterios, ...conferenciasDasEtapas(job.steps)])].join(' && ') || 'true';
+    // Capability acceptance belongs to final evaluation, not the repair slice.
+    // Other jobs keep their existing verification behavior.
+    const capabilityJob=criterios.some(c=>capabilityReference(c.config));
+    const confere = capabilityJob ? 'git diff --check HEAD' : [...new Set([...confereCriterios, ...conferenciasDasEtapas(job.steps)])].join(' && ') || 'true';
     const review = job.steps.find((s) => s.key === RULE_REVIEW_STEP);
     const base = Math.max(...job.steps.map((s) => s.order)) + 1;
     await this.prisma.$transaction(async (tx) => {
@@ -261,6 +265,7 @@ export class CompletionService {
               : []),
             '',
             'Corrija o trabalho (arquivos do projeto) para que esses critérios passem, mantendo o que já foi feito e as regras do projeto.',
+            ...(capabilityJob?['O comando desta etapa é uma verificação técnica mínima de diff, não aceitação. A avaliação final executará os critérios aprovados quando a correção estiver integrada. Preserve os testes úteis como regressão e não modifique o contrato para esconder gaps.']:[]),
             'Faça o trabalho de verdade (ex.: se um inventário ou relatório ficou vazio, preencha com o conteúdo real, lendo os arquivos).',
             'Teste de interação que o sistema precisa executar (foco, digitação, troca de sessão, resposta atrasada da rede…) vai em',
             'nivoo-roteiros/: roteiro .json (com "atrasar"/"falharRede" para rede lenta ou com erro) ou script .cjs/.mjs com o',
@@ -312,8 +317,17 @@ export class CompletionService {
       if (!sync.ok) return this.blockConflict(job, report, sync.files);
       report.criteria = [];
       report.pendencias = [];
-      for (const c of job.criteria) {
+      const evaluated=new Map<string,boolean>();
+      const deferred:string[]=[];
+      for (const c of orderedCapabilityCriteria(job.criteria)) {
+        const wait=deferredCapabilityCriterion(c,evaluated,job.criteria);
+        if(wait){
+          deferred.push(c.key+': '+wait);
+          await this.prisma.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});
+          continue; // No invented failed/pass evidence; this check was not executed.
+        }
         const r = await this.check(job, c, worktree);
+        evaluated.set(c.key,r.passed);
         report.criteria.push(r);
         const ev = await this.artifacts.storeContent(
           { projectId: job.projectId, jobId, name: `criterios/${c.key}.evidencia.json`, kind: 'CRITERION_EVIDENCE' },
@@ -339,13 +353,17 @@ export class CompletionService {
         status = 'BLOQUEADO';
         reason = BlockedReason.CRITERIOS_NAO_ATENDIDOS;
         report.pendencias.push(...failed.map((f) => `critério não atendido: ${f.key} — ${JSON.stringify(f.evidence).slice(0, 300)}`));
+      } else if (deferred.length > 0) {
+        status = 'BLOQUEADO';
+        reason = BlockedReason.CRITERIOS_NAO_ATENDIDOS;
       } else if (waiting.length > 0) {
         status = 'AGUARDANDO_APROVACAO';
         report.pendencias.push(...waiting.map((w) => `aguardando aprovação explícita: ${w.key}`));
       } else {
         status = 'CONCLUIDO';
       }
-      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS) {
+      report.pendencias.push(...deferred.map(d=>'critério ainda não executado: '+d));
+      if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && failed.length) {
         if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree)) {
           report.finalStatus = 'EXECUTANDO';
           return report;
@@ -511,6 +529,11 @@ export class CompletionService {
     const dirs = this.workspace.projectDirs((job as Job & { project: { dirKey: string } }).project.dirKey);
     const baseDoCaminho = (p: string) => (/^midia\//i.test(String(p)) ? dirs.root : worktree);
     try {
+      const capability=capabilityReference(c.config);
+      if(capability){
+        const contract=resolveInside(worktree,capability.contract);
+        if(!fs.existsSync(contract)||!fs.statSync(contract).isFile()||!fs.statSync(contract).size)return {...base,passed:false,evidence:{erro:'Contrato da Capability ausente ou vazio',capability:capability.id,contrato:capability.contract}};
+      }
       switch (c.kind) {
         case 'COMMAND': {
           const cmd = String(cfg.command ?? '');
