@@ -103,7 +103,7 @@ export function PreviaRemota({ projetoId, tamanho, geracao, recarga }: { projeto
     return ()=>el.removeEventListener('wheel',wheel);
   },[!!imagem,caminho]);
   function tecla(e:KeyboardEvent<HTMLDivElement>) {
-    if(e.isComposing)return;
+    if(e.nativeEvent.isComposing)return;
     if(e.key.length===1&&!e.ctrlKey&&!e.metaKey&&!e.altKey){
       e.preventDefault();enviar({tipo:'texto',texto:e.key});return;
     }
