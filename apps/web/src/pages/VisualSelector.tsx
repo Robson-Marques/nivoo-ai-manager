@@ -2,7 +2,7 @@ import { useEffect,useRef,useState,type CSSProperties,type ReactNode } from 'rea
 import { api } from '../api';
 import { buildVisualSelection,DELEGATE,delegatedChoices,emptyChoices,type Catalog,type Choices,type VisualProfile,type VisualQuestion,type Style,type Palette,type Font,type GlassVariant } from './visual-selection';
 import './VisualSelector.css';
-import { NivooGlassRoot,NivooGlassSurface } from '../vendor/liqui/nivoo';
+import { NivooGlassRoot,NivooGlassSurface,NivooGlassBackdrop } from '../vendor/liqui/nivoo';
 import './VisualFonts.css';
 import { LOCAL_FONTS,loadVisualFont,type FontStates } from './visual-fonts';
 
@@ -73,9 +73,7 @@ function Preview({style,palette,dark,mobile,density,heading,body,mono,catalog,va
   if(glass){
     // Only the original optical engine draws the lens. This background supplies
     // visible edges to refract and is not an imitation of an optical surface.
-    const backdrop=<div aria-hidden="true" className="nv-vs-optical-backdrop" style={{background:dark
-      ?'linear-gradient(145deg,#070c19 0 34%,#2a4464 34% 55%,#132f45 55% 72%,#060e1e 72%)'
-      :'linear-gradient(145deg,#f4f8fc 0 34%,#b9cce5 34% 55%,#d7e7ee 55% 72%,#eef1f8 72%)'}}/>;
+    const backdrop=<NivooGlassBackdrop dark={dark}/>;
     return <NivooGlassRoot variant={variantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop} className={className} style={vars} aria-label="Demonstração visual com dados fictícios">{children}</NivooGlassRoot>;
   }
   return <div className={className} data-style={style.id} data-mode={dark?'dark':'light'} style={vars} aria-label="Demonstração visual com dados fictícios">{children}</div>;

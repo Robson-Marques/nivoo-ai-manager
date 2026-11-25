@@ -1,4 +1,5 @@
 import type { Skill } from '../skills';
+import { frontendIntent } from './frontend';
 
 /** Original Nivoo engineering guidance, inspired by public visual references,
  * not a copy of the prompt library or Apple's proprietary rendering technology. */
@@ -38,7 +39,7 @@ export function liquidGlassIntent(text:string,visualStyleId?:string):boolean{
     return /^(?:liquid[- ]glass|vidro liquido)$/.test(t.trim())||
       /\b(?:aplicar|aplique|usar|use|adotar|adote|estilo|design|template)\s+(?:o\s+)?(?:liquid[- ]glass|vidro liquido)\b/.test(t);
   }
-  return visualStyleId==='liquid-glass'&&ui&&(VISUAL.test(t)||BUILD.test(t));
+  return visualStyleId==='liquid-glass'&&!MEDIA.test(t)&&(frontendIntent(t)||ui&&(VISUAL.test(t)||BUILD.test(t)));
 }
 
 type Focus='material'|'camadas'|'refracao'|'acessibilidade'|'desempenho'|'movimento';
