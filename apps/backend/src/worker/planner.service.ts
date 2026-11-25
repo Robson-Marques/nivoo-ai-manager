@@ -110,7 +110,15 @@ export class PlannerService {
       if(!scope||scope.conversationId!==msg.conversationId||project.area.template!=='studio-workflow'||project.visualProfileRevision!==scope.visual.revision)return fail('A retomada não pode ser feita com o contexto atual. Preserve a especialidade criada e solicite novo alinhamento do pedido original.');
       const newer=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{gt:new Date(scope.cutoff)}},select:{id:true}});
       if(newer)return fail('Há uma nova solicitação na conversa; a retomada anterior não foi executada.');
-      specialtyContext=['A especialidade local foi criada e incorporada no trabalho '+previous!.id+' (commit '+previous!.mergedCommit+').','O pedido original NÃO foi implementado. Leia o catálogo e a especialidade recém-criada. Use o histórico integral da conversa, incluindo a solicitação anterior à seleção visual, e o perfil já aprovado.','Faça o novo Relatório de alinhamento para implementar o pedido original, conforme specialty-creation.md e prompt-alinhamento.md. Não crie novamente a mesma especialidade, não faça uma revisão da entrega anterior e não declare software entregue. Se houver outra lacuna real, siga o método; se decisão material faltar, pergunte. Caso contrário, apresente plano de implementação e aguarde Fazer.','Pedido vinculado ao alinhamento anterior: '+(scope.request?.content??''),'Alinhamento anterior: '+scope.alignment].join('\n');
+      let original=scope.request?.content??'';
+      if(scope.request?.kind===VISUAL_CONFIRMED_KIND||scope.request?.kind===VISUAL_BRIEFING_KIND){
+        const selection=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,kind:VISUAL_DISCOVERY_KIND,createdAt:{lte:new Date(scope.cutoff)}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{createdAt:true}});
+        if(selection){
+          const request=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lt:selection.createdAt}},orderBy:[{createdAt:'desc'},{id:'desc'}],select:{content:true}});
+          if(request)original=request.content+'\nConfirmação visual: '+original;
+        }
+      }
+      specialtyContext=['A especialidade local foi criada e incorporada no trabalho '+previous!.id+' (commit '+previous!.mergedCommit+').','O pedido original NÃO foi implementado. Leia o catálogo e a especialidade recém-criada. Use o histórico integral da conversa, incluindo a solicitação anterior à seleção visual, e o perfil já aprovado.','Faça o novo Relatório de alinhamento para implementar o pedido original, conforme specialty-creation.md e prompt-alinhamento.md. Não crie novamente a mesma especialidade, não faça uma revisão da entrega anterior e não declare software entregue. Se houver outra lacuna real, siga o método; se decisão material faltar, pergunte. Caso contrário, apresente plano de implementação e aguarde Fazer.','Pedido original e decisões vinculadas: '+original,'Alinhamento anterior: '+scope.alignment].join('\n');
     }
 
     // Compatibility for queued requests: make the same deterministic decision
