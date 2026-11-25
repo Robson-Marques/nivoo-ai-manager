@@ -66,6 +66,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       ...(preGate?[]:softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines)),
       ...(capabilities.softwareInterface?egmPlanningContext(skills,preGate,request.worktree):[]),
       ...plannerRules(capabilities),
+      ...(capabilities.softwareInterface?['EGM: no plano existente, declare alvos de alteração concretos quando conhecidos, riscos de concorrência/API, premissas externas [UNVERIFIED] ou [ACK] e verificação direcionada. Não invente caminhos ou contratos. Se a fase pré-gate não permite ler código, identifique a incerteza; não abra outra sessão nem repita a suíte final.']:[]),
       ...(request.goldfishResolutionContext?['',request.goldfishResolutionContext]:[]),
       ...(resultados.length
         ? [
