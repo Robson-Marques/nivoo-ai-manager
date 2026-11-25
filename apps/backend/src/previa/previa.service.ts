@@ -75,6 +75,7 @@ export function caminhoDaPrevia(raw: string | null): string {
   return raw;
 }
 
+const cancelada = (p: Previa) => p.estado === 'parada';
 const OCIOSA_MS = Number(process.env.NIVOO_PREVIA_OCIOSA_MIN ?? 120) * 60_000;
 
 @Injectable()
@@ -204,6 +205,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const p: Previa = { projectId, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now() };
     this.previas.set(projectId, p);
     void this.subir(p).catch((e) => {
+      if (cancelada(p)) return;
       p.estado = 'erro';
       p.mensagem = String(e?.message ?? e).slice(0, 1000);
     });
@@ -260,7 +262,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
           servidor.once('error',falha);
           servidor.listen(0,'127.0.0.1',()=>{p.porta=(servidor.address() as net.AddressInfo).port;ok();});
         });
-        if (p.estado === 'parada') { servidor.close(); return; }
+        if (cancelada(p)) { servidor.close(); return; }
       }
       p.estado = 'no-ar';
       p.mensagem = `site estático (${como.origem})`;
@@ -275,10 +277,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       p.mensagem = 'instalando as dependências e preparando o frontend';
       const r = await runProcess('bash', ['-o', 'pipefail', '-c', como.instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
       this.registrar(p, '$ '+como.instalar+'\n'+r.stdout+r.stderr+'\n');
-      if (p.estado === 'parada') return;
+      if (cancelada(p)) return;
       if (r.exitCode !== 0) throw new Error('a instalação das dependências falhou (exit '+r.exitCode+'); veja o registro abaixo');
     }
-    if (p.estado === 'parada') return;
+    if (cancelada(p)) return;
     p.mensagem = `ligando o sistema (${como.comando})`;
     this.registrar(p, `$ ${como.comando}\n`);
     const filho = spawn('bash', ['-c', como.comando!], { cwd: pastaAbs, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -301,7 +303,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     const esperaSeg = Number(process.env.NIVOO_PREVIA_ESPERA_SEG ?? 180);
     const limite = Date.now() + esperaSeg * 1000;
     while (Date.now() < limite) {
-      if (p.estado === 'parada') return;
+      if (cancelada(p)) return;
       if (saiu !== undefined) throw new Error(`o sistema parou antes de responder (código ${saiu}); veja o registro abaixo`);
       if (await this.responde(p.porta)) {
         p.estado = 'no-ar';

@@ -30,7 +30,7 @@ export async function proxyDoNavegador(porta: number) {
   const servidor = http.createServer((req, res) => {
     if (!alvoPermitido(req.url ?? '', porta)) { res.writeHead(403); res.end('Destino fora da prévia'); return; }
     const url = new URL(req.url!);
-    const headers = { ...req.headers, host };
+    const headers: http.OutgoingHttpHeaders = { ...req.headers, host };
     delete headers['proxy-authorization']; delete headers['proxy-connection'];
     const upstream = http.request({ hostname: '127.0.0.1', port: porta, path: url.pathname + url.search, method: req.method, headers }, r => {
       res.writeHead(r.statusCode ?? 502, r.headers); r.pipe(res);
@@ -58,7 +58,7 @@ export async function proxyDoNavegador(porta: number) {
     if (!alvoPermitido(url, porta) || String(req.headers.upgrade).toLowerCase() !== 'websocket') { cliente.destroy(); return; }
     const u = new URL(url);
     const destino = net.connect(porta, '127.0.0.1', () => {
-      const headers = { ...req.headers, host };
+      const headers: http.OutgoingHttpHeaders = { ...req.headers, host };
       delete headers['proxy-authorization']; delete headers['proxy-connection'];
       const linhas = ['GET ' + u.pathname + u.search + ' HTTP/1.1'];
       for (const [k,v] of Object.entries(headers)) for (const val of Array.isArray(v) ? v : [v]) if (val !== undefined) linhas.push(k + ': ' + val);
@@ -107,7 +107,7 @@ class Sessao {
       if (this.fechada) throw new Error('Sessão encerrada.');
       this.browser = await chromium.launch({
         chromiumSandbox: true, timeout: 20000,
-        env: minimalEnv(),
+        env: Object.fromEntries(Object.entries(minimalEnv()).filter((v): v is [string,string] => typeof v[1] === 'string')),
         proxy: { server: this.proxy.url, bypass: '<-loopback>' },
         args: ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
       });
