@@ -10,10 +10,11 @@ import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
-import { GOLDFISH_SKILL,goldfishRequest,goldfishProviderSupported,goldfishReviewPrompt,goldfishReviewOutcome } from '../specialties/software/goldfish';
-import { SKILLS_VERSION,skillContext } from '../specialties/skills';
+import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
+import { createHttpGoldfishDispatch,goldfishHttpSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
+import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
+import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
-import { AGENT_RULES } from '../security/policy';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -178,8 +179,9 @@ export class PlannerService {
       goldfishScope=goldfishRequest(userMessage?.content??'');
       if(goldfishScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
-        if(!goldfishScope)return fail('Informe o alvo da revisão: /goldfish docs/arquitetura.md ou /goldfish seguido da especificação a analisar.');
-        if(!goldfishProviderSupported(tipoDe(project.provider)))return fail('Revisão independente indisponível nesta conexão: use Claude com modo restrito de leitura. Codex e Gemini ainda não têm isolamento validado para Goldfish. Nenhum provedor foi trocado.');
+        try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
+        if(!goldfishHttpSupported(tipoDe(project.provider)))return fail('O novo motor Goldfish ainda não possui transporte isolado validado em código para esta conexão. Disponível nesta etapa: NVIDIA, OpenRouter Free e Groq Free. Nenhum provedor foi trocado nem sessão iniciada.');
+        if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada. Nenhum gasto foi realizado.');
       }
       const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
@@ -235,14 +237,71 @@ export class PlannerService {
         if(rev.exitCode!==0||!/^[a-f0-9]{40,64}$/.test(revision))return fail('Não foi possível identificar a revisão da pasta principal para análise independente.');
         const snapshot=await runProcess('bash',['-c','set -o pipefail; git -C "$1" archive "$3" | tar -x -C "$2"','_',repo,tmp,revision],{cwd:tmp,env:minimalEnv(),timeoutMs:120_000});
         if(snapshot.exitCode!==0)return fail('Não foi possível preparar o snapshot para análise independente.');
-        // Exclude any accidentally versioned session state in the disposable copy.
-        for(const name of ['.nivoo','out'])fs.rmSync(path.join(tmp,name),{recursive:true,force:true});
+        // Never prepare the regular planner context or profile for an isolated review.
+        let intake:ReturnType<typeof loadGoldfishTarget>;
+        try{intake=loadGoldfishTarget(tmp,goldfishScope);}catch(e){return fail('Goldfish: '+(e as Error).message);}
+        const reviewRoot=fs.mkdtempSync(path.join(tmp,'goldfish-run-'));
+        let cost=0,costKnown=true,cancelled=false;
+        const reports:GoldfishPhaseRecord[]=[];
+        const configured=Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC??900);
+        const seconds=Number.isFinite(configured)&&configured>0?configured:900;
+        const configuredTurns=Number(process.env.NIVOO_PLANNER_MAX_TURNS??20);
+        const maxTurns=Number.isFinite(configuredTurns)?Math.min(20,Math.max(1,Math.floor(configuredTurns))):20;
+        const dispatch=createHttpGoldfishDispatch({
+          provider:this.registry.get(providerId),providerType:tipoDe(providerId),root:reviewRoot,
+          jobId:'conversa',stepId:msg.conversationId,model:projectModel(project,providerId),
+          deadline:Date.now()+seconds*1000,maxTurns,
+          canContinue:()=>!cancelled&&!signal.aborted,
+          onLog:linha=>registrarTempo('goldfish_revisor_inicio',{provedor:providerId,revisor:linha}),
+          invoke:async(req,meta)=>{
+            const current=await this.prisma.conversationMessage.findFirst({where:{id:msg.id,status:'PENDENTE'},select:{id:true}});
+            if(!current||signal.aborted){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
+            await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{andamento:'Goldfish: fase '+meta.stage+' — '+meta.role}});
+            const result=await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'goldfish',messageId:msg.id,attemptId:req.attemptId,skillsVersion:SKILLS_VERSION,skillIds:[GOLDFISH_SKILL.id],promptChars:req.instructions.length},()=>this.registry.get(providerId).execute(req));
+            this.registry.registrarResultado(providerId,result.exitCode===0&&!result.resourceUnavailable,result.error);
+            registrarTempo('goldfish_revisor_fim',{provedor:providerId,fase:meta.stage,revisor:meta.role,tentativa:meta.attempt,codigoSaida:result.exitCode,recursoIndisponivel:!!result.resourceUnavailable});
+            return result;
+          },
+          onUsage:async result=>{
+            if(typeof result.costUsd==='number'&&Number.isFinite(result.costUsd)&&result.costUsd>=0)cost+=result.costUsd;
+            else costKnown=false;
+            if(result.costEstimated)costKnown=false;
+            if(signal.aborted)return;
+            const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{costUsd:cost}});
+            if(!saved.count)cancelled=true;
+          },
+        });
+        await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE',startedAt:null},data:{startedAt:new Date()}});
+        registrarTempo('goldfish_inicio',{provedor:providerId,revisao:revision,modo:String(intake.preset),referencias:intake.baseline.length});
+        let run:Awaited<ReturnType<typeof runGoldfishReview>>;
+        try{
+          run=await runGoldfishReview({preset:intake.preset,revision,target:intake.target,baseline:intake.baseline,signal,dispatch,onPhase:async phase=>{
+            reports.push(phase);
+            registrarTempo('goldfish_fase_fim',{fase:phase.stage,estado:phase.status,revisores:phase.reviewers.length});
+            if(signal.aborted)return;
+            const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{content:reports.map(p=>p.markdown).join('\n\n'),costUsd:cost,andamento:'Goldfish: fase '+phase.stage+' — '+phase.status}});
+            if(!saved.count)cancelled=true;
+          }});
+        }catch(e){
+          if(signal.aborted)return;
+          await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),costUsd:cost,completedAt:new Date()}});
+          await this.queue.complete(task.id,workerId);
+          return;
+        }
+        if(signal.aborted)return; // lease lost: do not overwrite the next worker.
+        const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
+          status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
+          content:renderGoldfishRun(run,intake.omitted,costKnown),costUsd:cost,completedAt:new Date(),
+        }});
+        registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved.count>0,custoUsdInformado:cost,custoIntegralConhecido:costKnown});
+        await this.queue.complete(task.id,workerId);
+        return;
       }else{
         await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
       }
       this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp,project.area.retiredStudioWorkflow);
       // A cópia não tem .git: o histórico vai num arquivo (e o prompt explica que "not a git repository" é esperado).
-      if(goldfishScope===null)fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
+      fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
       // Instruções de agente do repositório do projeto: legíveis em contexto/repositorio/, inertes.
       const harness = (await runProcess('bash', ['-c', 'git -C "$1" ls-tree -r --name-only "$2"', '_', repo, revision], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 })).stdout
         .split('\n')
@@ -250,7 +309,7 @@ export class PlannerService {
       await this.workspace.hideRepoHarness(tmp, harness);
       this.workspace.sanitizeHarnessFiles(tmp);
       // Anexos da conversa (mais recentes primeiro): imagens para ver, documentos já em texto.
-      const comAnexos = goldfishScope!==null?[]:await this.prisma.conversationMessage.findMany({
+      const comAnexos = await this.prisma.conversationMessage.findMany({
         where: { conversationId: msg.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
         orderBy: { createdAt: 'desc' },
         select: { id: true, conversationId: true, attachments: true },
@@ -258,15 +317,12 @@ export class PlannerService {
       const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
       // Resultados dos trabalhos desta conversa (relatórios, inventários, planos em out/): ficam fora do repositório,
       // mas a IA precisa lê-los para apresentar a entrega e para seguir ("pode fazer a limpeza").
-      const resultados = goldfishScope!==null?[]:await this.artifacts.copiarResultados(project.id, await jobsDaConversa(this.prisma, msg.conversationId), path.join(tmp, SESSION_CONTEXT_DIR, 'resultados'));
+      const resultados = await this.artifacts.copiarResultados(project.id, await jobsDaConversa(this.prisma, msg.conversationId), path.join(tmp, SESSION_CONTEXT_DIR, 'resultados'));
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      let routedSkillIds:readonly string[]=goldfishScope!==null?[GOLDFISH_SKILL.id]:[];
-      const prompt = goldfishScope!==null
-        ? goldfishReviewPrompt(goldfishScope,revision,AGENT_RULES,skillContext([GOLDFISH_SKILL],tmp))
-        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
-      if(goldfishScope!==null)registrarTempo('goldfish_inicio',{provedor:providerId,skillsVersion:SKILLS_VERSION,skill:GOLDFISH_SKILL.id,revisao:revision});
+      let routedSkillIds:readonly string[]=[];
+      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -290,7 +346,7 @@ export class PlannerService {
       });
       const iniciouIaMs = Date.now();
       registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs, promptBaseCaracteres:prompt.length,perfilCaracteres:profile.text.length });
-      const result = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:goldfishScope!==null?'goldfish':'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
+      const result = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
         attemptId: msg.id,
@@ -299,13 +355,12 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: goldfishScope!==null?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
+        mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
           maxTurns: Math.min(20,Math.max(1,Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 20))),
           model: projectModel(project, providerId),
-          ...(goldfishScope!==null?{readOnlyReview:true}:{}),
           // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
         },
@@ -330,18 +385,6 @@ export class PlannerService {
         return;
       }
       this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
-      if(goldfishScope!==null){
-        // Review output is data only: no plan, memory, repair, auto-start or fallback.
-        const outcome=goldfishReviewOutcome(result);
-        const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
-          status:outcome.ok?'PRONTA':'ERRO',kind:outcome.ok?'resposta':'erro',content:outcome.text,
-          sessionId:result.sessionId,costUsd:result.costUsd??0,completedAt:new Date(),
-        }});
-        if(!saved.count)await this.prisma.conversationMessage.update({where:{id:msg.id},data:{sessionId:result.sessionId,costUsd:result.costUsd??0}});
-        registrarTempo('goldfish_fim',{provedor:providerId,sucesso:outcome.ok,gravada:saved.count>0,custoUsd:result.costUsd??0});
-        await this.queue.complete(task.id,workerId);
-        return;
-      }
       // Sem crédito/limite no meio da resposta: se houver IA reserva, a mesma pergunta vai para ela.
       if (result.resourceUnavailable) {
         const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
