@@ -213,12 +213,12 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return r.finally(()=>{if(this.operacoes.get(projectId)===r)this.operacoes.delete(projectId);});
   }
 
-  /** Only reviewable jobs in this project can be previewed. Never open an
-   * executing worktree or switch main to a job's branch. */
+  /** Reviewable and rejected, completed snapshots can be inspected without
+   * changing a decision, opening an executing worktree or switching main. */
   async fontes(projectId: string) {
     return this.prisma.job.findMany({
-      where:{projectId,status:'AGUARDANDO_APROVACAO',steps:{some:{},every:{status:'CONCLUIDO'}},approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},
-      select:{id:true,title:true,updatedAt:true},orderBy:{updatedAt:'desc'},take:50,
+      where:{projectId,steps:{some:{},every:{status:'CONCLUIDO'}},OR:[{status:'AGUARDANDO_APROVACAO',approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},{status:'BLOQUEADO',blockedReason:'CRITERIOS_NAO_ATENDIDOS',approvals:{some:{status:'REJEITADO',kind:'CRITERIO_SUBJETIVO'}}}]},
+      select:{id:true,title:true,updatedAt:true,status:true},orderBy:{updatedAt:'desc'},take:50,
     });
   }
 
@@ -232,10 +232,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     }
     if(typeof raw!=='string'||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw))throw new BadRequestException('Identificador de trabalho inválido.');
     const job=await this.prisma.job.findFirst({
-      where:{id:raw,projectId,status:'AGUARDANDO_APROVACAO',steps:{some:{},every:{status:'CONCLUIDO'}},approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},
+      where:{id:raw,projectId,steps:{some:{},every:{status:'CONCLUIDO'}},OR:[{status:'AGUARDANDO_APROVACAO',approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},{status:'BLOQUEADO',blockedReason:'CRITERIOS_NAO_ATENDIDOS',approvals:{some:{status:'REJEITADO',kind:'CRITERIO_SUBJETIVO'}}}]},
       select:{id:true},
     });
-    if(!job)throw new BadRequestException('O trabalho não está aguardando aceitação ou não pertence a este projeto.');
+    if(!job)throw new BadRequestException('O trabalho não possui um resultado concluído disponível para avaliação ou inspeção neste projeto.');
     const result=await this.git(repo,['rev-parse','--verify','refs/heads/'+this.workspace.jobBranch(job.id)+'^{commit}']);
     const sourceCommit=result.stdout.trim();
     if(result.exitCode!==0||!/^[0-9a-f]{40}$/.test(sourceCommit))throw new BadRequestException('Não encontrei o checkpoint do resultado a avaliar.');
@@ -247,6 +247,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   async confirmarAvaliacao(projectId:string,jobId:string):Promise<string>{
     const p=this.previas.get(projectId);
     if(!p||p.estado!=='no-ar'||p.sourceJobId!==jobId)throw new BadRequestException('Ligue a prévia do resultado a avaliar e confira o sistema antes de aprovar.');
+    const pending=await this.prisma.job.findFirst({where:{id:jobId,projectId,status:'AGUARDANDO_APROVACAO',steps:{some:{},every:{status:'CONCLUIDO'}},approvals:{some:{status:'PENDENTE',kind:'CRITERIO_SUBJETIVO'}}},select:{id:true}});
+    if(!pending)throw new BadRequestException('O resultado rejeitado pode ser inspecionado, mas a rejeição permanece registrada. Não existe aprovação pendente.');
     const source=await this.fonte(projectId,jobId);
     if(source.sourceCommit!==p.sourceCommit)throw new BadRequestException('O resultado mudou. Ligue novamente a versão em avaliação.');
     if(p.como?.tipo==='servidor'&&(!p.porta||!await this.responde(p.porta,caminhoDaPrevia(p.como.caminho),true)))throw new BadRequestException('A aplicação em prévia não está respondendo corretamente.');

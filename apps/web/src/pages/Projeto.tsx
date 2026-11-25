@@ -1305,12 +1305,12 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
   const [tamanho, setTamanho] = useState<'computador' | 'celular'>(() => (lerPreferencia('nivoo_previa_tamanho', 'computador') as 'computador' | 'celular'));
   const [recarga, setRecarga] = useState(0);
   const [verLog, setVerLog] = useState(false);
-  const [fontes,setFontes]=useState<Array<{id:string;title:string}>>([]);
+  const [fontes,setFontes]=useState<Array<{id:string;title:string;status?:string}>>([]);
   const [fonte,setFonte]=useState('');
   const fonteInicial=useRef(false);
   const carregar = useCallback(async () => {
     try {
-      const [estado,opcoes]=await Promise.all([api<any>(`/projects/${projetoId}/previa`),api<Array<{id:string;title:string}>>(`/projects/${projetoId}/previa/fontes`)]);
+      const [estado,opcoes]=await Promise.all([api<any>(`/projects/${projetoId}/previa`),api<Array<{id:string;title:string;status?:string}>>(`/projects/${projetoId}/previa/fontes`)]);
       setE(estado);setFontes(opcoes);
       if(!fonteInicial.current){fonteInicial.current=true;setFonte(estado.sourceJobId??(opcoes.length===1?opcoes[0].id:''));}
       setErro(null);
@@ -1348,8 +1348,8 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
         <span className="previa-acoes">
           <select aria-label="Versão a visualizar" value={fonte} onChange={x=>setFonte(x.target.value)} disabled={estado==='ligando'}>
             <option value="">Versão principal</option>
-            {fontes.map(f=><option key={f.id} value={f.id}>Avaliar: {f.title}</option>)}
-            {fonte&&!fontes.some(f=>f.id===fonte)&&<option value={fonte} disabled>Resultado não está mais aguardando aprovação</option>}
+            {fontes.map(f=><option key={f.id} value={f.id}>{f.status==='BLOQUEADO'?'Inspecionar (rejeitado):':'Avaliar:'} {f.title}</option>)}
+            {fonte&&!fontes.some(f=>f.id===fonte)&&<option value={fonte} disabled>Resultado não está mais disponível para inspeção</option>}
           </select>
           {(estado === 'parada' || estado === 'erro') && <button onClick={() => acao('ligar')}>Ligar a prévia</button>}
           {estado === 'no-ar' && (

@@ -174,6 +174,38 @@ describe('Prévia do projeto', () => {
     await h.http().post(base+'/previa/desligar').expect(201);
   });
 
+  it('permite inspecionar um resultado rejeitado sem reabrir a aprovação ou iniciar nova tentativa',async()=>{
+    const p=await projetoCom('Inspeção de resultado rejeitado',{'index.html':'<h1>Original</h1>'});
+    const base='/api/projects/'+p.id;
+    h.worker.start();
+    const j=(await h.http().post(base+'/jobs').send({
+      title:'Versão rejeitada',objective:'Inspecionar sem aceitar',defaultProvider:'local-shell',
+      steps:[{key:'a',instructions:"printf '<h1>Resultado rejeitado</h1>' > index.html"}],
+      criteria:[{key:'html',kind:'COMMAND',description:'Resultado presente',config:{command:"grep -q 'Resultado rejeitado' index.html"}},
+        {key:'aceite',kind:'MANUAL_APPROVAL',description:'Aceitar aplicação em prévia'}],
+    }).expect(201)).body;
+    const state=(status:string)=>waitFor(async()=>{
+      const s=(await h.http().get(base+'/jobs/'+j.id).expect(200)).body;
+      return s.status===status?s:null;
+    },60000);
+    await h.http().post(base+'/jobs/'+j.id+'/start').expect(201);
+    const waiting=await state('AGUARDANDO_APROVACAO');
+    const approval=waiting.approvals.find((a:any)=>a.status==='PENDENTE');
+    await h.http().post('/api/approvals/'+approval.id+'/decide').send({decision:'REJEITADO',decidedBy:'operador'}).expect(201);
+    const rejected=await state('BLOQUEADO');
+    expect((await h.http().get(base+'/previa/fontes').expect(200)).body).toEqual(expect.arrayContaining([expect.objectContaining({id:j.id,status:'BLOQUEADO'})]));
+    await h.http().post(base+'/previa/ligar').send({jobId:j.id}).expect(201);
+    const e=await noAr(p.id);
+    expect(e).toMatchObject({estado:'no-ar',sourceJobId:j.id});
+    const {base:origin,cookie}=await abrir(e.url);
+    expect((await pedir(origin+'/',cookie)).corpo).toContain('Resultado rejeitado');
+    const inspected=await state('BLOQUEADO');
+    expect(inspected.attempts.length).toBe(rejected.attempts.length);
+    expect(inspected.approvals.find((a:any)=>a.id===approval.id).status).toBe('REJEITADO');
+    expect(fs.readFileSync(path.join(p.workspacePath,'repo','index.html'),'utf8')).toContain('Original');
+    await h.http().post(base+'/previa/desligar').expect(201);
+  });
+
   it('projeto sem nada para mostrar: explica o que fazer (nivoo-previa.json)', async () => {
     const p = await projetoCom('Vazio', { 'LEIAME.md': 'só texto' });
     await h.http().post(`/api/projects/${p.id}/previa/ligar`).expect(201);
