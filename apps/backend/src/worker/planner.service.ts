@@ -11,7 +11,7 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
-import { liteFindings,liteDiffLedger,liteSpecContext,validateLiteSpecRevision,renderLiteSpecDecisions } from '../specialties/software/egm/lite-resolution';
+import { assertLiteReceipt,liteFindings,liteDiffLedger,liteSpecContext,validateLiteSpecRevision,renderLiteSpecDecisions } from '../specialties/software/egm/lite-resolution';
 import { liteRequest,litePlanTarget,liteDiffTarget,runLiteReview,renderLiteResult,type LiteIntake,type LiteResult } from '../specialties/software/egm/lite-review';
 import { routeEgm,renderEgmRoute,previousEgmBaseline,executionChecklist } from '../specialties/software/egm/lite-routing';
 import { AUTOMATIC_GOLDFISH_KIND,readAutoReview,automaticReviewMatches,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
@@ -285,7 +285,7 @@ export class PlannerService {
           const state=readReviewCheckpoint(source.goldfishState);
           if(state.binding.projectId!==project.id||state.binding.conversationId!==msg.conversationId||state.binding.messageId!==resolveId)throw Error('Vínculo da revisão inválido.');
           if(state.binding.preset==='lite-spec'){
-            const result=state.lite;
+            const result=assertLiteReceipt(state);
             if(!result||result.mode!=='lite-spec'||result.sourceId!==state.binding.liteSourceId||result.revision!==state.binding.revision||result.status!=='findings')throw Error('Revisão Lite inválida.');
             const original=await this.prisma.conversationMessage.findFirst({where:{id:result.sourceId,conversationId:msg.conversationId,role:'ASSISTENTE',kind:'plano',status:'PRONTA',jobId:null,approvedAt:null},select:{plan:true}});
             const meta=readPlanningSource(original?.plan);
@@ -299,7 +299,7 @@ export class PlannerService {
             goldfishResolutionContext=liteSpecContext(result,original.plan,resolveId);
             adoptionRequest=requirement.content;
           }else{
-          resolutionLedger=readResolutionLedger(state.resolution);
+          resolutionLedger=state.binding.preset==='lite-diff'?liteDiffLedger(assertLiteReceipt(state)):readResolutionLedger(state.resolution);
           if(resolutionLedger.revision!==state.binding.revision)throw Error('Revisão divergente do checkpoint.');
           goldfishResolutionContext=resolutionContext(resolutionLedger,resolveId);
           resolutionSourceId=resolveId;
