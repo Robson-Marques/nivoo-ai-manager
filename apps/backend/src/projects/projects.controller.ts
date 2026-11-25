@@ -49,6 +49,12 @@ export class ProjectsController {
     return this.projects.update(pid, body);
   }
 
+  /** Replace/reset an explicitly chosen visual profile with optimistic concurrency. */
+  @Patch(':pid/visual-profile')
+  updateVisualProfile(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: unknown) {
+    return this.projects.updateVisualProfile(pid, body);
+  }
+
   /** Amostra curta para escolher voz e conferir pronúncia antes de renderizar o vídeo. */
   @Post(':pid/narracao/teste')
   async testarNarracao(@Param('pid', ParseUUIDPipe) pid: string, @Body() body: any, @Res() res: Response) {

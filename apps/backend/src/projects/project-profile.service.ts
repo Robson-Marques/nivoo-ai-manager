@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SESSION_CONTEXT_DIR, WorkspaceService } from '../storage/workspace.service';
 import { currentMediaBaseRules } from '../specialties/media/runtime-profile';
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import { visualProfileContext } from './visual-profile';
 
 const MAX_LISTED_FILES = 300;
 
@@ -50,6 +52,7 @@ export class ProjectProfileService {
       '',
       '## Sobre o projeto',
       project.description || '(sem descrição)',
+      ...(softwareInterfaceEnabled(project.area) ? visualProfileContext(project.visualProfile, project.visualProfileRevision) : []),
       '',
       '## Materiais de referência (somente leitura; leia o que for relevante ANTES de decidir)',
       `- Padrões da base: ${list('base', baseFiles)}`,

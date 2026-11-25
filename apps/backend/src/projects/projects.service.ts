@@ -14,7 +14,10 @@ import { AreasService } from '../areas/areas.service';
 import { sha256 } from '../common/hash';
 import { knowledgePath, parseKnowledgeUpload, toTextFiles } from '../common/knowledge-upload';
 import { optNumber, optString, reqString, slugify } from '../common/validate';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import { parseVisualProfileUpdate } from './visual-profile';
 import { checkModelName } from '../providers/model-catalog.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { MotorNarracao, VOZES_NARRACAO, vozConhecida, vozPadraoDoMotor } from '../providers/vozes';
@@ -222,6 +225,26 @@ export class ProjectsService {
     if (body && 'maxCostUsd' in body) data.maxCostUsd = body.maxCostUsd === null ? null : optNumber(body, 'maxCostUsd', 0, 1_000_000);
     await this.prisma.project.update({ where: { id }, data });
     if (data.provider) await moverTrabalhoParaIa(this.prisma, id, String(data.provider));
+    return this.get(id);
+  }
+
+  /** Only the explicit project settings endpoint can persist the visual profile.
+   * Replace the document atomically; stale edits do not overwrite newer decisions. */
+  async updateVisualProfile(id: string, body: unknown) {
+    let input: ReturnType<typeof parseVisualProfileUpdate>;
+    try { input = parseVisualProfileUpdate(body); }
+    catch (e) { throw new BadRequestException(e instanceof Error ? e.message : 'Perfil visual inválido'); }
+    const p = await this.prisma.project.findUnique({ where: { id }, include: { area: true } });
+    if (!p) throw new NotFoundException('Projeto não encontrado');
+    if (input.profile !== null && !softwareInterfaceEnabled(p.area)) throw new BadRequestException('Perfil visual disponível para projetos de software.');
+    const changed = await this.prisma.project.updateMany({
+      where: { id, areaId: p.areaId, visualProfileRevision: input.expectedRevision },
+      data: {
+        visualProfile: input.profile === null ? Prisma.DbNull : input.profile as unknown as Prisma.InputJsonValue,
+        visualProfileRevision: { increment: 1 },
+      },
+    });
+    if (!changed.count) throw new ConflictException('O projeto ou perfil visual mudou. Recarregue antes de salvar.');
     return this.get(id);
   }
 
