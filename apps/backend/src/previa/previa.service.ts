@@ -35,8 +35,6 @@ export interface ComoRodar {
   comando?: string;
   caminho: string;
   origem: string;
-  /** The upstream server understands the session prefix (e.g. Vite --base). */
-  manterPrefixo?: boolean;
 }
 
 type Estado = 'parada' | 'ligando' | 'no-ar' | 'erro';
@@ -50,6 +48,8 @@ interface Previa {
   porta?: number;
   processo?: ChildProcess;
   servidorEstatico?: http.Server;
+  abort: AbortController;
+  subida?: Promise<void>;
   dir?: string;
   log: string;
   ultimoUso: number;
@@ -83,6 +83,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('Previa');
   private readonly previas = new Map<string, Previa>();
   private readonly visualizadores = new VisualizadoresPrevia();
+  private readonly operacoes = new Map<string, Promise<unknown>>();
   private portao?: http.Server;
   private porta = 0;
   private faxina?: NodeJS.Timeout;
@@ -139,7 +140,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Como rodar o projeto (arquivo nivoo-previa.json ou detecção). Null se não há nada para mostrar. */
-  static comoRodar(dir: string, base?:string): ComoRodar | null {
+  static comoRodar(dir: string): ComoRodar | null {
     const cfgArq = path.join(dir, 'nivoo-previa.json');
     if (fs.existsSync(cfgArq)) {
       let c: any;
@@ -150,7 +151,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       }
       const pasta = String(c.pasta ?? '.').replace(/^\/+/, '') || '.';
       const tipo = c.tipo === 'estatico' || (!c.comando && c.tipo !== 'servidor') ? 'estatico' : 'servidor';
-      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json', manterPrefixo: !!base && c.manterPrefixo === true };
+      return { tipo, pasta, instalar: c.instalar ? String(c.instalar) : undefined, comando: c.comando ? String(c.comando) : undefined, caminho: String(c.caminho ?? '/'), origem: 'nivoo-previa.json' };
     }
     const pacote = path.join(dir, 'package.json');
     if (fs.existsSync(pacote)) {
@@ -166,10 +167,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
         const s = String(scripts[nome]);
         // Servidores de desenvolvimento que não leem $PORT: a porta vai como argumento.
         const vite = /\bvite\b/.test(s);
-        const extra = vite ? ' -- --port $PORT --host 127.0.0.1 --strictPort' + (base ? ' --base '+base : '') : /\bnext\b/.test(s) ? ' -- -p $PORT -H 127.0.0.1' : '';
+        const extra = vite ? ' -- --port $PORT --host 127.0.0.1 --strictPort' : /\bnext\b/.test(s) ? ' -- -p $PORT -H 127.0.0.1' : '';
         const gerenciador = fs.existsSync(path.join(dir, 'pnpm-lock.yaml')) ? 'pnpm' : fs.existsSync(path.join(dir, 'yarn.lock')) ? 'yarn' : 'npm';
         const instalar = gerenciador === 'pnpm' ? 'pnpm install --frozen-lockfile || pnpm install' : gerenciador === 'yarn' ? 'yarn install' : fs.existsSync(path.join(dir, 'package-lock.json')) ? 'npm ci || npm install' : 'npm install';
-        return { tipo: 'servidor', pasta: '.', instalar, comando: `${gerenciador} run ${nome}${extra}`, caminho: '/', origem: `package.json (script "${nome}")`, manterPrefixo: !!base && vite };
+        return { tipo: 'servidor', pasta: '.', instalar, comando: `${gerenciador} run ${nome}${extra}`, caminho: '/', origem: `package.json (script "${nome}")` };
       }
     }
     for (const pasta of ['.', 'public', 'dist', 'build', 'site', 'docs', 'www']) {
@@ -198,13 +199,20 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Liga (ou religa, com a última versão da pasta principal). Volta logo; o estado diz quando está no ar. */
-  async ligar(projectId: string) {
+  private serializar<T>(projectId:string, fn:()=>Promise<T>):Promise<T> {
+    const r=(this.operacoes.get(projectId)??Promise.resolve()).catch(()=>undefined).then(fn);
+    this.operacoes.set(projectId,r);
+    return r.finally(()=>{if(this.operacoes.get(projectId)===r)this.operacoes.delete(projectId);});
+  }
+
+  ligar(projectId: string) { return this.serializar(projectId,()=>this.ligarInterno(projectId)); }
+  private async ligarInterno(projectId: string) {
     if (!this.portao && (!modoCaminho() || process.env.NIVOO_PREVIA_DESLIGADA==='1')) throw new BadRequestException('A prévia está desligada neste servidor (portão não abriu; veja os logs da API)');
     const antiga = this.previas.get(projectId);
     if (antiga) await this.parar(antiga);
-    const p: Previa = { projectId, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now() };
+    const p: Previa = { projectId, token: randomBytes(24).toString('hex'), estado: 'ligando', mensagem: 'preparando a cópia do projeto', log: '', ultimoUso: Date.now(), abort: new AbortController() };
     this.previas.set(projectId, p);
-    void this.subir(p).catch((e) => {
+    p.subida = this.subir(p).catch((e) => {
       if (cancelada(p)) return;
       p.estado = 'erro';
       p.mensagem = String(e?.message ?? e).slice(0, 1000);
@@ -212,7 +220,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return this.estado(projectId);
   }
 
-  async desligar(projectId: string) {
+  desligar(projectId: string) { return this.serializar(projectId,()=>this.desligarInterno(projectId)); }
+  private async desligarInterno(projectId: string) {
     const p = this.previas.get(projectId);
     if (p) await this.parar(p);
     this.previas.delete(projectId);
@@ -225,6 +234,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   private async subir(p: Previa): Promise<void> {
     const repo = await this.repoDo(p.projectId);
+    if (cancelada(p)) return;
     // Cópia da pasta principal só para a prévia (o trabalho da IA nunca roda aqui).
     const dir = path.join(path.dirname(repo), 'previa');
     if (!fs.existsSync(path.join(dir, '.git'))) {
@@ -237,6 +247,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       await this.git(dir, ['reset', '--hard', 'main']);
       await this.git(dir, ['clean', '-fdx', '-e', 'node_modules', '-e', '.venv']); // dependências ficam (mais rápido)
     }
+    if (cancelada(p)) return;
     p.dir = dir;
     const como = PreviaService.comoRodar(dir);
     if (!como) {
@@ -271,11 +282,12 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     }
     p.porta = await portaLivre();
     const banco = await prepararBancoDeTeste(p.projectId, this.nomeDoBanco(p.projectId)).catch(() => null);
+    if (cancelada(p)) return;
     const env = ambienteDaConferencia({ PORT: String(p.porta), HOST: '127.0.0.1', NIVOO_PORTA_TESTE: String(p.porta), NODE_ENV: 'development', ...(banco?.env ?? {}) });
     delete env.CI; // prévia não é teste
     if (como.instalar) {
       p.mensagem = 'instalando as dependências e preparando o frontend';
-      const r = await runProcess('bash', ['-o', 'pipefail', '-c', como.instalar], { cwd: pastaAbs, env, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
+      const r = await runProcess('bash', ['-o', 'pipefail', '-c', como.instalar], { cwd: pastaAbs, env, signal: p.abort.signal, timeoutMs: 15 * 60_000, maxBuffer: 5 * 1024 * 1024, encerrarGrupoAoSair: true });
       this.registrar(p, '$ '+como.instalar+'\n'+r.stdout+r.stderr+'\n');
       if (cancelada(p)) return;
       if (r.exitCode !== 0) throw new Error('a instalação das dependências falhou (exit '+r.exitCode+'); veja o registro abaixo');
@@ -306,6 +318,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       if (cancelada(p)) return;
       if (saiu !== undefined) throw new Error(`o sistema parou antes de responder (código ${saiu}); veja o registro abaixo`);
       if (await this.responde(p.porta)) {
+        if (cancelada(p)) return;
         p.estado = 'no-ar';
         p.mensagem = `sistema no ar (${como.origem})`;
         p.ligadaEm = new Date();
@@ -324,7 +337,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return new Promise((ok) => {
       const r = http.get({ host: '127.0.0.1', port: porta, path: caminho, timeout: 2000 }, (res) => {
         res.resume();
-        ok(true);
+        ok((res.statusCode??500)<400);
       });
       r.on('error', () => ok(false));
       r.on('timeout', () => {
@@ -336,7 +349,9 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   private async parar(p: Previa): Promise<void> {
     p.estado = 'parada';
+    p.abort.abort();
     await this.visualizadores.fechar(p.projectId);
+    await p.subida;
     p.servidorEstatico?.closeAllConnections();
     p.servidorEstatico?.close();
     if (p.processo?.pid) {
@@ -436,7 +451,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     res.end(`<!doctype html><meta charset="utf-8"><title>Prévia</title><body style="font-family:system-ui;padding:24px;color:#333">${texto.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c]!)}</body>`);
   }
 
-  private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse, caminhoIsolado=false) {
+  private servirArquivo(p: Previa, caminho: string, req: http.IncomingMessage, res: http.ServerResponse) {
     const base = resolveInside(p.dir!, p.como!.pasta);
     let rel = decodeURIComponent(caminho).replace(/^\/+/, '');
     let arq: string;
@@ -454,7 +469,8 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
       rel = 'index.html';
     }
     if(!fs.existsSync(arq)||!fs.statSync(arq).isFile())return this.pagina(res,404,'Arquivo não encontrado.');
-    res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': caminhoIsolado?'no-store':'no-cache' });
+    try { arq=resolveInside(base,path.relative(base,arq)); } catch { return this.pagina(res,404,'Arquivo fora da pasta do site.'); }
+    res.writeHead(200, { 'Content-Type': TIPOS[path.extname(arq).toLowerCase()] ?? 'application/octet-stream', 'Cache-Control': 'no-cache' });
     if(req.method==='HEAD')return void res.end();
     fs.createReadStream(arq).pipe(res);
   }
