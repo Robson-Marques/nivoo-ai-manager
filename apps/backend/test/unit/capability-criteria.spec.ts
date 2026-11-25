@@ -12,6 +12,7 @@ describe('Capability: construção e aceitação',()=>{
     expect(()=>validateCapabilityCriteria([structural,acceptance])).toThrow();
     expect(()=>validateCapabilityCriteria([c('structural','FILE_EXISTS'),acceptance,decision])).toThrow();
     expect(()=>validateCapabilityCriteria([structural,c('acceptance','COMMAND','true'),decision])).toThrow();
+    expect(()=>validateCapabilityCriteria([structural,{...acceptance,config:{...acceptance.config,expectExitCode:1}},decision])).toThrow();
     expect(()=>validateCapabilityCriteria([structural,acceptance,decision],[{verifyCommand:'npm run test:clientes'}])).toThrow();
   });
   it('não roda aceitação com estrutura pendente nem solicita decisão antes dos testes',()=>{

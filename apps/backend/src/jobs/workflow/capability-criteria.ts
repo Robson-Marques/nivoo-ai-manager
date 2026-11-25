@@ -22,6 +22,7 @@ export function validateCapabilityCriteria(criteria:Criterion[],steps:ReadonlyAr
     if(ref.phase==='decision'&&c.kind!=='MANUAL_APPROVAL')throw new BadRequestException('Critério '+c.key+': decision exige MANUAL_APPROVAL.');
     if(ref.phase==='construction'&&c.kind==='MANUAL_APPROVAL')throw new BadRequestException('Critério '+c.key+': construção não equivale a aceite da Capability.');
     if(ref.phase==='structural'||ref.phase==='acceptance'){
+      if(cfg?.expectExitCode!==undefined&&cfg.expectExitCode!==0)throw new BadRequestException('Critério '+c.key+': a verificação de Capability deve retornar 0 em caso de sucesso.');
       const cmd=String(cfg?.command??'').trim();
       if(!cmd||/^(?:true|:|exit\s+0|echo\b[^\n;&|]*|test\s+-(?:e|f|s|d)\s+[^;&|\n]+)$/.test(cmd))throw new BadRequestException('Critério '+c.key+': use verificação semântica do contrato ou fluxo integrado, não um comando de presença/sucesso incondicional.');
       if(ref.phase==='acceptance'&&steps.some(s=>s.verifyCommand?.trim()===cmd))throw new BadRequestException('Critério '+c.key+': a aceitação integrada pertence à avaliação final, não repita o mesmo comando na conferência de slice.');
@@ -53,7 +54,7 @@ export function deferredCapabilityCriterion(c:Criterion,results:ReadonlyMap<stri
   if(c.kind==='MANUAL_APPROVAL'&&criteria.some(x=>capabilityReference(x.config))&&criteria.some(x=>x.kind!=='MANUAL_APPROVAL'&&results.get(x.key)!==true))return 'aguarda critérios técnicos do trabalho';
   if(ref?.phase==='acceptance'&&criteria.some(x=>{
     const other=capabilityReference(x.config);
-    return other?.id===ref.id&&(other.phase==='structural'||other.phase==='construction')&&results.get(x.key)!==true;
+    return !!other&&other.id===ref.id&&(other.phase==='structural'||other.phase==='construction')&&results.get(x.key)!==true;
   }))return 'aguarda completude estrutural e critérios de construção de '+ref.id;
   return null;
 }
