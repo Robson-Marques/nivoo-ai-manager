@@ -27,7 +27,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
   const task=entrega??currentMessage.join('\n');
   const preGate=!!capabilities.studioWorkflow&&!entrega;
-  const skills=preGate?studioAlignmentSkills():selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
+  const skills=preGate?studioAlignmentSkills():selectSkills({phase:'planner',text:task,softwareLifecycle:true,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
   onSkills?.(skills.map(s=>s.id));
     return [
       '# Você é a IA deste projeto no Nivoo',
