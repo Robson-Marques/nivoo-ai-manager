@@ -10,6 +10,7 @@ import { MAINTENANCE_SKILL,maintenanceIntent,maintenanceEngineeringContext } fro
 import { REQUIREMENTS_SKILL,requirementsIntent,requirementsEngineeringContext } from './requirements';
 import { SPECIFICATION_SKILL,specificationIntent,specificationEngineeringContext } from './specification';
 import { ARCHITECTURAL_KNOWLEDGE_SKILL,architecturalKnowledgeIntent,architecturalKnowledgeContext } from './architectural-knowledge';
+import { GOLDFISH_SKILL } from './goldfish';
 
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 
@@ -46,6 +47,8 @@ const specialists:readonly Specialist[]=[
   {skill:REQUIREMENTS_SKILL,matches:requirementsIntent,section:'engenharia-requisitos',guidance:input=>requirementsEngineeringContext(input.phase,input.text)},
   {skill:SPECIFICATION_SKILL,matches:specificationIntent,section:'engenharia-especificacao',guidance:input=>specificationEngineeringContext(input.phase,input.text)},
   {skill:ARCHITECTURAL_KNOWLEDGE_SKILL,matches:architecturalKnowledgeIntent,section:'engenharia-contexto-arquitetural',guidance:input=>architecturalKnowledgeContext(input.phase,input.text)},
+  // Manual-only: explicit planner review route owns authorization and isolation.
+  {skill:GOLDFISH_SKILL,matches:()=>false},
 ];
 
 export const SOFTWARE_SKILLS:readonly Skill[]=specialists.map(s=>s.skill);

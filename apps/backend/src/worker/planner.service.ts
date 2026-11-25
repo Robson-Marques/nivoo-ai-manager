@@ -4,7 +4,11 @@ import { mcpDoProjeto } from '../mcp/mcp';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
-import { ehFalhaDeLogin } from '../accounts/connections';
+import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
+import { softwareInterfaceEnabled } from '../specialties/scope';
+import { GOLDFISH_SKILL,goldfishRequest,goldfishProviderSupported,goldfishReviewPrompt,goldfishReviewOutcome } from '../specialties/software/goldfish';
+import { SKILLS_VERSION,skillContext } from '../specialties/skills';
+import { AGENT_RULES } from '../security/policy';
 import { trocarParaReserva } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -105,6 +109,8 @@ export class PlannerService {
       }
     }
 
+    // Explicit Goldfish request only: no reviewer is added to normal planning or jobs.
+    let goldfishScope:string|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
     if(msg.kind!=='entrega'){
@@ -112,7 +118,13 @@ export class PlannerService {
         where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},
         orderBy:{createdAt:'desc'},select:{content:true},
       });
-      const recovery=await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??'');
+      goldfishScope=goldfishRequest(userMessage?.content??'');
+      if(goldfishScope!==null){
+        if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
+        if(!goldfishScope)return fail('Informe o alvo da revisão: /goldfish docs/arquitetura.md ou /goldfish seguido da especificação a analisar.');
+        if(!goldfishProviderSupported(tipoDe(project.provider)))return fail('Revisão independente indisponível nesta conexão: selecione Claude, NVIDIA, OpenRouter Free ou Groq Free com modo somente leitura. Nenhum provedor foi trocado.');
+      }
+      const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
         const plan=this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue;
         const saved=await this.prisma.conversationMessage.updateMany({
@@ -138,7 +150,7 @@ export class PlannerService {
       limite429: status.errors.some((x) => /(?:HTTP\s*429|Too Many Requests)/i.test(x)),
     });
     let trocou = '';
-    if (!status.available) {
+    if (!status.available && goldfishScope===null) {
       // IA reserva do projeto: responde com a próxima conectada em vez de parar.
       const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
       if (reserva) {
@@ -159,18 +171,29 @@ export class PlannerService {
     fs.mkdirSync(tmp, { recursive: true });
     try {
       const repo = this.workspace.projectDirs(project.dirKey).repo;
-      await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
+      let revision='main';
+      if(goldfishScope!==null){
+        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify','main^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
+        revision=rev.stdout.trim();
+        if(rev.exitCode!==0||!/^[a-f0-9]{40,64}$/.test(revision))return fail('Não foi possível identificar a revisão da pasta principal para análise independente.');
+        const snapshot=await runProcess('bash',['-c','set -o pipefail; git -C "$1" archive "$3" | tar -x -C "$2"','_',repo,tmp,revision],{cwd:tmp,env:minimalEnv(),timeoutMs:120_000});
+        if(snapshot.exitCode!==0)return fail('Não foi possível preparar o snapshot para análise independente.');
+        // Exclude any accidentally versioned session state in the disposable copy.
+        for(const name of ['.nivoo','out'])fs.rmSync(path.join(tmp,name),{recursive:true,force:true});
+      }else{
+        await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
+      }
       this.workspace.prepareSessionContext(project.area.slug, project.dirKey, tmp);
       // A cópia não tem .git: o histórico vai num arquivo (e o prompt explica que "not a git repository" é esperado).
-      fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
+      if(goldfishScope===null)fs.writeFileSync(path.join(tmp, SESSION_CONTEXT_DIR, 'historico-git.txt'), await historicoGit(repo));
       // Instruções de agente do repositório do projeto: legíveis em contexto/repositorio/, inertes.
-      const harness = (await runProcess('bash', ['-c', 'git -C "$1" ls-tree -r --name-only main', '_', repo], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 })).stdout
+      const harness = (await runProcess('bash', ['-c', 'git -C "$1" ls-tree -r --name-only "$2"', '_', repo, revision], { cwd: tmp, env: minimalEnv(), timeoutMs: 60_000 })).stdout
         .split('\n')
         .filter((f) => f && f.split('/').some((seg) => WorkspaceService.HARNESS_FILES.includes(seg)));
       await this.workspace.hideRepoHarness(tmp, harness);
       this.workspace.sanitizeHarnessFiles(tmp);
       // Anexos da conversa (mais recentes primeiro): imagens para ver, documentos já em texto.
-      const comAnexos = await this.prisma.conversationMessage.findMany({
+      const comAnexos = goldfishScope!==null?[]:await this.prisma.conversationMessage.findMany({
         where: { conversationId: msg.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
         orderBy: { createdAt: 'desc' },
         select: { id: true, conversationId: true, attachments: true },
@@ -178,11 +201,14 @@ export class PlannerService {
       const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
       // Resultados dos trabalhos desta conversa (relatórios, inventários, planos em out/): ficam fora do repositório,
       // mas a IA precisa lê-los para apresentar a entrega e para seguir ("pode fazer a limpeza").
-      const resultados = await this.artifacts.copiarResultados(project.id, await jobsDaConversa(this.prisma, msg.conversationId), path.join(tmp, SESSION_CONTEXT_DIR, 'resultados'));
+      const resultados = goldfishScope!==null?[]:await this.artifacts.copiarResultados(project.id, await jobsDaConversa(this.prisma, msg.conversationId), path.join(tmp, SESSION_CONTEXT_DIR, 'resultados'));
 
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
-      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
+      const prompt = goldfishScope!==null
+        ? goldfishReviewPrompt(goldfishScope,revision,AGENT_RULES,skillContext([GOLDFISH_SKILL],tmp))
+        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
+      if(goldfishScope!==null)registrarTempo('goldfish_inicio',{provedor:providerId,skillsVersion:SKILLS_VERSION,skill:GOLDFISH_SKILL.id,revisao:revision});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -215,12 +241,13 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
+        mcp: goldfishScope!==null?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
           maxTurns: Math.min(20,Math.max(1,Number(process.env.NIVOO_PLANNER_MAX_TURNS ?? 20))),
           model: projectModel(project, providerId),
+          ...(goldfishScope!==null?{readOnlyReview:true}:{}),
           // Imagens anexadas: quem aceita imagem pela linha de comando (ChatGPT/Codex) recebe-as direto também.
           images: anexos.filter((a) => a.tipo === 'imagem').map((a) => path.join(tmp, a.caminho)),
         },
@@ -245,6 +272,18 @@ export class PlannerService {
         return;
       }
       this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
+      if(goldfishScope!==null){
+        // Review output is data only: no plan, memory, repair, auto-start or fallback.
+        const outcome=goldfishReviewOutcome(result);
+        const saved=await this.prisma.conversationMessage.updateMany({where:{id:msg.id,status:'PENDENTE'},data:{
+          status:outcome.ok?'PRONTA':'ERRO',kind:outcome.ok?'resposta':'erro',content:outcome.text,
+          sessionId:result.sessionId,costUsd:result.costUsd??0,completedAt:new Date(),
+        }});
+        if(!saved.count)await this.prisma.conversationMessage.update({where:{id:msg.id},data:{sessionId:result.sessionId,costUsd:result.costUsd??0}});
+        registrarTempo('goldfish_fim',{provedor:providerId,sucesso:outcome.ok,gravada:saved.count>0,custoUsd:result.costUsd??0});
+        await this.queue.complete(task.id,workerId);
+        return;
+      }
       // Sem crédito/limite no meio da resposta: se houver IA reserva, a mesma pergunta vai para ela.
       if (result.resourceUnavailable) {
         const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);

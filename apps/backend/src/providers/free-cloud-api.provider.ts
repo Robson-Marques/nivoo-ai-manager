@@ -4,7 +4,7 @@ import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { retryAfterHeaderMs,isTransientRateLimit } from './resource-rate-limit';
 import { compactRepeatedReads } from './tool-history';
-import { executeFileTool,AGENT_FILE_TOOLS } from './agent-file-tools';
+import { executeFileTool,AGENT_FILE_TOOLS,AGENT_READ_TOOLS } from './agent-file-tools';
 
 /**
  * Integrações INDEPENDENTES do free-claude-code (AGPL): nenhuma linha do projeto
@@ -144,6 +144,7 @@ export class FreeCloudApiProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
+    const readOnlyReview=req.options?.readOnlyReview===true;
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave não configurada', resourceUnavailable: true };
     const model = String(req.options?.model || this.conf.padrao);
     if (this.tipo === 'openrouter-free-api' && !modeloOpenRouterGratuito(model)) {
@@ -156,7 +157,7 @@ export class FreeCloudApiProvider implements AiProvider {
     const inicio = Date.now();
     const turnos = Math.max(1, Math.min(30, Number(req.options?.maxTurns) || 20));
     const mensagens: Array<Record<string, unknown>> = [
-      { role: 'system', content: [req.systemPrompt ?? '', 'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
+      { role: 'system', content: [req.systemPrompt ?? '', readOnlyReview?'Revisão independente somente leitura: liste e leia fontes autorizadas no workspace; não edite, não registre notas, não execute comandos, não acesse segredos e devolva somente o parecer textual.':'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
       { role: 'user', content: buildPrompt(req,true) },
     ];
     req.onLog(this.conf.nome + ': modelo ' + model + ' — ' + this.conf.mensagem);
@@ -170,7 +171,7 @@ export class FreeCloudApiProvider implements AiProvider {
         const compact=compactRepeatedReads(mensagens);
         if(compact.savedChars)req.onLog('Contexto '+this.conf.nome+': '+compact.savedChars+' caracteres de leituras idênticas não reenviados nesta chamada.');
         const resposta = await this.chamar('/chat/completions', {
-          model, messages: compact.messages, tools: AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
+          model, messages: compact.messages, tools: readOnlyReview?AGENT_READ_TOOLS:AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal) as Resposta;
         entrada += resposta.usage?.prompt_tokens ?? 0;
         saida += resposta.usage?.completion_tokens ?? 0;
@@ -191,7 +192,7 @@ export class FreeCloudApiProvider implements AiProvider {
           try {
             const args = JSON.parse(String(call.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
-            resultado = executeFileTool(req.cwd, nome, args,req.jobId==='conversa');
+            resultado = executeFileTool(req.cwd, nome, args,readOnlyReview||req.jobId==='conversa');
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) escritas++;
             req.onLog('[ferramenta segura] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 100));
           } catch (e: any) {

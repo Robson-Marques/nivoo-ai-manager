@@ -9,11 +9,11 @@ describe('Integração de engenharia de software',()=>{
   const task='Refatorar arquitetura backend e frontend React, migração Prisma, integração webhook, autorização RBAC, testes Jest, desempenho, requisitos, especificação técnica e contexto arquitetural';
   const input={phase:'execution' as const,text:task,testDbConfigured:()=>false};
   it('mantém IDs estáveis e registra uma orientação por especialidade selecionada',()=>{
-    expect(SKILLS_VERSION).toBe('1.4.2');
-    expect(NIVOO_SKILLS).toHaveLength(20);
-    expect(SOFTWARE_SKILLS.map(s=>s.id)).toEqual(['software-arquitetura','software-backend','software-frontend','software-dados','software-integracoes','software-seguranca','software-qualidade','software-manutencao','software-requisitos','software-especificacao','software-contexto-arquitetural']);
+    expect(SKILLS_VERSION).toBe('1.4.3');
+    expect(NIVOO_SKILLS).toHaveLength(21);
+    expect(SOFTWARE_SKILLS.map(s=>s.id)).toEqual(['software-arquitetura','software-backend','software-frontend','software-dados','software-integracoes','software-seguranca','software-qualidade','software-manutencao','software-requisitos','software-especificacao','software-contexto-arquitetural','software-revisao-independente']);
     const skills=selectSkills({...base,text:task});
-    expect(skills.filter(s=>s.id.startsWith('software-')).map(s=>s.id)).toEqual(SOFTWARE_SKILLS.map(s=>s.id));
+    expect(skills.filter(s=>s.id.startsWith('software-')).map(s=>s.id)).toEqual(SOFTWARE_SKILLS.filter(s=>s.id!=='software-revisao-independente').map(s=>s.id));
     const exec=softwareEngineeringSections(skills,input);
     const planner=softwareEngineeringSections(selectSkills({...base,phase:'planner',text:task}),{...input,phase:'planner'});
     const expected=['engenharia-backend','engenharia-frontend','engenharia-dados','engenharia-integracoes','engenharia-seguranca','engenharia-qualidade','engenharia-manutencao','engenharia-requisitos','engenharia-especificacao','engenharia-contexto-arquitetural'];

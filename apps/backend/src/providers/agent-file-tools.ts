@@ -158,3 +158,6 @@ export const AGENT_FILE_TOOLS: Array<Record<string, unknown>> = [
   } },
   {type:'function',function:{name:'registrar_progresso',description:'Registre uma nota nova útil à retomada no diário interno; não é entrega nem aprovação.',parameters:{type:'object',properties:{tipo:{type:'string',enum:['PROGRESSO','PENDENCIA','EVIDENCIA','DECISAO_PROPOSTA']},titulo:{type:'string'},conteudo:{type:'string'},arquivos:{type:'array',items:{type:'string'}}},required:['tipo','titulo','conteudo']}}},
 ];
+
+/** Explicit review sessions expose only the existing read/list tools. */
+export const AGENT_READ_TOOLS=AGENT_FILE_TOOLS.filter(tool=>['ler_arquivo','listar_arquivos'].includes(String((tool.function as {name?:string})?.name??'')));

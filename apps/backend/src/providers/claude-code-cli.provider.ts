@@ -183,15 +183,17 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // remove ferramentas que executam código e confina as ferramentas de arquivo ao diretório de trabalho.
     // --strict-mcp-config: nenhum servidor MCP além dos passados explicitamente (nenhum).
     // Comprovado: sem isso, um .claude/settings.json plantado no workspace executava shell na sessão seguinte.
+    const readOnly=req.options?.readOnlyReview===true;
     const args = [
       '-p', '--output-format', 'stream-json', '--verbose',
       '--restricted', '--strict-mcp-config',
-      '--permission-mode', 'acceptEdits', '--disallowedTools', ...ClaudeCodeCliProvider.DENIED,
+      '--permission-mode', readOnly?'default':'acceptEdits', '--disallowedTools', ...ClaudeCodeCliProvider.DENIED,
+      ...(readOnly?['Edit','Write','MultiEdit','NotebookEdit','Agent','Task']:[]),
     ];
-    const extra = ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
+    const extra = readOnly?[]:ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
     // Ferramentas MCP do projeto: arquivo só desta sessão (fora da pasta do trabalho, 600) e permissão só a elas.
     let pastaMcp: string | null = null;
-    if (req.mcp?.length) {
+    if (!readOnly&&req.mcp?.length) {
       pastaMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
       const arq = path.join(pastaMcp, 'mcp.json');
       fs.writeFileSync(arq, JSON.stringify(configClaude(req.mcp)), { mode: 0o600 });
@@ -202,7 +204,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     if (extra.length) args.push('--allowedTools', ...extra);
     // Sem MCP, mostrar ao Claude SOMENTE ferramentas presentes neste executor.
     // --disallowedTools continua como defesa em profundidade; --tools evita oferecer Bash ao modelo.
-    if (!req.mcp?.length) args.push('--tools', 'Read,Edit,Write,Glob,Grep');
+    if (readOnly||!req.mcp?.length) args.push('--tools', readOnly?'Read,Glob,Grep':'Read,Edit,Write,Glob,Grep');
     const model = req.options?.model ?? process.env.NIVOO_CLAUDE_MODEL;
     if (model) args.push('--model', model);
     const maxTurns = req.options?.maxTurns ?? (process.env.NIVOO_CLAUDE_MAX_TURNS ? Number(process.env.NIVOO_CLAUDE_MAX_TURNS) : undefined);
@@ -213,9 +215,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const toolsPolicy = [
       'AMBIENTE NIVOO: Bash/terminal, WebFetch e WebSearch NÃO existem nesta sessão, inclusive em subagentes.',
       'NUNCA invoque Bash, nem para head, cat, grep, testes, build ou inspecionar arquivos JS.',
-      'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
+      readOnly?'Revisão somente leitura: use Read, Glob e Grep; não edite arquivos nem acione subagentes.':'Use Read para arquivos, Glob para listas, Grep para pesquisa, Edit/Write para modificações.',
       'Se não conseguir ler ou editar, registre o caminho e o motivo real; não tente chamar ferramenta inexistente.',
-      'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
+      readOnly?'Entregue somente o parecer em texto; não solicite execução ou correção automática.':'O Nivoo executa testes e comandos locais em etapas separadas, sem consumir turnos desta IA.',
     ].join('\n');
     // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));

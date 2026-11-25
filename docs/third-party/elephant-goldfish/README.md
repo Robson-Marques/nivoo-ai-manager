@@ -27,3 +27,9 @@ Adaptação local dos padrões de especificação, alternativas, riscos, fases e
 - https://github.com/google/elephant-goldfish-model/blob/63e239d8d4c3ddc6774faf533b4997405f78c549/resources/document_standards/zoom-out-standard.md
 
 Adaptação local dos contratos de componentes (interface, invariantes, efeitos), alinhamento com a implementação e reutilização. O Nivoo mantém seu próprio mapa e memória, amplia apenas a classificação de caminhos documentais e não executa o bootstrap original, subagentes, varreduras adicionais, gates ou geração compulsória de READMEs. A leitura no mesmo contexto não constitui revisão independente Goldfish. Licença Apache-2.0 preservada neste diretório.
+
+## Frente 04 — revisão independente sob demanda
+
+- https://github.com/google/elephant-goldfish-model/blob/63e239d8d4c3ddc6774faf533b4997405f78c549/skills/egm-review/SKILL.md
+
+Adaptação local de análise por leitor com contexto novo, compreensão, crítica, riscos e prontidão. Uma sessão solicitada explicitamente, somente leitura, parecer textual. Não importa o pipeline de cinco fases, subagentes paralelos, gates ou loop de remediação. Perfil e fontes autorizadas permanecem disponíveis; não recebe a conversa e os resultados anteriores. Licença Apache-2.0 preservada.
