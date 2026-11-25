@@ -395,7 +395,7 @@ export class StepExecutorService {
     if(contextStats)contextStats.promptChars=buildPrompt({context,instructions:step.instructions,systemPrompt:profileText}).length;
     await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats ? contextStats as unknown as Prisma.InputJsonValue : Prisma.DbNull } });
     if(contextStats?.skillIds?.length){
-      await L('Skills v'+contextStats.skillsVersion+' desta sessão: '+contextStats.skillIds.join(', ')+'; sem sessões adicionais.','INFO',attempt.id);
+      await L('Skills v'+contextStats.skillsVersion+' — orientações selecionadas para o contexto desta sessão: '+contextStats.skillIds.join(', ')+'; seleção não comprova aplicação nem revisão independente.','INFO',attempt.id);
     }
     if (contextStats) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) omitidas, ${contextStats.memoryTruncated??0} abreviadas; prompt-base ${contextStats.promptChars} caracteres (memória integral em .nivoo/memoria.md; não é contagem de tokens)`, 'INFO', attempt.id);
