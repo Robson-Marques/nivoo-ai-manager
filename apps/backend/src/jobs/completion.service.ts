@@ -26,6 +26,8 @@ import { escreverArquivosDaMemoria, gravarNoProjeto } from '../memory/camadas';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { tipoDe } from '../accounts/connections';
+import { automaticGoldfishDecision,AUTOMATIC_GOLDFISH_KIND,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
+import { projectModel } from '../providers/project-model';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { capabilityReference,orderedCapabilityCriteria,deferredCapabilityCriterion } from './workflow/capability-criteria';
 import { SPECIALTY_HANDOFF_KIND,SPECIALTY_HANDOFF_NOTICE,specialtyHandoff } from './workflow/specialty-handoff';
@@ -473,7 +475,7 @@ export class CompletionService {
         return null;
       });
       if (pasta) await this.logs.log(jobId, `Resultados guardados na pasta do projeto: ${pasta}/`, { source: 'evaluator' });
-      await this.pedirEntrega(job,mergedCommit,report.criteria);
+      await this.pedirEntrega(job,mergedCommit,report.criteria,trouxeMudanca);
     }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
@@ -494,14 +496,15 @@ export class CompletionService {
    * Entrega na conversa (padrão, qualquer IA): o trabalho aprovado no chat terminou → a IA volta sozinha com o
    * que fez, onde estão os arquivos e as perguntas que dependem do usuário, numeradas, com recomendação.
    */
-  private async pedirEntrega(job:Job & {project:{dirKey:string}},mergedCommit:string|null,checks:CriterionResult[]): Promise<void> {
+  private async pedirEntrega(job:Job & {project:{dirKey:string}},mergedCommit:string|null,checks:CriterionResult[],changed=false): Promise<void> {
     const jobId=job.id;
     const files=mergedCommit?await this.workspace.arquivosDoCommit(job.project.dirKey,mergedCommit):[];
     const handoff=specialtyHandoff(job.approvedScope,job.projectId,files);
     const plano = await this.prisma.conversationMessage.findFirst({ where: { jobId, kind: 'plano' }, select: { conversationId: true } });
     if (!plano) return;
     const approved=checks.filter(c=>c.passed);
-    const adoption=adoptionSummaries(await this.prisma.acceptanceCriterion.findMany({where:{jobId}}));
+    const criteria=await this.prisma.acceptanceCriterion.findMany({where:{jobId}});
+    const adoption=adoptionSummaries(criteria);
     const egmProofLines=approvedGoldfish(job.approvedScope)?checks.flatMap(c=>{
       const p=c.evidence.egmProof as {observed?:{actionId:string;scenario:string}[]}|undefined;
       return c.passed?(p?.observed??[]).map(e=>'- '+e.actionId+' — cenário registrado no teste '+c.key+': '+e.scenario):[];
@@ -514,16 +517,43 @@ export class CompletionService {
       await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${plano.conversationId} FOR UPDATE`;
       const existente = await tx.conversationMessage.findFirst({ where: { jobId, kind: 'entrega' }, select: { id: true } });
       if (existente) return;
+      let automatic:AutoReviewRequest|null=null;
+      let automaticNotice='';
+      const scope=readApprovedScope(job.approvedScope,job.projectId);
+      if(scope&&changed&&mergedCommit&&!handoff&&criteria.some(c=>capabilityReference(c.config))){
+        const current=await tx.project.findUnique({where:{id:job.projectId},include:{area:true}});
+        if(current){
+          const decision=automaticGoldfishDecision({projectId:job.projectId,area:current.area,approvedScope:job.approvedScope,criteria,passedKeys:new Set(approved.map(c=>c.key)),files,revision:mergedCommit,providerType:tipoDe(current.provider),budgetConfigured:current.maxCostUsd!==null,specialtyHandoff:!!handoff});
+          if(decision.kind==='skip')automaticNotice='Goldfish automático não acionado: '+decision.reason+'.';
+          else{
+            const conversation=await tx.conversation.findFirst({where:{id:plano.conversationId,projectId:job.projectId,archivedAt:null}});
+            const newer=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{role:'USUARIO',createdAt:{gt:new Date(scope.cutoff)}},{status:'PENDENTE'},{kind:'plano',createdAt:{gt:new Date(scope.approvedAt)}}]},select:{id:true}});
+            const prior=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{goldfishState:{path:['automaticRequest','revision'],equals:mergedCommit},AND:[{goldfishState:{path:['automaticRequest','targetPath'],equals:decision.targetPath}}]}]},select:{id:true}});
+            if(!conversation||newer||prior)automaticNotice='Goldfish automático não acionado: conversa alterada, arquivada ou revisão já registrada.';
+            else{
+              automatic={version:1,jobId,projectId:job.projectId,conversationId:plano.conversationId,revision:mergedCommit,targetPath:decision.targetPath,preset:decision.preset,providerId:current.provider,model:projectModel(current,current.provider)??null};
+              automaticNotice='Goldfish automático: revisão crítica pontual da fase 7 enfileirada, complementar à entrega; não equivale a aprovação independente nem impede uso do resultado.';
+            }
+          }
+        }
+      }
       await tx.conversationMessage.create({
         data: {
           conversationId: plano.conversationId,
           role: 'ASSISTENTE',
-          content,
+          content:automaticNotice?content+'\n\n'+automaticNotice:content,
           status: 'PRONTA',
           kind: 'entrega',
           jobId,
         },
       });
+      if(automatic){
+        const latest=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId},orderBy:{createdAt:'desc'},select:{createdAt:true}});
+        const createdAt=new Date(Math.max(Date.now(),(latest?.createdAt.getTime()??0)+1));
+        const next=await tx.conversationMessage.create({data:{conversationId:plano.conversationId,role:'ASSISTENTE',status:'PENDENTE',kind:AUTOMATIC_GOLDFISH_KIND,jobId,content:'Revisão crítica automática do contrato '+automatic.targetPath,createdAt,goldfishState:{automaticRequest:automatic} as unknown as Prisma.InputJsonValue}});
+        await tx.queueTask.create({data:{type:'PLAN_MESSAGE',messageId:next.id}});
+        await tx.conversation.update({where:{id:plano.conversationId},data:{updatedAt:createdAt}});
+      }
       if(handoff&&handoff.conversationId===plano.conversationId){
         const conversation=await tx.conversation.findFirst({where:{id:plano.conversationId,projectId:job.projectId,archivedAt:null}});
         const later=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{role:'USUARIO',createdAt:{gt:new Date(handoff.cutoff)}},{status:'PENDENTE'},{kind:'plano',createdAt:{gt:new Date(handoff.approvedAt)}}]},select:{id:true}});
