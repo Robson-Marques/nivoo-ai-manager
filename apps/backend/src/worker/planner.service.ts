@@ -11,6 +11,7 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
+import { routeEgm,renderEgmRoute } from '../specialties/software/egm/lite-routing';
 import { AUTOMATIC_GOLDFISH_KIND,readAutoReview,automaticReviewMatches,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
 import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
 import { driftRequest,parseDriftDirectory,loadDriftIntake,runSemanticDrift,renderSemanticDrift } from '../specialties/software/egm/drift';
@@ -660,6 +661,9 @@ export class PlannerService {
       if(plan){
         const summary=adoptionSummaries((plan as unknown as {criteria:Array<{key:string;kind:string;config:unknown}>}).criteria??[]);
         if(summary.length)content+='\n\n**Cobertura da adoção proposta neste plano**\n'+summary.map(s=>'- '+s).join('\n');
+        const egmRoute=routeEgm(plan as unknown as Parameters<typeof routeEgm>[0],project.area);
+        const egmNotice=renderEgmRoute(egmRoute);
+        if(egmNotice)content+='\n\n'+egmNotice;
         plan=bindPlanningSource(plan,planningSource);
       }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
