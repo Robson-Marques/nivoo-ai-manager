@@ -1,4 +1,5 @@
 import upstream from './planning-upstream.json';
+import { createHash } from 'node:crypto';
 import type { ApprovedScope } from '../../../jobs/approved-scope';
 import { capabilityReference } from '../../../jobs/workflow/capability-criteria';
 import { adoptionOf } from '../../../jobs/workflow/adoption-contract';
@@ -21,6 +22,15 @@ export function egmPlanningReferences(worktree:string):void{
     if(!file)throw new Error('Fonte EGM ausente no pacote fixado: '+relative);
     writeSessionContextFile(worktree,SOURCE_ROOT+'/'+relative,file.content);
   }
+}
+
+export function egmLiteReference(worktree:string):void{
+  const relative='skills/egm-lite/SKILL.md';
+  const file=original.get(relative);
+  if(!file)throw Error('EGM Lite original ausente.');
+  const bytes=Buffer.from(file.content,'utf8');
+  if(createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex')!==file.sha)throw Error('EGM Lite original alterado.');
+  writeSessionContextFile(worktree,SOURCE_ROOT+'/'+relative,file.content);
 }
 
 export function egmPlanningContext(selected:readonly Pick<{id:string},'id'>[],preGate:boolean,worktree?:string):string[]{
