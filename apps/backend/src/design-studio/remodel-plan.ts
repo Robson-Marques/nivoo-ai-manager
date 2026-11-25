@@ -50,7 +50,7 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
     'test -s out/remodelagem.md',
     'git diff --check',
     'git diff --check --cached',
-    '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|\\.nivoo/)" | grep -Ei "\\.(tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
+    '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|\[.]nivoo/)" | grep -Ei "\[.](tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
   ].join(' && ');
   return {title:'Remodelagem — '+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand,requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
 }
