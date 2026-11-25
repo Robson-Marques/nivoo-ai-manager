@@ -101,7 +101,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
     const adoptions=adoptionSummaries(criteria);
-    if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
+    if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Configuração aprovada: '+JSON.stringify(criteria.filter(c=>adoptionOf(c.config)||Array.isArray((c.config as any)?.adoptionFamilies)).map(c=>({key:c.key,config:c.config}))), 'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
     const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
     if(adoptsGlass||skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
       const bound=(adoptsGlass||skillIds.includes('software-liquid-glass'))?approvedDesignContext(visual.profile,visual.revision,worktree):[];

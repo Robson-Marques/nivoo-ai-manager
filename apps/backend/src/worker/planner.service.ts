@@ -1,3 +1,4 @@
+import { adoptionSummaries } from '../jobs/workflow/adoption-contract';
 import { planFpsResume } from './planner/fps-resume';
 import { validatedPlannerJob } from './planner/validated-job';
 import { bindPlanningSource,readApprovedScope } from '../jobs/approved-scope';
@@ -104,6 +105,7 @@ export class PlannerService {
 
     const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
     let specialtyContext:string|null=null;
+    let adoptionRequest='';
     if(specialtyResume){
       const previous=msg.jobId?await this.prisma.job.findFirst({where:{id:msg.jobId,projectId:project.id,status:'CONCLUIDO'},select:{id:true,approvedScope:true,mergedCommit:true}}):null;
       const scope=readApprovedScope(previous?.approvedScope,project.id);
@@ -118,6 +120,7 @@ export class PlannerService {
           if(request)original=request.content+'\nConfirmação visual: '+original;
         }
       }
+      adoptionRequest=original;
       specialtyContext=['A especialidade local foi criada e incorporada no trabalho '+previous!.id+' (commit '+previous!.mergedCommit+').','O pedido original NÃO foi implementado. Leia o catálogo e a especialidade recém-criada. Use o histórico integral da conversa, incluindo a solicitação anterior à seleção visual, e o perfil já aprovado.','Faça o novo Relatório de alinhamento para implementar o pedido original, conforme specialty-creation.md e prompt-alinhamento.md. Não crie novamente a mesma especialidade, não faça uma revisão da entrega anterior e não declare software entregue. Se houver outra lacuna real, siga o método; se decisão material faltar, pergunte. Caso contrário, apresente plano de implementação e aguarde Fazer.','Pedido original e decisões vinculadas: '+original,'Alinhamento anterior: '+scope.alignment].join('\n');
     }
 
@@ -171,6 +174,7 @@ export class PlannerService {
         where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},
         orderBy:{createdAt:'desc'},select:{content:true},
       });
+      adoptionRequest=userMessage?.content??'';
       goldfishScope=goldfishRequest(userMessage?.content??'');
       if(goldfishScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
@@ -373,7 +377,7 @@ export class PlannerService {
         registrarTempo('validacao_plano_inicio', { etapas: Array.isArray(parsed.job?.steps) ? parsed.job.steps.length : 0 });
         try {
           // Quem trabalha é sempre a IA escolhida para o projeto.
-          plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos,project.visualProfile);
+          plan = validatedPlannerJob(this.jobs,parsed,providerId,project.area,anexos,project.visualProfile,adoptionRequest);
           registrarTempo('validacao_plano_aprovada');
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
@@ -426,7 +430,7 @@ export class PlannerService {
             const corrigido = extractJson(reparo.output);
             registrarTempo('reparo_json_interpretado', { tipo: corrigido?.tipo ?? 'sem_json', temPlano: !!corrigido?.job });
             if (corrigido?.tipo !== 'plano' || !corrigido.job) throw new Error('A correção não retornou um plano estruturado');
-            plan = validatedPlannerJob(this.jobs,corrigido,providerId,project.area,anexos,project.visualProfile);
+            plan = validatedPlannerJob(this.jobs,corrigido,providerId,project.area,anexos,project.visualProfile,adoptionRequest);
             registrarTempo('reparo_plano_aprovado');
             parsed = corrigido;
             kind = 'plano';
@@ -461,7 +465,11 @@ export class PlannerService {
         kind = 'resposta';
         content = `${content}\n\nDepois das suas respostas, eu mando o plano.`.trim();
       }
-      if(plan)plan=bindPlanningSource(plan,planningSource);
+      if(plan){
+        const summary=adoptionSummaries((plan as unknown as {criteria:Array<{key:string;kind:string;config:unknown}>}).criteria??[]);
+        if(summary.length)content+='\n\n**Cobertura da adoção aprovada neste plano**\n'+summary.map(s=>'- '+s).join('\n');
+        plan=bindPlanningSource(plan,planningSource);
+      }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
       const gravada = await this.prisma.conversationMessage.updateMany({

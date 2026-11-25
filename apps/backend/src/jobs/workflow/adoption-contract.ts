@@ -33,7 +33,7 @@ export function validateAdoptionCriteria(criteria:readonly Criterion[]):void{
     const cfg=record(c.config);
     if(cfg?.adoption===undefined)continue;
     const a=adoptionOf(cfg),ref=cap(c);
-    if(!a||!ref||!id(ref.id)||ref.phase!=='structural'||c.kind!=='COMMAND')error('Critério '+c.key+': adoção exige contrato válido no critério estrutural da Capability.');
+    if(!a||!ref||typeof ref.id!=='string'||!ref.id||ref.phase!=='structural'||c.kind!=='COMMAND')error('Critério '+c.key+': adoção exige contrato válido no critério estrutural da Capability.');
     if(groups.has(ref.id))error('Use um contrato de adoção por Capability.');
     groups.set(ref.id,a);
   }
@@ -55,18 +55,20 @@ export function validateAdoptionCriteria(criteria:readonly Criterion[]):void{
 /** Require a structured contract for explicit adoption and full UI deliveries
  * with a persisted Liquid Glass selection. Do not force migration on local
  * backend maintenance or the prerequisite specialty registration. */
-export function requireAdoptionContract(plan:{title:string;objective:string;steps:unknown;criteria:readonly Criterion[]},area?:AreaScope,profile?:unknown):void{
+export function requireAdoptionContract(plan:{title:string;objective:string;steps:unknown;criteria:readonly Criterion[]},area?:AreaScope,profile?:unknown,request=''):void{
   if(!softwareInterfaceEnabled(area))return;
   const title=plan.title.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   const objective=plan.objective.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
   if(/\b(?:catalogar|criar|registrar)\b.{0,60}\bespecialidade\b/.test(title)&&!plan.criteria.some(c=>cap(c)?.phase==='acceptance'))return;
-  const explicit=/\b(?:adotar|adocao|migrar|migracao|incorporar|integrar)\b.{0,100}\b(?:design system|liquid glass|elephant.goldfish|studio workflow|framework|biblioteca|metodologia|modelo|ferramenta)\b/.test(title+' '+objective);
+  const intent=(title+' '+objective+' '+request).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const explicit=/\b(?:adot\w*|migrar|migracao|incorporar|integrar)\b.{0,100}\b(?:design system|liquid glass|elephant.goldfish|studio workflow|framework|biblioteca|metodologia)\b/.test(intent);
   const ui=/\b(?:interface|frontend|dashboard|formularios?|telas?|painel|navegacao|responsiv\w*)\b/.test(objective+' '+JSON.stringify(plan.steps).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
-  const fullUi=ui&&plan.criteria.some(c=>cap(c)?.phase==='acceptance')&&selectedVisualStyleId(profile)==='liquid-glass';
+  const newProduct=/\b(?:criar|crie|implementar|desenvolver|desenvolva|construir|entregar)\b.{0,70}\b(?:sistema|software|aplicativo|aplicacao|erp|crm|plataforma|portal)\b/.test(title+' '+objective);
+  const fullUi=ui&&(newProduct||plan.criteria.some(c=>cap(c)?.phase==='acceptance'))&&selectedVisualStyleId(profile)==='liquid-glass';
   if(!explicit&&!fullUi)return;
   const adoptions=plan.criteria.map(c=>adoptionOf(c.config)).filter((a):a is Adoption=>!!a);
   if(!adoptions.length)error('A adoção precisa de config.adoption no critério estrutural e adoptionFamilies nas verificações integradas; declare origem, revisão, inventário, famílias e pendências.');
-  if(fullUi){
+  if(fullUi||explicit&&/\bliquid glass\b/.test(intent)){
     const a=adoptions.find(x=>x.artifact==='liquid-glass');
     if(!a)error('O perfil Liquid Glass aprovado exige o contrato do registry original, não somente cards.');
     const all=new Set([...a.families,...a.pending]);

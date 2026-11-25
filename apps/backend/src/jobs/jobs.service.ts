@@ -65,7 +65,7 @@ export class JobsService {
    * Valida um plano proposto pela IA da conversa SEM criar nada: mesmas regras de um job criado à mão
    * (etapas de IA com verificação, sem ciclos, política, critérios válidos). Devolve o plano normalizado.
    */
-  validatePlan(plan: any, area?: AreaScope, visualProfile?:unknown) {
+  validatePlan(plan: any, area?: AreaScope, visualProfile?:unknown,request?:string) {
     if (!plan || typeof plan !== 'object') throw new BadRequestException('Plano vazio');
     const title = reqString(plan, 'title', 300);
     const objective = reqString(plan, 'objective', 50000);
@@ -79,7 +79,7 @@ export class JobsService {
     const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(area));
     validateCapabilityCriteria(criteria,steps);
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
-    requireAdoptionContract({title,objective,steps:brutas,criteria},area,visualProfile);
+    requireAdoptionContract({title,objective,steps:brutas,criteria},area,visualProfile,request);
     const limits = plan.limits && typeof plan.limits === 'object' ? plan.limits : {};
     return { title, objective, defaultProvider, steps: brutas, criteria, limits };
   }
@@ -96,7 +96,7 @@ export class JobsService {
     assertAcyclic(steps);
     const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(project.area));
     validateCapabilityCriteria(criteria,steps);
-    if(approvedScope)requireAdoptionContract({title,objective,steps,criteria},project.area,approvedScope.visual.profile);
+    if(approvedScope)requireAdoptionContract({title,objective,steps,criteria},project.area,approvedScope.visual.profile,approvedScope.request?.content);
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
     // independente de IA por padrão; só se a pessoa solicitar conferência
     // explicitamente. Testes técnicos necessários permanecem nos executores.

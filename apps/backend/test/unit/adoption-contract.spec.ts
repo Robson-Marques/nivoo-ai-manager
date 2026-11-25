@@ -19,8 +19,14 @@ describe('Contrato de adoção',()=>{
     expect(adoptionSummaries(c)[0]).toContain('INCOMPLETA');
     expect(()=>requireAdoptionContract({title:'Adotar biblioteca',objective:'Adotar biblioteca original',steps:[],criteria:[]},{template:'software'})).toThrow();
   });
+  it('exige o contrato do Liquid Glass em uma entrega nova, mesmo se o plano omitir Capability',()=>{
+    const profile={schemaVersion:1,mode:'guided',styleId:'liquid-glass'};
+    const plan={title:'Implementar o sistema de gestão de clientes',objective:'Criar sistema com dashboard e formulários',steps:[],criteria:[]};
+    expect(()=>requireAdoptionContract(plan,{template:'studio-workflow'},profile)).toThrow();
+    expect(()=>requireAdoptionContract({...plan,title:'Corrigir SQL',objective:'Corrigir consulta',steps:[]},{template:'studio-workflow'},profile)).not.toThrow();
+  });
   it('exige evidência por família da conferência existente',()=>{
     expect(verifyAdoptionCoverage('Tests: 10 passed',['forms'])).toEqual(['forms']);
-    expect(verifyAdoptionCoverage('NIVOO_ADOPTION_EVIDENCE {"family":"forms","passed":true,"scenario":"Salvar e consultar"}',['forms','controls'])).toEqual(['controls']);
+    expect(verifyAdoptionCoverage('# NIVOO_ADOPTION_EVIDENCE {"family":"forms","passed":true,"scenario":"Salvar e consultar"}',['forms','controls'])).toEqual(['controls']);
   });
 });

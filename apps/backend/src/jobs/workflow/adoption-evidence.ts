@@ -4,10 +4,11 @@ import { resolveInside,caminhoDoProjeto } from '../../common/path-guard';
 import { liquidGlassIntegratedFiles } from '../../projects/liquid-glass-components';
 import { liquidGlassTemplate } from '../../projects/liquid-glass-template';
 import type { Adoption } from './adoption-contract';
+import { approvedDesign,approvedDesignSource } from '../../projects/approved-design';
 
 type Row={id?:unknown;callsites?:unknown;notApplicable?:unknown;components?:unknown};
 const file=(root:string,p:string)=>{const f=resolveInside(root,p);if(!fs.statSync(f).isFile())throw Error('Não é arquivo: '+p);return fs.readFileSync(f,'utf8');};
-export function verifyAdoptionInventory(root:string,a:Adoption):{families:string[];callsites:number;originalFiles:number}{
+export function verifyAdoptionInventory(root:string,a:Adoption,visual?:{profile:unknown;revision:number}):{families:string[];callsites:number;originalFiles:number}{
   const raw=JSON.parse(file(root,a.manifest));
   if(raw.artifact!==a.artifact||raw.source!==a.source||raw.revision!==a.revision||!Array.isArray(raw.families))throw Error('Inventário não corresponde à identidade e revisão aprovadas.');
   const rows=raw.families as Row[];
@@ -19,6 +20,14 @@ export function verifyAdoptionInventory(root:string,a:Adoption):{families:string
   for(const f of original){
     if(file(root,a.packagePath+'/'+f.name)!==f.content)throw Error('Fonte original divergiu: '+f.name+'. Preserve o pacote e adapte o consumidor.');
   }
+  if(a.artifact==='liquid-glass'&&visual){
+    const design=approvedDesign(visual.profile,visual.revision);
+    if(design){
+      if(file(root,a.packagePath+'/approved-design.tsx')!==approvedDesignSource(design))throw Error('Raiz do design aprovado foi alterada. Adapte o consumidor, não a identidade aprovada.');
+      const profile=JSON.parse(file(root,a.packagePath+'/approved-profile.json'));
+      if(JSON.stringify(profile)!==JSON.stringify(design))throw Error('Perfil visual não corresponde à revisão aprovada.');
+    }
+  }
   let callsites=0;
   for(const row of rows){
     if(!Array.isArray(row.callsites)||row.callsites.some(p=>typeof p!=='string'||caminhoDoProjeto(p)!==p||/^(?:out|midia|node_modules)(?:\/|$)/.test(p)))throw Error('Callsites inválidos em '+row.id);
@@ -26,17 +35,18 @@ export function verifyAdoptionInventory(root:string,a:Adoption):{families:string
       if(typeof row.notApplicable!=='string'||row.notApplicable.trim().length<15||row.id==='shell'||row.id==='controls')throw Error('Família sem callsites ou justificativa verificável: '+row.id);
       continue;
     }
-    const contents=(row.callsites as string[]).map(p=>({p,s:file(root,p)}));callsites+=contents.length;
+    const contents=(row.callsites as string[]).map(p=>{if(a.packagePath&&(p===a.packagePath||p.startsWith(a.packagePath+'/')))throw Error('Callsite deve pertencer ao consumidor, não ao pacote: '+p);return {p,s:file(root,p)};});callsites+=contents.length;
     if(a.artifact==='liquid-glass'){
       const components=Array.isArray(row.components)?row.components:[];
-      if(!components.length||components.some(c=>typeof c!=='string'||!original.some(f=>f.name===c)&&c!=='approved-design.tsx'))throw Error('Família sem componentes oficiais identificados: '+row.id);
+      if(!components.length||components.some(c=>typeof c!=='string'||!(/^registry\/ui\/.*\.tsx$/.test(c)&&original.some(f=>f.name===c)||c==='approved-design.tsx'||c==='engine/nivoo.tsx')))throw Error('Família sem componentes oficiais identificados: '+row.id);
+      if(['controls','forms'].includes(String(row.id))&&!components.some(c=>typeof c==='string'&&c.startsWith('registry/ui/')))throw Error('Família '+row.id+': use controles originais do registry, não só superfície de vidro.');
       // Check actual import paths in consumer sources; not a substitute for
       // executing the flows or checking visual fidelity.
       for(const c of components as string[]){
         if(!contents.some(({p,s})=>{
           let rel=path.posix.relative(path.posix.dirname(p),a.packagePath+'/'+c).replace(/\.(?:tsx?|jsx?)$/,'');
           if(!rel.startsWith('.'))rel='./'+rel;
-          return [...s.matchAll(/\b(?:import|export)\b[^;\n]*?\bfrom\s*['"]([^'"]+)['"]/g)].some(m=>m[1].replace(/\.(?:tsx?|jsx?)$/,'')===rel);
+          return [...s.matchAll(/\bimport\b\s+(?:[\w$*{},\s]+?)\s*from\s*['"]([^'"]+)['"]/g)].some(m=>m[1].replace(/\.(?:tsx?|jsx?)$/,'')===rel);
         }))throw Error('Componente não importado por callsite mapeado em '+row.id+': '+c);
       }
     }
@@ -46,7 +56,7 @@ export function verifyAdoptionInventory(root:string,a:Adoption):{families:string
 export function verifyAdoptionCoverage(output:string,families:readonly string[]):string[]{
   const found=new Set<string>();
   for(const line of output.split(/\r?\n/)){
-    const m=/^\s*NIVOO_ADOPTION_EVIDENCE\s+(\{.*\})\s*$/.exec(line);
+    const m=/^\s*(?:#\s*)?NIVOO_ADOPTION_EVIDENCE\s+(\{.*\})\s*$/.exec(line);
     if(!m)continue;
     try{const r=JSON.parse(m[1]);if(r.passed===true&&typeof r.family==='string'&&typeof r.scenario==='string'&&r.scenario.trim())found.add(r.family);}catch{/* no evidence */}
   }

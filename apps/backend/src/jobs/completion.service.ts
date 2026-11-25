@@ -1,3 +1,4 @@
+import { readApprovedScope } from './approved-scope';
 import { adoptionOf,adoptionSummaries } from './workflow/adoption-contract';
 import { verifyAdoptionInventory,verifyAdoptionCoverage } from './workflow/adoption-evidence';
 import { Injectable } from '@nestjs/common';
@@ -564,7 +565,7 @@ export class CompletionService {
       switch (c.kind) {
         case 'COMMAND': {
           const adoption=adoptionOf(c.config);
-          const inventory=adoption?verifyAdoptionInventory(worktree,adoption):null;
+          const inventory=adoption?verifyAdoptionInventory(worktree,adoption,readApprovedScope(job.approvedScope,job.projectId)?.visual):null;
           const cmd = String(cfg.command ?? '');
           await this.logs.log(job.id, `Conferência final: critério "${c.key}" rodando (${cmd.replace(/\s+/g, ' ').slice(0, 160)})`, { source: 'evaluator' });
           const pol = evaluatePolicy(cmd);
@@ -586,7 +587,7 @@ export class CompletionService {
             ...base,
             passed: verificationPassed(r,expected)&&!missing.length,
             ...(problem?{verificationProblem:problem}:{}),
-            evidence: { ...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
+            evidence: { ...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(Array.isArray(cfg.adoptionFamilies)?{adoptionCoverage:{expected:cfg.adoptionFamilies,missing}}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
           };
         }
         case 'FILE_EXISTS': {
