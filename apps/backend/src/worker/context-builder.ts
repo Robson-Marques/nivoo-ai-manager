@@ -37,6 +37,9 @@ export interface ContextStats {
   memoryTruncated?: number;
   promptChars?: number;
   profileChars?: number;
+  leanExecution?: boolean;
+  memoryPromptChars?: number;
+  artifactPromptChars?: number;
 }
 
 /** Ordem de importância da memória para quem continua o trabalho. */
@@ -72,6 +75,7 @@ export function assembleContext(
   memory: MemoryItem[],
   artifacts: string[],
   budgetChars: number,
+  limits?: { memoryChars:number; artifactChars:number },
 ): { text: string; stats: ContextStats } {
   const required = sections.filter((s) => s.required);
   const optional = sections.filter((s) => !s.required);
@@ -79,13 +83,15 @@ export function assembleContext(
   const safeBudget=Number.isFinite(budgetChars)&&budgetChars>0?Math.floor(budgetChars):60000;
   let used = required.reduce((n, s) => n + s.text.length + 2, 0)+500;
   let memoryTruncated=0;
+  let memoryUsed=0,artifactUsed=0;
 
   const memLines: string[] = [];
   const omittedMemoryIds: string[] = [];
   for (const m of sortMemory(memory)) {
     const line = memoryLine(m);
-    if (used + line.length + 1 <= safeBudget) {
+    if (used + line.length + 1 <= safeBudget && (!limits || memoryUsed+line.length+1<=limits.memoryChars)) {
       memLines.push(line);
+      memoryUsed+=line.length+1;
       if(m.content.length>600)memoryTruncated++;
       used += line.length + 1;
     } else omittedMemoryIds.push(m.id);
@@ -93,8 +99,9 @@ export function assembleContext(
   const artLines: string[] = [];
   let artOmitted = 0;
   for (const a of artifacts) {
-    if (used + a.length + 1 <= safeBudget) {
+    if (used + a.length + 1 <= safeBudget && (!limits || artifactUsed+a.length+1<=limits.artifactChars)) {
       artLines.push(a);
+      artifactUsed+=a.length+1;
       used += a.length + 1;
     } else artOmitted++;
   }
@@ -126,6 +133,9 @@ export function assembleContext(
     text,
     stats: {
       budgetChars:safeBudget,
+      leanExecution:!!limits,
+      memoryPromptChars:memoryUsed,
+      artifactPromptChars:artifactUsed,
       totalChars: text.length,
       overBudget: text.length > safeBudget,
       memoryTruncated,
