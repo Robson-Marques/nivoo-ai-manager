@@ -38,7 +38,7 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
   ].join('\n\n');
   const instructions=[
     'Implemente a remodelagem diretamente no worktree deste trabalho, dentro do escopo autorizado. Leia as regras do projeto e os anexos da conversa em contexto/anexos/. Não faça commit/push diretamente no remoto; o Nivoo já controla integração e publicação.',
-    'Antes de editar, registre os fluxos e as telas afetadas. Se a prévia existente funcionar, capture as telas atuais usando os recursos já disponíveis no Nivoo e preserve as capturas como evidência antes/depois. Não invente evidências.',
+    'Antes de editar, registre os fluxos e as telas afetadas. Se a prévia existente funcionar, capture as telas atuais usando os recursos já disponíveis no Nivoo e preserve as capturas como evidência antes/depois. Não invente evidências. Para o comparador do Studio, grave capturas PNG, JPG ou WebP em out/remodelagem/antes/<tela>-<viewport>.png e out/remodelagem/depois/<tela>-<viewport>.png, usando exatamente o mesmo nome, extensão, rota, viewport e estado de interface em cada par. Capture antes de editar e depois da implementação, sem usar dados reais sensíveis. Não substitua capturas faltantes por imagens simuladas.',
     'Mapeie os tokens para o mecanismo visual existente, mantendo os valores de ambos os temas, e use o motor original para componentes compatíveis. Use o arquivo de licença junto aos ativos distribuídos. Não aplique CSS global que altere telas fora do escopo.',
     'Para escopo selecionado, altere somente os arquivos selecionados e os pontos compartilhados estritamente necessários para integrar os tokens; relate esses pontos e preserve o comportamento das demais telas.',
     'Execute os comandos de build/testes que o projeto já possui, proporcionalmente ao escopo. Use a prévia e ferramentas de captura/interação existentes quando disponíveis. Não crie CI novo nem um fluxo paralelo de conferência.',
@@ -50,7 +50,7 @@ export function makeRemodelPlan(profile:DesignProfile,commit:string,scope:Remode
     'test -s out/remodelagem.md',
     'git diff --check',
     'git diff --check --cached',
-    '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|\[.]nivoo/)" | grep -Ei "\[.](tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
+    '{ git diff --name-only --no-renames "$(git merge-base HEAD refs/heads/main)" --; git ls-files --others --exclude-standard; } | grep -Ev "^(out/|contexto/|[.]nivoo/)" | grep -Ei "[.](tsx|jsx|ts|js|mjs|vue|svelte|astro|html?|css|scss|sass|less|php|jinja2?|twig)$"',
   ].join(' && ');
   return {title:'Remodelagem — '+profile.title,objective,defaultProvider:provider,steps:[{key:'remodelar-frontend',title:'Aplicar identidade visual no frontend existente',instructions,dependsOn:[],verifyCommand,requiresApproval:false}],criteria:[{key:'entrega-remodelagem',description:'Relatório de entrega com evidências e alterações do frontend',kind:'FILE_EXISTS',config:{path:'out/remodelagem.md'}}],limits:{}};
 }

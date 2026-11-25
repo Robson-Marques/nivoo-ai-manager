@@ -11,6 +11,8 @@ describe('Design remodel plan',()=>{
     expect(plan.objective).toContain(defaultVisual.darkColors.primary);
     expect(plan.objective).toContain('SHA256');
     expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0].instructions).toContain('out/remodelagem/antes/');
+    expect(plan.steps[0].instructions).toContain('out/remodelagem/depois/');
     expect(plan.steps[0].verifyCommand).toContain('git merge-base HEAD refs/heads/main');
     expect(plan.steps[0].verifyCommand).toContain('git ls-files --others --exclude-standard');
     expect(()=>makeRemodelPlan({...p,sourceId:'liqui'},'abc',scope,'codex-cli',[])).toThrow();

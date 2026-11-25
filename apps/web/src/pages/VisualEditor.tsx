@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { api } from '../api';
 import { colorNames,contrast,keys,readableText,parseColor,extractBrandColors } from './design-visual';
 import type { ColorKey,Palette,Visual } from './design-visual';
 export function VisualEditor({value,onChange,defaults,palettes}:{value:Visual;onChange:(v:Visual)=>void;defaults:Visual;palettes:Palette[]}){
@@ -8,6 +9,7 @@ export function VisualEditor({value,onChange,defaults,palettes}:{value:Visual;on
   const [message,setMessage]=useState('');
   const [brand,setBrand]=useState<string[]>([]);
   const [extracting,setExtracting]=useState(false);
+  const [importing,setImporting]=useState(false);
   const colors=value[scheme];
   const set=<K extends keyof Visual>(k:K,v:Visual[K])=>onChange({...value,[k]:v});
   const changeColor=(k:ColorKey,v:string)=>{setHex(h=>({...h,[k]:v}));const parsed=parseColor(v);if(parsed){set(scheme,{...colors,[k]:parsed});setPalette('');}};
@@ -15,6 +17,16 @@ export function VisualEditor({value,onChange,defaults,palettes}:{value:Visual;on
   const usePalette=(name:string)=>{setPalette(name);clear();const p=palettes.find(p=>p.name===name);if(p)onChange({...value,colors:{...p.colors},darkColors:{...p.darkColors}});};
   const ratios=[['Texto / fundo',contrast(colors.text,colors.background)],['Texto / superfície',contrast(colors.text,colors.surface)],['Texto secundário / superfície',contrast(colors.muted,colors.surface)],['Botão primário',contrast(readableText(colors.primary),colors.primary)]] as const;
   const exportTokens=()=>{const blob=new Blob([JSON.stringify({schemaVersion:1,visual:value},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='nivoo-design-tokens.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setMessage('Configuração exportada.');};
+  const importTokens=async(file:File)=>{
+    setImporting(true);setMessage('');
+    try{
+      if(file.size>256*1024)throw Error('Arquivo de tokens deve ter até 256 KB.');
+      const data:unknown=JSON.parse(await file.text());
+      const result=await api<{schemaVersion:1;visual:Visual}>('/design-studio/tokens/validate','POST',data);
+      clear();setPalette('');onChange(result.visual);setMessage('Tokens importados. Revise a prévia e salve o perfil.');
+    }catch(e){setMessage(e instanceof Error?e.message:String(e));}
+    finally{setImporting(false);}
+  };
   return <div className="design-visual-editor">
     <h3>Identidade visual</h3>
     <label>Paleta<select value={palette} onChange={e=>usePalette(e.target.value)}><option value="">Personalizada</option>{palettes.map(p=><option key={p.name}>{p.name}</option>)}</select></label>
@@ -35,6 +47,7 @@ export function VisualEditor({value,onChange,defaults,palettes}:{value:Visual;on
     </div>
     <label className="design-check"><input type="checkbox" checked={value.motion} onChange={e=>set('motion',e.target.checked)}/> Transições CSS da prévia</label>
     <div className="design-actions"><button type="button" className="secondary" onClick={()=>{clear();setPalette('');onChange(defaults)}}>Restaurar padrão</button><button type="button" className="secondary" onClick={exportTokens}>Exportar tokens</button></div>
+    <label>Importar tokens JSON<input type="file" accept=".json,application/json" disabled={importing} onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)void importTokens(f)}}/></label>
     {message&&<p role="status">{message}</p>}
   </div>;
 }

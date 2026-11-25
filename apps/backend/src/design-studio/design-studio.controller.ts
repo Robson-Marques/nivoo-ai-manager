@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException, Body, Controller, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 import { designCatalog } from './catalog';
-import { defaultVisual, palettes } from './visual';
+import { defaultVisual, palettes, validateVisual } from './visual';
 import { DesignProfileStore } from './design-profile.store';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceService } from '../storage/workspace.service';
@@ -51,6 +51,12 @@ export class DesignStudioController {
     const request=plan.objective;
     const result=await this.conversations.createPreparedPlan(project.id,plan.title,request,plan,assets);
     return {projectId:project.id,...result};
+  }
+  @Post('tokens/validate') validateTokens(@Body() body:unknown){
+    if(!body||typeof body!=='object'||Array.isArray(body))throw new BadRequestException('Arquivo de tokens inválido');
+    const b=body as Record<string,unknown>;
+    if(b.schemaVersion!==1)throw new BadRequestException('Versão de tokens não suportada');
+    return {schemaVersion:1,visual:validateVisual(b.visual)};
   }
   @Get('catalog') catalog() { return {schemaVersion:1,sources:designCatalog,palettes,defaultVisual}; }
   @Get('profiles') list() { return this.store.list(); }

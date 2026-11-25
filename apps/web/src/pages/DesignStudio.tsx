@@ -5,6 +5,7 @@ import { NovoProjeto } from './NovoProjeto';
 import { DesignTarget } from './DesignTarget';
 import type { Analysis } from './DesignTarget';
 import { RemodelRequest } from './RemodelRequest';
+import { DesignComparison } from './DesignComparison';
 import './DesignStudio.css';
 import { DesignPreview } from './DesignPreview';
 import { VisualEditor } from './VisualEditor';
@@ -88,7 +89,7 @@ export function DesignStudio(){
           <h4>Requisitos</h4><p>{source.requirements.join(' · ')}</p>
           {source.install&&<><h4>Comando oficial de instalação</h4><code className="design-studio-command">{source.install}</code></>}
           {related.length>0&&<><h4>Fontes complementares</h4>{related.map(s=><p key={s.id}><a href={s.url} target="_blank" rel="noreferrer">{s.name}</a> — {s.kind==='reference'?'referência visual':'biblioteca complementar'}</p>)}</>}
-          {draft.mode==='remodel'&&<><p>O Studio usa os projetos e as conexões Git existentes.</p><RemodelRequest key={draft.projectId??'none'} profileId={current?.id??null} revision={current?.revision??null} analysis={analysis?.project.id===draft.projectId?analysis:null} ready={source.status==='ready'&&!!source.adapter} dirty={dirty||saving}/></>}
+          {draft.mode==='remodel'&&<><p>O Studio usa os projetos e as conexões Git existentes.</p><RemodelRequest key={draft.projectId??'none'} profileId={current?.id??null} revision={current?.revision??null} analysis={analysis?.project.id===draft.projectId?analysis:null} ready={source.status==='ready'&&!!source.adapter} dirty={dirty||saving}/>{draft.projectId&&<DesignComparison key={draft.projectId} projectId={draft.projectId}/>}</>}
         </>:<p>Catálogo indisponível.</p>}
       </section>
     </div>}
