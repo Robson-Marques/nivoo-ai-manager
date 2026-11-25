@@ -20,7 +20,9 @@ import { VisualizadoresPrevia } from './previa-browser';
  * - Sistema com servidor: numa cópia da pasta principal (<projeto>/previa), instala as dependências e liga o comando
  *   do projeto numa porta livre, com um banco de teste próprio. Desliga sozinho depois de 2 h sem uso.
  *
- * O "portão" da prévia é um servidor HTTP em porta própria (NIVOO_PREVIA_PORT, padrão 3100, só 127.0.0.1), publicado
+ * Com NIVOO_PREVIA_URL=/previa, um navegador isolado no servidor abre a origem própria do projeto;
+ * a interface administrativa recebe somente imagens e encaminha comandos autenticados.
+ * No modo de domínio separado, o "portão" é um servidor HTTP em porta própria (NIVOO_PREVIA_PORT, padrão 3100, só 127.0.0.1), publicado
  * num endereço PRÓPRIO (NIVOO_PREVIA_URL, ex.: https://previa-nivoo.empresa.com.br pelo túnel da Cloudflare). Origem
  * separada do Nivoo: o sistema do projeto roda na raiz (rotas e telas funcionam) e o código dele não alcança o token do
  * Nivoo. O acesso é por um código aleatório (cookie), entregue pelo Nivoo.
@@ -181,7 +183,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   estado(projectId: string) {
     const p = this.previas.get(projectId);
-    if (!p) return { estado: 'parada' as Estado, mensagem: '', url: null, log: '' };
+    if (!p) return { estado: 'parada' as Estado, mensagem: '', url: null, log: '', visualizador: modoCaminho(), enderecoConfigurado: !!process.env.NIVOO_PREVIA_URL };
     p.ultimoUso = Date.now();
     return {
       estado: p.estado,
@@ -337,7 +339,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     return new Promise((ok) => {
       const r = http.get({ host: '127.0.0.1', port: porta, path: caminho, timeout: 2000 }, (res) => {
         res.resume();
-        ok((res.statusCode??500)<400);
+        ok(true);
       });
       r.on('error', () => ok(false));
       r.on('timeout', () => {

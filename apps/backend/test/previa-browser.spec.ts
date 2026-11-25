@@ -37,12 +37,14 @@ describe('Visualizador isolado',()=>{
 // with user namespaces enabled; never substitute a mocked browser for this evidence.
 const browserTest=process.env.NIVOO_TESTE_PREVIA_BROWSER==='1'?it:it.skip;
 browserTest('navigates an absolute /clientes link and mutates data via /api/clientes',async()=>{
-  let clientes=0;
+  let clienteRecebido='';
+  let visitouClientes=false;
   const html=(req:http.IncomingMessage)=>req.url==='/clientes'
-    ? '<h1>Clientes</h1><input aria-label="Nome" style="position:fixed;left:20px;top:80px;width:200px;height:40px"><button style="position:fixed;left:20px;top:150px;width:150px;height:40px" onclick="fetch(\'/api/clientes\',{method:\'POST\'})">Cadastrar</button>'
+    ? '<h1>Clientes</h1><input id="nome" aria-label="Nome" style="position:fixed;left:20px;top:80px;width:200px;height:40px"><button style="position:fixed;left:20px;top:150px;width:150px;height:40px" onclick="fetch(\'/api/clientes\',{method:\'POST\',body:document.getElementById(\'nome\').value})">Cadastrar</button>'
     : '<a style="position:fixed;left:20px;top:20px;width:150px;height:40px" href="/clientes">Clientes</a>';
   const app=http.createServer((req,res)=>{
-    if(req.url==='/api/clientes'&&req.method==='POST'){clientes++;res.setHeader('Content-Type','application/json');res.end('{}');return;}
+    if(req.url==='/api/clientes'&&req.method==='POST'){req.on('data',d=>clienteRecebido+=String(d));req.on('end',()=>{res.setHeader('Content-Type','application/json');res.end('{}');});return;}
+    if(req.url==='/clientes')visitouClientes=true;
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html(req));
   });
   await new Promise<void>(ok=>app.listen(0,'127.0.0.1',ok));
@@ -52,11 +54,13 @@ browserTest('navigates an absolute /clientes link and mutates data via /api/clie
     const first=await v.quadro('p','g',port,'/',id,'computador');
     expect(first[0]).toBe(255);expect(first[1]).toBe(216);
     await v.acao('p','g',id,{tipo:'clique',x:70/1366,y:40/900});
+    for(let i=0;i<40&&!visitouClientes;i++)await new Promise(ok=>setTimeout(ok,100));
+    expect(visitouClientes).toBe(true);
     await v.quadro('p','g',port,'/',id,'computador');
     await v.acao('p','g',id,{tipo:'clique',x:70/1366,y:100/900});
     await v.acao('p','g',id,{tipo:'texto',texto:'Cliente de teste'});
     await v.acao('p','g',id,{tipo:'clique',x:70/1366,y:165/900});
-    for(let i=0;i<40&&!clientes;i++)await new Promise(ok=>setTimeout(ok,100));
-    expect(clientes).toBe(1);
+    for(let i=0;i<40&&!clienteRecebido;i++)await new Promise(ok=>setTimeout(ok,100));
+    expect(clienteRecebido).toBe('Cliente de teste');
   }finally{await v.fechar('p');app.closeAllConnections();await new Promise<void>(ok=>app.close(()=>ok()));}
 },60000);
