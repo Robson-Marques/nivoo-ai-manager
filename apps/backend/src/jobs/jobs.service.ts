@@ -1,3 +1,4 @@
+import { compileLiquidGlassAdoption } from './workflow/compile-liquid-glass-adoption';
 import { requireAdoptionContract } from './workflow/adoption-contract';
 import { approvalPresentation } from './visual-previews';
 import * as fs from 'node:fs';
@@ -76,7 +77,8 @@ export class JobsService {
     const brutas = compiled.steps;
     const steps = parseSteps(this.registry,brutas, defaultProvider);
     assertAcyclic(steps);
-    const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(area));
+    const rawCriteria=compileLiquidGlassAdoption(compiled.criteria,{title,objective,steps:brutas},area,visualProfile,request);
+    const criteria = parseCriteria(rawCriteria, [], mediaEnabledForArea(area));
     validateCapabilityCriteria(criteria,steps);
     if (criteria.length === 0) throw new BadRequestException('O plano precisa de critérios de aceitação verificáveis');
     requireAdoptionContract({title,objective,steps:brutas,criteria},area,visualProfile,request);

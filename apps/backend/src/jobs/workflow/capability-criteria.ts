@@ -1,4 +1,4 @@
-import { validateAdoptionCriteria } from './adoption-contract';
+import { validateAdoptionCriteria,nativeAdoptionInventory } from './adoption-contract';
 import { BadRequestException } from '@nestjs/common';
 import { caminhoDoProjeto } from '../../common/path-guard';
 
@@ -20,10 +20,11 @@ export function validateCapabilityCriteria(criteria:Criterion[],steps:ReadonlyAr
     if(cfg?.capability===undefined)continue;
     const ref=capabilityReference(cfg);
     if(!ref)throw new BadRequestException('Critério '+c.key+': referência de Capability inválida (id, contract e phase).');
-    if((ref.phase==='structural'||ref.phase==='acceptance')&&c.kind!=='COMMAND')throw new BadRequestException('Critério '+c.key+': '+ref.phase+' exige COMMAND com evidência real, não existência de arquivo.');
+    const nativeInventory=nativeAdoptionInventory(c);
+    if((ref.phase==='structural'||ref.phase==='acceptance')&&c.kind!=='COMMAND'&&!nativeInventory)throw new BadRequestException('Critério '+c.key+': '+ref.phase+' exige COMMAND com evidência real, não existência de arquivo.');
     if(ref.phase==='decision'&&c.kind!=='MANUAL_APPROVAL')throw new BadRequestException('Critério '+c.key+': decision exige MANUAL_APPROVAL.');
     if(ref.phase==='construction'&&c.kind==='MANUAL_APPROVAL')throw new BadRequestException('Critério '+c.key+': construção não equivale a aceite da Capability.');
-    if(ref.phase==='structural'||ref.phase==='acceptance'){
+    if((ref.phase==='structural'||ref.phase==='acceptance')&&!nativeInventory){
       if(cfg?.expectExitCode!==undefined&&cfg.expectExitCode!==0)throw new BadRequestException('Critério '+c.key+': a verificação de Capability deve retornar 0 em caso de sucesso.');
       const cmd=String(cfg?.command??'').trim();
       if(!cmd||/^(?:true|:|exit\s+0|echo\b[^\n;&|]*|test\s+-(?:e|f|s|d)\s+[^;&|\n]+)$/.test(cmd))throw new BadRequestException('Critério '+c.key+': use verificação semântica do contrato ou fluxo integrado, não um comando de presença/sucesso incondicional.');

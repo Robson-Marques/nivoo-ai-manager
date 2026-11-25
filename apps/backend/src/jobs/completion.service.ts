@@ -1,5 +1,5 @@
 import { readApprovedScope } from './approved-scope';
-import { adoptionOf,adoptionSummaries } from './workflow/adoption-contract';
+import { adoptionOf,adoptionSummaries,nativeAdoptionInventory } from './workflow/adoption-contract';
 import { verifyAdoptionInventory,verifyAdoptionCoverage } from './workflow/adoption-evidence';
 import { Injectable } from '@nestjs/common';
 import { AcceptanceCriterion, Job, Prisma } from '@prisma/client';
@@ -561,6 +561,11 @@ export class CompletionService {
       if(capability){
         const contract=resolveInside(worktree,capability.contract);
         if(!fs.existsSync(contract)||!fs.statSync(contract).isFile()||!fs.statSync(contract).size)return {...base,passed:false,evidence:{erro:'Contrato da Capability ausente ou vazio',capability:capability.id,contrato:capability.contract}};
+      }
+      if(nativeAdoptionInventory(c)){
+        const adoption=adoptionOf(c.config)!;
+        const inventory=verifyAdoptionInventory(worktree,adoption,readApprovedScope(job.approvedScope,job.projectId)?.visual);
+        return {...base,passed:true,evidence:{adoption:adoption.artifact,adoptionInventory:inventory,verificador:'inventario-nativo'}};
       }
       switch (c.kind) {
         case 'COMMAND': {
