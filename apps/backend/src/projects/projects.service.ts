@@ -429,11 +429,20 @@ export class ProjectsService {
 
   async remove(id: string) {
     const p = await this.assertExists(id);
+    // Resolve and verify the two project-owned directories before mutating anything.
+    const root=this.workspace.projectDirs(p.dirKey).root;
+    const artifacts=resolveInside(appConfig().artifactsRoot,id);
+    if(root===fs.realpathSync(appConfig().workspacesRoot)||artifacts===fs.realpathSync(appConfig().artifactsRoot)||path.resolve(p.workspacePath)!==path.resolve(root)){
+      throw new ConflictException('Diretório do projeto inconsistente. Exclusão recusada.');
+    }
     await this.stopEverything(id);
-    await this.prisma.$transaction([this.prisma.approval.deleteMany({ where: { projectId: id } }), this.prisma.project.delete({ where: { id } })]);
-    fs.rmSync(this.workspace.projectDirs(p.dirKey).root, { recursive: true, force: true });
-    fs.rmSync(resolveInside(appConfig().artifactsRoot, id), { recursive: true, force: true });
+    // Keep the registry row until cleanup succeeds: a filesystem failure must
+    // not leave an invisible project directory, and the user can retry.
+    fs.rmSync(root,{recursive:true,force:true});
+    fs.rmSync(artifacts,{recursive:true,force:true});
+    if(fs.existsSync(root)||fs.existsSync(artifacts))throw new ConflictException('Não foi possível remover todos os arquivos locais. Tente novamente.');
     apagarVariaveisDaConferencia(id);
+    await this.prisma.$transaction([this.prisma.approval.deleteMany({ where: { projectId: id } }), this.prisma.project.delete({ where: { id } })]);
     return { excluido: p.name };
   }
 

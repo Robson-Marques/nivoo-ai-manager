@@ -55,6 +55,10 @@ export function Layout() {
   const [conversas, setConversas] = useState<any[] | null>(null);
   const [novo, setNovo] = useState(false);
   const [verArquivados, setVerArquivados] = useState(false);
+  const [excluirProjeto,setExcluirProjeto]=useState<{id:string;name:string}|null>(null);
+  const [nomeExcluir,setNomeExcluir]=useState('');
+  const [excluindo,setExcluindo]=useState(false);
+  const [erroExcluir,setErroExcluir]=useState('');
   const [mover, setMover] = useState<any | null>(null);
   const [destino, setDestino] = useState('');
   const [movendo, setMovendo] = useState(false);
@@ -169,6 +173,25 @@ export function Layout() {
       </div>
     ) : null;
 
+  const iniciarExclusao=(p:any)=>{
+    setNomeExcluir('');setErroExcluir('');setExcluirProjeto({id:p.id,name:p.name});
+    if(mobile)setMenuMobileAberto(false);
+  };
+  const confirmarExclusao=async()=>{
+    if(!excluirProjeto||excluindo||nomeExcluir!==excluirProjeto.name)return;
+    const alvo=excluirProjeto;
+    setExcluindo(true);setErroExcluir('');
+    try{
+      await api('/projects/'+alvo.id,'DELETE');
+      setProjetos(prev=>prev?.filter(p=>p.id!==alvo.id)??null);
+      setAbertoArquivado(prev=>prev?.id===alvo.id?null:prev);
+      if(pid===alvo.id){setConversas(null);nav('/',{replace:true});}
+      setExcluirProjeto(null);
+      void recarregar().catch(()=>undefined);
+    }catch(e:any){setErroExcluir(e?.message??'Não foi possível excluir o projeto.');}
+    finally{setExcluindo(false);}
+  };
+
   const linhaProjeto = (p: any) => (
     <div key={p.id}>
       <div className={`proj-linha${p.id === pid ? ' on' : ''}${p.archivedAt ? ' arquivado' : ''}${dragDestino===p.id?' proj-drop-target':''}`}
@@ -180,6 +203,7 @@ export function Layout() {
         <button className="proj-acao" title="Nova conversa" aria-label={`Nova conversa em ${p.name}`} onClick={() => novaConversa(p.id)}>
           <IconeMais />
         </button>
+        <button type="button" className="proj-acao proj-excluir" title="Excluir projeto" aria-label={`Excluir projeto ${p.name}`} onClick={()=>iniciarExclusao(p)}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5M14 11v5"/></svg></button>
       </div>
       {p.id === pid && listaConversas(p.id)}
     </div>
@@ -247,6 +271,24 @@ export function Layout() {
               await recarregarConversas();
             }}
           />
+        )}
+        {excluirProjeto&&(
+          <div className="modal-fundo" onClick={()=>!excluindo&&setExcluirProjeto(null)}>
+            <form className="modal" role="dialog" aria-modal="true" aria-label="Excluir projeto definitivamente" onClick={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();void confirmarExclusao();}}>
+              <h2>Excluir projeto definitivamente</h2>
+              <p>Projeto: <strong>{excluirProjeto.name}</strong></p>
+              <p>Serão apagados o projeto, conversas, memória, preferências visuais, código, pasta de trabalho e arquivos locais de resultados. Trabalhos em andamento serão interrompidos.</p>
+              <p className="muted small">Não é possível desfazer. Repositórios remotos e outros projetos não serão excluídos.</p>
+              <label>Digite o nome exato do projeto para confirmar
+                <input autoFocus autoComplete="off" value={nomeExcluir} disabled={excluindo} onChange={e=>setNomeExcluir(e.target.value)}/>
+              </label>
+              {erroExcluir&&<div role="alert" className="error">{erroExcluir}</div>}
+              <div className="mover-conversa-actions">
+                <button type="button" className="secondary" disabled={excluindo} onClick={()=>setExcluirProjeto(null)}>Cancelar</button>
+                <button type="submit" className="danger" disabled={excluindo||nomeExcluir!==excluirProjeto.name}>{excluindo?'Excluindo…':'Excluir projeto'}</button>
+              </div>
+            </form>
+          </div>
         )}
         {mover && (
           <div className="modal-fundo" onClick={()=>!movendo&&setMover(null)}>

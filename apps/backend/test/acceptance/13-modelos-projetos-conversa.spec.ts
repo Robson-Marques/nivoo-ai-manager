@@ -539,6 +539,11 @@ sys.stdout.buffer.write(b.getvalue())`]);
     await h.http().get(`/api/projects/${p.id}`).expect(404);
     expect(fs.existsSync(p.workspacePath)).toBe(false);
     ctl('mode', null);
+    const novo=await projeto('Para tudo','geral');
+    expect(novo.id).not.toBe(p.id);
+    expect(novo.visualProfile).toBeNull();
+    expect(novo.visualProfileRevision).toBe(0);
+    expect(fs.existsSync(novo.workspacePath)).toBe(true);
   });
 
   it('modelo da IA por projeto: lista do programa, escolha chega ao CLI (chat e trabalho), guardada por IA', async () => {

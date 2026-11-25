@@ -591,3 +591,8 @@ button.ativo { border-color: var(--accent); color: var(--accent); }
   .painel-mobile-barra { padding-top: max(8px, env(safe-area-inset-top)); }
 }
 @media (prefers-reduced-motion: reduce) { .chat-side.mobile-drawer { transition: none; } }
+
+/* Project deletion is discoverable without mouse hover, including touch. */
+.proj-linha .proj-excluir { visibility: visible; color: #c0a2a2; }
+.proj-linha .proj-excluir:hover, .proj-linha .proj-excluir:focus-visible { color: var(--bad); }
+@media (max-width:900px){.proj-linha .proj-excluir{width:40px;height:40px;}}

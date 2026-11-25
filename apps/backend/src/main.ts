@@ -16,8 +16,13 @@ async function bootstrap() {
   if (fs.existsSync(webDist)) {
     const express = app.getHttpAdapter().getInstance();
     const serveStatic = require('express').static;
-    express.use(serveStatic(webDist));
-    express.get(/^\/(?!api\/).*/, (_req: any, res: any) => res.sendFile(path.join(webDist, 'index.html')));
+    express.use(serveStatic(webDist,{setHeaders:(res:any,file:string)=>{
+      if(path.extname(file)==='.html')res.setHeader('Cache-Control','no-cache, must-revalidate');
+    }}));
+    express.get(/^\/(?!api\/).*/, (_req: any, res: any) => {
+      res.setHeader('Cache-Control','no-cache, must-revalidate');
+      res.sendFile(path.join(webDist, 'index.html'));
+    });
   } else {
     app.enableCors();
   }
