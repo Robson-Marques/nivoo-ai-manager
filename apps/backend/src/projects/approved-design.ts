@@ -55,7 +55,7 @@ export function approvedDesignSource(design:NonNullable<ReturnType<typeof approv
     '  vars["--nv-table-row-height"]=approvedDesign.density.tableRowMinHeight+"px";',
     '  vars["--nv-border-width"]=approvedDesign.foundation.borderWidth+"px";',
     '  vars["--nv-liqui-solid"]=colors.surface;vars["--nv-liqui-text"]=colors.text;',
-    '  return <NivooGlassRoot {...rest} variant={approvedDesign.profile.glassVariantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop??<NivooGlassBackdrop dark={dark}/>} className={['nv-approved-design',className].filter(Boolean).join(' ')} data-nivoo-profile-revision={approvedDesign.revision} data-nivoo-design-engine={approvedDesign.engine.name} data-nivoo-palette={approvedDesign.profile.paletteId} data-nivoo-density={approvedDesign.profile.density} style={{...style,...vars,fontFamily:approvedDesign.fonts.body,colorScheme:dark?"dark":"light"} as React.CSSProperties}>{children}</NivooGlassRoot>;',
+    '  return <NivooGlassRoot {...rest} variant={approvedDesign.profile.glassVariantId} dark={dark} accent={colors.accent} textColor={colors.text} mutedColor={colors.muted} backdrop={backdrop??<NivooGlassBackdrop dark={dark}/>} className={["nv-approved-design",className].filter(Boolean).join(" ")} data-nivoo-profile-revision={approvedDesign.revision} data-nivoo-design-engine={approvedDesign.engine.name} data-nivoo-palette={approvedDesign.profile.paletteId} data-nivoo-density={approvedDesign.profile.density} style={{...style,...vars,fontFamily:approvedDesign.fonts.body,colorScheme:dark?"dark":"light"} as React.CSSProperties}>{children}</NivooGlassRoot>;',
     '}',
     'export { NivooGlassSurface as ApprovedDesignSurface };',
     '',
