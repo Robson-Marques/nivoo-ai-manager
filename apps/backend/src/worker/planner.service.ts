@@ -122,7 +122,7 @@ export class PlannerService {
       if(goldfishScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
         if(!goldfishScope)return fail('Informe o alvo da revisão: /goldfish docs/arquitetura.md ou /goldfish seguido da especificação a analisar.');
-        if(!goldfishProviderSupported(tipoDe(project.provider)))return fail('Revisão independente indisponível nesta conexão: selecione Claude, NVIDIA, OpenRouter Free ou Groq Free com modo somente leitura. Nenhum provedor foi trocado.');
+        if(!goldfishProviderSupported(tipoDe(project.provider)))return fail('Revisão independente indisponível nesta conexão: use Claude com modo restrito de leitura. Codex e Gemini ainda não têm isolamento validado para Goldfish. Nenhum provedor foi trocado.');
       }
       const recovery=goldfishScope===null?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
@@ -207,7 +207,7 @@ export class PlannerService {
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
       const prompt = goldfishScope!==null
         ? goldfishReviewPrompt(goldfishScope,revision,AGENT_RULES,skillContext([GOLDFISH_SKILL],tmp))
-        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp});
+        : await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp},ids=>registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length}));
       if(goldfishScope!==null)registrarTempo('goldfish_inicio',{provedor:providerId,skillsVersion:SKILLS_VERSION,skill:GOLDFISH_SKILL.id,revisao:revision});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;

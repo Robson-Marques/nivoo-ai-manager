@@ -31,6 +31,21 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,software:true,text:'Animar imagem da pizza em JavaScript',motionAuthor:true})).toEqual(['execucao-enxuta','direcao-artistica','motion']);
     expect(ids({...sw,text:'Implementar backend',executor:true})).toEqual([]);
   });
+  it('distingue microinterações de motion audiovisual em áreas mistas',()=>{
+    const mixed={...base,software:true};
+    for(const phase of ['planner','execution'] as const){
+      const ui=ids({...mixed,phase,text:'Frontend com animações e WebGL'});
+      expect(ui).toContain('software-microinteracoes');
+      expect(ui).not.toContain('motion');
+      const video=ids({...mixed,phase,text:'Criar vídeo de pizza com animações 3D'});
+      expect(video).toContain('motion');
+      expect(video).not.toContain('software-microinteracoes');
+      const combined=ids({...mixed,phase,text:'Frontend com animações e vídeo de demonstração'});
+      expect(combined).toEqual(expect.arrayContaining(['motion','software-microinteracoes']));
+    }
+    expect(ids({...mixed,text:'Animar imagem da pizza em JavaScript',motionAuthor:true})).toContain('motion');
+    expect(ids({...mixed,text:'Criar imagem de pizza',nativeImage:true})).not.toContain('software-microinteracoes');
+  });
   it('edição pontual não recebe regras de criação ou reposicionamento',()=>{
     const text=mediaAuthorRules(true,true).join('\n');
     expect(text).toContain('Edição audiovisual delimitada');

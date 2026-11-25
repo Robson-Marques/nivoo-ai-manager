@@ -4,7 +4,7 @@ import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.4.8';
+export const SKILLS_VERSION='1.4.9';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -52,15 +52,19 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   if(intent.previousError||/\b(erro|falh\w*|bloque\w*|bug|diagnostic\w*|timeout|repetic\w*)\b/.test(t))selected.add('diagnostico');
   if(intent.phase==='execution')selected.add('execucao-enxuta');
   else if(/\b(workflow|fluxo|tokens?|orquestr\w*|automac\w*)\b/.test(t))selected.add('execucao-enxuta');
+  // General areas may authorize both domains. Explicit UI motion is not audiovisual
+  // authoring; explicit media contracts or actual audiovisual requests still win.
+  const softwareIds=intent.software&&!intent.nativeImage&&!intent.motionAuthor?selectSoftwareSkillIds(t):[];
+  const interfaceMotionOnly=softwareIds.includes('software-microinteracoes')&&!/\b(video|videos|reels|audiovisual|locucao|trilha|ffmpeg|renderizar-motion)\b/.test(t);
   if(intent.media){
     if(intent.nativeImage||/\b(arte|artes|imagem|imagens|poster|posters|criativo|foto|fotografia|recorte|banner|layout)\b/.test(t))selected.add('direcao-artistica');
-    if(intent.motionAuthor||(!intent.nativeImage&&/\b(motion|animac\w*|animar|video|videos|3d|neon|render\w*|reels)\b/.test(t)))selected.add('motion');
+    if(intent.motionAuthor||(!intent.nativeImage&&!interfaceMotionOnly&&/\b(motion|animac\w*|animar|video|videos|3d|neon|render\w*|reels)\b/.test(t)))selected.add('motion');
     if(!intent.nativeImage&&!intent.motionAuthor&&/\b(montagem|montar|juntar|mixar|mixagem|sincroniz\w*|recortar|cortes|legendas)\b/.test(t))selected.add('montagem');
     if(!intent.nativeImage&&/\b(narrac\w*|narrador\w*|locuc\w*|voz|vozes|tts|pronuncia|audio|trilha)\b/.test(t))selected.add('locucao');
   }
   if(!intent.nativeImage&&/\b(arquivo|arquivos|gravar|gravacao|salvar|escrever|editar|exportar|planilha|documento|relatorio|file|files)\b/.test(t))selected.add('arquivos');
   if(intent.software&&!intent.nativeImage&&!intent.motionAuthor){
-    const specialists=selectSoftwareSkillIds(t);
+    const specialists=softwareIds;
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
     // A prior failure can deepen an actual code step without routing on raw logs.
