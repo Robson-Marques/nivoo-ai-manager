@@ -11,6 +11,7 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
+import { AUTOMATIC_GOLDFISH_KIND,readAutoReview,automaticReviewMatches,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
 import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
 import { driftRequest,parseDriftDirectory,loadDriftIntake,runSemanticDrift,renderSemanticDrift } from '../specialties/software/egm/drift';
 import { loopRequest,readLoopRecord,nextLoopRecord,assertLoopContinuation,renderLoopRecord,type LoopRecord } from '../specialties/software/egm/review-loop';
@@ -118,6 +119,7 @@ export class PlannerService {
     };
 
     const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
+    const automaticReview=msg.kind===AUTOMATIC_GOLDFISH_KIND;
     let specialtyContext:string|null=null;
     let adoptionRequest='';
     if(specialtyResume){
@@ -140,7 +142,7 @@ export class PlannerService {
 
     // Compatibility for queued requests: make the same deterministic decision
     // before opening a provider session. No extra AI call.
-    if(!specialtyResume&&msg.kind!=='entrega'&&project.visualProfile==null){
+    if(!specialtyResume&&!automaticReview&&msg.kind!=='entrega'&&project.visualProfile==null){
       const intercepted=await this.prisma.$transaction(async tx=>{
         await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${msg.conversationId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
@@ -179,8 +181,10 @@ export class PlannerService {
       }
     }
 
-    // Explicit Goldfish request only: no reviewer is added to normal planning or jobs.
+    // Explicit commands and server-authored, bounded post-delivery reviews use
+    // the same isolated transport. Never derive an automatic review from chat prose.
     let goldfishScope:string|null=null;
+    let autoRequest:AutoReviewRequest|null=null;
     let driftScope:string|null=null;
     let loopParent:LoopRecord|null=null,loopParentId:string|null=null,loopLedger:ResolutionLedger|null=null,loopRepairRevision:string|null=null;
     let savedReview:GoldfishCheckpoint|null=null;
@@ -189,7 +193,24 @@ export class PlannerService {
     let goldfishResolutionContext:string|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
-    if(!specialtyResume&&msg.kind!=='entrega'){
+    if(automaticReview){
+      try{
+        autoRequest=readAutoReview(msg.goldfishState);
+        const source=msg.jobId?await this.prisma.job.findFirst({where:{id:msg.jobId,projectId:project.id,status:'CONCLUIDO'},select:{id:true,approvedScope:true,mergedCommit:true}}):null;
+        const scope=readApprovedScope(source?.approvedScope,project.id);
+        if(!source||!scope||scope.conversationId!==msg.conversationId||scope.egmResolution||!softwareInterfaceEnabled(project.area)||!automaticReviewMatches(autoRequest,{jobId:source.id,projectId:project.id,conversationId:msg.conversationId,revision:source.mergedCommit,providerId:project.provider,model:projectModel(project,project.provider)??null,budgetConfigured:project.maxCostUsd!==null}))throw Error('Vínculo, provedor, modelo ou orçamento mudou; revisão automática não iniciada ou retomada.');
+        if(!goldfishTransportSupported(tipoDe(project.provider)))throw Error('Transporte independente indisponível.');
+        const newer=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{gt:new Date(scope.cutoff)}},select:{id:true}});
+        if(newer)throw Error('Há pedido posterior do usuário; revisão automática não iniciada ou retomada.');
+        goldfishScope='--mode '+autoRequest.preset+' "'+autoRequest.targetPath+'"';
+        parseGoldfishTarget(goldfishScope);
+        if(msg.goldfishState&&typeof msg.goldfishState==='object'&&!Array.isArray(msg.goldfishState)&&'binding' in msg.goldfishState){
+          savedReview=readReviewCheckpoint(msg.goldfishState);
+          if(savedReview.binding.revision!==autoRequest.revision||savedReview.binding.providerId!==autoRequest.providerId||savedReview.binding.model!==autoRequest.model)throw Error('Checkpoint automático divergente.');
+        }else if(msg.startedAt)throw Error('Tentativa anterior sem checkpoint; nenhuma repetição automática.');
+      }catch(e){return fail('Goldfish automático: '+(e as Error).message+' Trabalho entregue preservado.');}
+    }
+    if(!specialtyResume&&!automaticReview&&msg.kind!=='entrega'){
       const userMessage=await this.prisma.conversationMessage.findFirst({
         where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:msg.createdAt}},
         orderBy:{createdAt:'desc'},select:{content:true},
@@ -302,7 +323,11 @@ export class PlannerService {
         if(drift.status!=='unchanged')return fail(renderGoldfishGitDrift(drift)+'\nRevise o documento na revisão atual antes de propor edições.');
       }
       if(goldfishScope!==null||driftScope!==null){
-        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
+        if(autoRequest){
+          const drift=await detectGoldfishGitDrift(repo,autoRequest.revision,autoRequest.targetPath,signal);
+          if(drift.status!=='unchanged')return fail('Goldfish automático: revisão incorporada mudou; análise não repetida. '+renderGoldfishGitDrift(drift));
+        }
+        const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??autoRequest?.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
         revision=rev.stdout.trim();
         if(rev.exitCode!==0||!/^[a-f0-9]{40,64}$/.test(revision))return fail('Não foi possível identificar a revisão da pasta principal para análise independente.');
         if(loopParent&&loopLedger){try{assertLoopContinuation(loopParent,loopLedger,loopRepairRevision,revision);}catch(e){return fail((e as Error).message);}}
@@ -315,7 +340,7 @@ export class PlannerService {
         const reviewRoot=fs.mkdtempSync(path.join(tmp,'goldfish-run-'));
         let cancelled=false;
         const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:driftIntake?'drift':intake!.preset,...(loopParentId?{continuationOf:loopParentId}:{})},driftIntake?{path:driftIntake.directory,content:JSON.stringify(driftIntake)}:intake!.target,driftIntake?[]:intake!.baseline);
-        const checkpoint=savedReview??createReviewCheckpoint(binding);
+        const checkpoint={...(savedReview??createReviewCheckpoint(binding)),...(autoRequest?{automaticRequest:autoRequest}:{})};
         try{assertReviewBinding(checkpoint,binding);}catch(e){return fail((e as Error).message);}
         const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
         const persist=async(next:GoldfishCheckpoint)=>{
@@ -340,6 +365,12 @@ export class PlannerService {
           onLog:linha=>registrarTempo('goldfish_revisor_inicio',{provedor:providerId,revisor:linha}),
           invoke:async(req,meta)=>{
             const current=await this.prisma.conversationMessage.findFirst({where:{id:msg.id,status:'PENDENTE'},select:{id:true}});
+            if(autoRequest){
+              const fresh=await this.prisma.project.findUnique({where:{id:project.id},select:{provider:true,aiModels:true,maxCostUsd:true}});
+              const newer=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{gt:msg.createdAt}},select:{id:true}});
+              const head=await this.workspace.headCommit(repo);
+              if(!fresh||fresh.provider!==autoRequest.providerId||(projectModel(fresh,fresh.provider)??null)!==autoRequest.model||fresh.maxCostUsd!==null||newer||head!==autoRequest.revision)return {exitCode:1,output:'',error:'Revisão automática interrompida: conexão, orçamento, pedido ou base mudou.',resourceUnavailable:true};
+            }
             if(!current||signal.aborted){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
             if(!await writeReview({andamento:'Goldfish: fase '+meta.stage+' — '+meta.role})){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
             const result=await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'goldfish',messageId:msg.id,attemptId:req.attemptId,skillsVersion:SKILLS_VERSION,skillIds:[GOLDFISH_SKILL.id],promptChars:req.instructions.length},()=>this.registry.get(providerId).execute(req));
@@ -385,7 +416,7 @@ export class PlannerService {
         const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
         const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+renderLoopRecord(loop,msg.id)+'\n\n'+accounting+(resolution.ready&&resolution.actions.length?'\n\nPara avaliar os achados e propor correções: /goldfish-resolve '+msg.id:''),completedAt:new Date(),
+          content:(autoRequest?'Revisão crítica automática complementar do trabalho '+autoRequest.jobId+'. Não é revisão integral nem nova autorização de edição.\n\n':'')+renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+renderLoopRecord(loop,msg.id)+'\n\n'+accounting+(resolution.ready&&resolution.actions.length?'\n\nPara avaliar os achados e propor correções: /goldfish-resolve '+msg.id:''),completedAt:new Date(),
           goldfishState:{...journal.state(),resolution,loop} as unknown as Prisma.InputJsonValue,
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
