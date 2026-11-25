@@ -505,11 +505,14 @@ export class CompletionService {
     const approved=checks.filter(c=>c.passed);
     const criteria=await this.prisma.acceptanceCriterion.findMany({where:{jobId}});
     const adoption=adoptionSummaries(criteria);
+    const initial=changed&&mergedCommit?await this.prisma.attempt.findFirst({where:{jobId},orderBy:{startedAt:'asc'},select:{contextStats:true}}):null;
+    const lite=(initial?.contextStats as {egmExecution?:{route?:string;baseline?:{complete?:boolean;dirty?:string[]}}}|null)?.egmExecution;
+    const liteNotice=lite?.route==='lite'&&lite.baseline?.complete&&lite.baseline.dirty?.length===0&&!approvedGoldfish(job.approvedScope)?'Revisão independente Lite do diff incorporado (sujeita à validação da base): /goldfish-lite diff '+jobId:'';
     const egmProofLines=approvedGoldfish(job.approvedScope)?checks.flatMap(c=>{
       const p=c.evidence.egmProof as {observed?:{actionId:string;scenario:string}[]}|undefined;
       return c.passed?(p?.observed??[]).map(e=>'- '+e.actionId+' — cenário registrado no teste '+c.key+': '+e.scenario):[];
     }):[];
-    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption,...(egmProofLines.length?['Evidências de regressão Goldfish (contratos executados, não revisão semântica independente):',...egmProofLines]:[]), ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
+    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption,...(liteNotice?[liteNotice]:[]),...(egmProofLines.length?['Evidências de regressão Goldfish (contratos executados, não revisão semântica independente):',...egmProofLines]:[]), ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
