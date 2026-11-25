@@ -17,6 +17,7 @@ import { normalizeMotionOutputs } from '../../jobs/motion/command';
 import { replaceMediaAliases } from '../../jobs/workflow/media-paths';
 import { validateFileOperations,verifyFileOperations,customFileOperationCheck } from '../../common/file-operations';
 import { resolveInside } from '../../common/path-guard';
+import { verificationDiagnostic } from './verification-diagnostic';
 
 /**
  * Conferência que falhou sem mensagem: o comando e, para `test -f/-s/-e/-d <arquivo>` e `grep -q <texto> <arquivo>`,
@@ -120,9 +121,12 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       await L(`Conferindo a etapa (testes, build…): ${verifyCommand.replace(/\s+/g, ' ').slice(0, 200)}`, 'INFO', attempt.id);
       const inicioConferencia = Date.now();
       const avisoMs = Number(process.env.NIVOO_CONFERENCIA_AVISO_MS ?? 15_000);
+      let transcript = '';
       let ultimaLinha = '';
       let ultimoRegistro = Date.now();
       const anotar = (pedaco: string) => {
+        transcript += pedaco;
+        if(transcript.length>2_500_000)transcript=transcript.slice(-2_000_000);
         const l = prepared.redact(pedaco).split('\n').map((x) => x.replace(/\x1b\[[0-9;]*m/g, '').trim()).filter(Boolean).pop();
         if (l) ultimaLinha = l;
         if (ultimaLinha && Date.now() - ultimoRegistro > avisoMs) {
@@ -135,8 +139,9 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         ultimoRegistro = Date.now();
         void L(`Conferência ainda rodando (${Math.round((Date.now() - inicioConferencia) / 60_000)} min)${ultimaLinha ? `: ${ultimaLinha.slice(0, 160)}` : ''}`, 'INFO', attempt.id);
       }, avisoMs * 4);
-      const conferir = () =>
-        runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommandEfetivo], {
+      const conferir = () => {
+        transcript='';
+        return runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommandEfetivo], {
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
@@ -147,6 +152,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
           maxBuffer: 20 * 1024 * 1024,
           signal,
         }).then(r=>redactVerificationResult(r,prepared.redact));
+      };
       let v: Awaited<ReturnType<typeof conferir>>;
       try {
       v = await conferir();
@@ -178,12 +184,14 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         if (compativel) {
           const original = verifyCommandEfetivo;
           verifyCommandEfetivo = compativel;
+          const transcriptOriginal=transcript;
           const alternativa = await conferir();
           if (verificationPassed(alternativa)) {
             v = alternativa;
             await L('Conferência legada: marcadores alternativos encontrados ignorando apenas maiúsculas/minúsculas; o teste foi executado novamente e passou. Não substitui testes de comportamento.', 'WARN', attempt.id);
           } else {
             verifyCommandEfetivo = original;
+            transcript=transcriptOriginal;
           }
         }
       }
@@ -194,13 +202,18 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       if(problem?.kind==='tool')faltaPrograma=problem.detail;
       // Conferência que falha calada (ex.: `test -f relatorio.md`): diz qual comando falhou e, para os testes
       // de arquivo mais comuns, o que falta — a IA e o usuário precisam saber o que cobrar.
-      const falhaDeParecer = v.exitCode !== 0 ? diagnosticoParecerVisual(worktree, verifyCommand) : null;
-      const vOut = (`${v.stdout}${v.stderr}`.trim() ||
-        (v.exitCode !== 0 ? [explicarConferencia(verifyCommand, worktree), falhaDeParecer].filter(Boolean).join(' — ') : '')).slice(-4000); // a IA precisa da causa real, não só exit 1
-      // Saída inteira da conferência para a próxima sessão ler (o erro do teste costuma estar no fim de muita saída).
+      const falhaDeParecer = !verificationPassed(v) ? diagnosticoParecerVisual(worktree, verifyCommand) : null;
+      const ordered=prepared.redact(transcript);
+      const captured=[v.stdout,v.stderr].join('\n');
+      const cause=!verificationPassed(v)?verificationDiagnostic(ordered)||verificationDiagnostic(captured):'';
+      const fallback=[v.spawnError,explicarConferencia(verifyCommandEfetivo,worktree),falhaDeParecer].filter(Boolean).join(' — ');
+      const vOut = verificationPassed(v)?ordered.trim().slice(-1000):
+        cause||[fallback,ordered.trim().slice(-1200)].filter(Boolean).join('\n').slice(0,4000);
+      // Store the observed chronological stream and the actionable cause separately
+      // from successful test summaries. Do not change the approved verification.
       try {
         fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
-        fs.writeFileSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'), `$ ${verifyCommand}\n(exit ${v.exitCode})\n\n${`${v.stdout}${v.stderr}`.slice(-2_000_000)}`);
+        fs.writeFileSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'), '$ '+verifyCommandEfetivo+'\n(exit '+v.exitCode+')\n'+(cause?'Falha identificada:\n'+cause+'\n':'')+'\n'+ordered.slice(-2_000_000));
       } catch {
         /* melhor esforço */
       }

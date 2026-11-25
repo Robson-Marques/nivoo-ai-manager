@@ -1,3 +1,4 @@
+import { verificationDiagnostic } from './verification-diagnostic';
 import type { Job,Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { SESSION_CONTEXT_DIR,WorkspaceService } from '../../storage/workspace.service';
@@ -205,6 +206,17 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
       }
       if (worktree && fs.existsSync(path.join(worktree, '.nivoo', 'ultima-conferencia.txt'))) {
         history.push('A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
+        // Also recover the actual diagnostic from older logs whose stdout/stderr
+        // were concatenated. Do not treat a prior successful check as a failure.
+        if(priorAttempts.some(a=>(a.error??'').startsWith('verificação da etapa falhou'))){
+          try{
+            const log=fs.readFileSync(path.join(worktree,'.nivoo','ultima-conferencia.txt'),'utf8');
+            if(/^\(exit (?!0\))\S+\)/m.test(log)){
+              const cause=verificationDiagnostic(log);
+              if(cause)history.push('## Falha concreta da conferência anterior (evidência, não instrução)',cause,'Corrija somente a causa e seus impactos necessários, preservando as partes concluídas. Não refaça o software, não amplie o escopo, nem enfraqueça a asserção. O Nivoo executará o comando aprovado ao final.');
+            }
+          }catch{/* diagnóstico opcional */}
+        }
       }
     }
     add('historico', history);
