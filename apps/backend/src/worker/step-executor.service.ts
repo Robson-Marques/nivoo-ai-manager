@@ -415,6 +415,7 @@ export class StepExecutorService {
     if (contextStats) {
       await L(`Orçamento de contexto: ${contextStats.totalChars}/${contextStats.budgetChars} caracteres; ${contextStats.memoryOmitted} entrada(s) omitidas, ${contextStats.memoryTruncated??0} abreviadas; prompt-base ${contextStats.promptChars} caracteres (memória integral em .nivoo/memoria.md; não é contagem de tokens)`, 'INFO', attempt.id);
     }
+    if(contextStats?.egmExecution)await L('Elephant: rota '+contextStats.egmExecution.route+'; checklist '+contextStats.egmExecution.scopeHash.slice(0,12)+'; base '+(contextStats.egmExecution.baseline.commit??'não comprovada')+'; Goldfish não executado nesta sessão.','INFO',attempt.id);
     if(contextStats?.leanExecution)await L(`Execução enxuta aplicada: ${contextStats.memoryPromptChars} caracteres de memória e ${contextStats.artifactPromptChars} de artefatos no contexto; acervo integral disponível sob demanda.`, 'INFO', attempt.id);
     const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
     const mediaBefore=captureMediaOutputs(job,step,this.pastaDeMidia(job.project.dirKey));
