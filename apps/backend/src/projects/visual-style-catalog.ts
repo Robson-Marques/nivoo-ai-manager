@@ -109,7 +109,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "name": "Crystal Glass",
     "description": "Vidro cristalino, contorno polido, transparência e reflexos definidos.",
     "preferredTheme": "light",
-    "tintOpacity": 0.78,
+    "tintOpacity": 0.56,
     "blurPx": 5,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(255,255,255,.36), inset 1px 0 0 rgba(255,255,255,.48)",
     "guidance": "Vidro cristalino: contorno polido, reflexo especular e camadas flutuantes. Preserve conteúdo opaco; evite confundir aproximação CSS com refração óptica."
@@ -119,7 +119,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "name": "Frosted Glass",
     "description": "Vidro fosco e acetinado, difusão suave, sensação de profundidade.",
     "preferredTheme": "light",
-    "tintOpacity": 0.88,
+    "tintOpacity": 0.76,
     "blurPx": 20,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.48)",
     "guidance": "Vidro fosco: maior difusão e tonalidade leitosa, contornos delicados, sem reflexos excessivos. Conteúdo legível e estável."
@@ -129,7 +129,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "name": "Dark Glass",
     "description": "Vidro fumê, grafite translúcido e reflexos contrastantes.",
     "preferredTheme": "dark",
-    "tintOpacity": 0.85,
+    "tintOpacity": 0.68,
     "blurPx": 14,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.36), inset 0 -1px 0 rgba(0,0,0,.25)",
     "guidance": "Vidro fumê: prefira tema escuro se delegado, reflexos discretos e profundidade. Se o tema claro foi escolhido, adapte o material sem contrariar a decisão."
@@ -139,7 +139,7 @@ export const GLASS_VARIANTS:readonly GlassVariant[]=[
     "name": "Prism Glass",
     "description": "Reflexos iridescentes nas bordas, luz prismática e vidro em camadas.",
     "preferredTheme": "system",
-    "tintOpacity": 0.82,
+    "tintOpacity": 0.62,
     "blurPx": 8,
     "highlight": "inset 0 1px 0 rgba(255,255,255,.85), inset 1px 0 0 rgba(96,165,250,.75), inset -1px 0 0 rgba(216,180,254,.75), inset 0 -1px 0 rgba(94,234,212,.55)",
     "guidance": "Vidro prismático: reflexos iridescentes pontuais e separação de planos. A aparência cromática CSS não é refração real; não imponha shader ou WebGL. Preserve a paleta da marca no conteúdo."

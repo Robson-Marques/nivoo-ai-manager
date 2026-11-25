@@ -65,7 +65,7 @@ export function Layout() {
   const [erroMover, setErroMover] = useState('');
   const [dragDestino, setDragDestino] = useState<string | null>(null);
   // Projeto arquivado aberto (pelo "Arquivados"): aparece no menu enquanto estiver aberto, com as conversas dele.
-  const [abertoArquivado, setAbertoArquivado] = useState<any | null>(null);
+  const [abertoArquivado, setAbertoArquivado] = useState<{id:string;name:string;archivedAt?:string|null}|null>(null);
   // Lista de projetos recolhida para a esquerda (lembrado neste navegador).
   const [recolhido, setRecolhidoBruto] = useState(() => {
     try {

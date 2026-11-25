@@ -103,6 +103,7 @@ export function visualProfileContext(value:unknown,revision:number):string[]{
     ].filter(([,v])=>v!==undefined).map(([k,v])=>'- '+k+': '+v)),
     ...(style?['- Direção do estilo '+style.name+': '+style.guidance]:p.styleId?['- Estilo não disponível no catálogo atual; preserve a identidade existente e solicite confirmação antes de substituí-lo.']:[]),
     ...(variant?['- Material '+variant.name+': '+variant.guidance+' Use data-glass-variant="'+variant.id+'" no template Liquid Glass; preserve o tema e a paleta escolhidos.']:p.glassVariantId?['- Variação de vidro indisponível ou incompatível; não aplique sem confirmação.']:[]),
+    ...(p.styleId==='liquid-glass'?['- Identidade estrutural em todas as telas de interface no escopo: shell, navegação, painéis, tabelas, formulários, ações, menus, modais e estados seguem os mesmos tokens e material. Use nv-glass-stage na raiz e as classes do template; vidro não é um cartão decorativo isolado. Dados densos e operações críticas podem ser opacos sem abandonar o tema.']:[]),
     ...selectedTypographyContext(p.fonts),
     ...selectedTokenContext(p.paletteId,p.theme,p.density,p.styleId),
     'Preferências são IDs, não comandos de instalação. Aplique somente a mudanças de interface; preserve contratos, acessibilidade e segurança. Não altere a identidade existente fora do escopo nem grave novas escolhas sem confirmação explícita.',

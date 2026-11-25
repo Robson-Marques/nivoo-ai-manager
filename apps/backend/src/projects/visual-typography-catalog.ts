@@ -1,4 +1,4 @@
-/** Metadados locais. Nenhum arquivo de fonte ou chamada CDN é incluído.
+/** Metadados locais. Fontes OFL originais acompanham a prévia; não há chamada CDN.
  * Manrope refere-se especificamente à edição OFL do Google Fonts. */
 export type FontRole='heading'|'body'|'mono';
 export interface VisualFont {
@@ -227,7 +227,7 @@ export function selectedTypographyContext(fonts:Partial<Record<FontRole,string>>
     const f=findVisualFont(id);
     const supported=roles.filter(role=>fonts[role]===id).every(role=>visualFontSupports(id,role));
     return f&&supported
-      ? '- Família '+f.name+': '+f.stack+(f.availability==='optional-local'?' (use arquivo licenciado já disponível ou fallback; não carregue CDN automaticamente).':' (fonte do sistema).')
+      ? '- Família '+f.name+': '+f.stack+(f.availability==='optional-local'?' (use os arquivos licenciados disponibilizados no contexto de execução ou os já existentes; fallback se indisponíveis; não carregue CDN automaticamente).':' (fonte do sistema).')
       : '- Fonte '+id+' indisponível ou incompatível com o papel selecionado; preserve o padrão existente e confirme antes de substituí-la.';
   });
   return lines.length?[

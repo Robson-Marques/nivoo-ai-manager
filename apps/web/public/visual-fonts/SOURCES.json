@@ -1,0 +1,43 @@
+{
+  "repository": "https://github.com/google/fonts",
+  "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+  "license": "OFL-1.1",
+  "files": [
+    {
+      "id": "inter",
+      "path": "ofl/inter/Inter[opsz,wght].ttf",
+      "sha": "047c92f6e2212473dc436020afed689527076d44",
+      "name": "inter.ttf"
+    },
+    {
+      "id": "manrope",
+      "path": "ofl/manrope/Manrope[wght].ttf",
+      "sha": "75274da58537d6123b14f2cd0c355ad4681fc2b3",
+      "name": "manrope.ttf"
+    },
+    {
+      "id": "ibm-plex-sans",
+      "path": "ofl/ibmplexsans/IBMPlexSans[wdth,wght].ttf",
+      "sha": "30f837e8b02e8ecddce6cbebc425b1f422392515",
+      "name": "ibm-plex-sans.ttf"
+    },
+    {
+      "id": "ibm-plex-serif",
+      "path": "ofl/ibmplexserif/IBMPlexSerif-Regular.ttf",
+      "sha": "069d26a6c7951cd60811dcd100bdf2e6f39cfcc4",
+      "name": "ibm-plex-serif-400.ttf"
+    },
+    {
+      "id": "ibm-plex-serif",
+      "path": "ofl/ibmplexserif/IBMPlexSerif-SemiBold.ttf",
+      "sha": "36a384606376da5be8493662d9f7c5f3b620ac6e",
+      "name": "ibm-plex-serif-600.ttf"
+    },
+    {
+      "id": "ibm-plex-mono",
+      "path": "ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
+      "sha": "0c9770d5183ba60dc4350d3e011b782a320761ae",
+      "name": "ibm-plex-mono.ttf"
+    }
+  ]
+}

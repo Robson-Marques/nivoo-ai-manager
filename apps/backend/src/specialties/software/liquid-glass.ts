@@ -47,7 +47,7 @@ type Focus='material'|'camadas'|'refracao'|'acessibilidade'|'desempenho'|'movime
 type Facet={id:Focus;match:RegExp;rule:string};
 const FACETS:readonly Facet[]=[
   {id:'material',match:/\b(?:vidro|glass|frosted|transluc\w*|transparen\w*|iluminac\w*|reflex\w*|borda|sombra|profundidade|materia\w*|blur|backdrop-filter)\b/,rule:'Material: use tonalidade controlada, contornos e luz discretos; mantenha raios e sombras coerentes com os tokens. CSS translúcido é aproximação de vidro fosco.'},
-  {id:'camadas',match:/\b(?:botoes?|botao|menus?|navbar|toolbar|sidebar|modais?|modal|paineis?|painel|dashboard|tabelas?|formularios?|navegacao|camadas?|overlays?)\b/,rule:'Camadas: vidro em navegação, controles e overlays pertinentes; conteúdo, dados e formulários críticos sobre superfícies estáveis.'},
+  {id:'camadas',match:/\b(?:botoes?|botao|menus?|navbar|toolbar|sidebar|modais?|modal|paineis?|painel|dashboard|tabelas?|formularios?|navegacao|camadas?|overlays?)\b/,rule:'Camadas: identidade estrutural do aplicativo, com material coerente na navegação, painéis, controles, menus e overlays; dados e formulários críticos em superfícies estáveis do mesmo design system. Não entregue um painel comum com uma amostra decorativa de vidro.'},
   {id:'refracao',match:/\b(?:refra\w*|distorc\w*|displacement|svg|webgl|shaders?|canvas|optica)\b/,rule:'Refração: valide deformação real do fundo e suporte no navegador; SVG, canvas ou shader apenas se necessários. Fallback opaco/CSS não deve ser chamado de refração real.'},
   {id:'acessibilidade',match:/\b(?:acessib\w*|a11y|contraste|legibilidade|texto|zoom|teclado|foco|toque|mobile|celular|transparen\w*)\b/,rule:'Acessibilidade: teste contraste composto sobre fundos reais, foco, toque, zoom e alternativa opaca; preserve preferências de redução de movimento/transparência quando aplicáveis.'},
   {id:'desempenho',match:/\b(?:performance|desempenho|fps|gpu|cpu|mobile|celular|navegadores?|safari|firefox|chrome|fallback|compatib\w*)\b/,rule:'Desempenho: limite blur e camadas, use melhoria progressiva, descarte recursos e verifique fallback por navegador. Não prometa FPS sem medir.'},
@@ -61,7 +61,7 @@ export function liquidGlassContext(phase:'planner'|'execution',text:string):stri
   const ids=new Set(liquidGlassFocus(text));
   return [
     '## Liquid Glass — material, profundidade e melhoria progressiva',
-    phase==='planner'?'No plano, delimite superfícies autorizadas, preserve conteúdo legível e identidade; proponha CSS leve como aproximação e refração somente se necessária e viável.':'Na etapa atual, aplique o material seletivamente, reutilize tokens e componentes; preserve ações e contraste, implemente fallback e valide somente o que for possível observar.',
+    phase==='planner'?'No plano, delimite superfícies autorizadas, preserve conteúdo legível e identidade; proponha CSS leve como aproximação e refração somente se necessária e viável.':'Na etapa atual, aplique a identidade em toda a interface no escopo, reutilize tokens e componentes; use vidro seletivo nas camadas e a mesma linguagem visual em conteúdo opaco. Preserve ações, contraste, fallback e verifique o resultado.',
     ...FACETS.filter(f=>ids.has(f.id)).map(f=>'- '+f.rule),
     'Não trate blur como refração. Não copie prompts ou assets, não instale efeito pesado por padrão e não crie sessão ou revisão extra. Preserve o perfil visual aprovado; se houver conflito, mantenha o padrão e esclareça a decisão.',
   ];

@@ -6,6 +6,7 @@ import { VISUAL_PALETTES,VISUAL_DENSITIES,STYLE_FOUNDATIONS } from '../../src/pr
 import { selectSkills } from '../../src/specialties/skills';
 import { softwareEngineeringSections } from '../../src/specialties/software/catalog';
 
+const cssOfTemplate=(p:ReturnType<typeof liquidGlassTemplate>)=>p.files[0].content;
 describe('Template Liquid Glass',()=>{
   it('gera CSS determinístico dos tokens, com fallback e escopo opt-in',()=>{
     const css=liquidGlassCss();
@@ -44,7 +45,8 @@ describe('Template Liquid Glass',()=>{
     expect(p.files[2].content).toContain('href="liquid-glass.css"');
     expect(p.files[1].content).toContain('O exemplo usa ocean-blue/system/');
     expect(p.files[2].content).toContain('data-palette="ocean-blue"');
-    expect(p.files[2].content).toContain('radial-gradient(');
+    expect(p.files[2].content).toContain('nv-glass-stage');
+    expect(cssOfTemplate(p)).toContain('.nv-glass-panel');
     expect(p.files[2].content).not.toMatch(/https?:\/\/|<script/i);
     expect(liquidGlassTemplateContext()).toEqual([]);
   });

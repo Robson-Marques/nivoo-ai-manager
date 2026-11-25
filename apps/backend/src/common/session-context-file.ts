@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 /** Write trusted, generated context without following links into the
  * repository or other projects. This is not an agent file-write tool. */
-export function writeSessionContextFile(worktree:string,relative:string,content:string):void{
+export function writeSessionContextFile(worktree:string,relative:string,content:string|Buffer):void{
   const parts=relative.split('/');
   if(!parts.length||parts.some(p=>!p||p==='.'||p==='..'||!/^[A-Za-z0-9._-]+$/.test(p)))
     throw new Error('Caminho de contexto inválido');

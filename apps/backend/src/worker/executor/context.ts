@@ -21,6 +21,7 @@ import { infoDeVersao,textoDaVersao } from '../../git/versao';
 import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
+import { visualFontAssetsContext } from '../../projects/visual-font-assets';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
@@ -81,6 +82,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
+    if(skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass'))add('fontes-visuais',visualFontAssetsContext(vinculo?.visualProfile,worktree));
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
     if(worktree){
       writeStageCard(worktree,stageCard(step,steps,priorAttempts,checkpoint,stepCheckpoint));
