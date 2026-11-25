@@ -12,6 +12,8 @@ import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
 import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
+import { driftRequest,parseDriftDirectory,loadDriftIntake,runSemanticDrift,renderSemanticDrift } from '../specialties/software/egm/drift';
+import { loopRequest,readLoopRecord,nextLoopRecord,assertLoopContinuation,renderLoopRecord,type LoopRecord } from '../specialties/software/egm/review-loop';
 import { runGoldfishReview,type GoldfishPhaseRecord } from '../specialties/software/egm/review-pipeline';
 import { assertReviewBinding,checkpointedGoldfishDispatch,createReviewCheckpoint,readReviewCheckpoint,reviewBinding,reviewTotals,type GoldfishCheckpoint } from '../specialties/software/egm/review-checkpoint';
 import { goldfishMessageWriter } from '../specialties/software/egm/review-persistence';
@@ -179,6 +181,8 @@ export class PlannerService {
 
     // Explicit Goldfish request only: no reviewer is added to normal planning or jobs.
     let goldfishScope:string|null=null;
+    let driftScope:string|null=null;
+    let loopParent:LoopRecord|null=null,loopParentId:string|null=null,loopLedger:ResolutionLedger|null=null,loopRepairRevision:string|null=null;
     let savedReview:GoldfishCheckpoint|null=null;
     let resolutionLedger:ResolutionLedger|null=null;
     let resolutionSourceId:string|null=null;
@@ -192,6 +196,29 @@ export class PlannerService {
       });
       adoptionRequest=userMessage?.content??'';
       goldfishScope=goldfishRequest(userMessage?.content??'');
+      driftScope=driftRequest(userMessage?.content??'');
+      const parentId=loopRequest(userMessage?.content??'');
+      if(parentId!==null){
+        try{
+          if(!/^[0-9a-f-]{36}$/i.test(parentId))throw Error('Informe o ID da rodada anterior: /goldfish-loop <id>.');
+          const previous=await this.prisma.conversationMessage.findFirst({where:{id:parentId,conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA',createdAt:{lt:msg.createdAt}},select:{goldfishState:true}});
+          const state=readReviewCheckpoint(previous?.goldfishState);
+          if(state.binding.projectId!==project.id||state.binding.messageId!==parentId||state.binding.conversationId!==msg.conversationId)throw Error('Rodada anterior não pertence ao projeto e conversa.');
+          loopParent=readLoopRecord(state.loop);loopLedger=readResolutionLedger(state.resolution);loopParentId=parentId;
+          if(loopParent.round>=5||loopParent.status==='converged'||loopParent.status==='cap')throw Error('Ciclo encerrado; nenhuma nova revisão iniciada.');
+          const duplicate=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,id:{not:msg.id},goldfishState:{path:['loop','parentMessageId'],equals:parentId}},select:{id:true}});
+          if(duplicate)throw Error('Já existe uma rodada posterior registrada para esta revisão.');
+          if(loopParent.open.length){
+            const repairs=await this.prisma.job.findMany({where:{projectId:project.id,status:'CONCLUIDO',approvedScope:{path:['egmResolution','reviewMessageId'],equals:parentId}},select:{approvedScope:true,mergedCommit:true},orderBy:{finishedAt:'desc'},take:5});
+            for(const repair of repairs){
+              const approved=approvedGoldfish(repair.approvedScope);
+              if(approved?.proofs?.length&&approved.revision===loopParent.revision&&repair.mergedCommit){loopRepairRevision=repair.mergedCommit;break;}
+            }
+            if(!loopRepairRevision)throw Error('Conclua a correção vinculada antes de repetir revisores.');
+          }
+          goldfishScope='--mode '+loopParent.preset+' "'+loopParent.targetPath+'"';
+        }catch(e){return fail((e as Error).message);}
+      }
       const resolveId=resolutionRequest(userMessage?.content??'');
       if(resolveId!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('Resolução Goldfish disponível apenas em projetos de software.');
@@ -207,9 +234,9 @@ export class PlannerService {
           resolutionSourceId=resolveId;
         }catch(e){return fail((e as Error).message);}
       }
-      if(goldfishScope!==null){
+      if(goldfishScope!==null||driftScope!==null){
         if(!softwareInterfaceEnabled(project.area))return fail('A revisão independente está disponível apenas em projetos de software.');
-        try{parseGoldfishTarget(goldfishScope);}catch(e){return fail((e as Error).message);}
+        try{if(driftScope!==null)parseDriftDirectory(driftScope);else parseGoldfishTarget(goldfishScope!);}catch(e){return fail((e as Error).message);}
         if(!goldfishTransportSupported(tipoDe(project.provider)))return fail('Goldfish indisponível nesta conexão. Nenhum provedor foi trocado nem sessão iniciada.');
         if(project.maxCostUsd!==null)return fail('O transporte Goldfish desta conexão não informa custo monetário completo por chamada. Com limite financeiro configurado, a revisão de várias sessões não será iniciada ou retomada. Nenhuma nova chamada foi realizada.');
         if(msg.goldfishState!=null){
@@ -222,7 +249,7 @@ export class PlannerService {
           return fail('Revisão anterior sem checkpoint por revisor. Não será repetida automaticamente.');
         }
       }
-      const recovery=goldfishScope===null&&!resolutionLedger?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
+      const recovery=goldfishScope===null&&driftScope===null&&!resolutionLedger?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
         const plan=bindPlanningSource(this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue,planningSource);
         const saved=await this.prisma.conversationMessage.updateMany({
@@ -248,7 +275,7 @@ export class PlannerService {
       limite429: status.errors.some((x) => /(?:HTTP\s*429|Too Many Requests)/i.test(x)),
     });
     let trocou = '';
-    if (!status.available && goldfishScope===null) {
+    if (!status.available && goldfishScope===null&&driftScope===null) {
       // IA reserva do projeto: responde com a próxima conectada em vez de parar.
       const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
       if (reserva) {
@@ -264,7 +291,7 @@ export class PlannerService {
     }
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
-    const tmp = path.join(project.workspacePath, 'conversas-tmp', goldfishScope!==null?msg.id+'-goldfish-'+task.claims:msg.id);
+    const tmp = path.join(project.workspacePath, 'conversas-tmp', (goldfishScope!==null||driftScope!==null)?msg.id+'-goldfish-'+task.claims:msg.id);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
     try {
@@ -274,18 +301,20 @@ export class PlannerService {
         const drift=await detectGoldfishGitDrift(repo,resolutionLedger.revision,resolutionLedger.targetPath,signal);
         if(drift.status!=='unchanged')return fail(renderGoldfishGitDrift(drift)+'\nRevise o documento na revisão atual antes de propor edições.');
       }
-      if(goldfishScope!==null){
+      if(goldfishScope!==null||driftScope!==null){
         const rev=await runProcess('git',['-C',repo,'rev-parse','--verify',(savedReview?.binding.revision??'main')+'^{commit}'],{cwd:tmp,env:minimalEnv(),timeoutMs:60_000});
         revision=rev.stdout.trim();
         if(rev.exitCode!==0||!/^[a-f0-9]{40,64}$/.test(revision))return fail('Não foi possível identificar a revisão da pasta principal para análise independente.');
+        if(loopParent&&loopLedger){try{assertLoopContinuation(loopParent,loopLedger,loopRepairRevision,revision);}catch(e){return fail((e as Error).message);}}
         const snapshot=await runProcess('bash',['-c','set -o pipefail; git -C "$1" archive "$3" | tar -x -C "$2"','_',repo,tmp,revision],{cwd:tmp,env:minimalEnv(),timeoutMs:120_000});
         if(snapshot.exitCode!==0)return fail('Não foi possível preparar o snapshot para análise independente.');
         // Never prepare the regular planner context or profile for an isolated review.
-        let intake:ReturnType<typeof loadGoldfishTarget>;
-        try{intake=loadGoldfishTarget(tmp,goldfishScope);}catch(e){return fail('Goldfish: '+(e as Error).message);}
+        let intake:ReturnType<typeof loadGoldfishTarget>|null=null;
+        let driftIntake:ReturnType<typeof loadDriftIntake>|null=null;
+        try{if(driftScope!==null)driftIntake=loadDriftIntake(tmp,driftScope);else intake=loadGoldfishTarget(tmp,goldfishScope!);}catch(e){return fail('Goldfish: '+(e as Error).message);}
         const reviewRoot=fs.mkdtempSync(path.join(tmp,'goldfish-run-'));
         let cancelled=false;
-        const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:intake.preset},intake.target,intake.baseline);
+        const binding=reviewBinding({projectId:project.id,conversationId:msg.conversationId,messageId:msg.id,providerId,model:projectModel(project,providerId)??null,revision,preset:driftIntake?'drift':intake!.preset},driftIntake?{path:driftIntake.directory,content:JSON.stringify(driftIntake)}:intake!.target,driftIntake?[]:intake!.baseline);
         const checkpoint=savedReview??createReviewCheckpoint(binding);
         try{assertReviewBinding(checkpoint,binding);}catch(e){return fail((e as Error).message);}
         const writeReview=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
@@ -323,7 +352,18 @@ export class PlannerService {
         const journal=checkpointedGoldfishDispatch({checkpoint,dispatch:transport,save:persist,canContinue:()=>!cancelled&&!signal.aborted});
         captureUsage=journal.onUsage;
         if(!await writeReview({goldfishState:checkpoint as unknown as Prisma.InputJsonValue,startedAt:msg.startedAt??new Date(),costUsd:reviewTotals(checkpoint).costUsd}))return;
-        registrarTempo('goldfish_inicio',{provedor:providerId,revisao:revision,modo:String(intake.preset),referencias:intake.baseline.length});
+        registrarTempo('goldfish_inicio',{provedor:providerId,revisao:revision,modo:String(binding.preset),referencias:intake?.baseline.length??0});
+        if(driftIntake){
+          const drift=await runSemanticDrift({intake:driftIntake,revision,dispatch:journal.dispatch,signal,onDocument:async doc=>{
+            if(!await writeReview({andamento:'Drift: '+doc.path+' — '+doc.status}))cancelled=true;
+          }});
+          if(signal.aborted||cancelled)return;
+          const totals=journal.totals(),complete=!drift.pending.length&&drift.results.every(r=>r.status!=='not-run');
+          const saved=await writeReview({status:complete?'PRONTA':'ERRO',kind:complete?'resposta':'erro',content:renderSemanticDrift(drift)+'\n\nTentativas registradas: '+totals.calls+'; custo integral '+(totals.costKnown?'informado':'desconhecido')+'.',goldfishState:{...journal.state(),drift} as unknown as Prisma.InputJsonValue,completedAt:new Date()});
+          if(saved)await this.queue.complete(task.id,workerId);
+          return;
+        }
+        if(!intake)throw Error('Alvo Goldfish ausente.');
         let run:Awaited<ReturnType<typeof runGoldfishReview>>;
         try{
           run=await runGoldfishReview({preset:intake.preset,revision,target:intake.target,baseline:intake.baseline,signal,dispatch:journal.dispatch,onPhase:async phase=>{
@@ -341,11 +381,12 @@ export class PlannerService {
         if(signal.aborted||cancelled)return; // lease lost: do not overwrite the next worker.
         const totals=journal.totals();
         const resolution=consolidateGoldfish(run,intake.target.path);
+        const loop=nextLoopRecord({messageId:msg.id,parentMessageId:loopParentId??undefined,parent:loopParent??undefined,ledger:resolution,preset:intake.preset,coverageLimited:intake.omitted.length>0});
         const accounting='Consumo registrado: '+totals.calls+' tentativa(s); '+totals.inputTokens+' tokens de entrada e '+totals.outputTokens+' de saída informados; '+(totals.tokensKnown?'contagem completa':'contagem parcial')+'.'+(totals.uncertain?' '+totals.uncertain+' tentativa(s) com resultado incerto; não repetidas.':'');
         const saved=await writeReview({
           status:run.status==='complete'?'PRONTA':'ERRO',kind:run.status==='complete'?'resposta':'erro',
-          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+accounting+(resolution.ready&&resolution.actions.length?'\n\nPara avaliar os achados e propor correções: /goldfish-resolve '+msg.id:''),completedAt:new Date(),
-          goldfishState:{...journal.state(),resolution} as unknown as Prisma.InputJsonValue,
+          content:renderGoldfishRun(run,intake.omitted,totals.costKnown)+'\n\n'+renderResolutionLedger(resolution)+'\n\n'+renderLoopRecord(loop,msg.id)+'\n\n'+accounting+(resolution.ready&&resolution.actions.length?'\n\nPara avaliar os achados e propor correções: /goldfish-resolve '+msg.id:''),completedAt:new Date(),
+          goldfishState:{...journal.state(),resolution,loop} as unknown as Prisma.InputJsonValue,
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
         if(saved)await this.queue.complete(task.id,workerId);
