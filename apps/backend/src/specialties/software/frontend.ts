@@ -35,6 +35,7 @@ export function frontendIntent(text:string):boolean{
   return /\b(?:frontend|front-end|react|vue|angular|svelte|next\.js|componentes? (?:react|de interface)|interface (?:web|do sistema)|responsiv\w*|formularios?|telas? do sistema|design system|acessibilidade|a11y|viewport|pwa|teclado virtual)\b/.test(t)
     || /\b[\w./-]+\.(?:tsx|jsx|vue|svelte)\b/.test(t)
     || /\b(?:app|pages|components|views|screens|frontend|web)\/[\w./-]+\.(?:html|css|scss|sass|less|[cm]?[jt]s)\b/.test(t)
+    || (/\b(?:mostrar|exibir|apresentar|ocultar|adicionar|remover)\b.{0,75}\b(?:linhas?|colunas?|botoes?|botao|cards?|cartoes?|tabelas?|campos?|abas?)\b/.test(t)&&!/\b(?:terminal|stdout|stderr|console|linha de comando|select sql)\b/.test(t))
     || /\b(?:corrigir|ajustar|criar|alterar|implementar|desenvolver|refatorar)\b.{0,100}\b(?:tela|pagina web|menu|botao|navegacao|layout da interface|foco do campo)\b/.test(t);
 }
 export function frontendFocus(text:string):Focus[]{
