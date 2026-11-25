@@ -204,7 +204,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       } catch {
         /* melhor esforço */
       }
-      await L(`Verificação da etapa: exit ${v.exitCode}${vOut ? ` — ${vOut}` : ''}`, v.exitCode === 0 ? 'INFO' : 'WARN', attempt.id);
+      await L(`Verificação da etapa: exit ${v.exitCode}${v.timedOut?' (tempo esgotado)':''}${v.aborted?' (interrompida)':''}${vOut ? ` — ${vOut}` : ''}`, verificationPassed(v) ? 'INFO' : 'WARN', attempt.id);
       verified = verificationPassed(v);
       if (v.aborted) result = { ...result, interrupted: true };
       else if (verified && result.sessionEnded && !target && !deliveries.length) {

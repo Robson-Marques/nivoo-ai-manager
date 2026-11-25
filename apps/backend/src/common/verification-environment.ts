@@ -15,7 +15,7 @@ export async function prepareVerificationEnvironment(projectId:string,jobId:stri
     catch { return {ok:false,problem:{kind:'credential',detail:'A conta Git vinculada à variável da conferência '+name+' não está disponível.'}}; }
   }
   let banco:Awaited<ReturnType<typeof prepararBancoDeTeste>>;
-  try { banco=await prepararBancoDeTeste(jobId); }
+  try { banco=await prepararBancoDeTeste(jobId); if(process.env.NIVOO_TESTES_PG_URL&&!banco)throw Error('configuração inválida'); }
   catch { return {ok:false,problem:{kind:'infrastructure',detail:'Não foi possível preparar o PostgreSQL descartável configurado no Nivoo. Confira o serviço e NIVOO_TESTES_PG_URL.'}}; }
   let porta:number;
   try { porta=await portaLivre(); }
@@ -39,12 +39,12 @@ export function verificationProblem(r:Pick<RunResult,'exitCode'|'stdout'|'stderr
   if(infra)return {kind:'infrastructure',detail:infra};
   // Require package-manager context; a 401 from the application under test
   // must not be mistaken for a missing package-registry credential.
-  const credential=/(?:npm (?:error|ERR!)|ERR_PNPM_FETCH_40[13]|(?:pip|yarn)[^\n]*(?:40[13]|Unauthorized|Forbidden)|(?:registry|packages?\/npm|artifactory|nexus)[^\n]*(?:40[13]|Unauthorized|Forbidden))/i.test(output)?faltaCredencial(output):null;
+  const credential=/(?:npm (?:error|ERR!) code E40[13]|ERR_PNPM_FETCH_40[13]|(?:pip|yarn)[^\n]*(?:40[13]|Unauthorized|Forbidden)|(?:registry|packages?\/npm|artifactory|nexus)[^\n]*(?:40[13]|Unauthorized|Forbidden))/i.test(output)?faltaCredencial(output):null;
   if(credential)return {kind:'credential',detail:credential};
   if(r.exitCode===127){
     const missing=/(?:^|[\s:])([A-Za-z0-9_./-]+): (?:command not found|comando não encontrado|not found)/m.exec(output)?.[1];
     const direct=command.split(/&&|\|\||;|\|/).map(s=>s.trim().replace(/^\(+\s*/,'').split(/\s+/)[0]);
-    if(missing&&direct.includes(missing))return {kind:'tool',detail:missing};
+    if(missing&&!missing.startsWith('.')&&(!missing.includes('/')||/^\/(?:usr\/local\/bin|usr\/bin|bin)\//.test(missing))&&direct.includes(missing))return {kind:'tool',detail:missing};
   }
   return null;
 }
