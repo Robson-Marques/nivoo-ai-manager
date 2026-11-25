@@ -521,6 +521,8 @@ export class CompletionService {
       let automaticNotice='';
       const scope=readApprovedScope(job.approvedScope,job.projectId);
       if(scope&&changed&&mergedCommit&&!handoff&&criteria.some(c=>capabilityReference(c.config))){
+        // Serialize automatic review admission across this project's conversations.
+        await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${job.projectId} FOR UPDATE`;
         const current=await tx.project.findUnique({where:{id:job.projectId},include:{area:true}});
         if(current){
           const decision=automaticGoldfishDecision({projectId:job.projectId,area:current.area,approvedScope:job.approvedScope,criteria,passedKeys:new Set(approved.map(c=>c.key)),files,revision:mergedCommit,providerType:tipoDe(current.provider),budgetConfigured:current.maxCostUsd!==null,specialtyHandoff:!!handoff});
@@ -528,7 +530,7 @@ export class CompletionService {
           else{
             const conversation=await tx.conversation.findFirst({where:{id:plano.conversationId,projectId:job.projectId,archivedAt:null}});
             const newer=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{role:'USUARIO',createdAt:{gt:new Date(scope.cutoff)}},{status:'PENDENTE'},{kind:'plano',createdAt:{gt:new Date(scope.approvedAt)}}]},select:{id:true}});
-            const prior=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId,OR:[{goldfishState:{path:['automaticRequest','revision'],equals:mergedCommit},AND:[{goldfishState:{path:['automaticRequest','targetPath'],equals:decision.targetPath}}]}]},select:{id:true}});
+            const prior=await tx.conversationMessage.findFirst({where:{conversation:{projectId:job.projectId},OR:[{AND:[{goldfishState:{path:['automaticRequest','revision'],equals:mergedCommit}},{goldfishState:{path:['automaticRequest','targetPath'],equals:decision.targetPath}}]},{status:'PRONTA',AND:[{goldfishState:{path:['binding','revision'],equals:mergedCommit}},{goldfishState:{path:['resolution','targetPath'],equals:decision.targetPath}},{goldfishState:{path:['resolution','ready'],equals:true}},{OR:[{goldfishState:{path:['binding','preset'],equals:7}},{goldfishState:{path:['binding','preset'],equals:'feature_spec'}},{goldfishState:{path:['binding','preset'],equals:'uninterrupted'}}]}]}]},select:{id:true}});
             if(!conversation||newer||prior)automaticNotice='Goldfish automático não acionado: conversa alterada, arquivada ou revisão já registrada.';
             else{
               automatic={version:1,jobId,projectId:job.projectId,conversationId:plano.conversationId,revision:mergedCommit,targetPath:decision.targetPath,preset:decision.preset,providerId:current.provider,model:projectModel(current,current.provider)??null};
