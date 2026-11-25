@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import { sendKnowledgeFile } from '../common/knowledge-upload';
 import { ProjectsService } from './projects.service';
 import { visualStyleCatalog } from './visual-style-catalog';
+import { visualTypographyCatalog } from './visual-typography-catalog';
 import { PreviaService } from '../previa/previa.service';
 import { VOZES_NARRACAO } from '../providers/vozes';
 import { streamMedia } from '../common/media-stream';
@@ -44,6 +45,11 @@ export class ProjectsController {
   @Get('visual-styles')
   visualStyles() {
     return visualStyleCatalog();
+  }
+
+  @Get('visual-typography')
+  visualTypography() {
+    return visualTypographyCatalog();
   }
 
   @Get(':pid')

@@ -26,12 +26,24 @@ describe('Perfil visual persistente',()=>{
     const explicit={...guided,styleId:'premium-dark',theme:'light'};
     expect(parseVisualProfileUpdate({expectedRevision:0,profile:explicit}).profile).toEqual(explicit);
   });
+  it('valida fontes e papéis sem impor combinação ou apagar legado',()=>{
+    const invalid={...guided,fonts:{heading:'ibm-plex-mono'}};
+    expect(parseVisualProfile(invalid)).toEqual(invalid);
+    expect(()=>parseVisualProfileUpdate({expectedRevision:0,profile:invalid})).toThrow('Fonte visual');
+    expect(visualProfileContext(invalid,1).join('\n')).toContain('indisponível ou incompatível');
+    expect(()=>parseVisualProfileUpdate({expectedRevision:0,profile:{...guided,fonts:{body:'legacy-font'}}})).toThrow('Fonte visual');
+    const custom={...guided,fonts:{heading:'ibm-plex-serif',body:'system-sans',mono:'system-mono'}};
+    expect(parseVisualProfileUpdate({expectedRevision:0,profile:custom}).profile).toEqual(custom);
+  });
   it('compõe orientação enxuta, sem campos indefinidos e sem conteúdo não confiável',()=>{
     expect(visualProfileContext(null,0)).toEqual([]);
     const t=visualProfileContext(guided,2).join('\n');
     expect(t).toContain('revisão 2');
     expect(t).toContain('Estilo: liquid-glass');
     expect(t).toContain('Fonte de texto: manrope');
+    expect(t).toContain('Família Inter:');
+    expect(t).toContain('Família Manrope:');
+    expect(t).not.toContain('Família IBM Plex');
     expect(t).toContain('Direção do estilo Liquid Glass');
     expect(t).not.toContain('Direção do estilo Corporativo');
     expect(t).not.toContain('Paleta:');

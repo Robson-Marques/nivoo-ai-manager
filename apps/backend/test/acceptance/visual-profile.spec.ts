@@ -10,6 +10,13 @@ describe('API — perfil visual de projeto',()=>{
     expect(result.version).toBe(1);
     expect(result.styles.map((s:any)=>s.id)).toEqual(['liquid-glass','minimalist','corporate','premium-dark']);
   });
+  it('expõe fontes e combinações sem instalar ativos',async()=>{
+    const result=(await h.http().get('/api/projects/visual-typography').expect(200)).body;
+    expect(result.version).toBe(1);
+    expect(result.fonts).toHaveLength(8);
+    expect(result.pairings).toHaveLength(5);
+    expect(result.fonts.find((f:any)=>f.id==='manrope')).toMatchObject({license:'OFL-1.1',availability:'optional-local'});
+  });
   it('persiste decisão, isola projetos, rejeita revisão antiga, restaura ausência e compõe o perfil compartilhado',async()=>{
     const a=(await h.http().post('/api/projects').send({name:'Visual A',base:'software'}).expect(201)).body;
     const b=(await h.http().post('/api/projects').send({name:'Visual B',base:'software'}).expect(201)).body;
@@ -19,6 +26,8 @@ describe('API — perfil visual de projeto',()=>{
     expect(a.visualProfileRevision).toBe(0);
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,rawCss:'a'}}).expect(400);
     await h.http().patch(url).send({expectedRevision:0,profile:{...p,styleId:'not-in-catalog'}}).expect(400);
+    await h.http().patch(url).send({expectedRevision:0,profile:{...p,fonts:{body:'ibm-plex-mono'}}}).expect(400);
+    await h.http().patch(url).send({expectedRevision:0,profile:{...p,fonts:{body:'not-in-catalog'}}}).expect(400);
     const saved=(await h.http().patch(url).send({expectedRevision:0,profile:p}).expect(200)).body;
     expect(saved.visualProfile).toEqual(p);
     expect(saved.visualProfileRevision).toBe(1);
