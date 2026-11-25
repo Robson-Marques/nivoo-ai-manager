@@ -63,7 +63,7 @@ const TIPOS: Record<string, string> = {
 /** HTTPS embeds need a cookie that is accepted in cross-site contexts.
  * Keep it host-only and HttpOnly; never move the project to the origin of the manager. */
 export function cookieDaPrevia(token: string, https: boolean): string {
-  return `nivoo_previa=${token}; Path=/; HttpOnly; ${https ? 'SameSite=None; Secure; Partitioned' : 'SameSite=Lax'}`;
+  return `nivoo_previa=${token}; Path=/; HttpOnly; ${https ? 'SameSite=None; Secure' : 'SameSite=Lax'}`;
 }
 export function caminhoDaPrevia(raw: string | null): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\r\n]/.test(raw)) return '/';
@@ -337,10 +337,12 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   // ---------------- portão ----------------
 
   private porCookie(req: http.IncomingMessage): Previa | null {
-    const tokens = String(req.headers.cookie ?? '').split(';').map(c => c.trim()).filter(c => /^nivoo_previa=[a-f0-9]{48}$/.test(c)).map(c => c.slice('nivoo_previa='.length));
-    // A browser can send an old non-partitioned cookie together with a partitioned one.
-    const valid = [...this.previas.values()].filter(p => tokens.includes(p.token) && p.estado === 'no-ar');
-    if (valid.length === 1) return valid[0];
+    const cookies = String(req.headers.cookie ?? '').split(';').map(c => c.trim());
+    // Prefer the partitioned session when supplied; never fall back to a different project.
+    const selected = cookies.find(c => /^nivoo_previa_part=[a-f0-9]{48}$/.test(c)) ?? cookies.find(c => /^nivoo_previa=[a-f0-9]{48}$/.test(c));
+    if (!selected) return null;
+    const token=selected.split('=')[1];
+    for (const p of this.previas.values()) if (p.token===token && p.estado==='no-ar') return p;
     return null;
   }
 
@@ -353,7 +355,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
         if (!p) return this.pagina(res, 404, 'Esta prévia não está mais no ar. Ligue de novo pelo Nivoo.');
         const seguro = this.urlPublica().startsWith('https://') || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() === 'https';
         res.writeHead(302, {
-          'Set-Cookie': [cookieDaPrevia(t, seguro), ...(seguro ? ['nivoo_previa=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0'] : [])],
+          'Set-Cookie': [cookieDaPrevia(t, seguro), ...(seguro ? [`nivoo_previa_part=${t}; Path=/; HttpOnly; SameSite=None; Secure; Partitioned`] : [])],
           Location: caminhoDaPrevia(url.searchParams.get('caminho')),
           'Referrer-Policy': 'no-referrer',
           'Cache-Control': 'no-store',
@@ -399,7 +401,7 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
 
   private semNossoCookie(cabecalhos: http.IncomingHttpHeaders): http.OutgoingHttpHeaders {
     const h: http.OutgoingHttpHeaders = { ...cabecalhos };
-    const c = String(h.cookie ?? '').split(/;\s*/).filter((x) => x && !x.startsWith('nivoo_previa=')).join('; ');
+    const c = String(h.cookie ?? '').split(/;\s*/).filter((x) => x && !x.startsWith('nivoo_previa=') && !x.startsWith('nivoo_previa_part=')).join('; ');
     if (c) h.cookie = c;
     else delete h.cookie;
     return h;

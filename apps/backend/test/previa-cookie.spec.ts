@@ -3,7 +3,7 @@ describe('Acesso da prévia pelo navegador',()=>{
   it('usa cookie HTTPS host-only compatível com iframes',()=>{
     const c=cookieDaPrevia('a'.repeat(48),true);
     expect(c).toContain('HttpOnly');
-    expect(c).toContain('SameSite=None; Secure; Partitioned');
+    expect(c).toContain('SameSite=None; Secure');
     expect(c).not.toContain('Domain=');
   });
   it('preserva o acesso HTTP local',()=>{
