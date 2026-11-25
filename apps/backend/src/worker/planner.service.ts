@@ -11,7 +11,8 @@ import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
 import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
-import { liteRequest,litePlanTarget,liteDiffTarget,runLiteReview,renderLiteResult,type LiteIntake } from '../specialties/software/egm/lite-review';
+import { liteFindings,liteDiffLedger,liteSpecContext,validateLiteSpecRevision,renderLiteSpecDecisions } from '../specialties/software/egm/lite-resolution';
+import { liteRequest,litePlanTarget,liteDiffTarget,runLiteReview,renderLiteResult,type LiteIntake,type LiteResult } from '../specialties/software/egm/lite-review';
 import { routeEgm,renderEgmRoute,previousEgmBaseline,executionChecklist } from '../specialties/software/egm/lite-routing';
 import { AUTOMATIC_GOLDFISH_KIND,readAutoReview,automaticReviewMatches,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
 import { createGoldfishDispatch,goldfishTransportSupported,loadGoldfishTarget,parseGoldfishTarget,renderGoldfishRun } from '../specialties/software/egm/review-http';
@@ -194,6 +195,7 @@ export class PlannerService {
     let resolutionLedger:ResolutionLedger|null=null;
     let resolutionSourceId:string|null=null;
     let goldfishResolutionContext:string|null=null;
+    let specResolution:{result:LiteResult;original:Prisma.JsonValue;reviewId:string;cutoff:string}|null=null;
     // Explicit FPS-only recovery is a deterministic continuation, not a
     // request for a language model to invent another assembly plan.
     if(automaticReview){
@@ -282,10 +284,26 @@ export class PlannerService {
         try{
           const state=readReviewCheckpoint(source.goldfishState);
           if(state.binding.projectId!==project.id||state.binding.conversationId!==msg.conversationId||state.binding.messageId!==resolveId)throw Error('Vínculo da revisão inválido.');
+          if(state.binding.preset==='lite-spec'){
+            const result=state.lite;
+            if(!result||result.mode!=='lite-spec'||result.sourceId!==state.binding.liteSourceId||result.revision!==state.binding.revision||result.status!=='findings')throw Error('Revisão Lite inválida.');
+            const original=await this.prisma.conversationMessage.findFirst({where:{id:result.sourceId,conversationId:msg.conversationId,role:'ASSISTENTE',kind:'plano',status:'PRONTA',jobId:null,approvedAt:null},select:{plan:true}});
+            const meta=readPlanningSource(original?.plan);
+            if(!original?.plan||!meta||meta.projectId!==project.id||meta.areaId!==project.areaId||meta.visualRevision!==project.visualProfileRevision)throw Error('Checklist original indisponível ou já aprovado.');
+            const requirement=await this.prisma.conversationMessage.findFirst({where:{conversationId:msg.conversationId,role:'USUARIO',createdAt:{lte:new Date(meta.cutoff)}},orderBy:{createdAt:'desc'},select:{content:true}});
+            if(!requirement)throw Error('Requisito original indisponível.');
+            const expected=reviewBinding({...state.binding},litePlanTarget(original.plan,requirement.content),[]);
+            assertReviewBinding(state,expected);
+            if(await this.workspace.headCommit(this.workspace.projectDirs(project.dirKey).repo)!==result.revision)throw Error('A revisão de referência mudou; peça nova especificação antes de resolver.');
+            specResolution={result,original:original.plan,reviewId:resolveId,cutoff:meta.cutoff};
+            goldfishResolutionContext=liteSpecContext(result,original.plan,resolveId);
+            adoptionRequest=requirement.content;
+          }else{
           resolutionLedger=readResolutionLedger(state.resolution);
           if(resolutionLedger.revision!==state.binding.revision)throw Error('Revisão divergente do checkpoint.');
           goldfishResolutionContext=resolutionContext(resolutionLedger,resolveId);
           resolutionSourceId=resolveId;
+          }
         }catch(e){return fail((e as Error).message);}
       }
       if(goldfishScope!==null||driftScope!==null||lite!==null){
@@ -303,7 +321,7 @@ export class PlannerService {
           return fail('Revisão anterior sem checkpoint por revisor. Não será repetida automaticamente.');
         }
       }
-      const recovery=goldfishScope===null&&driftScope===null&&lite===null&&!resolutionLedger?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
+      const recovery=goldfishScope===null&&driftScope===null&&lite===null&&!resolutionLedger&&!specResolution?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
         const plan=bindPlanningSource(this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue,planningSource);
         const saved=await this.prisma.conversationMessage.updateMany({
@@ -424,7 +442,9 @@ export class PlannerService {
           const result=await runLiteReview(lite,journal.dispatch,signal);
           if(signal.aborted||cancelled)return;
           const totals=journal.totals();
-          const saved=await writeReview({status:result.status==='incomplete'?'ERRO':'PRONTA',kind:result.status==='incomplete'?'erro':'resposta',content:renderLiteResult(result)+'\n\nTentativas registradas: '+totals.calls+'; custo integral '+(totals.costKnown?'informado':'desconhecido')+'.',goldfishState:{...journal.state(),lite:result} as unknown as Prisma.InputJsonValue,completedAt:new Date()});
+          const ledger=result.mode==='lite-diff'&&result.status==='findings'?liteDiffLedger(result):undefined;
+          const findings=result.status==='findings'?liteFindings(result.report):null;
+          const saved=await writeReview({status:result.status==='incomplete'?'ERRO':'PRONTA',kind:result.status==='incomplete'?'erro':'resposta',content:renderLiteResult(result)+(findings?'\n\n'+findings.map(f=>f.id+' ['+f.priority+'] '+f.description).join('\n')+'\n\nTriagem e proposta de resolução: /goldfish-resolve '+msg.id:'')+'\n\nTentativas registradas: '+totals.calls+'; custo integral '+(totals.costKnown?'informado':'desconhecido')+'.',goldfishState:{...journal.state(),lite:result,...(ledger?{resolution:ledger}:{})} as unknown as Prisma.InputJsonValue,completedAt:new Date()});
           if(saved)await this.queue.complete(task.id,workerId);
           return;
         }
@@ -525,7 +545,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: resolutionLedger?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
+        mcp: resolutionLedger||specResolution?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
@@ -601,9 +621,14 @@ export class PlannerService {
               step.instructions+='\n\nAchados Goldfish vinculados à revisão '+resolutionSourceId+' ('+resolutionLedger.revision+'): '+JSON.stringify(fixes)+'. Preserve o escopo aprovado; confirme a evidência no código antes de alterar. Não aplique itens contestados, escalados ou descartados.';
             }
           }
+          const liteDecisions=specResolution?validateLiteSpecRevision(specResolution.result,specResolution.original,plan,parsed.egmLiteDecisions):null;
           registrarTempo('validacao_plano_aprovada');
           kind = 'plano';
           content = String(parsed.texto ?? 'Plano proposto.');
+          if(specResolution&&liteDecisions){
+            content+='\n\n'+renderLiteSpecDecisions(liteDecisions);
+            plan={...(plan as unknown as Record<string,Prisma.InputJsonValue>),egmLiteSpec:{reviewMessageId:specResolution.reviewId,originalPlanId:specResolution.result.sourceId,revision:specResolution.result.revision,decisions:liteDecisions} as unknown as Prisma.InputJsonValue} as Prisma.InputJsonValue;
+          }
           if(resolutionLedger){
             const decisions=validateResolutionDecisions(resolutionLedger,parsed,(plan as unknown as {steps:Array<{key:string}>}).steps);
             content+='\n\n'+renderResolutionDecisions(decisions);
@@ -615,7 +640,7 @@ export class PlannerService {
           // Sem executar trabalho nem inventar limiares numéricos.
           const erroInicial = String(e?.response?.message ?? e?.message ?? 'plano inválido').slice(0, 700);
           registrarTempo('validacao_plano_reprovada', { tipoErro: e?.name ?? 'erro', motivoCodigo: /local-shell|renderizar-motion/.test(erroInicial) ? 'RENDER_MOTION' : 'OUTRA_VALIDACAO' });
-          if(resolutionLedger){
+          if(resolutionLedger||specResolution){
             plan=undefined;kind='resposta';content='A proposta de resolução não respeitou o contrato dos achados: '+erroInicial+'. Nenhuma edição foi autorizada. O registro da revisão permanece preservado.';
           }else{
           let reparoErro = erroInicial;
@@ -676,6 +701,7 @@ export class PlannerService {
         }
       } else if (parsed?.tipo === 'resposta') {
         content = String(parsed.texto ?? '');
+        if(specResolution)content='A triagem Lite não apresentou checklist revisado e classificação integral. Nenhuma decisão aceita; plano original preservado.';
         if(resolutionLedger){
           try{content+='\n\n'+renderResolutionDecisions(validateResolutionDecisions(resolutionLedger,parsed,[]));}
           catch(e){content='A avaliação Elephant não classificou todos os achados de forma válida: '+(e as Error).message+'. Nenhuma decisão foi aplicada.';}
@@ -689,7 +715,7 @@ export class PlannerService {
           ? `${salvo}\n\n[Parte estruturada da resposta (plano, perguntas ou memória) veio quebrada e ficou de fora. Se faltar o plano, peça "mande o plano de novo".]`
           : `${antes}\n\n[A resposta da IA veio com o plano quebrado (JSON inválido) e não pôde ser lida. Peça "mande o plano de novo".]`.trim();
       }
-      if (!erro && !resolutionLedger && Array.isArray(parsed?.memoria)) {
+      if (!erro && !resolutionLedger && !specResolution && Array.isArray(parsed?.memoria)) {
         const guardados = await this.saveMemory(project.id, msg.conversationId, msg.id, parsed.memoria);
         if (guardados.length) content = `${content}\n\nGuardei na memória do projeto: ${guardados.join('; ')}.`;
       }
@@ -708,7 +734,7 @@ export class PlannerService {
         const egmNotice=renderEgmRoute(egmRoute);
         if(egmNotice)content+='\n\n'+egmNotice;
         if(egmRoute.route==='lite')content+='\nRevisão independente do checklist antes de Fazer: /goldfish-lite spec '+msg.id;
-        plan=bindPlanningSource(plan,planningSource);
+        plan=bindPlanningSource(plan,specResolution?{...planningSource,cutoff:specResolution.cutoff}:planningSource);
       }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
@@ -734,7 +760,7 @@ export class PlannerService {
         custoUsd: result.costUsd ?? 0,
       });
       if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
-      if (gravada.count && !erro && plan && !resolutionLedger) {
+      if (gravada.count && !erro && plan && !resolutionLedger && !specResolution) {
         const alvo = planoDaEntrega
           ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
           : msg.id;
