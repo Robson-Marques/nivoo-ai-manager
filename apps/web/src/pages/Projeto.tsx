@@ -1137,7 +1137,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
                 <button className={tamanho === 'computador' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('computador')}>Computador</button>
                 <button className={tamanho === 'celular' ? 'secondary ativo' : 'secondary'} onClick={() => mudarTamanho('celular')}>Celular</button>
               </span>
-              <a className="link small" href={e.url} target="_blank" rel="noreferrer">nova aba</a>
+              <a className="link small" href={e.url} target="_blank" rel="noreferrer">Abrir em nova aba</a>
             </>
           )}
           {(estado === 'no-ar' || estado === 'ligando') && <button className="secondary" onClick={() => acao('desligar')}>Desligar</button>}
@@ -1151,6 +1151,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
       <div className="previa-corpo">
         {estado === 'no-ar' && e?.url ? (
           <div className={`previa-moldura t-${tamanho}`}>
+            <div className="muted small" style={{padding: 6}}>Se aparecer “Prévia fechada” ou uma tela em branco, <a href={e.url} target="_blank" rel="noreferrer">abra em nova aba</a>. Não é necessário alterar o projeto para corrigir o acesso do navegador.</div>
             <iframe key={`${e.url}-${recarga}`} src={e.url} title="Prévia do projeto" sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads" />
           </div>
         ) : estado === 'ligando' ? (
@@ -1168,7 +1169,7 @@ function PreviaDoProjeto({ projetoId, onFechar, onPedirIa }: { projetoId: string
                 className="secondary"
                 onClick={() =>
                   onPedirIa(
-                    `A prévia do projeto não ligou: ${e?.mensagem ?? ''}\n\nAjuste o projeto para a prévia funcionar: crie ou corrija o nivoo-previa.json na raiz ({"tipo":"servidor","pasta":"…","instalar":"…","comando":"… ouvindo na porta $PORT","caminho":"/"}, ou {"tipo":"estatico","pasta":"…"} para site), conferindo com o sistema ligado na porta $NIVOO_PORTA_TESTE.`,
+                    `A prévia do projeto não ligou: ${e?.mensagem ?? ''}\n\nAntes de alterar código, diagnostique a causa do erro. Código 127 normalmente significa comando ausente: verifique scripts, dependências e executáveis no ambiente da prévia. Não altere o projeto se o problema for da infraestrutura do Nivoo.\n\nSe o diagnóstico confirmar um problema de configuração do projeto, crie ou corrija o nivoo-previa.json na raiz ({"tipo":"servidor","pasta":"…","instalar":"…","comando":"… ouvindo na porta $PORT","caminho":"/"}, ou {"tipo":"estatico","pasta":"…"} para site), conferindo com o sistema ligado na porta $NIVOO_PORTA_TESTE.`,
                   )
                 }
               >

@@ -60,6 +60,16 @@ const TIPOS: Record<string, string> = {
   '.webmanifest': 'application/manifest+json', '.map': 'application/json',
 };
 
+/** HTTPS embeds need a cookie that is accepted in cross-site contexts.
+ * Keep it host-only and HttpOnly; never move the project to the origin of the manager. */
+export function cookieDaPrevia(token: string, https: boolean): string {
+  return `nivoo_previa=${token}; Path=/; HttpOnly; ${https ? 'SameSite=None; Secure; Partitioned' : 'SameSite=Lax'}`;
+}
+export function caminhoDaPrevia(raw: string | null): string {
+  if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\r\n]/.test(raw)) return '/';
+  return raw;
+}
+
 const OCIOSA_MS = Number(process.env.NIVOO_PREVIA_OCIOSA_MIN ?? 120) * 60_000;
 
 @Injectable()
@@ -248,6 +258,11 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
     filho.stdout?.on('data', (d) => this.registrar(p, String(d)));
     filho.stderr?.on('data', (d) => this.registrar(p, String(d)));
     let saiu: number | null | undefined;
+    filho.on('error', (err) => {
+      saiu = null;
+      this.registrar(p, `\nFalha ao iniciar processo: ${err.message}\n`);
+      if (p.estado !== 'parada') { p.estado = 'erro'; p.mensagem = `Não consegui iniciar o processo: ${err.message}`; }
+    });
     filho.on('exit', (code) => {
       saiu = code;
       if (p.estado !== 'parada') {
@@ -322,9 +337,10 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
   // ---------------- portão ----------------
 
   private porCookie(req: http.IncomingMessage): Previa | null {
-    const m = /(?:^|;\s*)nivoo_previa=([a-f0-9]{48})/.exec(String(req.headers.cookie ?? ''));
-    if (!m) return null;
-    for (const p of this.previas.values()) if (p.token === m[1] && p.estado === 'no-ar') return p;
+    const tokens = String(req.headers.cookie ?? '').split(';').map(c => c.trim()).filter(c => /^nivoo_previa=[a-f0-9]{48}$/.test(c)).map(c => c.slice('nivoo_previa='.length));
+    // A browser can send an old non-partitioned cookie together with a partitioned one.
+    const valid = [...this.previas.values()].filter(p => tokens.includes(p.token) && p.estado === 'no-ar');
+    if (valid.length === 1) return valid[0];
     return null;
   }
 
@@ -335,16 +351,17 @@ export class PreviaService implements OnModuleInit, OnModuleDestroy {
         const t = url.searchParams.get('t') ?? '';
         const p = [...this.previas.values()].find((x) => x.token === t && x.estado === 'no-ar');
         if (!p) return this.pagina(res, 404, 'Esta prévia não está mais no ar. Ligue de novo pelo Nivoo.');
-        const seguro = String(req.headers['x-forwarded-proto'] ?? '').includes('https') || !!req.headers['cf-visitor'];
+        const seguro = this.urlPublica().startsWith('https://') || String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() === 'https';
         res.writeHead(302, {
-          'Set-Cookie': `nivoo_previa=${t}; Path=/; HttpOnly; SameSite=Lax${seguro ? '; Secure' : ''}`,
-          Location: url.searchParams.get('caminho')?.startsWith('/') ? url.searchParams.get('caminho')! : '/',
+          'Set-Cookie': [cookieDaPrevia(t, seguro), ...(seguro ? ['nivoo_previa=; Path=/; HttpOnly; SameSite=None; Secure; Max-Age=0'] : [])],
+          Location: caminhoDaPrevia(url.searchParams.get('caminho')),
+          'Referrer-Policy': 'no-referrer',
           'Cache-Control': 'no-store',
         });
         return void res.end();
       }
       const p = this.porCookie(req);
-      if (!p) return this.pagina(res, 404, 'Prévia fechada. Abra a prévia pelo Nivoo (botão "Ver o projeto").');
+      if (!p) return this.pagina(res, 404, 'Prévia fechada. Abra a prévia pelo Nivoo (botão "Ver o projeto"). Se já estiver no ar, use "nova aba" no painel da prévia: o navegador pode ter bloqueado o cookie do quadro incorporado.');
       p.ultimoUso = Date.now();
       if (p.como?.tipo === 'estatico') return this.servirArquivo(p, url.pathname, req, res);
       return this.encaminhar(p, req, res);
