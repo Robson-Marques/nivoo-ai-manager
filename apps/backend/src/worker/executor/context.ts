@@ -83,7 +83,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const task=[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' ');
     const previousError=priorAttempts.some(a=>!!a.error);
     const skills=selectSkills({
-      phase:'execution',text:task,softwareLifecycle:true,
+      phase:'execution',text:task,softwareLifecycle:true,verifyCommand:step.verifyCommand,
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(visual.profile),
       capabilityWork:vinculo?.area?.template==='studio-workflow'&&criteria.some(c=>!!capabilityReference(c.config)),
       nativeImage,motionAuthor,omitLeanSkill:benchmarkVariant(job.projectId)==='reference',
