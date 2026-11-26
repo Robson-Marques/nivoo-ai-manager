@@ -55,13 +55,22 @@ export function estaSemCredito(id: string, agora = Date.now()): boolean {
   return false;
 }
 
+const modelFailures=new Map<string,number>();
+const modelKey=(id:string,model:string|null)=>JSON.stringify([id,model]);
+export function markModelIncompatible(id:string,model:string|null,now=Date.now()):void{modelFailures.set(modelKey(id,model),now+ESPERA_SEM_CREDITO_MS);}
+export function modelCooling(id:string,model:string|null,now=Date.now()):boolean{
+  const k=modelKey(id,model),until=modelFailures.get(k);
+  if(until===undefined)return false;
+  if(until>now)return true;
+  modelFailures.delete(k);return false;
+}
 export type ReserveSwitch=ReserveCandidate&{anterior:string};
 export async function findProjectReserve(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements,opts:{resourceFailure:boolean;includeCurrent?:boolean;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveSwitch|null>{
   if(opts.resourceFailure)marcarSemCredito(from);
   if(reservePin(requirements))return null;
   const p=await prisma.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
   if(!p||(!opts.includeCurrent&&p.provider!==from))return null;
-  const choice=await chooseReserve({project:p,registry,from,requirements,knownIds:aiConnectionIds(),cooling:estaSemCredito,includeCurrent:opts.includeCurrent,onSkip:opts.onSkip});
+  const choice=await chooseReserve({project:p,registry,from,requirements,knownIds:aiConnectionIds(),cooling:estaSemCredito,modelCooling,includeCurrent:opts.includeCurrent,onSkip:opts.onSkip});
   if(!choice)return null;
   const anterior=await registry.status(from,60000).then(s=>s.label).catch(()=>from);
   return {...choice,anterior};
@@ -69,11 +78,29 @@ export async function findProjectReserve(prisma:PrismaService,registry:ReserveRe
 
 /** Planner preference changes only if the expected connection is still
  * current. Step-level fallback never mutates project preference or siblings. */
-export async function trocarParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements={},opts:{resourceFailure:boolean;onSkip?:(id:string,reason:string)=>void}={resourceFailure:true}):Promise<ReserveSwitch|null>{
+export async function trocarParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements={},opts:{resourceFailure:boolean;onSkip?:(id:string,reason:string)=>void;retry?:{messageId:string;taskId:string;workerId:string;claims:number;costUsd:number;signal:AbortSignal}}={resourceFailure:true}):Promise<ReserveSwitch|null>{
   const choice=await findProjectReserve(prisma,registry,projectId,from,requirements,opts);
-  if(!choice)return null;
-  const updated=await prisma.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
-  return updated.count?choice:null;
+  if(!choice||opts.retry?.signal.aborted)return null;
+  return prisma.$transaction(async tx=>{
+    const retry=opts.retry;
+    if(retry){
+      await tx.$queryRaw`SELECT id FROM "ConversationMessage" WHERE id = ${retry.messageId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "QueueTask" WHERE id = ${retry.taskId} FOR UPDATE`;
+      const pending=await tx.conversationMessage.findFirst({where:{id:retry.messageId,status:'PENDENTE',conversation:{projectId}},select:{id:true}});
+      const active=await tx.queueTask.findFirst({where:{id:retry.taskId,messageId:retry.messageId,status:'RUNNING',lockedBy:retry.workerId,claims:retry.claims,lockedUntil:{gt:new Date()}},select:{id:true}});
+      if(!pending||!active||retry.signal.aborted)return null;
+    }
+    const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
+    if(!p||p.provider!==from||!Array.isArray(p.aiReserva)||!p.aiReserva.includes(choice.id)||reserveCompatibility(choice.id,p,choice.status,requirements)!==null)return null;
+    const updated=await tx.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
+    if(!updated.count)return null;
+    if(retry){
+      await tx.conversationMessage.update({where:{id:retry.messageId},data:{costUsd:{increment:retry.costUsd}}});
+      const queued=await tx.queueTask.updateMany({where:{id:retry.taskId,lockedBy:retry.workerId,claims:retry.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'resposta refeita com '+choice.id}});
+      if(!queued.count)throw Error('Lease da conversa mudou; troca de reserva não aplicada.');
+    }
+    return choice;
+  });
 }
 
 export async function trocarEtapaParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,jobId:string,stepId:string,from:string,requirements:ReserveRequirements,opts:{resourceFailure:boolean;taskId:string;workerId:string;claims:number;signal:AbortSignal;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveSwitch|null>{
