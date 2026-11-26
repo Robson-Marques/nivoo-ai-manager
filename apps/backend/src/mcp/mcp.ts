@@ -75,11 +75,24 @@ export function acharMcp(id: string): Mcp {
 }
 
 /** Nome que a IA vê (ex.: "github"): minúsculas, números e hífen; único. */
-function nomeTecnico(nome: string, existentes: Mcp[], proprio?: string): string {
-  const base = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'mcp';
-  let n = base;
-  for (let i = 2; existentes.some((m) => m.id !== proprio && nomeTecnico(m.nome, [], m.id) === n); i++) n = `${base}-${i}`;
-  return n;
+function baseTecnica(nome:string):string{
+  return nome.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40)||'mcp';
+}
+/** Allocate over the full persisted inventory, including disabled tools.
+ * Reserve the internal SSH name. Every caller receives the same mapping. */
+export function nomesTecnicos(existentes:readonly Pick<Mcp,'id'|'nome'>[]):Map<string,string>{
+  const used=new Set(['servidores-ssh','constructor','prototype','__proto__']);
+  const result=new Map<string,string>();
+  for(const m of existentes){
+    const base=baseTecnica(m.nome);let n=base,i=2;
+    while(used.has(n))n=base+'-'+i++;
+    used.add(n);result.set(m.id,n);
+  }
+  return result;
+}
+function nomeTecnico(nome:string,existentes:Mcp[],proprio:string):string{
+  const all=existentes.some(m=>m.id===proprio)?existentes:[...existentes,{id:proprio,nome}];
+  return nomesTecnicos(all).get(proprio)!;
 }
 
 /** Visão para a tela: segredos só aparecem como "definido / falta". */
@@ -136,7 +149,8 @@ export function salvarMcp(body: any, id?: string): Mcp {
     segredosNovos[k] = v === null ? null : String(v);
   }
   const projetos = body?.projetos ?? atual?.projetos ?? 'todos';
-  m.projetos = projetos === 'todos' ? 'todos' : Array.isArray(projetos) ? projetos.map(String).slice(0, 500) : 'todos';
+  if(projetos!=='todos'&&(!Array.isArray(projetos)||projetos.length>500||projetos.some(p=>typeof p!=='string'||!p.trim())))throw new BadRequestException('Escopo de projetos inválido; escolha projetos ou todos explicitamente.');
+  m.projetos=projetos==='todos'?'todos':[...new Set(projetos as string[])];
   const nova = atual ? lista.map((x) => (x.id === m.id ? m : x)) : [...lista, m];
   gravar(nova);
   for (const [k, v] of Object.entries(segredosNovos)) {
@@ -155,7 +169,7 @@ export function removerMcp(id: string): void {
 /** Ferramentas ativas deste projeto, com segredos preenchidos (para a sessão de IA). */
 export function mcpDoProjeto(projectId: string, origem: { jobId?: string; mensagemId?: string } = {}): McpResolvido[] {
   const todas = listarMcp();
-  const lista = todas.filter((m) => m.ativo && (m.projetos === 'todos' || m.projetos.includes(projectId))).map((m) => resolver(m, todas));
+  const lista = todas.filter((m) => m.ativo===true && (m.projetos === 'todos' || (Array.isArray(m.projetos)&&m.projetos.includes(projectId)))).map((m) => resolver(m, todas));
   // Servidores SSH do projeto: a ferramenta do próprio Nivoo, em que cada comando espera a permissão do usuário.
   const ssh = servidoresDoProjeto(projectId);
   if (ssh.length) lista.push(ferramentaSsh(projectId, ssh, origem));
@@ -218,8 +232,19 @@ export async function testarMcp(id: string, timeoutMs = 60_000): Promise<{ ok: b
     const ferramentas = r.tipo === 'comando' ? await testarComando(r, timeoutMs) : await testarHttp(r, timeoutMs);
     return { ok: true, ferramentas };
   } catch (e: any) {
-    return { ok: false, ferramentas: [], erro: String(e?.message ?? e).slice(0, 600) };
+    return { ok: false, ferramentas: [], erro: ocultarSegredosMcp(String(e?.message ?? e),r).slice(0,600) };
   }
+}
+
+export function ocultarSegredosMcp(texto:string,r:McpResolvido):string{
+  const values=[...Object.values(r.env??{}),...Object.values(r.headers??{})].filter(Boolean).sort((a,b)=>b.length-a.length);
+  for(const v of values){
+    texto=texto.split(v).join('[ocultado]');
+    // HTTP credentials are often echoed without the Bearer prefix.
+    const bearer=/^Bearer\s+(.+)$/i.exec(v)?.[1];
+    if(bearer)texto=texto.split(bearer).join('[ocultado]');
+  }
+  return texto;
 }
 
 const INICIAR = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'nivoo', version: '1' } } };
