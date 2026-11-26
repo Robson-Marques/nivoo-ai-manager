@@ -110,7 +110,7 @@ export class GeminiApiProvider implements AiProvider {
     fs.mkdirSync(path.join(homeMcp,'.gemini'),{mode:0o700});
     fs.writeFileSync(path.join(homeMcp,'.gemini','settings.json'),JSON.stringify(geminiSessionSettings(readOnly,serversGemini(mcp)),null,2),{mode:0o600,flag:'wx'});
     if(mcp.length)req.onLog('Ferramentas MCP nesta sessão: '+mcp.map(m=>m.nome).join(', '));
-    const skillRead=nativeSkillReadObserver('gemini',req.cwd,req.onLog);
+    const skillRead=nativeSkillReadObserver('gemini',req.cwd,req.onLog,req.onSkillRead);
     const observe=(line:string)=>{skillRead(line);if(!observeMcp(line))GeminiApiProvider.logEvento(line,req.onLog);};
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
