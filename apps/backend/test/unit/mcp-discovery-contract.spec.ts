@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { nomesTecnicos,ocultarSegredosMcp,paginaMcp,protocoloMcp,testarMcp,mcpDoProjeto,salvarMcp,type McpResolvido } from '../../src/mcp/mcp';
-import { argsCodex,configClaude,serversGemini } from '../../src/mcp/para-ia';
+import { codexMcpSession,configClaude,serversGemini } from '../../src/mcp/para-ia';
 
 describe('MCP inventory identity and discovery',()=>{
   it('allocates unique names for repeated labels, explicit suffixes and the reserved SSH name',()=>{
@@ -12,7 +12,7 @@ describe('MCP inventory identity and discovery',()=>{
   });
   it('rejects duplicate or unsafe technical names before transport serialization',()=>{
     const a:McpResolvido={nome:'github',tipo:'http',url:'https://example.invalid/mcp'};
-    for(const encode of [argsCodex,configClaude,serversGemini]){
+    for(const encode of [codexMcpSession,configClaude,serversGemini]){
       expect(()=>encode([a,a])).toThrow(/duplicado/);
       expect(()=>encode([{...a,nome:'constructor'}])).toThrow();
       expect(()=>encode([{...a,nome:'github.bad'}])).toThrow();
