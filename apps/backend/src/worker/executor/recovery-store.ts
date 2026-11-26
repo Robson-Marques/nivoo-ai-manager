@@ -120,10 +120,17 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
 
 export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false,lease?:{task:ClaimedTask;workerId:string}) {
     const attemptNumber=typeof extra.tentativa==='number'&&Number.isSafeInteger(extra.tentativa)?extra.tentativa:null;
-  const completionWhere=complete&&attemptNumber!==null?{jobId,stepId:step.id,gitCommit:{not:null},AND:[{state:{path:['tentativa'],equals:attemptNumber}},{state:{path:['concluido'],equals:true}}]}:null;
+  const completionWhere:Prisma.CheckpointWhereInput|null=complete&&attemptNumber!==null?{jobId,stepId:step.id,gitCommit:{not:null},AND:[{state:{path:['tentativa'],equals:attemptNumber}},{state:{path:['concluido'],equals:true}}]}:null;
   if(lease){
     if(lease.task.jobId!==jobId||lease.task.stepId!==step.id)throw new LostStepLease();
-    const existing=await withStepLease(prisma,lease,async tx=>completionWhere?tx.checkpoint.findFirst({where:completionWhere}):null);
+    const existing=await withStepLease(prisma,lease,async tx=>{
+      if(!completionWhere)return null;
+      const current=await tx.step.findUnique({where:{id:step.id},select:{status:true,attemptCount:true,resumeFromAttempt:true}});
+      if(!current||current.attemptCount!==attemptNumber||current.resumeFromAttempt>=attemptNumber!)throw new LostStepLease();
+      const saved=await tx.checkpoint.findFirst({where:completionWhere});
+      if(saved&&current.status!=='CONCLUIDO')throw Error('Checkpoint já concluído, mas estado da etapa diverge; não sobrescrever.');
+      return saved;
+    });
     if(existing?.gitCommit)return existing.gitCommit;
   }
     let commit:string|null=null;
@@ -136,7 +143,9 @@ export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceSer
     await prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
       if(lease)await assertStepLease(tx,lease.task,lease.workerId);
-      if(complete&&commit&&completionWhere){
+      if(lease&&complete&&commit&&completionWhere){
+        const current=await tx.step.findUnique({where:{id:step.id},select:{status:true,attemptCount:true,resumeFromAttempt:true}});
+        if(!current||current.attemptCount!==attemptNumber||current.resumeFromAttempt>=attemptNumber!)throw new LostStepLease();
         const existing=await tx.checkpoint.findFirst({where:completionWhere});
         if(existing?.gitCommit){if(existing.gitCommit!==commit)throw Error('Checkpoint de conclusão divergente; arquivos preservados.');return;}
       }

@@ -132,7 +132,7 @@ export class ArtifactStoreService {
         // Repair a missing physical blob from the identical source, without
         // creating a second database record. A corrupt existing blob is never overwritten.
         const target=this.target(meta.projectId,hash).abs;
-        if(!fs.existsSync(target)||!fs.lstatSync(target).isFile()||fs.statSync(target).size!==existing.sizeBytes)
+        if(lease||!fs.existsSync(target)||!fs.lstatSync(target).isFile()||fs.statSync(target).size!==existing.sizeBytes)
           await publishArtifactBlob(target,hash,f);
         continue;
       }
@@ -160,7 +160,7 @@ export class ArtifactStoreService {
         if (!fs.statSync(real).isFile() || !fs.statSync(real).size) continue;
         const hash = await sha256File(real);
         const existente = await this.prisma.artifact.findFirst({
-          where: { projectId: meta.projectId, jobId: meta.jobId, ...(meta.stepId ? {stepId:meta.stepId} : {}), name: nome, sha256: hash, kind: 'FILE' },
+          where: { projectId: meta.projectId, jobId: meta.jobId, ...(meta.stepId ? {stepId:meta.stepId} : {}), ...(lease?{attemptId:meta.attemptId}:{}),name: nome, sha256: hash, kind: 'FILE' },
         });
         if (existente) {
           if(lease&&existente.attemptId===meta.attemptId)registrados.push(await this.storeFile({...meta,name:nome,kind:'FILE',mimeType:'video/mp4'},real,hash,lease));

@@ -398,7 +398,7 @@ export class StepExecutorService {
     if(previous){
       const recoveredNotes=await ingestNotes(this.prisma,this.workspace,this.logs,job,step,previous.id,worktree,previous.provider,previous.sessionId??undefined,[],{task,workerId});
       await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.attempt.update({where:{id:previous.id},data:{notesIngested:recoveredNotes}});});
-      const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção da sessão',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true});
+      const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção da sessão',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true},false,{task,workerId});
       await L(saved?'Checkpoint da interrupção preservado; retomando arquivos existentes.':'Git não confirmou o checkpoint da interrupção; arquivos existentes preservados no worktree.',saved?'INFO':'WARN');
     }
 
@@ -657,6 +657,7 @@ export class StepExecutorService {
 
     // The publishing phase is replayable: it only writes immutable blobs and
     // the fenced catalog. Leave it before mutating the actual workspace.
+    if(signal.aborted)return 'INTERROMPIDO';
     await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PUBLISHING',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
@@ -699,6 +700,7 @@ export class StepExecutorService {
         await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);
       }
     }
+    if(signal.aborted)return 'INTERROMPIDO';
     const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs,lease);
     const treeAfter = await this.workspace.snapshotHash(worktree);
     if(repairBefore!==null&&verified&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
