@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import { sha256,sha256File } from '../common/hash';
 
+export interface IntegrationPlan {base:string;source:string;tree:string;target:string;changed:boolean}
 export interface ProjectDirs {
   root: string;
   repo: string;
@@ -669,6 +670,48 @@ export class WorkspaceService {
    * Só acontece se a pasta principal não mudou desde a verificação (main contida na branch do job);
    * senão devolve ok=false e a conclusão reintegra e reverifica.
    */
+  /** Create the exact squash commit object before touching main. The caller
+   * durably records its identity before applying it under the project lock. */
+  async prepareIntegration(dirKey:string,jobId:string,message:string,approvedBase?:string):Promise<IntegrationPlan|null>{
+    const repo=this.projectDirs(dirKey).repo,branch=this.jobBranch(jobId);
+    const base=await this.headCommit(repo);
+    if(!base||(approvedBase&&base!==approvedBase))return null;
+    if((await this.git(repo,['merge-base','--is-ancestor',base,branch])).exitCode!==0)return null;
+    const source=(await this.gitOk(repo,['rev-parse','--verify',branch+'^{commit}'])).stdout.trim();
+    const tree=(await this.gitOk(repo,['rev-parse',source+'^{tree}'])).stdout.trim();
+    const oldTree=(await this.gitOk(repo,['rev-parse',base+'^{tree}'])).stdout.trim();
+    const changed=tree!==oldTree;
+    const target=changed?(await this.gitOk(repo,['commit-tree',tree,'-p',base,'-m',message])).stdout.trim():base;
+    // Keep the object reachable during a long interruption or git gc.
+    const ref='refs/nivoo/integrations/'+jobId;
+    await this.gitOk(repo,['update-ref',ref,target]);
+    return {base,source,tree,target,changed};
+  }
+
+  /** No new commit on recovery. A later main may already contain the exact
+   * planned target; a divergent or dirty tree is not reset or overwritten. */
+  async applyIntegration(dirKey:string,jobId:string,plan:IntegrationPlan):Promise<boolean>{
+    const repo=this.projectDirs(dirKey).repo;
+    if(![plan.base,plan.source,plan.tree,plan.target].every(x=>/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(x)))throw Error('Recibo Git inválido.');
+    const tree=(await this.gitOk(repo,['rev-parse',plan.target+'^{tree}'])).stdout.trim();
+    if(tree!==plan.tree)throw Error('Árvore do recibo Git divergente.');
+    if(plan.changed){
+      const parent=(await this.gitOk(repo,['rev-parse',plan.target+'^'])).stdout.trim();
+      if(parent!==plan.base)throw Error('Base do recibo Git divergente.');
+    }else if(plan.target!==plan.base)throw Error('Recibo Git sem alteração inválido.');
+    const current=await this.headCommit(repo);
+    if(!current)return false;
+    const clean=(await this.gitOk(repo,['status','--porcelain','--untracked-files=normal'])).stdout.trim()==='';
+    if(!clean)return false;
+    const already=(await this.git(repo,['merge-base','--is-ancestor',plan.target,current])).exitCode===0;
+    if(already)return true;
+    if(current!==plan.base)return false;
+    const branch=(await this.gitOk(repo,['rev-parse','--verify',this.jobBranch(jobId)+'^{commit}'])).stdout.trim();
+    if(branch!==plan.source)return false;
+    const ff=await this.git(repo,['merge','--ff-only','-q',plan.target]);
+    return ff.exitCode===0&&(await this.headCommit(repo))===plan.target;
+  }
+
   async integrateIntoMain(dirKey: string, jobId: string, message: string, approvedBase?:string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
     const repo = this.projectDirs(dirKey).repo;
     const branch = this.jobBranch(jobId);

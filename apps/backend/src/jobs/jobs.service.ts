@@ -456,7 +456,13 @@ export class JobsService {
   /** Solicita nova verificação de critérios (nunca marca conclusão diretamente). */
   async requestEvaluation(projectId: string, jobId: string) {
     const job = await this.get(projectId, jobId);
-    if (job.status === 'CONCLUIDO') return job;
+    if (job.status === 'CONCLUIDO') {
+      const receipt=job.completionState as {phase?:string;publish?:boolean;pushStatus?:string}|null;
+      if(receipt&&(receipt.phase!=='DELIVERED'||(receipt.publish&&receipt.pushStatus!=='CONFIRMED'))){
+        await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,jobId);await this.queue.enqueue(tx,'EVALUATE_JOB',jobId,null);});
+      }
+      return job;
+    }
     if (job.steps.some((s) => s.status !== 'CONCLUIDO')) {
       throw new ConflictException('Há etapas não concluídas; retome o job em vez de reavaliar');
     }

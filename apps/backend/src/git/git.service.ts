@@ -343,6 +343,43 @@ export class GitService {
    * Versionamento padrão de projeto ligado ao Git, ao fim de cada trabalho: o commit já está na pasta principal;
    * cria a tag da próxima versão e envia (push). Se o repositório andou, atualiza (pull) e envia de novo.
    */
+  /** Publish a durable job version. Never delete or allocate a replacement
+   * tag after an uncertain network result. A replay uses the same target. */
+  async publishExactVersion(projectId:string,tag:string,commit:string,message:string):Promise<void>{
+    const {p,repo,conta,branch}=await this.linked(projectId);
+    await this.tagValida(repo,tag);
+    if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit))throw new BadRequestException('Commit de publicação inválido.');
+    const tagRef='refs/tags/'+tag,branchRef='refs/heads/'+branch;
+    const remote=async()=>{
+      const r=await this.ok(repo,['ls-remote','origin',branchRef,tagRef,tagRef+'^{}'],conta);
+      return new Map(r.stdout.trim().split('\n').filter(Boolean).map(line=>{const [oid,ref]=line.split(/\s+/);return [ref,oid] as const;}));
+    };
+    const checkBranch=async(oid:string|undefined)=>{
+      if(!oid)return 'absent';
+      await this.ok(repo,['fetch','--quiet','--no-tags','origin',branchRef],conta);
+      const fetched=(await this.ok(repo,['rev-parse','FETCH_HEAD'],null)).stdout.trim();
+      if((await this.git(repo,['merge-base','--is-ancestor',commit,fetched],null)).exitCode===0)return 'contains';
+      if((await this.git(repo,['merge-base','--is-ancestor',fetched,commit],null)).exitCode===0)return 'behind';
+      return 'diverged';
+    };
+    const refs=await remote(),tagged=refs.get(tagRef+'^{}')??refs.get(tagRef);
+    if(tagged&&tagged!==commit)throw new ConflictException('A versão '+tag+' aponta para outro commit; publicação original preservada.');
+    const relation=await checkBranch(refs.get(branchRef));
+    if(tagged===commit&&relation==='contains'){await this.prisma.project.update({where:{id:p.id},data:{gitLastSyncAt:new Date()}});return;}
+    if(relation==='diverged')throw new ConflictException('A branch remota divergiu do commit verificado. Não enviar nem alterar a versão automaticamente.');
+    const local=await this.git(repo,['rev-parse','--verify',tagRef+'^{commit}'],null);
+    if(local.exitCode===0&&local.stdout.trim()!==commit)throw new ConflictException('Tag local '+tag+' aponta para outro commit.');
+    if(local.exitCode!==0){
+      if(tagged===commit){await this.ok(repo,['fetch','--quiet','origin',tagRef+':'+tagRef],conta);}
+      else await this.ok(repo,['tag','-a','-m',message.slice(0,500),'--',tag,commit],null);
+    }
+    const pushRefs=[...(relation==='contains'?[]:[commit+':'+branchRef]),...(tagged===commit?[]:[tagRef])];
+    if(pushRefs.length)await this.ok(repo,['push','--quiet','--atomic','origin',...pushRefs],conta,15*60_000);
+    const after=await remote();
+    if((after.get(tagRef+'^{}')??after.get(tagRef))!==commit||await checkBranch(after.get(branchRef))!=='contains')throw new ConflictException('Envio sem confirmação integral; mantenha a mesma versão para reconciliar.');
+    await this.prisma.project.update({where:{id:p.id},data:{gitLastSyncAt:new Date()}});
+  }
+
   async versionar(projectId: string, mensagem: string): Promise<{ tag: string; atualizou: boolean }> {
     let atualizou = false;
     for (let tentativa = 0; ; tentativa++) {

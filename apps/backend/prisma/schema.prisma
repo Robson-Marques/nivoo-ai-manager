@@ -260,6 +260,7 @@ model Job {
   gitBranch          String?
   mergeStatus        String? // INCORPORADO | CONFLITO: resultado do job na pasta principal do projeto
   mergedCommit       String?
+  completionState    Json? // durable verified integration and publication receipt
   startedAt          DateTime?
   finishedAt         DateTime?
   activeSeconds      Int        @default(0)

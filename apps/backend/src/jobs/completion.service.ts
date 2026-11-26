@@ -16,7 +16,7 @@ import { BlockedReason } from '../common/status';
 import { PrismaService } from '../prisma/prisma.service';
 import { evaluatePolicy } from '../security/policy';
 import { ArtifactStoreService } from '../storage/artifact-store.service';
-import { WorkspaceService } from '../storage/workspace.service';
+import { WorkspaceService,type IntegrationPlan } from '../storage/workspace.service';
 import { LogService } from './log.service';
 import { GitService } from '../git/git.service';
 import { OrchestratorService } from './orchestrator.service';
@@ -30,7 +30,7 @@ import { tipoDe } from '../accounts/connections';
 import { automaticGoldfishDecision,AUTOMATIC_GOLDFISH_KIND,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
 import { projectModel } from '../providers/project-model';
 import { ProviderRegistry } from '../providers/provider-registry.service';
-import { assertEvaluationLease,type EvaluationLease } from '../worker/executor/lease';
+import { assertEvaluationLease,LostStepLease,type EvaluationLease } from '../worker/executor/lease';
 import { capabilityReference,orderedCapabilityCriteria,deferredCapabilityCriterion } from './workflow/capability-criteria';
 import { SPECIALTY_HANDOFF_KIND,SPECIALTY_HANDOFF_NOTICE,specialtyHandoff } from './workflow/specialty-handoff';
 
@@ -42,6 +42,23 @@ export interface CriterionResult {
   verificationProblem?: VerificationProblem;
   evidence: Record<string, unknown>;
 }
+
+type CompletionJob=Prisma.JobGetPayload<{include:{steps:true,criteria:true,project:true}}>;
+type CompletionReceipt={version:1;phase:'PREPARED'|'INCORPORATED'|'DELIVERED';contract:string;plan:IntegrationPlan;checks:CriterionResult[];
+  memory:Prisma.MemoryEntryCreateArgs;publish:boolean;tag?:string;pushStatus?:'PENDING'|'CONFIRMED'|'ERROR';pushError?:string};
+function completionContract(job:CompletionJob):string{
+  return sha256(JSON.stringify([job.id,job.projectId,job.objectiveVersion,job.approvedScope,
+    [...job.steps].sort((a,b)=>a.id.localeCompare(b.id)).map(s=>[s.id,s.status,s.attemptCount,s.resumeFromAttempt,s.instructions,s.provider,s.providerOptions,s.verifyCommand]),
+    [...job.criteria].sort((a,b)=>a.id.localeCompare(b.id)).map(c=>[c.id,criterionHash(c)])]));
+}
+function readCompletion(value:unknown):CompletionReceipt|null{
+  const x=value as Partial<CompletionReceipt>|null;
+  return x?.version===1&&['PREPARED','INCORPORATED','DELIVERED'].includes(x.phase??'')&&typeof x.contract==='string'
+    &&!!x.plan&&[x.plan.base,x.plan.source,x.plan.target,x.plan.tree].every(v=>typeof v==='string'&&/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(v))
+    &&typeof x.plan.changed==='boolean'&&Array.isArray(x.checks)&&x.checks.length>0&&x.checks.every(r=>r.passed===true)
+    &&!!x.memory?.data&&typeof x.publish==='boolean'?x as CompletionReceipt:null;
+}
+const receiptJson=(x:CompletionReceipt)=>JSON.parse(JSON.stringify(x)) as Prisma.InputJsonValue;
 
 export interface EvaluationReport {
   jobId: string;
@@ -308,6 +325,15 @@ export class CompletionService {
       include: { steps: true, criteria: true, project: true },
     });
     const report: EvaluationReport = { jobId, finalStatus: job.status, pendingSteps: [], criteria: [], pendencias: [] };
+    const saved=readCompletion(job.completionState);
+    if(saved){
+      if(saved.phase==='DELIVERED'&&job.status==='CONCLUIDO'&&saved.pushStatus!=='ERROR'){report.criteria=saved.checks;return report;}
+      if(saved.contract!==completionContract(job))return this.blockGoldfishEvaluation(job,report,'O contrato mudou após preparar a incorporação. Recibo anterior preservado; não publicar automaticamente.',lease);
+      if(saved.phase==='PREPARED'&&['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO'].includes(job.status))
+        return this.finishCompletion(job,report,saved,lease);
+      if(['INCORPORATED','DELIVERED'].includes(saved.phase)&&job.status==='CONCLUIDO')
+        return this.finishCompletion(job,report,saved,lease);
+    }else if(job.completionState!=null)throw Error('Recibo de conclusão inválido; não repetir a incorporação.');
     if (!['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
       report.pendencias.push(`job em ${job.status}; avaliação ignorada`);
       return report;
@@ -339,8 +365,7 @@ export class CompletionService {
     let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
     let completion: Awaited<ReturnType<CompletionService['prepareCompletion']>> | null = null;
-    let trouxeMudanca = false;
-    let mergedCommit: string | null = null;
+    let prepared:CompletionReceipt|null=null;
     // Os critérios são verificados sobre o resultado JÁ INTEGRADO à pasta principal do projeto; só então
     // a pasta principal avança. Se outro job mudou a pasta principal no meio, integra e verifica de novo.
     for (let rodada = 1; ; rodada++) {
@@ -420,24 +445,19 @@ export class CompletionService {
       // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão.
       completion = await this.prepareCompletion(job, worktree);
       if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou na preparação da publicação. Evidências preservadas, sem incorporação.',lease);
-      const ff = await this.prisma.$transaction(
-        async (tx) => {
-          await OrchestratorService.lockJob(tx,job.id);await assertEvaluationLease(tx,lease);
-          await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:' + job.projectId}))) AS l`;
-          if(egm){
-            const current=await this.workspace.headCommit(repo);
-            if(current!==egm.revision)return {ok:false,commit:null,mudou:false};
-          }
-          const message=await this.commitMessage(job);
-          return egm?this.workspace.integrateIntoMain(job.project.dirKey,job.id,message,egm.revision):this.workspace.integrateIntoMain(job.project.dirKey,job.id,message);
-        },
-        { timeout: 120_000, maxWait: 120_000 },
-      );
-      if (ff.ok) {
-        mergedCommit = ff.commit;
-        trouxeMudanca = ff.mudou !== false;
-        break;
-      }
+      prepared=await this.prisma.$transaction(async tx=>{
+        await OrchestratorService.lockJob(tx,job.id);await assertEvaluationLease(tx,lease);
+        await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:'+job.projectId}))) AS l`;
+        const fresh=await tx.job.findUniqueOrThrow({where:{id:job.id},include:{steps:true,criteria:true,project:true}});
+        if(completionContract(fresh)!==completionContract(job)||!['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO'].includes(fresh.status))throw new LostStepLease();
+        const plan=await this.workspace.prepareIntegration(job.project.dirKey,job.id,await this.commitMessage(job),egm?.revision);
+        if(!plan)return null;
+        const receipt:CompletionReceipt={version:1,phase:'PREPARED',contract:completionContract(job),plan,checks:report.criteria,memory:completion!.memory,
+          publish:!!(plan.changed&&job.project.gitAutoPush&&job.project.gitUrl)};
+        await tx.job.update({where:{id:job.id},data:{completionState:receiptJson(receipt)}});
+        return receipt;
+      },{timeout:120_000,maxWait:120_000});
+      if(prepared)return this.finishCompletion(job,report,prepared,lease);
       if(egm){
         const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath);
         return this.blockGoldfishEvaluation(job,report,renderGoldfishGitDrift(drift)+'\nIncorporação não confirmada; não repetir automaticamente.',lease);
@@ -457,10 +477,10 @@ export class CompletionService {
           blockedReason: reason,
           statusDetail: detail,
           finishedAt: status === 'CONCLUIDO' ? new Date() : null,
-          ...(status === 'CONCLUIDO' ? { mergeStatus: 'INCORPORADO', mergedCommit } : {}),
+
         },
       });
-      if (r.count && completion && status === 'CONCLUIDO') await tx.memoryEntry.create(completion.memory);
+
       // Trabalho concluído: as lições das tentativas que falharam nele perderam o sentido (o problema foi resolvido).
       if (r.count && status === 'CONCLUIDO') {
         await tx.memoryEntry.deleteMany({
@@ -471,7 +491,7 @@ export class CompletionService {
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
     // Versão nova só quando o trabalho mudou arquivos (trabalho sem mudança não gera tag vazia).
-    if (updated && status === 'CONCLUIDO' && trouxeMudanca && job.project.gitAutoPush && job.project.gitUrl) await this.autoPush(job);
+
     if (updated) await escreverArquivosDaMemoria(this.prisma, job.projectId);
     if (updated && status === 'BLOQUEADO') await avisarConversaQueParou(this.prisma, job.id, detail);
     // Fim do trabalho (concluído ou parado na conferência final): limpeza de dependências e caches da pasta do trabalho.
@@ -480,19 +500,79 @@ export class CompletionService {
       if (await descartarBancoDeTeste(job.id)) await this.logs.log(jobId, 'Banco de teste do trabalho apagado', { source: 'evaluator' });
       if (limpo?.removidos.length) await this.logs.log(jobId, `Limpeza: ${limpo.removidos.join(', ')} apagado(s) da pasta do trabalho (${limpo.mb} MB; são só instalação/cache)`, { source: 'evaluator' });
     }
-    if (updated && status === 'CONCLUIDO') {
-      // Resultados (relatórios, inventários, planos de out/) também na pasta DEFINITIVA do projeto.
-      const pasta = await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root, job).catch(async (e) => {
-        await this.logs.log(jobId, `Não consegui guardar os resultados na pasta do projeto: ${e?.message ?? e}`, { source: 'evaluator', level: 'ERROR' });
-        return null;
-      });
-      if (pasta) await this.logs.log(jobId, `Resultados guardados na pasta do projeto: ${pasta}/`, { source: 'evaluator' });
-      await this.pedirEntrega(job,mergedCommit,report.criteria,trouxeMudanca);
-    }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
       level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
     });
+    return report;
+  }
+
+  /** The exact Git target and verified criteria survive worker restart. No
+   * provider, verification or merge is repeated after a confirmed receipt. */
+  private async finishCompletion(job:CompletionJob,report:EvaluationReport,initial:CompletionReceipt,lease?:EvaluationLease):Promise<EvaluationReport>{
+    let state=initial;
+    report.criteria=state.checks;
+    if(state.phase==='PREPARED'){
+      const applied=await this.prisma.$transaction(async tx=>{
+        await OrchestratorService.lockJob(tx,job.id);await assertEvaluationLease(tx,lease);
+        await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:'+job.projectId}))) AS l`;
+        const fresh=await tx.job.findUniqueOrThrow({where:{id:job.id},include:{steps:true,criteria:true,project:true}});
+        const actual=readCompletion(fresh.completionState);
+        if(actual?.phase!=='PREPARED'||actual.plan.target!==state.plan.target||completionContract(fresh)!==state.contract)throw new LostStepLease();
+        if(!['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO'].includes(fresh.status))throw new LostStepLease();
+        if(!await this.workspace.applyIntegration(job.project.dirKey,job.id,state.plan))return false;
+        const next:CompletionReceipt={...state,phase:'INCORPORATED'};
+        await tx.job.update({where:{id:job.id},data:{status:'CONCLUIDO',blockedReason:null,statusDetail:'Critérios verificados; commit incorporado.',finishedAt:new Date(),
+          mergedCommit:state.plan.target,mergeStatus:'INCORPORADO',completionState:receiptJson(next)}});
+        await tx.memoryEntry.create(state.memory);
+        await tx.memoryEntry.deleteMany({where:{projectId:job.projectId,AND:[{references:{path:['origem'],equals:'licao-automatica'}},{references:{path:['jobId'],equals:job.id}}]}});
+        state=next;
+        return true;
+      },{timeout:120_000,maxWait:120_000});
+      if(!applied)return this.blockConflict(job,report,['main divergente ou com alterações locais; recibo Git preservado, sem nova incorporação automática'],lease);
+    }
+    report.finalStatus='CONCLUIDO';report.pendencias=[];
+    const write=async(next:CompletionReceipt)=>{
+      await this.prisma.$transaction(async tx=>{
+        await OrchestratorService.lockJob(tx,job.id);await assertEvaluationLease(tx,lease);
+        const current=await tx.job.findUniqueOrThrow({where:{id:job.id},select:{completionState:true,status:true,mergedCommit:true}});
+        if(current.status!=='CONCLUIDO'||current.mergedCommit!==next.plan.target||readCompletion(current.completionState)?.plan.target!==next.plan.target)throw new LostStepLease();
+        await tx.job.update({where:{id:job.id},data:{completionState:receiptJson(next)}});
+      });
+      state=next;
+    };
+    await escreverArquivosDaMemoria(this.prisma,job.projectId);
+    // Delivery itself is idempotent. Do it before remote push so a slow or
+    // unavailable Git server does not conceal a completed local result.
+    if(state.phase!=='DELIVERED'){
+      await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
+      const fresh=await this.prisma.job.findUniqueOrThrow({where:{id:job.id}});
+      const folder=await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root,fresh);
+      if(folder)await this.logs.log(job.id,'Resultados guardados na pasta do projeto: '+folder,{source:'evaluator'});
+      await this.pedirEntrega(job,state.plan.target,state.checks,state.plan.changed);
+      await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id)).catch(()=>null);
+      await descartarBancoDeTeste(job.id);
+      await write({...state,phase:'DELIVERED'});
+    }
+    if(state.publish&&state.pushStatus!=='CONFIRMED'){
+      try{
+        if(!state.tag){
+          // Persist the name BEFORE sending any external Git operation.
+          const tag=await this.git.proximaVersao(job.projectId);
+          await write({...state,tag,pushStatus:'PENDING'});
+        }
+        await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
+        await this.git.publishExactVersion(job.projectId,state.tag!,state.plan.target,job.title);
+        await write({...state,pushStatus:'CONFIRMED',pushError:undefined});
+        await this.logs.log(job.id,'Versão '+state.tag+' confirmada no Git.',{source:'git'});
+      }catch(e){
+        if(e instanceof LostStepLease)throw e;
+        const detail=String((e as Error).message??e).slice(0,500);
+        await write({...state,pushStatus:'ERROR',pushError:detail});
+        await this.logs.log(job.id,'Resultado local concluído; envio Git não confirmado. '+detail,{source:'git',level:'WARN'});
+        report.pendencias.push('Envio Git não confirmado: '+detail);
+      }
+    }
     return report;
   }
 
