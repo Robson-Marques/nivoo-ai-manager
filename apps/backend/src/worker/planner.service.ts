@@ -354,8 +354,9 @@ export class PlannerService {
       limite429: status.errors.some((x) => /(?:HTTP\s*429|Too Many Requests)/i.test(x)),
     });
     let trocou='';
-    const isolated=goldfishScope!==null||driftScope!==null||lite!==null||resolutionLedger!==null||specResolution!==null;
-    const comAnexos=isolated?[]:await this.prisma.conversationMessage.findMany({
+    const independentReview=goldfishScope!==null||driftScope!==null||lite!==null;
+    const isolated=independentReview||resolutionLedger!==null||specResolution!==null;
+    const comAnexos=independentReview?[]:await this.prisma.conversationMessage.findMany({
       where:{conversationId:msg.conversationId,role:'USUARIO',NOT:{attachments:{equals:Prisma.DbNull}}},
       orderBy:{createdAt:'desc'},select:{id:true,conversationId:true,attachments:true},
     });
