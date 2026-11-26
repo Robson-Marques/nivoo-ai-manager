@@ -501,13 +501,15 @@ export class WorkspaceService {
         const mv = /^mover\s+(.+?)\s*->\s*(.+)$/i.exec(linha);
         if (mv) {
           const de=operationPath(mv[1]),para=operationPath(mv[2]);
-          if(outsideGit(de)||outsideGit(para)||de===para||para.startsWith(de+'/'))throw Error('Movimentação exige etapa explícita de arquivos.');
-          const origem=resolveOperation(worktree,undefined,de);
+          // Mover PARA a mídia durável (midia/...) é publicação permitida por aqui;
+          // mover DE dentro da mídia durável exige etapa explícita de arquivos.
+          if(outsideGit(de)||de===para||para.startsWith(de+'/'))throw Error('Movimentação a partir da mídia durável exige etapa explícita de arquivos.');
+          const origem=resolveOperation(worktree,midiaDir,de);
           if (!de || !para || !origem || !fs.existsSync(origem)) {
             recusados.push(linha);
             continue;
           }
-          const destino = resolveOperation(worktree,undefined,para);
+          const destino = resolveOperation(worktree,midiaDir,para);
           if (fs.existsSync(destino)) {
             recusados.push(`${linha} (destino já existe)`);
             continue;
@@ -526,7 +528,7 @@ export class WorkspaceService {
         }
         const alvo=operationPath(linha.replace(/^apagar\s+/i,''));
         if(outsideGit(alvo))throw Error('Arquivo fora do Git exige etapa explícita e aprovação.');
-        const abs=resolveOperation(worktree,undefined,alvo);
+        const abs=resolveOperation(worktree,midiaDir,alvo);
         if (!alvo || !abs || !fs.existsSync(abs)) {
           recusados.push(linha);
           continue;
@@ -539,7 +541,6 @@ export class WorkspaceService {
       }
     }
     if(linhas.length>2000)recusados.push('Limite de 2000 operações excedido.');
-    void midiaDir;
     return { feitos, recusados };
   }
 
