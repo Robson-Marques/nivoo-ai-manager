@@ -37,8 +37,16 @@ function pareceModeloNaoTextual(id: string): boolean {
   return /(?:whisper|transcri|guard|tts|speech|audio|image|embed|rerank|vision|video|music)/i.test(id);
 }
 
+// Exact IDs from the Groq local tool-calling matrix, verified 2026-11-25.
+// Exclude moderation and hosted agent systems: this adapter executes local
+// function calls, not the provider's built-in agents.
+const GROQ_LOCAL_AGENTS=new Set([
+  'openai/gpt-oss-20b','openai/gpt-oss-120b','qwen/qwen3.8-27b',
+  'minimaxai/minimax-m2.7','meta-models/muse-spark-open',
+  'llama-3.3-70b-versatile','llama-3.1-8b-instant',
+]);
 export function modeloGroqDeTexto(id: string): boolean {
-  return /^[A-Za-z0-9._/-]{1,150}$/.test(id) && !pareceModeloNaoTextual(id);
+  return GROQ_LOCAL_AGENTS.has(id);
 }
 
 type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown; active?: boolean; pricing?: { prompt?: unknown; completion?: unknown } };
@@ -104,7 +112,7 @@ export class FreeCloudApiProvider implements AiProvider {
       .filter(m => this.tipo === 'openrouter-free-api'
         ? modeloOpenRouterGratuito(m.id as string) && !pareceModeloNaoTextual(m.id as string) &&
           (m.pricing == null || (Number(m.pricing.prompt ?? 0) === 0 && Number(m.pricing.completion ?? 0) === 0)) &&
-          (!Array.isArray(m.supported_parameters) || m.supported_parameters.includes('tools'))
+          (m.id==='openrouter/free'||(Array.isArray(m.supported_parameters)&&m.supported_parameters.includes('tools')))
         : modeloGroqDeTexto(m.id as string))
       .map(m => ({
         id: String(m.id),
@@ -136,6 +144,7 @@ export class FreeCloudApiProvider implements AiProvider {
         status.errors.push('Nenhum modelo de texto elegível retornado para esta conexão');
       } else {
         status.available = true;
+        status.agentModels=opcoes.map(m=>m.id);
       }
     } catch (e: any) {
       status.errors.push(String(e?.message ?? e).slice(0, 450));
@@ -149,10 +158,10 @@ export class FreeCloudApiProvider implements AiProvider {
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave não configurada', resourceUnavailable: true };
     const model = String(req.options?.model || this.conf.padrao);
     if (this.tipo === 'openrouter-free-api' && !modeloOpenRouterGratuito(model)) {
-      return { exitCode: 1, output: '', error: 'Modelo pago bloqueado: escolha openrouter/free ou um ID terminado em :free' };
+      return { exitCode: 1, output: '', stopReason:'model_incompatible',error: 'Modelo pago bloqueado: escolha openrouter/free ou um ID terminado em :free' };
     }
     if (this.tipo === 'groq-free-api' && !modeloGroqDeTexto(model)) {
-      return { exitCode: 1, output: '', error: 'Modelo não compatível com agente de texto' };
+      return { exitCode: 1, output: '', stopReason:'model_incompatible',error: 'Modelo não compatível com agente de texto' };
     }
     let entrada = 0, saida = 0, escritas = 0;
     const inicio = Date.now();
@@ -164,7 +173,7 @@ export class FreeCloudApiProvider implements AiProvider {
     req.onLog(this.conf.nome + ': modelo ' + model + ' — ' + this.conf.mensagem);
     try {
       const permitidos = await this.modelos();
-      if (!permitidos.some(m => m.id === model)) throw new Error('Modelo não listado como acessível nesta conexão: ' + model);
+      if (!permitidos.some(m => m.id === model)) return {exitCode:1,output:'',stopReason:'model_incompatible',error:'Modelo não listado como agente elegível nesta conexão: '+model};
       for (let turno = 0; turno < turnos; turno++) {
         if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido' };
         const restante = req.timeoutMs - (Date.now() - inicio);
