@@ -15,7 +15,7 @@ export function goldfishMessageWriter(prisma:PrismaService,identity:{messageId:s
       }
       const messages=await tx.$queryRaw<Array<{id:string}>>`SELECT id FROM "ConversationMessage" WHERE id = ${identity.messageId} AND status = 'PENDENTE' FOR UPDATE`;
       if(!messages.length||signal.aborted)return false;
-      const tasks=await tx.$queryRaw<Array<{id:string}>>`SELECT id FROM "QueueTask" WHERE id = ${identity.taskId} AND "messageId" = ${identity.messageId} AND "lockedBy" = ${identity.workerId} AND claims = ${identity.claims} AND status = 'RUNNING' AND "lockedUntil" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') FOR UPDATE`;
+      const tasks=await tx.$queryRaw<Array<{id:string}>>`SELECT id FROM "QueueTask" WHERE id = ${identity.taskId} AND "messageId" = ${identity.messageId} AND "lockedBy" = ${identity.workerId} AND claims = ${identity.claims} AND status = 'RUNNING' AND "lockedUntil" > (clock_timestamp() AT TIME ZONE 'UTC') FOR UPDATE`;
       if(!tasks.length||signal.aborted)return false;
       const r=await tx.conversationMessage.updateMany({where:{id:identity.messageId,status:'PENDENTE'},data});
       return r.count===1;

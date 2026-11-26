@@ -85,5 +85,6 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
     if (isAi) registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
 
 
+  if(isAi&&result.resourceUnavailable)await registry.recordRateLimit(providerId,result).catch(e=>registrarErro('worker','Falha ao registrar espera compartilhada do provedor '+providerId,e));
   return result;
 }

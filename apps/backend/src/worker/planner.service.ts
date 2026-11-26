@@ -443,6 +443,7 @@ export class PlannerService {
             if(!await writeReview({andamento:'Goldfish: fase '+meta.stage+' — '+meta.role})){cancelled=true;return {exitCode:-1,output:'',interrupted:true};}
             const result=await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'goldfish',messageId:msg.id,attemptId:req.attemptId,skillsVersion:SKILLS_VERSION,skillIds:[GOLDFISH_SKILL.id],promptChars:req.instructions.length},()=>this.registry.get(providerId).execute(req));
             this.registry.registrarResultado(providerId,result.exitCode===0&&!result.resourceUnavailable,result.error);
+            if(result.resourceUnavailable)await this.registry.recordRateLimit(providerId,result).catch(()=>undefined);
             registrarTempo('goldfish_revisor_fim',{provedor:providerId,fase:meta.stage,revisor:meta.role,tentativa:meta.attempt,codigoSaida:result.exitCode,recursoIndisponivel:!!result.resourceUnavailable});
             return result;
           },
@@ -586,6 +587,7 @@ export class PlannerService {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;
       }
+      if(result.resourceUnavailable)await this.registry.recordRateLimit(providerId,result).catch(()=>undefined);
       this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
       // A failed provider call can already have cost. Persist that cost in
       // the same transaction that changes the preference and requeues.

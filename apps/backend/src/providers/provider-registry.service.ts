@@ -13,7 +13,8 @@ import { JuntarVideosProvider } from './juntar-videos.provider';
 import { GerarNarracaoProvider } from './gerar-narracao.provider';
 import { ArquivosProjetoProvider } from './arquivos-projeto.provider';
 import { LocalShellProvider } from './local-shell.provider';
-import { AiProvider, ProviderStatus } from './provider.interface';
+import { AiProvider, ProviderStatus, type ExecutionResult } from './provider.interface';
+import { isTransientRateLimit,resourceRateLimitDelayMs } from './resource-rate-limit';
 
 @Injectable()
 export class ProviderRegistry {
@@ -76,6 +77,13 @@ export class ProviderRegistry {
 
   async status(id: string, maxAgeMs = 60000): Promise<ProviderStatus> {
     const hit = this.cache.get(id);
+    const cooldown=await this.prisma.providerCooldown.findUnique({where:{providerId:id}});
+    const delay=cooldown?cooldown.until.getTime()-Date.now():0;
+    if(delay>0){
+      const p=this.get(id);
+      const previous=hit?.status;
+      return {...(previous??{id,label:p.label,kind:p.kind,installed:true,authenticated:'desconhecido' as const,limits:{},capabilities:[],errors:[],isAi:p.kind!=='executor'}),available:false,limits:{...(previous?.limits??{}),retryAfterMs:delay},errors:['HTTP 429: provedor em espera compartilhada até '+cooldown!.until.toISOString()],checkedAt:new Date().toISOString()};
+    }
     if (hit && Date.now() - hit.at < maxAgeMs) return hit.status;
     const p = this.get(id);
     const cfg = await this.prisma.providerConfig.findUnique({ where: { id } });
@@ -106,6 +114,26 @@ export class ProviderRegistry {
     }
     this.cache.set(id, { at: Date.now(), status });
     return status;
+  }
+
+  /** Only actual provider rate-limit receipts open the shared cooldown.
+   * Cache/status reads never extend it and successful concurrent requests
+   * cannot erase a later 429. No credential or provider output is stored. */
+  async recordRateLimit(id:string,result:ExecutionResult):Promise<void>{
+    if(result.interrupted||!result.resourceUnavailable||!isTransientRateLimit(result.error??''))return;
+    const now=new Date();
+    const previous=await this.prisma.providerCooldown.findUnique({where:{providerId:id}});
+    const count=previous&&now.getTime()-previous.updatedAt.getTime()<24*60*60_000?previous.failures:0;
+    const until=new Date(now.getTime()+resourceRateLimitDelayMs(count,result.retryAfterMs));
+    await this.prisma.$executeRaw`
+      INSERT INTO "ProviderCooldown" ("providerId","until","failures","updatedAt")
+      VALUES (${id},${until},1,${now})
+      ON CONFLICT ("providerId") DO UPDATE SET
+        "until"=GREATEST("ProviderCooldown"."until",EXCLUDED."until"),
+        "failures"=CASE WHEN "ProviderCooldown"."updatedAt" < ${new Date(now.getTime()-24*60*60_000)}
+          THEN 1 ELSE LEAST("ProviderCooldown"."failures"+1,6) END,
+        "updatedAt"=GREATEST("ProviderCooldown"."updatedAt",EXCLUDED."updatedAt")`;
+    this.cache.delete(id);
   }
 
   async statusAll(maxAgeMs = 60000): Promise<ProviderStatus[]> {

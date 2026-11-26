@@ -49,25 +49,17 @@ export class QueueService {
   async claim(workerId: string, leaseMs: number, types: QueueTaskType[] = ['RUN_STEP', 'EVALUATE_JOB', 'PLAN_MESSAGE']): Promise<ClaimedTask | null> {
     // Loop de quedas: a tarefa derrubou o worker MAX_RECOVERIES vezes. Vira DEAD e o job é BLOQUEADO
     // com motivo explícito (nunca fica parado em EXECUTANDO sem ninguém processar).
-    const dead = await this.prisma.$queryRaw<Array<{ jobId: string | null; stepId: string | null; messageId: string | null }>>`
-      UPDATE "QueueTask" SET status = 'DEAD', "lastError" = 'worker caiu repetidamente processando esta tarefa', "updatedAt" = ${AGORA_UTC}
-      WHERE status = 'RUNNING' AND "lockedUntil" < ${AGORA_UTC} AND recoveries >= ${MAX_RECOVERIES}
-      RETURNING "jobId", "stepId", "messageId"`;
-    for (const d of dead) {
-      if (d.jobId) await this.blockForInfrastructure(d.jobId, d.stepId);
-      else if (d.messageId) {
-        await this.prisma.conversationMessage.updateMany({
-          where: { id: d.messageId, status: 'PENDENTE' },
-          data: { status: 'ERRO', kind: 'erro', content: 'O worker caiu repetidamente ao processar esta mensagem. Veja os logs do worker e envie de novo.' },
-        });
-      }
-    }
+    const dead=await this.prisma.$queryRaw<Array<{id:string;jobId:string|null;messageId:string|null;stepId:string|null}>>`
+      SELECT id,"jobId","messageId","stepId" FROM "QueueTask"
+      WHERE status='RUNNING' AND "lockedUntil" <= ${AGORA_UTC} AND recoveries >= ${MAX_RECOVERIES}
+      ORDER BY "lockedUntil" ASC LIMIT 50`;
+    for(const d of dead)await this.expireRecovery(d);
     const rows = await this.prisma.$queryRaw<Array<QueueTask & { prev_locked_by: string | null; prev_status: string }>>`
       WITH c AS (
         SELECT id, "lockedBy" AS prev_locked_by, status::text AS prev_status
         FROM "QueueTask"
         WHERE ((status = 'QUEUED' AND "runAt" <= ${AGORA_UTC})
-           OR (status = 'RUNNING' AND "lockedUntil" < ${AGORA_UTC}))
+           OR (status = 'RUNNING' AND "lockedUntil" <= ${AGORA_UTC} AND recoveries < ${MAX_RECOVERIES}))
           AND type::text = ANY(${types}::text[])
         ORDER BY "runAt" ASC, "createdAt" ASC
         FOR UPDATE SKIP LOCKED
@@ -120,6 +112,7 @@ export class QueueService {
   async recordInternalFailure(task: ClaimedTask, workerId: string, signature: string, reason: string): Promise<'lost'|'retry'|'blocked'> {
     return this.prisma.$transaction(async tx => {
       if (task.jobId) await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${task.jobId}))) AS l`;
+      if(task.messageId)await tx.$queryRaw`SELECT id FROM "ConversationMessage" WHERE id=${task.messageId} FOR UPDATE`;
       const rows = await tx.$queryRaw<Array<{internalErrorSignature:string|null;internalErrorCount:number}>>`
         SELECT "internalErrorSignature", "internalErrorCount" FROM "QueueTask"
         WHERE id = ${task.id} AND "lockedBy" = ${workerId} AND claims = ${task.claims}
@@ -141,7 +134,7 @@ export class QueueService {
         const job=await tx.job.updateMany({where:{id:task.jobId,status:{in:['PENDENTE','EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INTERNA',statusDetail:detail}});
         if(job.count){
           await tx.step.updateMany({where:{jobId:task.jobId,...(task.stepId?{id:task.stepId}:{}),status:'EXECUTANDO'},data:{status:'BLOQUEADO',statusDetail:detail}});
-          await tx.attempt.updateMany({where:{jobId:task.jobId,...(task.stepId?{stepId:task.stepId}:{}),status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:detail}});
+          // Preserve live/unknown process identity; a resume must reconcile the attempt.
           await tx.logEntry.create({data:{jobId:task.jobId,stepId:task.stepId,level:'ERROR',source:'fila',message:detail}});
         }
       }
@@ -150,17 +143,29 @@ export class QueueService {
     });
   }
 
-  private async blockForInfrastructure(jobId: string, stepId: string | null): Promise<void> {
-    const detail = `a tarefa derrubou o worker ${MAX_RECOVERIES} vezes; verifique os logs do worker antes de retomar`;
-    await this.prisma.$transaction([
-      this.prisma.attempt.updateMany({ where: { jobId, ...(stepId ? { stepId } : {}), status: 'EXECUTANDO' }, data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'worker caiu repetidamente' } }),
-      ...(stepId ? [this.prisma.step.updateMany({ where: { id: stepId, status: 'EXECUTANDO' }, data: { status: 'BLOQUEADO', statusDetail: detail } })] : []),
-      this.prisma.job.updateMany({
-        where: { id: jobId, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } },
-        data: { status: 'BLOQUEADO', blockedReason: 'FALHA_INFRAESTRUTURA', statusDetail: detail },
-      }),
-      this.prisma.logEntry.create({ data: { jobId, stepId, level: 'ERROR', source: 'fila', message: `Job BLOQUEADO (FALHA_INFRAESTRUTURA): ${detail}` } }),
-    ]);
+  /** Reap the expired task and update its domain in one transaction.
+   * Never mark an unconfirmed OS process as terminated: preserve attempt
+   * identity so a later operator resume must reconcile the actual process. */
+  private async expireRecovery(d:{id:string;jobId:string|null;messageId:string|null;stepId:string|null}):Promise<void>{
+    await this.prisma.$transaction(async tx=>{
+      if(d.jobId)await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${d.jobId}))) AS l`;
+      if(d.messageId)await tx.$queryRaw`SELECT id FROM "ConversationMessage" WHERE id=${d.messageId} FOR UPDATE`;
+      const detail='Worker perdeu o lease repetidamente; resultado e identidade da sessão preservados para reconciliação.';
+      const changed=await tx.$executeRaw`
+        UPDATE "QueueTask" SET status='DEAD',"lockedBy"=NULL,"lockedUntil"=NULL,
+          "lastError"=${detail},"updatedAt"=${AGORA_UTC}
+        WHERE id=${d.id} AND status='RUNNING' AND "lockedUntil" <= ${AGORA_UTC} AND recoveries >= ${MAX_RECOVERIES}`;
+      if(changed!==1)return;
+      if(d.jobId){
+        const job=await tx.job.updateMany({where:{id:d.jobId,status:{in:['EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INFRAESTRUTURA',statusDetail:detail}});
+        if(job.count){
+          if(d.stepId)await tx.step.updateMany({where:{id:d.stepId,jobId:d.jobId,status:{in:['EXECUTANDO','PENDENTE','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',statusDetail:detail}});
+          await tx.logEntry.create({data:{jobId:d.jobId,stepId:d.stepId,level:'ERROR',source:'fila',message:detail}});
+        }
+      }else if(d.messageId){
+        await tx.conversationMessage.updateMany({where:{id:d.messageId,status:'PENDENTE'},data:{status:'ERRO',kind:'erro',content:detail,completedAt:new Date()}});
+      }
+    });
   }
 
   async cancelForJob(tx: Tx | PrismaService, jobId: string): Promise<number> {

@@ -531,3 +531,11 @@ model SshPedido {
 
   @@index([projectId, status])
 }
+
+// Shared transient provider quota state; no credentials or prompt content.
+model ProviderCooldown {
+  providerId String @id
+  until DateTime
+  failures Int @default(0)
+  updatedAt DateTime @updatedAt
+}

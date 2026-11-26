@@ -11,6 +11,7 @@ import { QueueTaskType } from '@prisma/client';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { StepExecutorService } from './step-executor.service';
 import { PlannerService } from './planner.service';
+import { LostStepLease } from './executor/lease';
 
 /**
  * Loop do worker: reivindica tarefas da fila persistente, mantém heartbeat do lease e
@@ -134,6 +135,7 @@ export class WorkerRunnerService {
         await this.queue.complete(task.id, this.workerId, task.claims);
       }
     } catch (e: any) {
+      if(e instanceof LostStepLease){ctrl.abort();return;}
       if (/ENOSPC|no space left on device/i.test(String(e?.message ?? e))) {
         this.running = false;
         ctrl.abort();
