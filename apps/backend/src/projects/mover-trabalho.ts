@@ -1,5 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { aiConnectionIds } from '../accounts/connections';
+import { chooseReserve,reservePin,type ReserveRequirements,type ReserveRegistry,type ReserveCandidate,reserveCompatibility } from '../providers/reserve-policy';
 import { nativeImageTarget } from '../providers/codex-image-assets';
 import { OrchestratorService } from '../jobs/orchestrator.service';
 
@@ -54,35 +55,43 @@ export function estaSemCredito(id: string, agora = Date.now()): boolean {
   return false;
 }
 
-/**
- * IA reserva: se a IA do projeto ficou sem crédito/limite/login, escolhe a próxima da lista de reserva do
- * projeto que esteja conectada AGORA, passa o projeto e o trabalho em andamento para ela e devolve o id.
- * Sem reserva disponível: null (o trabalho espera a IA voltar e a tela oferece trocar).
- */
-export async function trocarParaReserva(
-  prisma: PrismaService,
-  registry: { has(id: string): boolean; status(id: string, maxAgeMs?: number): Promise<{ available: boolean; label: string }> },
-  projectId: string,
-  indisponivel: string,
-  jobId?:string,
-): Promise<{ id: string; nome: string; anterior: string } | null> {
-  marcarSemCredito(indisponivel);
-  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { provider: true, aiReserva: true } });
-  if (!p || (!jobId && p.provider !== indisponivel)) return null;
-  const candidates=[...(jobId&&p.provider!==indisponivel?[p.provider]:[]),...(Array.isArray(p.aiReserva)?p.aiReserva.map(String):[])];
-  const reserva=[...new Set(candidates)].filter(id=>id!==indisponivel&&aiConnectionIds().includes(id)&&registry.has(id)&&!estaSemCredito(id));
-  for (const id of reserva) {
-    const st = await registry.status(id, 0);
-    if (!st.available) continue;
-    const anterior = (await registry.status(indisponivel, 60_000)).label;
-    // Só troca se ninguém trocou antes (worker e conversa podem perceber ao mesmo tempo).
-    if(p.provider===indisponivel){
-      const r=await prisma.project.updateMany({where:{id:projectId,provider:indisponivel},data:{provider:id}});
-      if(!r.count&&!jobId)return null;
-    }
-    // A reserve changes the project preference for future work, not unrelated jobs.
-    if(jobId)await moverTrabalhoParaIa(prisma,projectId,id,{from:indisponivel,jobId});
-    return { id, nome: st.label, anterior };
-  }
-  return null;
+export type ReserveSwitch=ReserveCandidate&{anterior:string};
+export async function findProjectReserve(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements,opts:{resourceFailure:boolean;includeCurrent?:boolean;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveSwitch|null>{
+  if(opts.resourceFailure)marcarSemCredito(from);
+  if(reservePin(requirements))return null;
+  const p=await prisma.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
+  if(!p||(!opts.includeCurrent&&p.provider!==from))return null;
+  const choice=await chooseReserve({project:p,registry,from,requirements,knownIds:aiConnectionIds(),cooling:estaSemCredito,includeCurrent:opts.includeCurrent,onSkip:opts.onSkip});
+  if(!choice)return null;
+  const anterior=await registry.status(from,60000).then(s=>s.label).catch(()=>from);
+  return {...choice,anterior};
+}
+
+/** Planner preference changes only if the expected connection is still
+ * current. Step-level fallback never mutates project preference or siblings. */
+export async function trocarParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements={},opts:{resourceFailure:boolean;onSkip?:(id:string,reason:string)=>void}={resourceFailure:true}):Promise<ReserveSwitch|null>{
+  const choice=await findProjectReserve(prisma,registry,projectId,from,requirements,opts);
+  if(!choice)return null;
+  const updated=await prisma.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
+  return updated.count?choice:null;
+}
+
+export async function trocarEtapaParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,jobId:string,stepId:string,from:string,requirements:ReserveRequirements,opts:{resourceFailure:boolean;taskId:string;workerId:string;claims:number;signal:AbortSignal;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveSwitch|null>{
+  if(opts.signal.aborted)return null;
+  const choice=await findProjectReserve(prisma,registry,projectId,from,requirements,{...opts,includeCurrent:true});
+  if(!choice||opts.signal.aborted)return null;
+  return prisma.$transaction(async tx=>{
+    await OrchestratorService.lockJob(tx,jobId);
+    const active=await tx.queueTask.findFirst({where:{id:opts.taskId,jobId,stepId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING',lockedUntil:{gt:new Date()}},select:{id:true}});
+    if(!active||opts.signal.aborted)return null;
+    const job=await tx.job.findUnique({where:{id:jobId},select:{projectId:true,defaultProvider:true,status:true,approvedScope:true}});
+    const step=await tx.step.findUnique({where:{id:stepId}});
+    if(!job||job.projectId!==projectId||!['EXECUTANDO','AGUARDANDO_RECURSO'].includes(job.status)||!step||step.jobId!==jobId||!['PENDENTE','EXECUTANDO','AGUARDANDO_RECURSO'].includes(step.status)||(step.provider??job.defaultProvider)!==from)return null;
+    if(JSON.stringify(step.providerOptions??{})!==JSON.stringify(requirements.options??{}))return null;
+    if(reservePin({...requirements,pinnedReview:!!(job.approvedScope as {egmResolution?:unknown}|null)?.egmResolution}))return null;
+    const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
+    if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null)return null;
+    const updated=await tx.step.updateMany({where:{id:stepId,provider:step.provider,status:step.status},data:{provider:choice.id,status:'PENDENTE',statusDetail:'continua com '+choice.nome}});
+    return updated.count?choice:null;
+  });
 }
