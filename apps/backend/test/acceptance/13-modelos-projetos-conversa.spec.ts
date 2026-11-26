@@ -206,7 +206,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     const p = await projeto('Cardápio', m.slug, { rules: 'Nunca invente preços. Código REGRA-SESSAO-7.' });
     await h.http().post(`/api/projects/${p.id}/knowledge/import`).send({ files: [{ path: 'precos.md', contentBase64: b64('Margherita: R$ 45. CONH-SESSAO-3.') }] }).expect(201);
     ctl('mode', null);
-    const j = await job(p.id, { title: 'arte', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'test -f contexto/base/marca.md && test -f contexto/conhecimento/precos.md' }] });
+    const j = await job(p.id, { title: 'arte', defaultProvider: 'claude-code-cli', conferencia: true, steps: [{ key: 's', instructions: 'x', verifyCommand: 'test -f contexto/base/marca.md && test -f contexto/conhecimento/precos.md' }] });
     const d = await ate(p.id, j.id);
     expect(d.status).toBe('CONCLUIDO');
     // Trava: a conferência independente foi acrescentada e aprovada.
@@ -238,7 +238,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('mode', null);
     ctl('conforme', 'false');
     try {
-      const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', conferencia: true, limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d.status).not.toBe('CONCLUIDO');
       // A revisão reprovou sempre com a MESMA violação: a 2ª e a 3ª correção mudam a abordagem; repetida depois de 3
@@ -276,7 +276,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('avanca-ate', '7');
     ctl('revisoes', null);
     try {
-      const j = await job(p.id, { title: 'longo', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      const j = await job(p.id, { title: 'longo', defaultProvider: 'claude-code-cli', conferencia: true, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 180000);
       expect(d.status).toBe('CONCLUIDO');
       // 7 cobranças diferentes = 7 correções (o limite antigo parava na 3ª), nenhuma "mudando a abordagem".

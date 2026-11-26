@@ -433,7 +433,11 @@ export class ConversationsService {
     let job: Awaited<ReturnType<JobsService['create']>>;
     try {
       // O plano aprovado na conversa trabalha até terminar (limites do plano da IA não se aplicam).
-      job = await this.jobs.create(projectId, { ...plan, limits: undefined, semLimites: true, author: decidedBy },scope);
+      // Deliverable aprovado na conversa passa pela conferência independente das
+      // REGRAS do projeto (a "trava": se a revisão apontar violação das regras, o
+      // trabalho não fica pronto). É distinta da revisão artística/visual, que
+      // continua sendo decisão do usuário. Um plano pode sobrepor explicitamente.
+      job = await this.jobs.create(projectId, { conferencia: true, ...plan, limits: undefined, semLimites: true, author: decidedBy },scope);
     } catch (e) {
       await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { approvedAt: null, approvedBy: null } });
       throw e;
