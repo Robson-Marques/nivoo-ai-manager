@@ -1,3 +1,4 @@
+import { manifestEntry,type SkillManifestEntry } from './skill-evidence';
 import { writeSessionContextFile } from '../common/session-context-file';
 import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 
@@ -102,11 +103,13 @@ export function studioAlignmentSkills():Skill[]{
   return NIVOO_SKILLS.filter(s=>s.id==='software-requisitos'||s.id==='software-especificacao');
 }
 
+export function skillDocument(s:Skill):string{return ['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em '+(s.sourceAttribution??'NVIDIA Agent Skills (Apache-2.0)')+', '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n';}
+export function skillManifest(skills:readonly Skill[]):SkillManifestEntry[]{return skills.map(s=>manifestEntry(s.id,skillDocument(s)));}
 export function skillContext(skills:readonly Skill[],worktree?:string):string[]{
   if(!skills.length)return [];
   if(worktree){
     for(const s of skills){
-      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em '+(s.sourceAttribution??'NVIDIA Agent Skills (Apache-2.0)')+', '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n');
+      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',skillDocument(s));
     }
   }
   return ['## Skills Nivoo v'+SKILLS_VERSION+' selecionadas para esta sessão',
