@@ -78,6 +78,14 @@ describe('Catálogo NVIDIA: 94 modelos por finalidade real', () => {
     expect(modelos.find(m => m.id === 'nvidia/novo-video-upscale')?.areas).toContain('video');
   });
 
+  it('não transfere capacidade ou disponibilidade para variantes de nome ou outro fornecedor',()=>{
+    const variants=['other/nemotron-3.5-bolt-e4b','nvidia/nemotron-3.5-bolt-e4b-unknown','nemotron-3.5-bolt-e4b'];
+    for(const id of variants)expect(modeloNvidiaServeComoAgente(id)).toBe(false);
+    const live=catalogarNvidiaModelos(variants);
+    expect(live.find(m=>m.id==='nvidia/nemotron-3.5-bolt-e4b')?.listadoNaChave).toBe(false);
+    expect(live.filter(m=>m.listadoNaChave&&m.utilizavelNoWorkflow)).toHaveLength(0);
+  });
+
   it('só habilita chat com tool calling comprovado como agente', () => {
     expect(modeloNvidiaServeComoAgente('nvidia/nemotron-3.5-bolt-e4b')).toBe(true);
     expect(modeloNvidiaServeComoAgente('nvidia/nemotron-3.5-super-vl-120b-a12b')).toBe(true);
