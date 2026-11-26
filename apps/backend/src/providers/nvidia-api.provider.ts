@@ -226,7 +226,7 @@ export class NvidiaApiProvider implements AiProvider {
               alteracoes++;
               leiturasIguais.clear();
             }
-            announceSkillRead(nome,resultado,req.onLog);
+            announceSkillRead(nome,resultado,req.onLog,req.onSkillRead);
             ultimaFalhaFerramenta = '';
             falhasSeguidasFerramenta = 0;
             const pedido = String(args.caminho ?? args.pasta ?? '');
