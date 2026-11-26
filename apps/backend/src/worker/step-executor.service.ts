@@ -1,3 +1,4 @@
+import { skillExecutionEvidence,collectSkillCoverage } from '../specialties/skill-evidence';
 import { nativeImageTarget,isCodexAccount } from '../providers/codex-image-assets';
 import { classifyMediaFailure } from '../specialties/media/failure-policy';
 import { checkGeneratedImageOutputs } from './image-output-guard';
@@ -529,11 +530,15 @@ export class StepExecutorService {
     result=classified.result;
     const {attemptStatus}=classified;
     const outputHash = normalizedOutputHash(result.output ?? '', result.error);
+    if(contextStats?.skillManifest){
+      contextStats.skillEvidence=skillExecutionEvidence({provider:providerId,model:effectiveModel??null,coverage:contextStats.skillCoverage??collectSkillCoverage(contextStats.skillManifest).snapshot(),verification:verification.skillVerification,attemptStatus,treeBefore,treeAfter,artifacts:[...outputs,...videos].map(a=>a.id)});
+    }
     await this.prisma.$transaction([
       this.prisma.attempt.update({
         where: { id: attempt.id },
         data: {
           status: attemptStatus,
+          ...(contextStats?{contextStats:contextStats as unknown as Prisma.InputJsonValue}:{}),
           exitCode: result.exitCode,
           output: (result.output ?? '').slice(-20000),
           outputHash,
