@@ -22,7 +22,7 @@ describe('Execução por conector, logs e artefatos', () => {
   it('lista conectores com disponibilidade, limites e erros reais', async () => {
     const res = await h.http().get('/api/providers').expect(200);
     const ids = res.body.map((p: any) => p.id).sort();
-    expect(ids).toEqual(['arquivos-projeto', 'claude-api', 'claude-code-cli', 'codex-api', 'codex-cli', 'gemini-api', 'gemini-video', 'juntar-videos', 'local-shell']);
+    expect(ids).toEqual(['arquivos-projeto', 'claude-api', 'claude-code-cli', 'codex-api', 'codex-cli', 'gemini-api', 'gemini-image', 'gemini-video', 'gerar-narracao', 'groq-free-api', 'juntar-videos', 'local-shell', 'nvidia-api', 'openrouter-free-api']);
     for (const p of res.body) {
       expect(typeof p.available).toBe('boolean');
       expect(Array.isArray(p.errors)).toBe(true);

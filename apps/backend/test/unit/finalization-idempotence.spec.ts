@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { ArtifactStoreService } from '../../src/storage/artifact-store.service';
 import { ingestNotes,saveCheckpoint } from '../../src/worker/executor/recovery-store';
+import { resetConfigCache } from '../../src/config';
 
 jest.mock('../../src/memory/camadas',()=>({escreverArquivosDaMemoria:jest.fn(async()=>undefined)}));
 const lease:any={task:{id:'q',claims:4,jobId:'j',stepId:'s'},workerId:'w'};
@@ -43,9 +44,11 @@ describe('idempotent finalization',()=>{
     dir=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-finalization-'));
     oldRoot=process.env.NIVOO_ARTIFACTS_ROOT;
     process.env.NIVOO_ARTIFACTS_ROOT=dir;
+    resetConfigCache(); // o diretório de artefatos é por-teste: forçar releitura do env
   });
   afterEach(()=>{
     if(oldRoot===undefined)delete process.env.NIVOO_ARTIFACTS_ROOT;else process.env.NIVOO_ARTIFACTS_ROOT=oldRoot;
+    resetConfigCache();
     fs.rmSync(dir,{recursive:true,force:true});
   });
   it('reuses an exact artifact on a repeated publication by the same attempt',async()=>{

@@ -110,7 +110,7 @@ export function executeFileTool(cwd:string,name:string,args:Record<string,unknow
     let source=p,aviso:string|undefined;
     if(!fs.existsSync(p.abs)&&/\.js$/i.test(p.rel)&&!INTERNAL.test(p.rel)){
       const alternative=safe(cwd,p.rel.replace(/\.js$/i,'.ts'),'read');
-      if(fs.existsSync(alternative.abs)){source=alternative;aviso='Arquivo .js ausente; lido o .ts correspondente.';}
+      if(fs.existsSync(alternative.abs)){source=alternative;aviso='Arquivo .js ausente; foi lido o arquivo TypeScript (.ts) correspondente.';}
     }
     const {text,hash}=readText(source.abs);
     const inicio=Math.min(text.length,integer(args.inicio,0,Number.MAX_SAFE_INTEGER));

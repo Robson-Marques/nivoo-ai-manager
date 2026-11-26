@@ -171,14 +171,17 @@ export class StepExecutorService {
           await tx.queueTask.updateMany({where:{id:task.id,claims:task.claims,lockedBy:workerId,status:'RUNNING'},data:{status:'DONE',lockedUntil:null,lastError:detail}});
           return {count:0,detail};
         }
-        const changed=await tx.attempt.updateMany({where:{id:{in:current.map(o=>o.id)},status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'worker anterior perdeu lease; custo/resultado não confirmados'}});
+        const perdidos=[...new Set(current.map(o=>o.workerId).filter((w):w is string=>!!w))];
+        const quemCaiu=perdidos.length?`worker perdido (${perdidos.join(', ')})`:'worker anterior perdeu lease';
+        const changed=await tx.attempt.updateMany({where:{id:{in:current.map(o=>o.id)},status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:`${quemCaiu}; custo/resultado não confirmados`}});
         await tx.step.updateMany({where:{id:step.id,status:'EXECUTANDO'},data:{status:'PENDENTE'}});
-        return {count:changed.count,detail:null};
+        return {count:changed.count,detail:null,perdidos};
       }).catch(e=>{if(e instanceof LostStepLease)return null;throw e;});
       if(!recovery)return 'INTERROMPIDO';
       if(recovery.detail){await L(recovery.detail,'WARN');return 'BLOQUEADO';}
       replay=recovery.replay??null;
-      await L('Recuperação: '+recovery.count+' tentativa(s) órfã(s) reconciliada(s); arquivos e checkpoints preservados.','WARN');
+      const origem=recovery.perdidos?.length?' de '+recovery.perdidos.join(', '):'';
+      await L('Recuperação: '+recovery.count+' tentativa(s) órfã(s)'+origem+' reconciliada(s); arquivos e checkpoints preservados.','WARN');
     }
 
     if (!['EXECUTANDO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
