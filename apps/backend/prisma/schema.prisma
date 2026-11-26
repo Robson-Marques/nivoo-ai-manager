@@ -166,6 +166,8 @@ model ConversationMessage {
   plan           Json? // rascunho de job proposto pela IA (só vira job com aprovação)
   /// Diário interno de revisão independente; nunca é um plano aprovável.
   goldfishState  Json?
+  /// Provider receipt for ordinary planning and its optional repair.
+  planningState  Json?
   /// Perguntas da IA com opções de clicar: [{ pergunta, opcoes: [{ rotulo, descricao }], multipla }]
   perguntas      Json?
   jobId          String? // job criado ao aprovar o plano

@@ -151,9 +151,9 @@ export class StepExecutorService {
               // request with unknown outcome must not be blindly repeated.
               continue;
             }
-            if(o.pid||['RETURNED','VERIFIED','PUBLISHING','RESTORING','FINALIZING'].includes(journal.phase)){
-              await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
-            }
+            // Keep unresolved identity/receipt discoverable on every resume.
+            // Do not mark an uncertain operation terminal merely to unblock the queue.
+            await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
             unsafe.push('#'+o.number+': fase '+journal.phase+' sem retomada automática comprovada'+(journal.costKnown===false?'; custo não informado':''));
             continue;
           }

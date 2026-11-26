@@ -25,6 +25,7 @@ import { approvedGoldfish,summarizeGoldfishExecution } from '../specialties/soft
 import { bindGoldfishProofs,detectGoldfishGitDrift,renderGoldfishGitDrift } from '../specialties/software/egm/resolution-proof';
 import { consolidateGoldfish,renderResolutionLedger,resolutionRequest,resolutionContext,readResolutionLedger,validateResolutionDecisions,renderResolutionDecisions,type ResolutionLedger } from '../specialties/software/egm/review-resolution';
 import type { ExecutionResult } from '../providers/provider.interface';
+import { plannerBinding,plannerCost,plannerReplay,readPlannerReceipt,type PlannerReceipt } from './planner/receipt';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
 import { trocarParaReserva,markModelIncompatible } from '../projects/mover-trabalho';
@@ -122,7 +123,9 @@ export class PlannerService {
       if(await writeMessage({status:'ERRO',kind:'erro',content:texto,completedAt:new Date()}))await this.queue.complete(task.id,workerId,task.claims);
     };
 
-    if(msg.startedAt&&!msg.goldfishState&&(task.recovered||task.internalErrorCount>0))return fail('A chamada anterior foi interrompida sem confirmação integral. O resultado e o custo podem ter sido processados pelo provedor; não será disparada outra chamada automaticamente.');
+    let receipt:PlannerReceipt|null;
+    try{receipt=readPlannerReceipt(msg.planningState);}catch(e){return fail((e as Error).message);}
+    if(!receipt&&msg.startedAt&&!msg.goldfishState&&(task.recovered||task.internalErrorCount>0))return fail('A chamada anterior foi interrompida sem confirmação integral. O resultado e o custo podem ter sido processados pelo provedor; não será disparada outra chamada automaticamente.');
     const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
     const automaticReview=msg.kind===AUTOMATIC_GOLDFISH_KIND;
     let specialtyContext:string|null=null;
@@ -147,7 +150,7 @@ export class PlannerService {
 
     // Compatibility for queued requests: make the same deterministic decision
     // before opening a provider session. No extra AI call.
-    if(!specialtyResume&&!automaticReview&&msg.kind!=='entrega'&&project.visualProfile==null){
+    if(!receipt&&!specialtyResume&&!automaticReview&&msg.kind!=='entrega'&&project.visualProfile==null){
       const intercepted=await this.prisma.$transaction(async tx=>{
         await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${msg.conversationId} FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${project.id} FOR UPDATE`;
@@ -175,13 +178,15 @@ export class PlannerService {
     }
 
     // Limite de gasto do projeto vale também para a conversa (trabalhos + respostas).
+    let budgetExceeded=false;
     if (project.maxCostUsd !== null) {
       const [jobs, conversa] = await Promise.all([
         this.prisma.job.aggregate({ where: { projectId: project.id }, _sum: { costSpentUsd: true } }),
         this.prisma.conversationMessage.aggregate({ where: { conversation: { projectId: project.id } }, _sum: { costUsd: true } }),
       ]);
       const gasto = Number(jobs._sum.costSpentUsd ?? 0) + Number(conversa._sum.costUsd ?? 0);
-      if (gasto >= Number(project.maxCostUsd)) {
+      budgetExceeded=gasto>=Number(project.maxCostUsd);
+      if (budgetExceeded&&!receipt) {
         return fail(`O projeto atingiu o limite de gasto (US$ ${gasto.toFixed(2)} de US$ ${Number(project.maxCostUsd).toFixed(2)}). Aumente o limite em Ajustes para continuar.`);
       }
     }
@@ -329,7 +334,7 @@ export class PlannerService {
           return fail('Revisão anterior sem checkpoint por revisor. Não será repetida automaticamente.');
         }
       }
-      const recovery=goldfishScope===null&&driftScope===null&&lite===null&&!resolutionLedger&&!specResolution?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
+      const recovery=!receipt&&goldfishScope===null&&driftScope===null&&lite===null&&!resolutionLedger&&!specResolution?await planFpsResume(this.prisma,this.workspace,project,msg.conversationId,userMessage?.content??''):null;
       if(recovery){
         const plan=bindPlanningSource(this.jobs.validatePlan({...recovery,defaultProvider:project.provider},project.area) as unknown as Prisma.InputJsonValue,planningSource);
         const saved=await this.prisma.conversationMessage.updateMany({
@@ -364,7 +369,7 @@ export class PlannerService {
     const hasImages=comAnexos.some(m=>Array.isArray(m.attachments)&&m.attachments.some(a=>!!a&&typeof a==='object'&&!Array.isArray(a)&&a.tipo==='imagem'));
     const reserveRequirements={preserveMcp:!isolated&&projectSessionMcp(providerId,project.id,'planning',{mensagemId:msg.id}).length>0,hasImages,pinnedReview:isolated};
     let assessment=assessModel(providerId,projectModel(project,providerId),status);
-    if(!isolated&&(!status.available||assessment.state==='incompatible')){
+    if(!receipt&&!isolated&&(!status.available||assessment.state==='incompatible')){
       const rejected:string[]=[];
       const reserva=await trocarParaReserva(this.prisma,this.registry,project.id,providerId,reserveRequirements,{resourceFailure:!status.available,onSkip:(id,reason)=>rejected.push(id+': '+reason)});
       if(rejected.length)registrarTempo('reservas_ignoradas',{motivo:rejected.join('; ')});
@@ -375,9 +380,9 @@ export class PlannerService {
         registrarTempo('status_reserva',{provedor:providerId,disponivel:status.available});
       }
     }
-    if(!status.available)return fail('A IA deste projeto ('+status.label+') não está conectada: '+status.errors.join('; ')+'. Nenhuma reserva compatível disponível.');
+    if(!receipt&&!status.available)return fail('A IA deste projeto ('+status.label+') não está conectada: '+status.errors.join('; ')+'. Nenhuma reserva compatível disponível.');
     registrarTempo('capacidade_modelo',{provedor:providerId,modelo:assessment.model??'padrão',estado:assessment.state,motivo:assessment.reason});
-    if(assessment.state==='incompatible')return fail('Modelo '+(assessment.model??'padrão')+' incompatível: '+assessment.reason+'. Nenhuma sessão de IA iniciada.');
+    if(!receipt&&assessment.state==='incompatible')return fail('Modelo '+(assessment.model??'padrão')+' incompatível: '+assessment.reason+'. Nenhuma sessão de IA iniciada.');
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
     const tmp = path.join(project.workspacePath, 'conversas-tmp', msg.id+'-claim-'+task.claims);
@@ -543,10 +548,19 @@ export class PlannerService {
       };
       // Registrar quando a execução pelo provedor foi SOLICITADA.
       // Se um erro de configuração ocorrer antes, startedAt permanece null.
-      if(!await writeMessage({startedAt:msg.startedAt??new Date()}))return;
+      const binding=plannerBinding([msg.id,msg.conversationId,project.id,project.areaId,project.visualProfileRevision,providerId,projectModel(project,providerId)??null,msg.createdAt.toISOString(),msg.kind,msg.jobId]);
+      let previous:ExecutionResult|null;
+      try{previous=plannerReplay(receipt,binding);}catch(e){return fail((e as Error).message);}
+      const saveReceipt=async(next:PlannerReceipt,result?:ExecutionResult)=>{
+        const ok=await writeMessage({planningState:JSON.parse(JSON.stringify(next)) as Prisma.InputJsonValue,
+          ...(result?{costUsd:{increment:plannerCost(result)},sessionId:result.sessionId}:{}),startedAt:msg.startedAt??new Date()});
+        if(ok)receipt=next;
+        return ok;
+      };
+      if(!previous&&!await saveReceipt({version:1,binding,phase:'DISPATCHING'}))return;
       const iniciouIaMs = Date.now();
       registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs, promptBaseCaracteres:prompt.length,perfilCaracteres:profile.text.length });
-      const result = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
+      const result = previous??await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
         jobId: 'conversa',
         stepId: msg.conversationId,
         attemptId: msg.id,
@@ -569,6 +583,8 @@ export class PlannerService {
         registrarTempo('ia_chamada_excecao', { provedor: providerId, duracaoMs: Date.now() - iniciouIaMs, tipo: e instanceof Error ? e.name : 'erro' });
         throw e;
       });
+      if(!previous&&!result.interrupted&&!await saveReceipt({version:1,binding,phase:'RETURNED',result},result))return;
+      if(previous)registrarTempo('recibo_planejamento_reutilizado');
       registrarTempo('ia_chamada_fim', {
         provedor: providerId,
         duracaoMs: Date.now() - iniciouIaMs,
@@ -584,14 +600,14 @@ export class PlannerService {
         // Lease perdido: outro worker vai assumir; nada é gravado aqui.
         return;
       }
-      if(result.resourceUnavailable)await this.registry.recordRateLimit(providerId,result).catch(()=>undefined);
-      this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
+      if(!previous&&result.resourceUnavailable)await this.registry.recordRateLimit(providerId,result).catch(()=>undefined);
+      if(!previous)this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
       // A failed provider call can already have cost. Persist that cost in
       // the same transaction that changes the preference and requeues.
-      if(!isolated&&(result.resourceUnavailable||result.stopReason==='model_incompatible')){
+      if(!budgetExceeded&&!isolated&&(result.resourceUnavailable||result.stopReason==='model_incompatible')){
         if(result.stopReason==='model_incompatible')markModelIncompatible(providerId,assessment.model);
         const rejected:string[]=[];
-        const reserva=await trocarParaReserva(this.prisma,this.registry,project.id,providerId,{...reserveRequirements,preserveMcp:sessionMcp.length>0},{resourceFailure:!!result.resourceUnavailable,onSkip:(id,reason)=>rejected.push(id+': '+reason),retry:{messageId:msg.id,taskId:task.id,workerId,claims:task.claims,signal,costUsd:result.costUsd??0}});
+        const reserva=await trocarParaReserva(this.prisma,this.registry,project.id,providerId,{...reserveRequirements,preserveMcp:sessionMcp.length>0},{resourceFailure:!!result.resourceUnavailable,onSkip:(id,reason)=>rejected.push(id+': '+reason),retry:{messageId:msg.id,taskId:task.id,workerId,claims:task.claims,signal,costUsd:0,clearPlanningReceipt:true}});
         if(rejected.length)registrarTempo('reservas_ignoradas',{motivo:rejected.join('; ')});
         if(reserva){
           registrarTempo('reencaminhada_para_reserva',{provedorAnterior:providerId,proximoProvedor:reserva.id,modelo:reserva.model??'padrão'});
@@ -671,9 +687,15 @@ export class PlannerService {
               'JSON ANTERIOR:',
               JSON.stringify(parsed),
             ].join('\n');
+            if(receipt?.phase==='REPAIRING')throw Error('Reparo anterior sem confirmação; plano e recibo originais preservados.');
+            const oldRepair=receipt?.phase==='REPAIRED'?receipt.repair:undefined;
+            if(!oldRepair){
+              if(budgetExceeded)throw Error('Limite financeiro atingido; nenhum novo reparo executado.');
+              if(!await saveReceipt({version:1,binding,phase:'REPAIRING',result}))return;
+            }
             const iniciouReparoMs = Date.now();
             registrarTempo('reparo_ia_inicio', { provedor: providerId });
-            const reparo = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'repair',messageId:msg.id,skillsVersion:SKILLS_VERSION,promptChars:instrucaoReparo.length},()=>this.registry.get(providerId).execute({
+            const reparo = oldRepair??await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'repair',messageId:msg.id,skillsVersion:SKILLS_VERSION,promptChars:instrucaoReparo.length},()=>this.registry.get(providerId).execute({
               jobId: 'conversa', stepId: msg.conversationId, attemptId: msg.id,
               instructions: instrucaoReparo, context: '', cwd: tmp,
               outputDir: path.join(tmp, 'out'), systemPrompt: profile.text,
@@ -683,6 +705,8 @@ export class PlannerService {
               options: { maxTurns: 3, model: projectModel(project, providerId) },
               onLog: (linha) => gravarAndamento(linha),
             }));
+            if(!oldRepair&&!reparo.interrupted&&!await saveReceipt({version:1,binding,phase:'REPAIRED',result,repair:reparo},reparo))return;
+            if(!oldRepair&&reparo.resourceUnavailable)await this.registry.recordRateLimit(providerId,reparo).catch(()=>undefined);
             registrarTempo('reparo_ia_fim', {
               provedor: providerId,
               duracaoMs: Date.now() - iniciouReparoMs,
@@ -758,7 +782,6 @@ export class PlannerService {
           ...(specialtyResume?{jobId:null}:{}),
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
-          costUsd:{increment:result.costUsd??0},
           completedAt: new Date(),
       }))?1:0};
       // Apenas a geração proprietária registra o resultado e o custo.

@@ -1,4 +1,5 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { aiConnectionIds } from '../accounts/connections';
 import { assessModel,selectedModel } from '../providers/model-capabilities';
 import { projectModel } from '../providers/project-model';
@@ -80,7 +81,7 @@ export async function findProjectReserve(prisma:PrismaService,registry:ReserveRe
 
 /** Planner preference changes only if the expected connection is still
  * current. Step-level fallback never mutates project preference or siblings. */
-export async function trocarParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements={},opts:{resourceFailure:boolean;onSkip?:(id:string,reason:string)=>void;retry?:{messageId:string;taskId:string;workerId:string;claims:number;costUsd:number;signal:AbortSignal}}={resourceFailure:true}):Promise<ReserveSwitch|null>{
+export async function trocarParaReserva(prisma:PrismaService,registry:ReserveRegistry,projectId:string,from:string,requirements:ReserveRequirements={},opts:{resourceFailure:boolean;onSkip?:(id:string,reason:string)=>void;retry?:{messageId:string;taskId:string;workerId:string;claims:number;costUsd:number;signal:AbortSignal;clearPlanningReceipt?:boolean}}={resourceFailure:true}):Promise<ReserveSwitch|null>{
   const choice=await findProjectReserve(prisma,registry,projectId,from,requirements,opts);
   if(!choice||opts.retry?.signal.aborted)return null;
   return prisma.$transaction(async tx=>{
@@ -98,7 +99,7 @@ export async function trocarParaReserva(prisma:PrismaService,registry:ReserveReg
     const updated=await tx.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
     if(!updated.count)return null;
     if(retry){
-      await tx.conversationMessage.update({where:{id:retry.messageId},data:{costUsd:{increment:retry.costUsd}}});
+      await tx.conversationMessage.update({where:{id:retry.messageId},data:{costUsd:{increment:retry.costUsd},...(retry.clearPlanningReceipt?{planningState:Prisma.DbNull}:{})}});
       const queued=await tx.queueTask.updateMany({where:{id:retry.taskId,lockedBy:retry.workerId,claims:retry.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'resposta refeita com '+choice.id}});
       if(!queued.count)throw Error('Lease da conversa mudou; troca de reserva não aplicada.');
     }
