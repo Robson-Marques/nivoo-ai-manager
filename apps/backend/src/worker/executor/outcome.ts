@@ -22,7 +22,7 @@ export function classifyExecutionResult(result:ExecutionResult,isAi:boolean,veri
         ? 'RECURSO_INDISPONIVEL'
         : result.exitCode === 0 && verified
           ? 'SUCESSO'
-          : isAi && sessionClosedNormally
+          : isAi && sessionClosedNormally && result.sessionEnded
             ? 'SESSAO_ENCERRADA'
             : 'FALHA';
     if (attemptStatus === 'SESSAO_ENCERRADA' && !result.error) {
