@@ -58,7 +58,7 @@ export class LocalShellProvider implements AiProvider {
     const output = r.stdout + (r.stderr ? `\n[stderr]\n${r.stderr}` : '');
     if (r.aborted) return { exitCode: -1, output, interrupted: true, error: 'interrompido' };
     if (r.timedOut) return { exitCode: -1, output, error: `timeout após ${req.timeoutMs} ms` };
-    if (r.spawnError) return { exitCode: -1, output, error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output, error: r.spawnError,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     const mensagem = r.exitCode === 0 ? undefined : 
       `Comando local falhou (exit ${r.exitCode ?? -1}): ${(r.stderr || r.stdout || '').trim().slice(-1800) || req.instructions.slice(0, 200)}`;
     return { exitCode: r.exitCode ?? -1, output, error: mensagem };
