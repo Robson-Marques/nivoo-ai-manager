@@ -186,7 +186,7 @@ export class StepExecutorService {
         if(fs.existsSync(path.join(existing,'.git'))){
           const current=await this.workspace.snapshotHash(existing).catch(()=>null);
           if(current===last.treeAfter){
-            const commit=await saveCheckpoint(this.prisma,this.workspace,job.id,step,existing,'finalização recuperada da tentativa '+last.number,{tentativa:last.number,recuperacao:true,notas:last.notesIngested},true);
+            const commit=await saveCheckpoint(this.prisma,this.workspace,job.id,step,existing,'finalização recuperada da tentativa '+last.number,{tentativa:last.number,recuperacao:true,notas:last.notesIngested},true,{task,workerId});
             if(commit){
               await L('RECUPERAÇÃO SEM REFAZER: tentativa já verificada, estado dos arquivos idêntico; checkpoint concluído sem nova sessão.','INFO',last.id);
               await this.queue.complete(task.id,workerId);
@@ -515,17 +515,22 @@ export class StepExecutorService {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
       if (protectedAfter !== protectedBefore) {
         // O custo e o tempo da sessão contam no orçamento mesmo quando ela é descartada.
-        await this.prisma.$transaction([
-          this.prisma.attempt.update({
-            where: { id: attempt.id },
+        const recorded=await this.prisma.$transaction(async tx=>{
+          await OrchestratorService.lockJob(tx,job.id);
+          await assertStepLease(tx,task,workerId);
+          const updated=await tx.attempt.updateMany({
+            where: { id: attempt.id,status:'EXECUTANDO',workerId },
             data: {
               status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),
               costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
               inputTokens:result.inputTokens,outputTokens:result.outputTokens,
             },
-          }),
-          this.prisma.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } }),
-        ]);
+          });
+          if(updated.count!==1)throw new LostStepLease();
+          await tx.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } });
+          return true;
+        }).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
+        if(!recorded)return 'INTERROMPIDO';
         await L('VIOLAÇÃO DE ISOLAMENTO: a sessão alterou o conhecimento original do projeto (fora do workspace). Job bloqueado.', 'ERROR', attempt.id);
         return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (conhecimento do projeto)');
       }
@@ -671,7 +676,7 @@ export class StepExecutorService {
         log: logArt.id,
         artefatos: [...outputs.map(a=>a.id),...videos.map(v=>v.id)],
         notas:notes,
-      },true);
+      },true,{task,workerId});
       if(!commit)return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,'Resultado verificado, mas o Git não confirmou o checkpoint. Arquivos preservados; corrija o Git antes de retomar. Não refaça o conteúdo.');
       await this.queue.complete(task.id, workerId);
       await this.orchestrator.scheduleReady(job.id);
@@ -854,14 +859,17 @@ export class StepExecutorService {
   }
 
   private async blockJob(task: ClaimedTask, workerId: string, job: Job, step: Step, reason: string, detail: string): Promise<StepOutcome> {
-    await this.prisma.$transaction(async (tx) => {
+    const changed=await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.update({ where: { id: step.id }, data: { status: 'BLOQUEADO', statusDetail: `${reason}: ${detail}` } });
       await tx.job.updateMany({
         where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } },
         data: { status: 'BLOQUEADO', blockedReason: reason, statusDetail: `etapa ${step.key}: ${detail}` },
       });
-    });
+      return true;
+    }).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
+    if(!changed)return 'INTERROMPIDO';
     await this.logs.log(job.id, `Job BLOQUEADO (${reason}) na etapa ${step.key}: ${detail}`, { stepId: step.id, level: 'ERROR', source: 'worker' });
     await avisarConversaQueParou(this.prisma, job.id, `${reason}: ${detail}`);
     await this.limparAoFim(job);
