@@ -774,10 +774,16 @@ export class PlannerService {
       }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
+      // Entrega com resumo determinístico pré-gravado (conclusão de trabalho): o texto da IA é prepended ao
+      // resumo (que carrega "Trabalho concluído…", arquivos e critérios). Se a sessão falhar, a entrega sai com
+      // o resumo determinístico mesmo assim — a entrega NUNCA fica presa por falha da IA.
+      const entregaSeed = (msg.kind === 'entrega' ? (msg.content ?? '') : '').trim();
+      const corpoEntrega = (txt: string) => entregaSeed ? `${txt}\n\n${entregaSeed}`.trim() : txt;
+      const entregaComResumo = erro && entregaSeed; // falha da IA, mas há resumo determinístico: entrega mesmo assim
       const gravada={count:(await writeMessage({
-          status: erro ? 'ERRO' : 'PRONTA',
-          kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
-          content: erro ?? `${trocou}${content || '(sem resposta)'}`,
+          status: (erro && !entregaComResumo) ? 'ERRO' : 'PRONTA',
+          kind: (erro && !entregaComResumo) ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
+          content: entregaComResumo ? entregaSeed : erro ?? (msg.kind === 'entrega' ? corpoEntrega(`${trocou}${content || ''}`.trim() || '(sem resposta)') : `${trocou}${content || '(sem resposta)'}`),
           plan: planoDaEntrega ? undefined : plan,
           ...(specialtyResume?{jobId:null}:{}),
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),

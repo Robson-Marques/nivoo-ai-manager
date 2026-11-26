@@ -558,8 +558,9 @@ export class CompletionService {
       await this.logs.log(job.id,'Avaliação de conclusão: CONCLUIDO. todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto',{source:'evaluator',level:'WARN'});
       if(folder)await this.logs.log(job.id,'Resultados guardados na pasta do projeto: '+folder,{source:'evaluator'});
       await this.pedirEntrega(job,state.plan.target,state.checks,state.plan.changed);
-      await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id)).catch(()=>null);
+      const limpo=await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id)).catch(()=>null);
       if(await descartarBancoDeTeste(job.id))await this.logs.log(job.id,'Banco de teste do trabalho apagado',{source:'evaluator'});
+      if(limpo?.removidos.length)await this.logs.log(job.id,`Limpeza: ${limpo.removidos.join(', ')} apagado(s) da pasta do trabalho (${limpo.mb} MB; são só instalação/cache)`,{source:'evaluator'});
       await write({...state,phase:'DELIVERED'});
     }
     if(state.publish&&state.pushStatus!=='CONFIRMED'){
@@ -647,16 +648,23 @@ export class CompletionService {
           }
         }
       }
-      await tx.conversationMessage.create({
+      // A entrega sai SEMPRE com o resumo determinístico (arquivos, critérios, "nenhuma aprovação adicional"):
+      // é a garantia de entrega mesmo que a IA falhe. Mas ela nasce PENDENTE e uma sessão da IA a completa —
+      // a IA apresenta o resultado e, se ainda falta parte do pedido, emenda o próximo plano (continuação que
+      // começa sozinha). O texto da IA é PREPENDido ao resumo determinístico (o planner preserva o conteúdo-semente);
+      // se a sessão falhar, o resumo determinístico fica como entrega (ver planner: caminho de erro da entrega).
+      const seed=automaticNotice?content+'\n\n'+automaticNotice:content;
+      const m=await tx.conversationMessage.create({
         data: {
           conversationId: plano.conversationId,
           role: 'ASSISTENTE',
-          content:automaticNotice?content+'\n\n'+automaticNotice:content,
-          status: 'PRONTA',
+          content:seed,
+          status: 'PENDENTE',
           kind: 'entrega',
           jobId,
         },
       });
+      await tx.queueTask.create({ data: { type: 'PLAN_MESSAGE', messageId: m.id } });
       if(automatic){
         const latest=await tx.conversationMessage.findFirst({where:{conversationId:plano.conversationId},orderBy:{createdAt:'desc'},select:{createdAt:true}});
         const createdAt=new Date(Math.max(Date.now(),(latest?.createdAt.getTime()??0)+1));
