@@ -30,6 +30,7 @@ import { tipoDe } from '../accounts/connections';
 import { automaticGoldfishDecision,AUTOMATIC_GOLDFISH_KIND,type AutoReviewRequest } from '../specialties/software/egm/automatic-review';
 import { projectModel } from '../providers/project-model';
 import { ProviderRegistry } from '../providers/provider-registry.service';
+import { assertEvaluationLease,type EvaluationLease } from '../worker/executor/lease';
 import { capabilityReference,orderedCapabilityCriteria,deferredCapabilityCriterion } from './workflow/capability-criteria';
 import { SPECIALTY_HANDOFF_KIND,SPECIALTY_HANDOFF_NOTICE,specialtyHandoff } from './workflow/specialty-handoff';
 
@@ -92,7 +93,7 @@ export class CompletionService {
    * Evita loops ao interromper só após três ocorrências da MESMA falha,
    * identificada por sua evidência, preservando limites de orçamento/tempo.
    */
-  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; status: string; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string): Promise<boolean> {
+  private async corrigirCriterios(job: Job & { steps: Array<{ id: string; key: string; provider: string | null; status: string; dependsOn: string[]; order: number; verifyCommand: string | null; instructions: string; createdAt: Date }>; project: { provider: string; aiReserva?: unknown } }, falhas: CriterionResult[], criterios: AcceptanceCriterion[], worktree: string,lease?:EvaluationLease): Promise<boolean> {
     const ia = (id: string | null | undefined) => !!id && !!tipoDe(id);
     // Só trabalho feito por IA (o de comandos fixos não tem quem corrija) e só critério automático (o
     // subjetivo reprovado pelo usuário volta para ele, não para a IA).
@@ -128,6 +129,7 @@ export class CompletionService {
       }
       await this.prisma.$transaction(async tx => {
         await OrchestratorService.lockJob(tx,job.id);
+      await assertEvaluationLease(tx,lease);
         for (const key of refazer) {
           const step = job.steps.find(s=>s.key===key);
           if(step) await tx.step.update({where:{id:step.id},data:{status:'PENDENTE',statusDetail:'recapturar composição atualizada'}});
@@ -256,6 +258,7 @@ export class CompletionService {
     const base = Math.max(...job.steps.map((s) => s.order)) + 1;
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertEvaluationLease(tx,lease);
       await tx.step.create({
         data: {
           jobId: job.id, key, order: review ? review.order : base, provider: quemCorrige, dependsOn: job.steps.filter((s) => s.key !== RULE_REVIEW_STEP).map((s) => s.key),
@@ -298,7 +301,8 @@ export class CompletionService {
     return true;
   }
 
-  async evaluate(jobId: string): Promise<EvaluationReport> {
+  async evaluate(jobId: string,lease?:EvaluationLease): Promise<EvaluationReport> {
+    await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
     const job = await this.prisma.job.findUniqueOrThrow({
       where: { id: jobId },
       include: { steps: true, criteria: true, project: true },
@@ -328,10 +332,10 @@ export class CompletionService {
         const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath);
         if(drift.status!=='unchanged')throw Error(renderGoldfishGitDrift(drift));
       }
-    }catch(e){return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
+    }catch(e){return this.blockGoldfishEvaluation(job,report,(e as Error).message,lease);}
     let worktree:string;
     try{worktree=egm?await this.workspace.ensureJobWorktree(job.project.dirKey,job.id,egm.revision):await this.workspace.ensureJobWorktree(job.project.dirKey,job.id);}
-    catch(e){if(!egm)throw e;return this.blockGoldfishEvaluation(job,report,(e as Error).message);}
+    catch(e){if(!egm)throw e;return this.blockGoldfishEvaluation(job,report,(e as Error).message,lease);}
     let status: 'CONCLUIDO' | 'AGUARDANDO_APROVACAO' | 'BLOQUEADO' = 'BLOQUEADO';
     let reason: string | null = null;
     let completion: Awaited<ReturnType<CompletionService['prepareCompletion']>> | null = null;
@@ -340,8 +344,9 @@ export class CompletionService {
     // Os critérios são verificados sobre o resultado JÁ INTEGRADO à pasta principal do projeto; só então
     // a pasta principal avança. Se outro job mudou a pasta principal no meio, integra e verifica de novo.
     for (let rodada = 1; ; rodada++) {
+      await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
       const sync = await this.workspace.syncWithMain(worktree, `job ${job.id}: integra a pasta principal do projeto`);
-      if (!sync.ok) return this.blockConflict(job, report, sync.files);
+      if (!sync.ok) return this.blockConflict(job, report, sync.files,lease);
       report.criteria = [];
       report.pendencias = [];
       const verifiedTree=egm?await this.workspace.repairSourceHash(worktree):null;
@@ -352,10 +357,11 @@ export class CompletionService {
         const wait=environmentFailure?'aguarda resolução da falha do ambiente de verificação':deferredCapabilityCriterion(c,evaluated,job.criteria);
         if(wait){
           deferred.push(c.key+': '+wait);
-          await this.prisma.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});
+          await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,jobId);await assertEvaluationLease(tx,lease);await tx.acceptanceCriterion.update({where:{id:c.id},data:{status:'PENDENTE',lastCheckedAt:null}});});
           continue; // No invented failed/pass evidence; this check was not executed.
         }
-        const r = egm?await this.check(job,c,worktree,egm.proofs!.filter(p=>p.criterionKey===c.key)):await this.check(job,c,worktree);
+        await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
+        const r = egm?await this.check(job,c,worktree,egm.proofs!.filter(p=>p.criterionKey===c.key),lease):await this.check(job,c,worktree,[],lease);
         evaluated.set(c.key,r.passed);
         if(r.verificationProblem)environmentFailure=r.verificationProblem;
         report.criteria.push(r);
@@ -363,12 +369,15 @@ export class CompletionService {
           { projectId: job.projectId, jobId, name: `criterios/${c.key}.evidencia.json`, kind: 'CRITERION_EVIDENCE' },
           JSON.stringify({ criterio: c.key, tipo: c.kind, aprovado: r.passed, aguardandoAprovacao: !!r.pendingApproval, evidencia: r.evidence, verificadoEm: new Date().toISOString() }, null, 2),
         );
-        await this.prisma.criterionCheck.create({
+        await this.prisma.$transaction(async tx=>{
+        await OrchestratorService.lockJob(tx,jobId);await assertEvaluationLease(tx,lease);
+        await tx.criterionCheck.create({
           data: { jobId, criterionId: c.id, passed: r.passed, evidence: r.evidence as Prisma.InputJsonValue, artifactId: ev.id },
         });
-        await this.prisma.acceptanceCriterion.update({
+        await tx.acceptanceCriterion.update({
           where: { id: c.id },
           data: { status: r.passed ? 'APROVADO' : r.pendingApproval ? 'AGUARDANDO_APROVACAO' : 'REPROVADO', lastCheckedAt: new Date() },
+        });
         });
       }
 
@@ -398,7 +407,7 @@ export class CompletionService {
       }
       report.pendencias.push(...deferred.map(d=>'critério ainda não executado: '+d));
       if (status === 'BLOQUEADO' && reason === BlockedReason.CRITERIOS_NAO_ATENDIDOS && failed.length && !egm) {
-        if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree)) {
+        if (await this.corrigirCriterios(job as never, failed, job.criteria, worktree,lease)) {
           report.finalStatus = 'EXECUTANDO';
           return report;
         }
@@ -407,12 +416,13 @@ export class CompletionService {
 
       // A proof only describes the tree on which its command ran. Test side
       // effects must not silently change the tracked result before publication.
-      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou durante a verificação dos achados. Evidências anteriores não cobrem a árvore atual; arquivos preservados.');
+      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou durante a verificação dos achados. Evidências anteriores não cobrem a árvore atual; arquivos preservados.',lease);
       // Resultados reproduzíveis preparados ANTES e gravados na MESMA transação da conclusão.
       completion = await this.prepareCompletion(job, worktree);
-      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou na preparação da publicação. Evidências preservadas, sem incorporação.');
+      if(egm&&verifiedTree!==await this.workspace.repairSourceHash(worktree))return this.blockGoldfishEvaluation(job,report,'A árvore mudou na preparação da publicação. Evidências preservadas, sem incorporação.',lease);
       const ff = await this.prisma.$transaction(
         async (tx) => {
+          await OrchestratorService.lockJob(tx,job.id);await assertEvaluationLease(tx,lease);
           await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${'incorporar:' + job.projectId}))) AS l`;
           if(egm){
             const current=await this.workspace.headCommit(repo);
@@ -430,15 +440,16 @@ export class CompletionService {
       }
       if(egm){
         const drift=await detectGoldfishGitDrift(repo,egm.revision,egm.targetPath);
-        return this.blockGoldfishEvaluation(job,report,renderGoldfishGitDrift(drift)+'\nIncorporação não confirmada; não repetir automaticamente.');
+        return this.blockGoldfishEvaluation(job,report,renderGoldfishGitDrift(drift)+'\nIncorporação não confirmada; não repetir automaticamente.',lease);
       }
-      if (rodada >= 3) return this.blockConflict(job, report, ['a pasta principal mudou repetidamente durante a verificação; retome o job']);
+      if (rodada >= 3) return this.blockConflict(job, report, ['a pasta principal mudou repetidamente durante a verificação; retome o job'],lease);
       await this.logs.log(jobId, 'A pasta principal do projeto mudou durante a verificação: integrando de novo e reverificando os critérios', { source: 'evaluator', level: 'WARN' });
     }
 
     const detail = report.pendencias.length ? report.pendencias.join('\n') : 'todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto';
     const updated = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      await assertEvaluationLease(tx,lease);
       const r = await tx.job.updateMany({
         where: { id: jobId, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'] } },
         data: {
@@ -598,10 +609,11 @@ export class CompletionService {
   }
 
   /** Conflito ao integrar com a pasta principal: o job NÃO é dado como concluído; pendência registrada. */
-  private async blockConflict(job: Job & { title: string }, report: EvaluationReport, files: string[]): Promise<EvaluationReport> {
+  private async blockConflict(job: Job & { title: string }, report: EvaluationReport, files: string[],lease?:EvaluationLease): Promise<EvaluationReport> {
     const detail = `conflito ao integrar com a pasta principal do projeto: ${files.join(', ')}`;
     const r = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertEvaluationLease(tx,lease);
       return tx.job.updateMany({
         where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_APROVACAO', 'AGUARDANDO_RECURSO'] } },
         data: { status: 'BLOQUEADO', blockedReason: BlockedReason.CONFLITO_INCORPORACAO, statusDetail: detail, mergeStatus: 'CONFLITO' },
@@ -624,9 +636,10 @@ export class CompletionService {
     return report;
   }
 
-  private async blockGoldfishEvaluation(job:Job,report:EvaluationReport,detail:string):Promise<EvaluationReport>{
+  private async blockGoldfishEvaluation(job:Job,report:EvaluationReport,detail:string,lease?:EvaluationLease):Promise<EvaluationReport>{
     const r=await this.prisma.$transaction(async tx=>{
       await OrchestratorService.lockJob(tx,job.id);
+      await assertEvaluationLease(tx,lease);
       return tx.job.updateMany({where:{id:job.id,status:{in:['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:BlockedReason.VERIFICACAO_IMPOSSIVEL,statusDetail:detail}});
     });
     if(r.count){
@@ -638,7 +651,7 @@ export class CompletionService {
     return report;
   }
 
-  private async check(job: Job, c: AcceptanceCriterion, worktree: string,proofs:readonly GoldfishProof[]=[]): Promise<CriterionResult> {
+  private async check(job: Job, c: AcceptanceCriterion, worktree: string,proofs:readonly GoldfishProof[]=[],lease?:EvaluationLease): Promise<CriterionResult> {
     const cfg = (c.config ?? {}) as Record<string, any>;
     const base = { key: c.key, kind: c.kind };
     // A mídia (vídeos) fica em <projeto>/midia/, FORA do git: um caminho "midia/..." resolve na pasta do projeto,
@@ -667,7 +680,7 @@ export class CompletionService {
           const prepared=await prepareVerificationEnvironment(job.projectId,job.id,`${worktree}/out`,dirs.midia);
           if(!prepared.ok)return {...base,passed:false,verificationProblem:prepared.problem,evidence:{executado:false,problema:prepared.problem}};
           const r = redactVerificationResult(await runProcess('bash', ['-e', '-o', 'pipefail', '-c', cmd], {
-            cwd: worktree,
+            cwd: worktree,signal:lease?.signal,
             env: prepared.env,
             encerrarGrupoAoSair: true,
             // Critério pode rodar testes e build (como a conferência das etapas): mesmo limite, 30 min por padrão.

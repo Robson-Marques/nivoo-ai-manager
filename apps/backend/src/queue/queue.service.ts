@@ -56,13 +56,19 @@ export class QueueService {
     for(const d of dead)await this.expireRecovery(d);
     const rows = await this.prisma.$queryRaw<Array<QueueTask & { prev_locked_by: string | null; prev_status: string }>>`
       WITH c AS (
-        SELECT id, "lockedBy" AS prev_locked_by, status::text AS prev_status
-        FROM "QueueTask"
-        WHERE ((status = 'QUEUED' AND "runAt" <= ${AGORA_UTC})
-           OR (status = 'RUNNING' AND "lockedUntil" <= ${AGORA_UTC} AND recoveries < ${MAX_RECOVERIES}))
-          AND type::text = ANY(${types}::text[])
-        ORDER BY "runAt" ASC, "createdAt" ASC
-        FOR UPDATE SKIP LOCKED
+        SELECT t.id, t."lockedBy" AS prev_locked_by, t.status::text AS prev_status
+        FROM "QueueTask" t
+        WHERE ((t.status = 'QUEUED' AND t."runAt" <= ${AGORA_UTC})
+           OR (t.status = 'RUNNING' AND t."lockedUntil" <= ${AGORA_UTC} AND t.recoveries < ${MAX_RECOVERIES}))
+          AND t.type::text = ANY(${types}::text[])
+          AND (t."jobId" IS NULL OR NOT EXISTS (
+            SELECT 1 FROM "QueueTask" other WHERE other."jobId"=t."jobId" AND other.id<>t.id
+              AND ((other.status='RUNNING' AND (t.status='QUEUED' OR other."lockedUntil">${AGORA_UTC} OR (other."runAt",other."createdAt",other.id)<(t."runAt",t."createdAt",t.id))) OR (other.status='QUEUED' AND t.status='QUEUED'
+                AND other."runAt"<=${AGORA_UTC}
+                AND (other."runAt",other."createdAt",other.id)<(t."runAt",t."createdAt",t.id)))
+          ))
+        ORDER BY t."runAt" ASC, t."createdAt" ASC,t.id ASC
+        FOR UPDATE OF t SKIP LOCKED
         LIMIT 1
       )
       UPDATE "QueueTask" t

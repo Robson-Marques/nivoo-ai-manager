@@ -10,7 +10,7 @@ export async function assertStepLease(tx:Prisma.TransactionClient,task:Pick<Clai
   const rows=await tx.$queryRaw<Array<{id:string}>>`
     SELECT id FROM "QueueTask" WHERE id=${task.id} AND "lockedBy"=${workerId}
       AND claims=${task.claims} AND status='RUNNING'
-      AND "jobId"=${task.jobId} AND "stepId"=${task.stepId}
+      AND "jobId" IS NOT DISTINCT FROM ${task.jobId}::text AND "stepId" IS NOT DISTINCT FROM ${task.stepId}::text
       AND "lockedUntil" > (clock_timestamp() AT TIME ZONE 'UTC')
     FOR UPDATE
   `;
@@ -27,4 +27,12 @@ export async function withStepLease<T>(prisma:import('../../prisma/prisma.servic
     await assertStepLease(tx,lease.task,lease.workerId);
     return write(tx);
   });
+}
+
+/** Evaluation uses the same claim fence with a null step identity. */
+export type EvaluationLease={task:ClaimedTask;workerId:string;signal:AbortSignal};
+export async function assertEvaluationLease(tx:Prisma.TransactionClient,lease?:EvaluationLease):Promise<void>{
+  if(!lease)return;
+  if(lease.signal.aborted||lease.task.type!=='EVALUATE_JOB'||!lease.task.jobId||lease.task.stepId!==null)throw new LostStepLease();
+  await assertStepLease(tx,lease.task,lease.workerId);
 }

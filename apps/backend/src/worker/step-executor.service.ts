@@ -126,9 +126,10 @@ export class StepExecutorService {
         if(current.length===1){
           const o=current[0],journal=readAttemptJournal(o.executionState);
           if(o.hostname===os.hostname()&&!o.pid&&o.number===step.attemptCount&&o.number>step.resumeFromAttempt
-            &&step.status==='EXECUTANDO'&&['EXECUTANDO','AGUARDANDO_RECURSO'].includes(job.status)
+            &&['EXECUTANDO','PENDENTE','AGUARDANDO_RECURSO'].includes(step.status)&&['EXECUTANDO','AGUARDANDO_RECURSO'].includes(job.status)
             &&canReplayAttempt(journal)){
             await tx.attempt.update({where:{id:o.id},data:{workerId}});
+            await tx.step.update({where:{id:step.id},data:{status:'EXECUTANDO',statusDetail:'retomando recibo persistido'}});
             return {count:0,detail:null,replay:{...o,workerId}};
           }
         }
@@ -143,6 +144,12 @@ export class StepExecutorService {
             if(o.pid){
               const state=await stopOwnedOrphan(o.pid,o.processIdentity);
               if(state==='uncertain'||state==='owned'){unsafe.push('#'+o.number+': '+journal.phase+'; grupo ainda não reconciliado');continue;}
+            }
+            if(o.pid&&journal.phase==='DISPATCHING'&&['local-shell','claude-code-cli','codex-cli'].includes(o.provider.split('--')[0])&&!durableMediaOutputs(job,step).length&&(o.provider!=='local-shell'||!evaluatePolicy(step.instructions).requiresApproval)){
+              // The owned process group is gone and the worktree remains.
+              // A local/CLI session can continue from files; a remote paid
+              // request with unknown outcome must not be blindly repeated.
+              continue;
             }
             if(o.pid||['RETURNED','VERIFIED','PUBLISHING','RESTORING','FINALIZING'].includes(journal.phase)){
               await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
@@ -219,7 +226,7 @@ export class StepExecutorService {
     const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
     if(mediaRecovery.kind==='recovered'){
       await L('RECUPERAÇÃO SEM REFAZER: MP4 do mesmo produtor e tentativa, hash e contrato técnico válidos. '+mediaRecovery.detail,'WARN');
-      await this.prisma.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'MP4 recuperado de tentativa anterior; sem rerenderizar'}});
+      await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'MP4 recuperado de tentativa anterior; sem rerenderizar'}});});
       await this.queue.complete(task.id, workerId, task.claims);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
@@ -229,7 +236,7 @@ export class StepExecutorService {
     // Crash between persistence of SUCESSO and the checkpoint transaction.
     // Only the latest verified attempt, in the same execution epoch and
     // unchanged worktree, may advance without invoking the provider again.
-    if(!orphanRows.length&&(step.status==='EXECUTANDO'||task.recovered)&&step.attemptCount>step.resumeFromAttempt){
+    if(!orphanRows.length&&['EXECUTANDO','PENDENTE','AGUARDANDO_RECURSO'].includes(step.status)&&step.attemptCount>step.resumeFromAttempt){
       const last=await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id},orderBy:{number:'desc'}});
       if(last?.status==='SUCESSO'&&last.number===step.attemptCount&&last.treeAfter){
         const existing=path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id);
@@ -269,6 +276,7 @@ export class StepExecutorService {
         if (montagem && montagem.dependsOn.some((key) => !step.dependsOn.includes(key))) {
           await this.prisma.$transaction(async (tx) => {
             await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
             await tx.step.update({
               where: { id: step.id },
               data: { dependsOn: montagem.dependsOn, status: 'PENDENTE', statusDetail: 'aguardando renderização das cenas antes de montar trilha' },
@@ -429,7 +437,7 @@ export class StepExecutorService {
             'A reprovação ocorreu somente no aprovador Motion antigo. '+
             'Avançando à renderização existente, sem outra sessão ou consumo de tokens.', 'WARN');
           await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree,
-            'composição recuperada; aprovador Motion removido',{recuperacao:true});
+            'composição recuperada; aprovador Motion removido',{recuperacao:true},false,{task,workerId});
           await this.prisma.step.update({where:{id:step.id},data:{
             status:'CONCLUIDO',statusDetail:'Composição existente recuperada sem nova IA',
           }});
@@ -779,8 +787,8 @@ export class StepExecutorService {
     if(failureEvidence)await L(formatFailureEvidence(failureEvidence).slice(0,2200),'WARN',attempt.id);
     if (attemptStatus === 'INTERROMPIDA') {
       // Checkpoint primeiro: a etapa só volta a ser retomável depois que o estado está salvo.
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
-      await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id },false,{task,workerId});
+      await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });});
       await this.queue.complete(task.id, workerId, task.claims);
       // Se o usuário já retomou o job enquanto abortávamos, reagenda.
       await this.orchestrator.scheduleReady(job.id);
@@ -788,41 +796,41 @@ export class StepExecutorService {
     }
 
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recurso indisponível após tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recurso indisponível após tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes},false,{task,workerId});
       this.registry.invalidate(providerId);
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs,signal);
     }
 
     if(failureEvidence?.layer==='connector'&&attemptStatus!=='SUCESSO'){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha do conector; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha do conector; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes},false,{task,workerId});
       return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,formatFailureEvidence(failureEvidence)+'. Corrija a instalação ou configuração do executor; não refaça o conteúdo do projeto.');
     }
     if (ambiente && attemptStatus !== 'SUCESSO') {
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência falhou por um problema do SERVIDOR do Nivoo, não do projeto (${ambiente}). O trabalho feito está salvo. Rode "nivoo update" no servidor (instala e arruma as ferramentas) e clique em "Tentar de novo"; se repetir, mande o diagnóstico`);
     }
 
     if (credencialFaltando && attemptStatus !== 'SUCESSO') {
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem credencial na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `A credencial da conferência está indisponível ou foi recusada (${credencialFaltando}). O trabalho feito está salvo. Confira as contas vinculadas e as variáveis da conferência nos Ajustes do projeto, depois retome o mesmo trabalho.`);
     }
 
     if (faltaPrograma && attemptStatus !== 'SUCESSO') {
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência impossível na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência impossível na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `a conferência automática desta etapa usa "${faltaPrograma}", que não existe no servidor; o trabalho feito até aqui está salvo. Peça na conversa para refazer o plano usando só comandos básicos`);
     }
 
     if(attemptStatus!=='SUCESSO'&&/MIDIA_DESTINO_EXISTENTE:/.test(result.error??'')){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'conflito de destino; saída preservada',{tentativa:number});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'conflito de destino; saída preservada',{tentativa:number},false,{task,workerId});
       return this.blockJob(task,workerId,job,step,BlockedReason.CRITERIOS_NAO_ATENDIDOS,'O destino da mídia já existe. Preserve o arquivo anterior e selecione um destino novo: '+(result.error??'').slice(-600));
     }
     const mediaFailure = classifyMediaFailure(providerId, attemptStatus, result);
     if (mediaFailure) {
       await L(mediaFailure.log, 'ERROR', attempt.id);
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, mediaFailure.checkpoint, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, mediaFailure.checkpoint, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, mediaFailure.detail);
     }
 
@@ -832,7 +840,7 @@ export class StepExecutorService {
     if (attemptStatus === 'SESSAO_ENCERRADA'||visualRecovery) {
       const reprovacaoVisual = parecerVisualNaoAprovado(worktree, step.verifyCommand ?? '');
       if (reprovacaoVisual) {
-        await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number });
+        await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
         return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, reprovacaoVisual);
       }
       return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes,visualRecovery);
@@ -855,7 +863,7 @@ export class StepExecutorService {
     // cegas. Entregar diagnóstico e artefatos presentes; quem decide refazer
     // o vídeo é o usuário, após inspecionar o resultado.
     if (falhaTecnicaDaMidia) {
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, 'MP4 com problema técnico, preservado para avaliação', { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, 'MP4 com problema técnico, preservado para avaliação', { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS,
         'A etapa produziu/esperava um vídeo, mas a inspeção técnica encontrou: ' + falhaTecnicaDaMidia +
         '. Nenhuma nova renderização será iniciada automaticamente. Consulte o vídeo já publicado e escolha se deseja corrigir.');
@@ -885,13 +893,13 @@ export class StepExecutorService {
     // Uma chamada de imagem paga pode ter sido cobrada antes de uma falha de rede.
     // Não a repita automaticamente sem decisão do usuário.
     if (result.stopReason==='visual_asset_error' || (!isAi && providerId === 'gemini-image')) {
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'geração visual pendente',{tentativa:number});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'geração visual pendente',{tentativa:number},false,{task,workerId});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(result.error??result.output??'Geração de imagem não concluída').slice(0,2200));
     }
     // exit 127 significa comando inexistente: não repetir exatamente o mesmo Bash.
     if (!isAi && providerId === 'local-shell' && result.exitCode === 127) {
       const mensagem = (result.error || result.output || '').trim();
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `comando local inexistente na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `comando local inexistente na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         `Comando local inválido ou não instalado; não vou repetir sem alteração: ${mensagem.slice(0, 2200)}`);
     }
@@ -910,32 +918,32 @@ export class StepExecutorService {
     const erroAtual=(failureEvidence&&failureEvidence.kind!=='unknown'?failureEvidence.detail:result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
     if(result.stopReason==='model_incompatible'){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'modelo incompatível; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'modelo incompatível; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes},false,{task,workerId});
       const switched=await this.tryReserve(task,workerId,job,step,erroAtual,signal,false);
       if(switched)return switched;
       if(signal.aborted)return 'INTERROMPIDO';
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,erroAtual+'; nenhuma reserva compatível encontrada.');
     }
     if(result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes},false,{task,workerId});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,recovery.kind==='blocked'?recovery.detail:erroAtual);
     }
     if(recovery.kind==='limit'){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'limite de tentativas; resultado parcial preservado',{tentativa:number,log:logArt.id,notas:notes});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'limite de tentativas; resultado parcial preservado',{tentativa:number,log:logArt.id,notas:notes},false,{task,workerId});
       return this.failStep(task,workerId,job,step,recovery.detail);
     }
     if(recovery.kind==='repeat'){
-      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number});
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'erro idêntico repetido na etapa '+step.key,{tentativa:number},false,{task,workerId});
       return this.blockJob(task,workerId,job,step,BlockedReason.REPETICAO_IMPRODUTIVA,recovery.detail);
     }
     if(recovery.kind==='repair')return this.agendarReparoDeScript(task,workerId,job,step,worktree,number,erroAtual);
 
-    await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha antes da nova tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes});
+    await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha antes da nova tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes},false,{task,workerId});
     const backoff = Math.min(60_000, 1000 * 2 ** (failures));
     const motivo = (result.error || result.output || 'executor não informou a causa').trim().slice(0, 600);
     await L(`NOVA TENTATIVA EXPLICADA: a etapa "${step.key}" será repetida em ${Math.ceil(backoff / 1000)}s porque a tentativa #${number} falhou. Causa: ${motivo}. Arquivos já entregues são preservados; o motivo precisa ser corrigido antes de reexecutar conteúdo caro.`, 'WARN', attempt.id);
-    await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE',
-      statusDetail: `Tentativa #${number} falhou: ${motivo.slice(0, 250)}. Retomada em ${Math.ceil(backoff / 1000)}s.` } });
+    await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.step.update({ where: { id: step.id }, data: { status: 'PENDENTE',
+      statusDetail: `Tentativa #${number} falhou: ${motivo.slice(0, 250)}. Retomada em ${Math.ceil(backoff / 1000)}s.` } });});
     await this.queue.requeue(task.id, workerId, task.claims, new Date(Date.now() + backoff), result.error);
     return 'RETRY';
   }
@@ -950,7 +958,7 @@ export class StepExecutorService {
   ): Promise<StepOutcome> {
     await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
-    });
+    },false,{task,workerId});
     // Contar a mesma falha antes de agendar outra recaptura: um agente que
     // altera a composição minimamente a cada volta não pode girar sem fim.
     const sessions = await this.prisma.attempt.findMany({
@@ -973,6 +981,7 @@ export class StepExecutorService {
     if (vencidas.length) {
       await this.prisma.$transaction(async (tx) => {
         await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
         for (const key of vencidas) {
           const captura = etapas.find((e) => e.key === key);
           if (!captura) continue;
@@ -1002,10 +1011,10 @@ export class StepExecutorService {
       return 'CONTINUA';
     }
 
-    await this.prisma.step.update({
+    await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.step.update({
       where: { id: step.id },
       data: { status: 'PENDENTE', statusDetail: `sessão ${number} encerrada sem concluir; continuação automática agendada` },
-    });
+    });});
     await this.logs.log(job.id, `Continuação automática: nova sessão para "${step.key}" (${sessions.length}${job.maxSessionsPerStep > 0 ? `/${job.maxSessionsPerStep}` : ''} sessões usadas)`, {
       stepId: step.id, source: 'worker',
     });
@@ -1054,9 +1063,10 @@ export class StepExecutorService {
   ): Promise<StepOutcome> {
     await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `aguardando trilha na etapa ${step.key}`, {
       tentativa: number, motivo: detalhe.slice(0, 1000),
-    });
+    },false,{task,workerId});
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.update({ where: { id: step.id }, data: {
         status: 'AGUARDANDO_RECURSO', statusDetail: detalhe,
       } });
@@ -1084,7 +1094,7 @@ export class StepExecutorService {
   ): Promise<StepOutcome> {
     const agente = job.project.provider;
     if (!this.registry.has(agente) || this.registry.get(agente).kind === 'executor') {
-      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `script falhou na etapa ${step.key}`, { tentativa: number });
+      await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `script falhou na etapa ${step.key}`, { tentativa: number },false,{task,workerId});
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
         'O script precisa de reparo, mas este projeto não possui uma IA de código configurada. ' +
         diagnostico.slice(0, 850));
@@ -1105,9 +1115,10 @@ export class StepExecutorService {
     ].join('\n');
     await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `erro de script: agendando reparo ${chave}`, {
       tentativa: number, diagnostico: diagnostico.slice(0, 1000),
-    });
+    },false,{task,workerId});
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.upsert({
         where:{jobId_key:{jobId:job.id,key:chave}},update:{},
         create: {
@@ -1135,6 +1146,7 @@ export class StepExecutorService {
   private async failStep(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, reason: string = BlockedReason.LIMITE_TENTATIVAS): Promise<StepOutcome> {
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.update({ where: { id: step.id }, data: { status: 'FALHOU', statusDetail: detail } });
       await tx.job.updateMany({
         where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } },
@@ -1168,6 +1180,7 @@ export class StepExecutorService {
     }
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.update({ where: { id: step.id }, data: { status: 'AGUARDANDO_APROVACAO', statusDetail: 'ação destrutiva requer aprovação' } });
       await tx.job.updateMany({ where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } }, data: { status: 'AGUARDANDO_APROVACAO', statusDetail: `etapa ${step.key} aguarda aprovação` } });
     });
@@ -1215,6 +1228,7 @@ export class StepExecutorService {
       : RESOURCE_BACKOFF_MS[Math.min(task.resourceWaits, RESOURCE_BACKOFF_MS.length - 1)];
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.step.update({ where: { id: step.id }, data: { status: 'AGUARDANDO_RECURSO', statusDetail: detail.slice(0, 1000) } });
       await tx.job.updateMany({ where: { id: job.id, status: 'EXECUTANDO' }, data: { status: 'AGUARDANDO_RECURSO', statusDetail: `etapa ${step.key}: ${detail}`.slice(0, 2000) } });
     });

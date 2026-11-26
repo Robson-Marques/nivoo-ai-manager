@@ -127,7 +127,7 @@ export class WorkerRunnerService {
       if (task.type === 'RUN_STEP') {
         await this.executor.run(task, this.workerId, ctrl.signal);
       } else if (task.type === 'EVALUATE_JOB' && task.jobId) {
-        await this.completion.evaluate(task.jobId);
+        await this.completion.evaluate(task.jobId,{task,workerId:this.workerId,signal:ctrl.signal});
         await this.queue.complete(task.id, this.workerId, task.claims);
       } else if (task.type === 'PLAN_MESSAGE' && task.messageId) {
         await this.planner.handle(task, this.workerId, ctrl.signal);

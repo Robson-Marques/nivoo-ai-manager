@@ -20,6 +20,7 @@ export { opcoesDeVideo, opcoesDeJuncao, TRANSICOES } from './workflow/media-opti
 export { operacoesDeArquivos } from './workflow/file-options';
 import { AreaScope, mediaEnabledForArea } from '../specialties/media/scope';
 import { appConfig } from '../config';
+import { readAttemptJournal } from '../worker/executor/attempt-journal';
 import { BlockedReason } from '../common/status';
 import { optNumber, optString, reqString } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
@@ -334,13 +335,9 @@ export class JobsService {
     // senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace. "Continuar" logo depois de "Pausar"
     // espera alguns segundos o encerramento em vez de recusar.
     const sessaoAindaFechando = async () => {
-      const vivos = await this.prisma.attempt.findMany({ where: { jobId, status: 'EXECUTANDO' } });
-      const limite = new Date(Date.now() - 2 * appConfig().leaseMs);
-      for (const a of vivos) {
-        const hb = await this.prisma.workerHeartbeat.findUnique({ where: { id: a.workerId } });
-        if (hb && hb.lastSeenAt > limite) return a;
-      }
-      return null;
+      // Heartbeat of an idle worker or a different job does not prove that
+      // this attempt is alive. The actual task lease is authoritative.
+      return this.prisma.queueTask.findFirst({where:{jobId,status:'RUNNING',lockedUntil:{gt:new Date()}},select:{id:true,lockedBy:true}});
     };
     const ate = Date.now() + Number(process.env.NIVOO_ESPERA_ENCERRAR_MS ?? 20_000);
     let fechando = await sessaoAindaFechando();
@@ -349,7 +346,7 @@ export class JobsService {
       fechando = await sessaoAindaFechando();
     }
     if (fechando) {
-      throw new ConflictException(`A sessão #${fechando.number} ainda está sendo encerrada pelo worker ${fechando.workerId}. Aguarde alguns segundos e clique em Continuar de novo.`);
+      throw new ConflictException(`A tarefa ${fechando.id} ainda tem lease ativo do worker ${fechando.lockedBy}. Aguarde alguns segundos e clique em Continuar de novo.`);
     }
     // Em jobs motion antigos, o núcleo inseria uma revisão de IA compulsória
     // ANTES do render. Ela podia bloquear toda a entrega apesar de o HTML e
@@ -381,6 +378,8 @@ export class JobsService {
     );
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      const current=await tx.job.findUniqueOrThrow({where:{id:jobId},select:{status:true}});
+      if(!['BLOQUEADO','FALHOU','AGUARDANDO_RECURSO'].includes(current.status))throw new ConflictException('Estado do trabalho mudou durante a retomada.');
       if (dispensaRevisaoFinal && criterioRegraLegado && entregaFinal) {
         // Não apagar evidências nem falsificar relatório: substituir o
         // critério de IA que o próprio Nivoo adicionou pelo mesmo teste real
@@ -415,20 +414,17 @@ export class JobsService {
           } });
           continue;
         }
-        const ultima = await tx.attempt.aggregate({ where: { stepId: s.id }, _max: { number: true } });
-        const recomeco = { resumeFromAttempt: ultima._max.number ?? 0 }; // limites contam a partir da retomada
+        const last=await tx.attempt.findFirst({where:{stepId:s.id},orderBy:{number:'desc'}});
+        const journal=readAttemptJournal(last?.executionState);
+        const recoverable=!!last&&(last.status==='EXECUTANDO'||(last.status==='SUCESSO'&&!!last.treeAfter)
+          ||(last.status==='INTERROMPIDA'&&!!journal&&journal.phase!=='TERMINAL'));
+        const recomeco={resumeFromAttempt:recoverable?Math.min(s.resumeFromAttempt,Math.max(0,last!.number-1)):last?.number??0};
         if (recapturar.has(s.key) && s.status === 'CONCLUIDO') {
-          await tx.step.update({
-            where: { id: s.id },
-            data: { status: 'PENDENTE', statusDetail: 'recapturar visual atualizado antes da revisão' },
-          });
-        } else if (s.status === 'EXECUTANDO') {
-          // Worker morreu (sem sinal): a tentativa órfã é encerrada; a etapa volta para PENDENTE.
-          await tx.attempt.updateMany({
-            where: { stepId: s.id, status: 'EXECUTANDO' },
-            data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'tentativa órfã encerrada na retomada (worker sem sinal)' },
-          });
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
+          await tx.step.update({where:{id:s.id},data:{status:'PENDENTE',statusDetail:'recapturar visual atualizado antes da revisão'}});
+        } else if(s.status==='EXECUTANDO'){
+          // Preserve the process identity and receipt; only the executor
+          // holding the next valid claim may reconcile an abandoned attempt.
+          await tx.step.update({where:{id:s.id},data:{status:'PENDENTE',statusDetail:'retomada com reconciliação da tentativa anterior',...recomeco}});
         } else if (['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) {
           await tx.step.update({
             where: { id: s.id },
