@@ -570,14 +570,16 @@ export class CompletionService {
           await write({...state,tag,pushStatus:'PENDING'});
         }
         await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
-        await this.git.publishExactVersion(job.projectId,state.tag!,state.plan.target,job.title);
-        await write({...state,pushStatus:'CONFIRMED',pushError:undefined});
-        await this.logs.log(job.id,'Versão '+state.tag+' confirmada no Git.',{source:'git'});
+        // Envio padrão: se o remoto está à frente, traz as novidades e então empurra
+        // (commit + tag + push). O resultado do trabalho sempre chega ao Git.
+        const r=await this.git.versionar(job.projectId,job.title);
+        await write({...state,tag:r.tag,pushStatus:'CONFIRMED',pushError:undefined});
+        await this.logs.log(job.id,'Versão '+r.tag+' enviada ao Git (commit + tag + push)'+(r.atualizou?'; antes, trouxe as novidades que já estavam no repositório':'')+'.',{source:'git'});
       }catch(e){
         if(e instanceof LostStepLease)throw e;
         const detail=String((e as Error).message??e).slice(0,500);
         await write({...state,pushStatus:'ERROR',pushError:detail});
-        await this.logs.log(job.id,'Resultado local concluído; envio Git não confirmado. '+detail,{source:'git',level:'WARN'});
+        await this.logs.log(job.id,'Envio automático ao Git falhou: '+detail+' O resultado local está concluído; use "Enviar para o Git".',{source:'git',level:'WARN'});
         report.pendencias.push('Envio Git não confirmado: '+detail);
       }
     }
