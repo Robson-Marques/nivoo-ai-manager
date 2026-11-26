@@ -72,7 +72,7 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
       };
       result=isAi?await measureAiCall({projectId:job.projectId,provider:providerId,model:request.options?.model,phase:'execution',jobId:job.id,stepId:step.id,attemptId:attempt.id,skillsVersion:SKILLS_VERSION,skillIds:contextStats?.skillIds,promptChars:contextStats?.promptChars},()=>provider.execute(request)):await provider.execute(request);
     } catch (e: any) {
-      result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
+      result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}`,connectorFailure:{kind:'connector-exception',detail:String(e?.message??e).slice(0,5000)} };
       registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);
     } finally {
       clearInterval(progresso);
