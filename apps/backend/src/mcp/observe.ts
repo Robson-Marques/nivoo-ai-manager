@@ -3,7 +3,7 @@ export type McpLog=(line:string,level?:'INFO'|'WARN'|'ERROR')=>void;
 /** Native CLI receipts describe calls reported by the process, not proof
  * of an external side effect. Log names and status only; never arguments
  * or returned payloads. */
-export function observeMcpCalls(cli:'codex'|'claude'|'gemini',servers:readonly McpResolvido[],log:McpLog):(line:string)=>void{
+export function observeMcpCalls(cli:'codex'|'claude'|'gemini',servers:readonly McpResolvido[],log:McpLog):(line:string)=>boolean{
   const configured=new Set(servers.map(s=>s.nome)),pending=new Map<string,{server:string;tool:string}>(),done=new Set<string>();
   const safe=(v:unknown):v is string=>typeof v==='string'&&/^[A-Za-z0-9_.:-]{1,200}$/.test(v);
   const match=(name:unknown)=>{
@@ -25,19 +25,23 @@ export function observeMcpCalls(cli:'codex'|'claude'|'gemini',servers:readonly M
     log('MCP resultado informado: '+call.server+'/'+call.tool+' — '+(outcome==='success'?'sucesso':outcome==='error'?'erro':'estado não comprovado')+' (CLI '+cli+')',outcome==='error'?'WARN':'INFO');
   }
   return line=>{
-    let e:any;try{e=JSON.parse(line);}catch{return;}
+    let e:any;try{e=JSON.parse(line);}catch{return false;}
+    let handled=false;
     if(cli==='codex'){
       const item=e.item;
-      if(!['item.started','item.completed'].includes(e.type)||item?.type!=='mcp_tool_call'||!configured.has(item.server)||!safe(item.tool))return;
+      if(!['item.started','item.completed'].includes(e.type)||item?.type!=='mcp_tool_call')return false;
+      if(!configured.has(item.server)||!safe(item.tool))return true;
+      handled=true;
       start(item.id,{server:item.server,tool:item.tool});
       if(e.type==='item.completed')finish(item.id,item.error||item.status==='failed'||item.result?.isError===true?'error':item.status==='completed'?'success':'unknown');
     }else if(cli==='claude'){
-      if(e.type==='assistant'&&Array.isArray(e.message?.content))for(const c of e.message.content)if(c.type==='tool_use')start(c.id,match(c.name));
-      if(e.type==='user'&&Array.isArray(e.message?.content))for(const c of e.message.content)if(c.type==='tool_result')finish(c.tool_use_id,c.is_error===true?'error':c.content!==undefined?'success':'unknown');
+      if(e.type==='assistant'&&Array.isArray(e.message?.content))for(const c of e.message.content)if(c.type==='tool_use'&&typeof c.name==='string'&&c.name.startsWith('mcp__')){handled=true;start(c.id,match(c.name));}
+      if(e.type==='user'&&Array.isArray(e.message?.content))for(const c of e.message.content)if(c.type==='tool_result'&&(pending.has(c.tool_use_id)||done.has(c.tool_use_id))){handled=true;finish(c.tool_use_id,c.is_error===true?'error':c.content!==undefined?'success':'unknown');}
     }else{
-      if(e.type==='tool_use')start(e.tool_id,match(e.tool_name));
-      if(e.type==='tool_result')finish(e.tool_id,e.status==='success'?'success':e.status==='error'?'error':'unknown');
+      if(e.type==='tool_use'&&typeof e.tool_name==='string'&&e.tool_name.startsWith('mcp__')){handled=true;start(e.tool_id,match(e.tool_name));}
+      if(e.type==='tool_result'&&(pending.has(e.tool_id)||done.has(e.tool_id))){handled=true;finish(e.tool_id,e.status==='success'?'success':e.status==='error'?'error':'unknown');}
     }
+    return handled;
   };
 }
 /** Remove known MCP credential values before forwarding raw CLI diagnostics.
