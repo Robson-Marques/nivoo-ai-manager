@@ -27,6 +27,22 @@ export function observeMcpCalls(cli:'codex'|'claude'|'gemini',servers:readonly M
   return line=>{
     let e:any;try{e=JSON.parse(line);}catch{return false;}
     let handled=false;
+    // Only trust a native inventory event if the client actually supplies
+    // server names/status. Do not turn absence of metadata into a success.
+    if((cli==='claude'&&e.type==='system'&&e.subtype==='init')||(cli==='gemini'&&e.type==='init')){
+      if(Array.isArray(e.mcp_servers))for(const server of e.mcp_servers){
+        if(configured.has(server?.name)&&typeof server.status==='string'&&['connected','failed','pending','disabled','needs-auth','connecting'].includes(server.status)){
+          log('MCP conexão informada pelo CLI '+cli+': '+server.name+' — '+server.status,server.status==='failed'||server.status==='needs-auth'?'WARN':'INFO');
+        }
+      }
+      if(Array.isArray(e.tools)){
+        const names=e.tools.map((name:unknown)=>match(name)).filter((m:{server:string;tool:string}|null)=>m!==null);
+        for(const server of configured){
+          const offered=[...new Set<string>(names.filter((m:{server:string;tool:string})=>m.server===server).map((m:{server:string;tool:string})=>m.tool))];
+          if(offered.length)log('MCP ferramentas oferecidas pelo CLI '+cli+': '+server+' — '+offered.join(', '));
+        }
+      }
+    }
     if(cli==='codex'){
       const item=e.item;
       if(!['item.started','item.completed'].includes(e.type)||item?.type!=='mcp_tool_call')return false;
