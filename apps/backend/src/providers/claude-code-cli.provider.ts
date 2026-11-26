@@ -231,7 +231,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     ].join('\n');
     // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
-    const skillRead=nativeSkillReadObserver('claude',req.cwd,req.onLog);
+    const skillRead=nativeSkillReadObserver('claude',req.cwd,req.onLog,req.onSkillRead);
     const observe=(line:string)=>{skillRead(line);if(!observeMcp(line))ClaudeCodeCliProvider.logEvent(line,req.onLog);};
     let pending = '';
     const r = await runProcess(this.bin, args, {
