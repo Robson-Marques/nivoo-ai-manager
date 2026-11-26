@@ -13,7 +13,7 @@ import { assembleContext,ContextSection,ContextStats,fullMemoryDocument } from '
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
 import { ferramentasDaIa } from '../../providers/ferramentas';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { bancoDeTesteDisponivel,TEXTO_BANCO_DE_TESTE } from '../../common/banco-de-teste';
 import { TEXTO_SISTEMA_RODANDO,TEXTO_FOTOS,TEXTO_ROTEIRO,TEXTO_PADRAO_DAS_TELAS } from '../../common/exec';
 import { RULE_REVIEW_STEP,RULE_REVIEW_REPORT,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
@@ -145,7 +145,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if (vinculo) add('repositorio', await textoDoRepositorio(workspace.projectDirs(vinculo.dirKey).repo, vinculo));
     const origem = await contextoDaOrigem(prisma, workspace, vinculo?.projetoOrigemId);
     if (origem.length) add('origem', origem);
-    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
+    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, projectSessionMcp(step.provider??job.defaultProvider,job.projectId,'execution',{jobId:job.id}).map(m=>m.nome));
     if (ferramentas.length) add('ferramentas', [...ferramentas, ...(softwareInterfaceEnabled(vinculo?.area) ? [...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...(vinculo?.area?.template==='studio-workflow'?['- Ferramentas disponíveis sob o plano aprovado: nivoo-fotos, nivoo-roteiro e nivoo-conferir-telas. Use conforme evidência prevista no contrato da capacidade e na disciplina de testes. Não repita aceitação integrada durante a construção de slices.']: [...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS])] : [])]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
