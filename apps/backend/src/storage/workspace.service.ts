@@ -303,10 +303,10 @@ export class WorkspaceService {
     if (!files.length) return;
     // Só os que existem no commit da pasta de trabalho (a lista vem da main, que pode ter andado): um
     // arquivo ausente faria o checkout inteiro falhar e nada voltaria.
-    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...files]);
-    const noHead = new Set(r.exitCode === 0 ? r.stdout.split('\0').filter(Boolean) : []);
+    const r = await this.gitOk(worktree, ['--literal-pathspecs','ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...files]);
+    const noHead = new Set(r.stdout.split('\0').filter(Boolean));
     const voltar = files.filter((f) => noHead.has(f));
-    if (voltar.length) await this.gitOk(worktree, ['checkout', 'HEAD', '--', ...voltar]);
+    if (voltar.length) await this.gitOk(worktree, ['--literal-pathspecs','checkout', 'HEAD', '--', ...voltar]);
   }
 
   private isLink(p: string): boolean {
@@ -542,21 +542,38 @@ export class WorkspaceService {
     return { feitos, recusados };
   }
 
-  sanitizeHarnessFiles(worktree: string): string[] {
-    const removed: string[] = [];
-    const walk = (dir: string, depth: number) => {
-      if (depth > 6 || !fs.existsSync(dir)) return;
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (e.name === '.git' || e.name === 'node_modules') continue;
-        const p = path.join(dir, e.name);
-        if (WorkspaceService.HARNESS_FILES.includes(e.name)) {
-          fs.rmSync(p, { recursive: true, force: true });
-          removed.push(path.relative(worktree, p));
-        } else if (e.isDirectory() && !e.isSymbolicLink()) walk(p, depth + 1);
+  /** Plan only source-tree harness removal. Outputs and generated context are
+   * not executable harness and must never be deleted by finalization. */
+  listHarnessFiles(worktree:string):string[]{
+    const found:string[]=[];
+    const walk=(dir:string,depth:number)=>{
+      if(depth>6||!fs.existsSync(dir))return;
+      for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+        if(e.name==='.git'||e.name==='node_modules'||(depth===0&&['contexto','.nivoo','out','midia'].includes(e.name)))continue;
+        const p=path.join(dir,e.name);
+        if(WorkspaceService.HARNESS_FILES.includes(e.name))found.push(path.relative(worktree,p));
+        else if(e.isDirectory()&&!e.isSymbolicLink())walk(p,depth+1);
       }
     };
-    walk(worktree, 0);
-    return removed;
+    walk(worktree,0);
+    return found.sort();
+  }
+
+  removePlannedHarness(worktree:string,files:readonly string[]):void{
+    for(const rel of files){
+      const parts=rel.split('/');
+      if(!rel||path.isAbsolute(rel)||parts.some(p=>!p||p==='.'||p==='..')||['contexto','.nivoo','out','midia','.git'].includes(parts[0])||!WorkspaceService.HARNESS_FILES.includes(parts[parts.length-1]))throw Error('Plano de restauração de harness inválido.');
+      // Validate the parent rather than following a final symlink (unlink it).
+      const parent=resolveInside(worktree,path.dirname(rel));
+      const target=path.join(parent,path.basename(rel));
+      fs.rmSync(target,{recursive:true,force:true});
+    }
+  }
+
+  sanitizeHarnessFiles(worktree:string):string[]{
+    const files=this.listHarnessFiles(worktree);
+    this.removePlannedHarness(worktree,files);
+    return files;
   }
 
   /** Impressão digital (nomes, tamanhos, mtimes) de um diretório, para detectar alterações indevidas. */
@@ -583,11 +600,17 @@ export class WorkspaceService {
    * Hash do estado do workspace (árvore git sem ignorados + arquivos de out/).
    * Usado para detectar se uma sessão produziu algum progresso.
    */
-  async snapshotHash(worktree: string): Promise<string> {
+  async snapshotHash(worktree: string,ignoreHarness=false): Promise<string> {
     // Notas do agente (.nivoo/) não contam como progresso: só alterações reais no trabalho.
     await this.gitOk(worktree, ['add', '-A']);
-    const files = await this.gitOk(worktree, ['ls-files', '-s']);
-    const tree = { stdout: files.stdout.split('\n').filter((l) => !/\t(?:\.nivoo|contexto)\//.test(l)).join('\n') };
+    const files = await this.gitOk(worktree, ignoreHarness?['ls-files','-s','-z']:['ls-files','-s']);
+    const tree = { stdout: ignoreHarness
+      ?files.stdout.split('\0').filter(l=>{
+        if(!l)return false;
+        const rel=l.slice(l.indexOf('\t')+1),parts=rel.split('/');
+        return !['.nivoo','contexto'].includes(parts[0])&&!parts.some(p=>WorkspaceService.HARNESS_FILES.includes(p));
+      }).sort().join('\0')
+      :files.stdout.split('\n').filter((l) => !/\t(?:\.nivoo|contexto)\//.test(l)).join('\n') };
     const out = path.join(worktree, 'out');
     const listing: string[] = [];
     const walk = async(d: string):Promise<void> => {

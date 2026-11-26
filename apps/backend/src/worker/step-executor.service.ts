@@ -26,7 +26,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { buildPrompt } from '../providers/provider.interface';
 import type { ExecutionResult } from '../providers/provider.interface';
-import { attemptContract,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,makeReplayEnvelope,canReplayAttempt,replayAuxFingerprint,type AttemptReplayInput } from './executor/attempt-journal';
+import { attemptContract,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,makeReplayEnvelope,canReplayAttempt,replayAuxFingerprint,validFinalizationPlan,type FinalizationPlan,type AttemptReplayInput } from './executor/attempt-journal';
 import * as fs from 'node:fs';
 import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
@@ -144,7 +144,7 @@ export class StepExecutorService {
               const state=await stopOwnedOrphan(o.pid,o.processIdentity);
               if(state==='uncertain'||state==='owned'){unsafe.push('#'+o.number+': '+journal.phase+'; grupo ainda não reconciliado');continue;}
             }
-            if(o.pid||['RETURNED','VERIFIED','PUBLISHING','FINALIZING'].includes(journal.phase)){
+            if(o.pid||['RETURNED','VERIFIED','PUBLISHING','RESTORING','FINALIZING'].includes(journal.phase)){
               await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
             }
             unsafe.push('#'+o.number+': fase '+journal.phase+' sem retomada automática comprovada'+(journal.costKnown===false?'; custo não informado':''));
@@ -204,7 +204,7 @@ export class StepExecutorService {
         try{
           await this.prisma.$transaction(tx=>assertStepLease(tx,task,workerId));
           valid=journal.replay.head===await this.workspace.headCommit(existing)
-            &&journal.replay.tree===await this.workspace.snapshotHash(existing)
+            &&(journal.phase==='RESTORING'?journal.finalization?.sourceHash===await this.workspace.snapshotHash(existing,true):journal.replay.tree===await this.workspace.snapshotHash(existing))
             &&journal.replay.notes===await replayAuxFingerprint(path.join(existing,'.nivoo'))
             &&journal.replay.context===await replayAuxFingerprint(path.join(existing,'contexto'))
             &&journal.replay.knowledge===await replayAuxFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
@@ -214,7 +214,7 @@ export class StepExecutorService {
         return this.reconcileReceiptConflict(task,workerId,job,step,replay,'Recibo da tentativa anterior existe, mas o contrato ou os arquivos não correspondem ao estado registrado. Não repetir a sessão automaticamente.');
       }
       await L('RETOMADA DO RECIBO: tentativa #'+replay.number+' na fase '+journal.phase+'; nenhuma nova sessão do provedor.','INFO',replay.id);
-      return this.finishAttempt(task,workerId,signal,job,step,replay,existing,journal.replay.input,journal.phase);
+      return this.finishAttempt(task,workerId,signal,job,step,replay,existing,journal.replay.input,journal.phase,journal.finalization);
     }
     const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
     if(mediaRecovery.kind==='recovered'){
@@ -535,7 +535,7 @@ export class StepExecutorService {
     // Scope of automatic replay: ordinary isolated workspaces only. Native
     // media, external file operations and destructive verification need their
     // own durable output contracts; never infer those from a Git tree.
-    if(mediaEnabledForArea(job.project.area)||hasNativeMediaOperation([step],job.defaultProvider)
+    if(hasNativeMediaOperation([step],job.defaultProvider)
       ||input.nativeVisual||input.mediaBefore.length||(!input.isAi&&input.providerId!=='local-shell')
       ||step.requiresApproval||evaluatePolicy((input.isAi?'':step.instructions)+'\n'+(step.verifyCommand??'')).requiresApproval)return null;
     try{
@@ -567,7 +567,7 @@ export class StepExecutorService {
    * verification; a VERIFIED receipt continues at the existing finalization.
    * No extra provider session or duplicate verification is introduced. */
   private async finishAttempt(task:ClaimedTask,workerId:string,signal:AbortSignal,job:ExecutionJob,step:Step,
-    attempt:Attempt,worktree:string,input:AttemptReplayInput,phase:'RETURNED'|'VERIFIED'|'PUBLISHING'):Promise<StepOutcome>{
+    attempt:Attempt,worktree:string,input:AttemptReplayInput,phase:'RETURNED'|'VERIFIED'|'PUBLISHING'|'RESTORING'|'FINALIZING',savedPlan?:FinalizationPlan):Promise<StepOutcome>{
     const {providerId,isAi,nativeVisual,protectedBefore,repoHarness,treeBefore,repairBefore,contextStats,failures}=input;
     const effectiveModel=input.effectiveModel??undefined;
     const docsPendentes=new Map(input.docsPendentes.map(([key,value])=>[key,Buffer.from(value,'base64')]));
@@ -641,27 +641,43 @@ export class StepExecutorService {
     }
     const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
     if(signal.aborted)return 'INTERROMPIDO';
-    if(phase!=='PUBLISHING')await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'PUBLISHING',activeMs:Math.max(0,Date.now()-started)});
     const lease={task,workerId};
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
-
-    // Artefatos: saída da tentativa + arquivos novos em out/.
-    const logArt = await this.artifacts.storeContent(
-      { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `logs/${step.key}/tentativa-${number}.log`, kind: 'LOG' },
-      `${result.output}\n${result.error ? `\n[erro] ${result.error}\n` : ''}`,lease,
-    );
-    const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir,lease);
-    if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
-    const videos=await publishAttemptMedia(this.artifacts,job,step,attempt.id,this.pastaDeMidia(job.project.dirKey),mediaBefore,result,verified,lease);
-    if(videos.length)await L('Vídeo(s) disponível(is) para assistir e baixar: '+videos.map(v=>v.name).join(', '),'INFO',attempt.id);
-
-    // The publishing phase is replayable: it only writes immutable blobs and
-    // the fenced catalog. Leave it before mutating the actual workspace.
-    if(signal.aborted)return 'INTERROMPIDO';
-    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PUBLISHING',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
+    let plan:FinalizationPlan;
+    let logArt:{id:string;name:string},outputs:{id:string;name:string;sha256:string}[],videos:{id:string;name:string;sha256:string}[];
+    const alreadyRestoring=phase==='RESTORING'||phase==='FINALIZING';
+    const alreadyRestored=phase==='FINALIZING';
+    if(alreadyRestoring){
+      if(!validFinalizationPlan(savedPlan))throw Error('Plano de finalização incompleto; arquivos preservados.');
+      plan=savedPlan;
+      const ids=[plan.logId,...plan.outputIds,...plan.videoIds];
+      const rows=await this.prisma.artifact.findMany({where:{id:{in:ids},projectId:job.projectId,jobId:job.id,stepId:step.id,attemptId:attempt.id},select:{id:true,name:true,sha256:true}});
+      const byId=new Map(rows.map(a=>[a.id,a]));
+      if(ids.some(id=>!byId.has(id)))return this.reconcileReceiptConflict(task,workerId,job,step,attempt,'Registros da publicação anterior estão incompletos. Não repetir a sessão.');
+      logArt=byId.get(plan.logId)!;outputs=plan.outputIds.map(id=>byId.get(id)!);videos=plan.videoIds.map(id=>byId.get(id)!);
+    }else{
+      if(phase!=='PUBLISHING')await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'PUBLISHING',activeMs:Math.max(0,Date.now()-started)});
+      logArt=await this.artifacts.storeContent({projectId:job.projectId,jobId:job.id,stepId:step.id,attemptId:attempt.id,name:`logs/${step.key}/tentativa-${number}.log`,kind:'LOG'},
+        `${result.output}\n${result.error?`\n[erro] ${result.error}\n`:''}`,lease);
+      outputs=await this.artifacts.collectOutputs({projectId:job.projectId,jobId:job.id,stepId:step.id,attemptId:attempt.id},outputDir,lease);
+      if(outputs.length)await L('Artefatos registrados: '+outputs.map(a=>a.name+' (sha256 '+a.sha256.slice(0,12)+')').join(', '),'INFO',attempt.id);
+      videos=await publishAttemptMedia(this.artifacts,job,step,attempt.id,this.pastaDeMidia(job.project.dirKey),mediaBefore,result,verified,lease);
+      if(videos.length)await L('Vídeo(s) disponível(is): '+videos.map(v=>v.name).join(', '),'INFO',attempt.id);
+      const editados=isAi?this.workspace.capturarDocsEditados(worktree,this.workspace.docsNoTrabalho(worktree)):new Map<string,Buffer>();
+      if(isAi)for(const [rel,c] of docsPendentes)if(!editados.has(rel))editados.set(rel,c);
+      // Persist the actual bytes before any deletion or Git checkout. A
+      // recovery never recaptures an already partially restored document.
+      plan={logId:logArt.id,outputIds:outputs.map(a=>a.id),videoIds:videos.map(v=>v.id),
+        remove:isAi?this.workspace.listHarnessFiles(worktree):[],
+        docs:[...editados].map(([rel,c])=>[rel,c.toString('base64')]),
+        sourceHash:await this.workspace.snapshotHash(worktree,true)};
+      if(signal.aborted)return 'INTERROMPIDO';
+      await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PUBLISHING',{version:1,phase:'RESTORING',finalization:plan,activeMs:Math.max(0,Date.now()-started)});
+    }
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
       if (protectedAfter !== protectedBefore) {
+        if(!alreadyRestored)await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'RESTORING',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
         // O custo e o tempo da sessão contam no orçamento mesmo quando ela é descartada.
         const recorded=await this.prisma.$transaction(async tx=>{
           await OrchestratorService.lockJob(tx,job.id);
@@ -683,22 +699,24 @@ export class StepExecutorService {
         return this.blockJob(task, workerId, job, step, BlockedReason.POLITICA, 'agente alterou arquivos fora do workspace (conhecimento do projeto)');
       }
     }
-    if (isAi) {
-      // Documento de instrução (CLAUDE.md, AGENTS.md…) escrito ou criado pela IA = atualização pedida pelo trabalho.
-      const editados = this.workspace.capturarDocsEditados(worktree, this.workspace.docsNoTrabalho(worktree));
-      const planted = this.workspace.sanitizeHarnessFiles(worktree);
-      // Configurações (.claude/, .codex/…) voltam intactas; a IA não mexe em hooks nem permissões.
-      await this.workspace.restoreRepoHarness(worktree, repoHarness).catch(async (e) => L(`Falha ao restaurar instruções do repositório: ${e?.message ?? e}`, 'ERROR', attempt.id));
-      // Os pendentes de sessões anteriores voltam (a versão desta sessão, se a IA reescreveu, vale mais).
-      for (const [rel, c] of docsPendentes) if (!editados.has(rel)) editados.set(rel, c);
-      if (editados.size) {
-        this.workspace.gravarDocsEditados(worktree, editados);
-        await L(`Documentos de instrução escritos pela IA (entram no trabalho): ${[...editados.keys()].join(', ')}`, 'INFO', attempt.id);
+    if(!alreadyRestored){
+      if(signal.aborted)return 'INTERROMPIDO';
+      await this.prisma.$transaction(tx=>assertStepLease(tx,task,workerId));
+      if(isAi){
+        // Restore only the persisted removal list and exact document bytes.
+        // Any unplanned harness in a recovered workspace is a conflict.
+        if(alreadyRestoring){
+          const allowed=new Set([...plan.remove,...repoHarness.map(f=>f.split('/').slice(0,f.split('/').findIndex(p=>WorkspaceService.HARNESS_FILES.includes(p))+1).join('/')),...plan.docs.map(([rel])=>rel)]);
+          if(this.workspace.listHarnessFiles(worktree).some(f=>!allowed.has(f)))return this.reconcileReceiptConflict(task,workerId,job,step,attempt,'Harness mudou fora do plano de restauração. Arquivos preservados.');
+        }
+        this.workspace.removePlannedHarness(worktree,plan.remove);
+        await this.workspace.restoreRepoHarness(worktree,repoHarness);
+        this.workspace.gravarDocsEditados(worktree,new Map(plan.docs.map(([rel,c])=>[rel,Buffer.from(c,'base64')])));
+        if(plan.docs.length)await L('Documentos de instrução preservados: '+plan.docs.map(([rel])=>rel).join(', '),'INFO',attempt.id);
       }
-      const novos = planted.filter((f) => !repoHarness.includes(f) && !editados.has(f));
-      if (novos.length) {
-        await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);
-      }
+      const finalInput:AttemptReplayInput={...input,result,beforeVerification,verification,verified,sessionClosedNormally,activeMs:Math.max(0,Date.now()-started)};
+      const restoredReplay=await this.replayEnvelope(job,step,worktree,finalInput);
+      await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'RESTORING',{version:1,phase:'FINALIZING',replay:restoredReplay,activeMs:Math.max(0,Date.now()-started)});
     }
     if(signal.aborted)return 'INTERROMPIDO';
     const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs,lease);

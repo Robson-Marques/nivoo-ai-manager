@@ -10,7 +10,7 @@ import type { ClaimedTask } from '../../queue/queue.service';
 import { OrchestratorService } from '../../jobs/orchestrator.service';
 import { assertStepLease,LostStepLease } from './lease';
 
-export type AttemptPhase='PREPARED'|'DISPATCHING'|'RETURNED'|'VERIFYING'|'VERIFIED'|'PUBLISHING'|'FINALIZING'|'TERMINAL';
+export type AttemptPhase='PREPARED'|'DISPATCHING'|'RETURNED'|'VERIFYING'|'VERIFIED'|'PUBLISHING'|'RESTORING'|'FINALIZING'|'TERMINAL';
 export interface AttemptReplayInput {
   providerId:string;isAi:boolean;nativeVisual:boolean;protectedBefore:string|null;repoHarness:string[];
   docsPendentes:[string,string][];treeBefore:string;repairBefore:string|null;contextStats:ContextStats|null;
@@ -21,12 +21,18 @@ export interface AttemptReplayInput {
 export interface ReplayEnvelope {
   contract:string;head:string;tree:string;notes:string;context:string;knowledge:string;input:AttemptReplayInput;
 }
+export interface FinalizationPlan {
+  logId:string;outputIds:string[];videoIds:string[];
+  remove:string[];docs:[string,string][];
+  sourceHash:string|null;
+}
 export interface AttemptJournal {
   version:1;phase:AttemptPhase;costKnown?:boolean;activeMs?:number;replay?:ReplayEnvelope|null;
+  finalization?:FinalizationPlan;
   result?:ExecutionResult;providerResult?:ExecutionResult;verification?:unknown;verified?:boolean;outcome?:string;
 }
-const phases:AttemptPhase[]=['PREPARED','DISPATCHING','RETURNED','VERIFYING','VERIFIED','PUBLISHING','FINALIZING','TERMINAL'];
-const successors:Partial<Record<AttemptPhase,AttemptPhase>>={PREPARED:'DISPATCHING',DISPATCHING:'RETURNED',RETURNED:'VERIFYING',VERIFYING:'VERIFIED',VERIFIED:'PUBLISHING',PUBLISHING:'FINALIZING',FINALIZING:'TERMINAL'};
+const phases:AttemptPhase[]=['PREPARED','DISPATCHING','RETURNED','VERIFYING','VERIFIED','PUBLISHING','RESTORING','FINALIZING','TERMINAL'];
+const successors:Partial<Record<AttemptPhase,AttemptPhase>>={PREPARED:'DISPATCHING',DISPATCHING:'RETURNED',RETURNED:'VERIFYING',VERIFYING:'VERIFIED',VERIFIED:'PUBLISHING',PUBLISHING:'RESTORING',RESTORING:'FINALIZING',FINALIZING:'TERMINAL'};
 function canonical(v:unknown):unknown{
   if(Array.isArray(v))return v.map(canonical);
   if(v&&typeof v==='object')return Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>[k,canonical(x)]));
@@ -44,8 +50,9 @@ export function makeReplayEnvelope(value:Omit<ReplayEnvelope,'head'>&{head:strin
   if(!value.head||Buffer.byteLength(JSON.stringify(value),'utf8')>2*1024*1024)return null;
   return {...value,head:value.head};
 }
-export function canReplayAttempt(state:AttemptJournal|null):state is AttemptJournal&{phase:'RETURNED'|'VERIFIED'|'PUBLISHING';replay:ReplayEnvelope}{
-  if(!state||!['RETURNED','VERIFIED','PUBLISHING'].includes(state.phase)||!state.replay)return false;
+export function canReplayAttempt(state:AttemptJournal|null):state is AttemptJournal&{phase:'RETURNED'|'VERIFIED'|'PUBLISHING'|'RESTORING'|'FINALIZING';replay:ReplayEnvelope}{
+  if(!state||!['RETURNED','VERIFIED','PUBLISHING','RESTORING','FINALIZING'].includes(state.phase)||!state.replay)return false;
+  if((state.phase==='RESTORING'||state.phase==='FINALIZING')&&!validFinalizationPlan(state.finalization))return false;
   const r=state.replay,i=r.input;
   return [r.contract,r.head,r.tree,r.notes,r.context,r.knowledge].every(x=>typeof x==='string'&&x.length>0)
     &&!!i&&typeof i.providerId==='string'&&typeof i.isAi==='boolean'&&typeof i.nativeVisual==='boolean'
@@ -53,6 +60,13 @@ export function canReplayAttempt(state:AttemptJournal|null):state is AttemptJour
     &&typeof i.treeBefore==='string'&&Number.isFinite(i.activeMs)&&i.activeMs>=0
     &&Number.isFinite(i.failures)&&!!i.result&&typeof i.result.exitCode==='number'&&typeof i.result.output==='string'
     &&(state.phase==='RETURNED'||!!i.verification&&!!i.beforeVerification&&typeof i.verified==='boolean'&&typeof i.sessionClosedNormally==='boolean');
+}
+export function validFinalizationPlan(p:FinalizationPlan|undefined):p is FinalizationPlan{
+  return !!p&&typeof p.logId==='string'&&Array.isArray(p.outputIds)&&p.outputIds.every(x=>typeof x==='string')
+    &&Array.isArray(p.videoIds)&&p.videoIds.every(x=>typeof x==='string')
+    &&Array.isArray(p.remove)&&p.remove.every(x=>typeof x==='string')
+    &&Array.isArray(p.docs)&&p.docs.every(x=>Array.isArray(x)&&x.length===2&&typeof x[0]==='string'&&typeof x[1]==='string')
+    &&typeof p.sourceHash==='string'&&p.sourceHash.length>0;
 }
 /** Hash exact auxiliary file bytes; bound cost and refuse symlinks or
  * oversized inputs rather than falsely certifying an incomplete snapshot. */
@@ -104,7 +118,7 @@ export async function writeAttemptPhase(prisma:PrismaService,task:ClaimedTask,wo
     if(returned&&!result)throw Error('Recibo do provedor ausente.');
     const cost=returned&&result&&typeof result.costUsd==='number'&&Number.isFinite(result.costUsd)&&result.costUsd>=0?result.costUsd:null;
     // A large replay envelope is omitted, not silently truncated into a replayable result.
-    const journal={...old,...next,replay:next.phase==='PUBLISHING'?old.replay??null:next.replay??null,
+    const journal={...old,...next,replay:['PUBLISHING','RESTORING'].includes(next.phase)?old.replay??null:next.replay??null,
       ...(result?{result:resultSummary(result)}:{}),...(returned&&result?{costKnown:cost!==null,providerResult:resultSummary(result)}:{})};
     const changed=await tx.attempt.updateMany({where:{id:attemptId,status:'EXECUTANDO',workerId},data:{
       executionState:json(journal),
@@ -137,5 +151,5 @@ export async function attachAttemptReplay(prisma:PrismaService,task:ClaimedTask,
 export async function terminalAttemptJournal(tx:Prisma.TransactionClient,attemptId:string,workerId:string,outcome:string):Promise<Prisma.InputJsonValue>{
   const old=readAttemptJournal((await tx.attempt.findFirst({where:{id:attemptId,workerId,status:'EXECUTANDO'},select:{executionState:true}}))?.executionState);
   if(old?.phase!=='FINALIZING')throw new LostStepLease();
-  return json({...old,phase:'TERMINAL',outcome,replay:null});
+  return json({...old,phase:'TERMINAL',outcome,replay:null,finalization:undefined});
 }

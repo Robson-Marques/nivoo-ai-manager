@@ -20,6 +20,9 @@ describe('durable attempt phases',()=>{
     expect(canReplayAttempt({version:1,phase:'VERIFIED',replay:verifiedReplay})).toBe(true);
     expect(canReplayAttempt({version:1,phase:'PUBLISHING',replay:verifiedReplay})).toBe(true);
     expect(canReplayAttempt({version:1,phase:'FINALIZING',replay:verifiedReplay})).toBe(false);
+    const finalization={logId:'log',outputIds:['out'],videoIds:[],remove:['AGENTS.md'],docs:[['AGENTS.md','eA==']] as [string,string][],sourceHash:'source'};
+    expect(canReplayAttempt({version:1,phase:'RESTORING',replay:verifiedReplay,finalization})).toBe(true);
+    expect(canReplayAttempt({version:1,phase:'FINALIZING',replay:verifiedReplay,finalization})).toBe(true);
   });
   it('does not turn oversized or missing-head input into a replay',()=>{
     expect(makeReplayEnvelope({...replay,head:null})).toBeNull();
@@ -53,7 +56,9 @@ describe('durable attempt phases',()=>{
     await attachAttemptReplay(prisma,task,'w','a','VERIFIED',replay);
     await writeAttemptPhase(prisma,task,'w','a','VERIFIED',{version:1,phase:'PUBLISHING'});
     expect(state.replay.contract).toBe('contract');
-    await writeAttemptPhase(prisma,task,'w','a','PUBLISHING',{version:1,phase:'FINALIZING'});
+    await writeAttemptPhase(prisma,task,'w','a','PUBLISHING',{version:1,phase:'RESTORING',finalization:{logId:'l',outputIds:[],videoIds:[],remove:[],docs:[],sourceHash:'tree'}});
+    expect(state.replay.contract).toBe('contract');
+    await writeAttemptPhase(prisma,task,'w','a','RESTORING',{version:1,phase:'FINALIZING'});
     expect(state.replay).toBeNull();
     const terminal:any=await terminalAttemptJournal(tx as any,'a','w','FALHA');
     expect(terminal.providerResult.exitCode).toBe(0);
