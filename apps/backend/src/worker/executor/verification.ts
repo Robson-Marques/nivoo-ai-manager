@@ -49,7 +49,7 @@ export function explicarConferencia(comando: string, pasta: string): string {
 
 
 /** Existing technical verification only. Never changes the job, retries an AI, or schedules another step. */
-export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:boolean,result:ExecutionResult,worktree:string,outputDir:string,mediaDir:string,attempt:{id:string},signal:AbortSignal,L:ExecutionLog){
+export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:boolean,result:ExecutionResult,worktree:string,outputDir:string,mediaDir:string,attempt:{id:string},signal:AbortSignal,L:ExecutionLog,onSpawn?:(pid:number)=>void){
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
     const deliveries=mediaDeliveries(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.key);
@@ -144,6 +144,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       const conferir = () => {
         transcript='';
         return runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommandEfetivo], {
+          onSpawn,
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
