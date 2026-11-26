@@ -34,9 +34,13 @@ export function repeatedSessionVerification(sessions:Session[],command:string):s
     ? 'a mesma conferência da etapa falhou três vezes (sem contar erros distintos): '+current.slice(-600):null;
 }
 export function decideSessionContinuation(job:SessionJob,sessions:Session[]){
-  const recent=sessions.slice(0,MAX_OCORRENCIAS_MESMA_FALHA);
+  // Sessões improdutivas (sem alterar arquivo e sem anotar progresso) param na
+  // janela de repetição CONFIGURADA do job (repetitionWindow, padrão 2), não num
+  // valor fixo: é o controle que o pedido/limites do trabalho definem.
+  const janela=Math.max(2,job.repetitionWindow||2);
+  const recent=sessions.slice(0,janela);
   const unchanged=(a:Session)=>!!a.treeBefore&&!!a.treeAfter&&a.treeBefore===a.treeAfter;
-  if(recent.length>=MAX_OCORRENCIAS_MESMA_FALHA&&recent.every(a=>unchanged(a)&&a.notesIngested===0))
+  if(recent.length>=janela&&recent.every(a=>unchanged(a)&&a.notesIngested===0))
     return {kind:'repeat' as const,detail:'as últimas '+recent.length+' sessões terminaram sem alterar nenhum arquivo e sem anotar progresso'};
   const window=Math.max(8,job.repetitionWindow*4);
   if(sessions.length>=window&&sessions.slice(0,window).every(unchanged))
