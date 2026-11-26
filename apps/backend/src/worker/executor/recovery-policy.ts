@@ -11,9 +11,17 @@ export function immutableCommandFailure(diagnostic:string):boolean{
 }
 export function decideFailedAttempt(job:FailureJob,errors:Array<string|null>,current:string,command:string,providerId:string,isAi:boolean,diagnostic:string){
   const repetitions=repeticoesDoMesmoErro(errors,current,command);
-  if(current.trim()&&job.maxAttemptsPerStep>0&&job.maxAttemptsPerStep<MAX_OCORRENCIAS_MESMA_FALHA&&repetitions>=job.maxAttemptsPerStep)
-    return {kind:'limit' as const,repetitions,detail:'limite configurado de '+job.maxAttemptsPerStep+' tentativa(s) para o mesmo erro atingido'};
-  if(current.trim()&&repetitions>=MAX_OCORRENCIAS_MESMA_FALHA)
+  // Um TIMEOUT não é "repetição improdutiva de conteúdo": é problema de tempo.
+  // Repeti-lo não deve virar REPETICAO_IMPRODUTIVA — quem governa é o orçamento
+  // de tempo do job (maxDurationSec → LIMITE_TEMPO) e o teto de tentativas. Senão
+  // 3 timeouts seguidos bloqueariam como "repetição" antes de o tempo total estourar.
+  const ehTimeout=/^timeout após \d+\s*ms$/.test(current.trim());
+  // Limite configurado baixo (< 3) é um teto de TOTAL de tentativas da etapa, não
+  // de "mesmo erro": vale mesmo quando as falhas variam a cada tentativa. (errors já
+  // inclui a tentativa FALHA atual, então errors.length é o total de tentativas.)
+  if(current.trim()&&job.maxAttemptsPerStep>0&&job.maxAttemptsPerStep<MAX_OCORRENCIAS_MESMA_FALHA&&errors.length>=job.maxAttemptsPerStep)
+    return {kind:'limit' as const,repetitions,detail:'limite configurado de '+job.maxAttemptsPerStep+' tentativa(s) na etapa atingido'};
+  if(current.trim()&&!ehTimeout&&repetitions>=MAX_OCORRENCIAS_MESMA_FALHA)
     return {kind:'repeat' as const,repetitions,detail:'o mesmo erro ocorreu '+repetitions+' vezes nesta etapa; interrompido para não repetir indefinidamente: '+current.slice(-700)};
   if(!isAi&&providerId==='local-shell'&&immutableCommandFailure(diagnostic))return {kind:'blocked' as const,repetitions,detail:'Comando, argumento ou ambiente inválido; repetir sem corrigir a causa não resolve: '+current.slice(-1000)};
   if(!isAi&&providerId==='local-shell'&&falhaLocalCorrigivel(diagnostic))return {kind:'repair' as const,repetitions};
