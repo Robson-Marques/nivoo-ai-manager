@@ -14,6 +14,8 @@ export interface ProviderStatus {
   /** Limites conhecidos (documentados ou configurados); nunca contornados. */
   limits: Record<string, string | number>;
   capabilities: string[];
+  /** Exact eligible agent IDs reported by the connection; absence means unknown, not empty. */
+  agentModels?:string[];
   errors: string[];
   checkedAt: string;
   isAi: boolean;
