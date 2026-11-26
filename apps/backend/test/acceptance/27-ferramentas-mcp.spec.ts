@@ -4,7 +4,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { argsCodex, serversGemini } from '../../src/mcp/para-ia';
+import { codexMcpSession, serversGemini } from '../../src/mcp/para-ia';
 import { createHarness, Harness, truncateAll, waitFor } from '../support/harness';
 
 const CTL = path.join(process.env.TMPDIR ?? '/tmp', 'nivoo-cli-stub');
@@ -67,7 +67,7 @@ describe('Ferramentas MCP', () => {
     expect(cfg).toEqual({ mcpServers: { 'eco-teste': { command: 'node', args: [STUB, saida], env: { MODO: 'leitura', TOKEN_X: 'segredo-123' } } } });
     expect(fs.readFileSync(path.join(CTL, 'args.txt'), 'utf8')).toMatch(/--allowedTools .*mcp__eco-teste/);
     const prompt = fs.readFileSync(path.join(CTL, 'prompt.txt'), 'utf8');
-    expect(prompt).toContain('Ferramentas MCP liberadas para este projeto: eco-teste');
+    expect(prompt).toMatch(/Servidores MCP configurados para esta sessão.*: eco-teste/);
     expect(prompt).not.toContain('segredo-123');
     // Projeto não escolhido: nada.
     expect((await rodar(p2.id)).status).toBe('CONCLUIDO');
@@ -104,13 +104,23 @@ describe('Ferramentas MCP', () => {
       { nome: 'nav', tipo: 'comando' as const, comando: 'npx', args: ['-y', '@playwright/mcp@latest'], env: { A: 'x"y' } },
       { nome: 'docs', tipo: 'http' as const, url: 'https://mcp.exemplo.com/mcp', headers: { Authorization: 'Bearer t' } },
     ];
-    expect(argsCodex(mcp)).toEqual([
-      '-c', 'mcp_servers.nav.command="npx"',
-      '-c', 'mcp_servers.nav.args=["-y","@playwright/mcp@latest"]',
-      '-c', 'mcp_servers.nav.env={"A"="x\\"y"}',
-      '-c', 'mcp_servers.docs.url="https://mcp.exemplo.com/mcp"',
-      '-c', 'mcp_servers.docs.http_headers={"Authorization"="Bearer t"}',
-    ]);
+    // A sessão do Codex ignora a config do usuário e injeta um único bloco
+    // mcp_servers={...}. Segredos (env de comando e cabeçalhos HTTP) vão por
+    // variável de ambiente aliased (NIVOO_MCP_SESSION_*), nunca inline no argv,
+    // que é visível em listagens de processo.
+    const codex = codexMcpSession(mcp);
+    const argsText = codex.args.join(' ');
+    expect(codex.args).toContain('--ignore-user-config');
+    expect(argsText).toContain('"nav"={command="npx"');
+    expect(argsText).toContain('args=["-y","@playwright/mcp@latest"]');
+    expect(argsText).toContain('env_vars=');
+    expect(argsText).toContain('"docs"={url="https://mcp.exemplo.com/mcp"');
+    expect(argsText).toContain('env_http_headers=');
+    expect(argsText).toContain('shell_environment_policy.exclude=["NIVOO_MCP_SESSION_*"]');
+    // Os valores secretos saem do argv e aparecem só no env, aliased.
+    expect(argsText).not.toContain('Bearer t');
+    expect(argsText).not.toContain('x"y');
+    expect(Object.values(codex.env)).toEqual(expect.arrayContaining(['x"y', 'Bearer t']));
     expect(serversGemini(mcp)).toEqual({
       nav: { command: 'npx', args: ['-y', '@playwright/mcp@latest'], env: { A: 'x"y' }, trust: true },
       docs: { httpUrl: 'https://mcp.exemplo.com/mcp', headers: { Authorization: 'Bearer t' }, trust: true },
