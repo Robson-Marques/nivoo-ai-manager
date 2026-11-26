@@ -163,10 +163,13 @@ export class CompletionService {
     const violacoesAgora = falhas.some((f) => f.key === RULE_REVIEW_STEP) ? (lerRevisao(worktree)?.violacoes ?? []) : [];
     const assinaturas = assinaturasDasFalhas(falhas, violacoesAgora);
     const recorrencias = recorrenciasDasFalhas(job.steps, assinaturas);
-    const persistentes = recorrencias.filter((f) => f.ocorrencias >= MAX_OCORRENCIAS_MESMA_FALHA);
+    // Para só quando a MESMA falha persiste DEPOIS de MAX correções seguidas
+    // (ocorrências = correções anteriores + 1). Com MAX=3: corrige na 1ª, 2ª e 3ª
+    // aparição e interrompe na 4ª — girar de novo só gastaria sem avançar.
+    const persistentes = recorrencias.filter((f) => f.ocorrencias > MAX_OCORRENCIAS_MESMA_FALHA);
     if (persistentes.length) {
       await this.logs.log(job.id,
-        `Recuperação interrompida: o MESMO erro foi identificado ${MAX_OCORRENCIAS_MESMA_FALHA} vezes, mesmo após correções. ${persistentes.map((f) => f.descricao).join(' | ')}. Preservados o trabalho e os testes anteriores; não criar outra sessão em loop.`,
+        `Recuperação interrompida: a conferência cobrou as MESMAS coisas depois de ${MAX_OCORRENCIAS_MESMA_FALHA} correções seguidas, sem avanço. ${persistentes.map((f) => f.descricao).join(' | ')}. Preservados o trabalho e os testes anteriores; não criar outra sessão em loop.`,
         { source: 'evaluator', level: 'WARN' });
       return false;
     }
@@ -288,7 +291,7 @@ export class CompletionService {
             ...(repetidas > 0
               ? [
                   '',
-                  `ATENÇÃO: a MESMA falha concreta já apareceu ${repetidas + 1} vez(es) nesta avaliação. Não confunda com outras falhas já resolvidas.`,
+                  `ATENÇÃO: esta é a ${repetidas + 1}ª vez seguida que a MESMA falha concreta aparece nesta avaliação. Não confunda com outras falhas já resolvidas.`,
                   'Não repita o que já foi tentado: veja o que mudou (git log -p nesta pasta) e o que a revisão diz que ainda falta, e',
                   'MUDE A ABORDAGEM. Se a cobrança é de evidência executada pelo sistema, a evidência precisa estar no lugar que a',
                   'conferência roda (testes do projeto ou nivoo-roteiros/) — um script solto em outra pasta não conta.',

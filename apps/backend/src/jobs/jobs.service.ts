@@ -439,6 +439,11 @@ export class JobsService {
           });
         }
       }
+      // "Tentar de novo" é uma intervenção do usuário: a contagem de "mesma falha
+      // N vezes" recomeça. Neutraliza os marcadores de assinatura das correções
+      // anteriores (sem apagar o histórico) para que o ciclo de correção não pare
+      // de cara pela repetição do ciclo já encerrado.
+      await tx.$executeRaw`UPDATE "Step" SET instructions = regexp_replace(instructions, '^NIVOO_RECOVERY_SIGNATURES_V1:', 'NIVOO_RECOVERY_SIGNATURES_V1_CICLO_ANTERIOR:', 'm') WHERE "jobId" = ${jobId} AND key ~ '^correcao-criterios-[0-9]+$'`;
       await tx.job.update({
         where: { id: jobId },
         data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `retomado por ${by}`, finishedAt: null, startedAt: job.startedAt ?? new Date() },
