@@ -5,6 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { codexMcpSession } from '../mcp/para-ia';
+import { observeMcpCalls,redactMcpLog } from '../mcp/observe';
 import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
@@ -116,6 +117,8 @@ export class CodexCliProvider implements AiProvider {
     if(readOnly&&target)return {exitCode:1,output:'',error:'Produção visual exige etapa aprovada; planejamento não gera ativos.'};
     const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
     const mcpSession=codexMcpSession(mcp);
+    req={...req,onLog:redactMcpLog(mcp,req.onLog)};
+    const observeMcp=observeMcpCalls('codex',mcp,req.onLog);
     const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId,...mcpSession.env });
     const startedAt = Date.now();
     const savedPaths:string[]=[];
@@ -130,7 +133,7 @@ export class CodexCliProvider implements AiProvider {
         if(ev.type==='thread.started'&&typeof ev.thread_id==='string')nativeThread=ev.thread_id;
         if(target){const p=imageEventPath(ev);if(p&&!savedPaths.includes(p))savedPaths.push(p);const bytes=imageEventBytes(ev);if(bytes&&!inlineImages.some(b=>b.equals(bytes))&&inlineImages.length<2)inlineImages.push(bytes);const failure=imageEventFailure(ev);if(failure&&!imageFailures.includes(failure))imageFailures.push(failure);}
       }catch{/* non-JSON log */}
-      CodexCliProvider.logEvento(line,req.onLog);
+      if(!observeMcp(line))CodexCliProvider.logEvento(line,req.onLog);
     };
     try{
       attachedReferences=[...new Set([...resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir),...(req.options?.images??[])])];
