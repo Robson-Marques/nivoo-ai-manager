@@ -4,7 +4,7 @@ import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisua
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import { argsCodex } from '../mcp/para-ia';
+import { codexMcpSession } from '../mcp/para-ia';
 import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
@@ -114,7 +114,9 @@ export class CodexCliProvider implements AiProvider {
     const args=codexLocalArgs(req.cwd,readOnly);
     const target = nativeImageTarget(req.options?.visualAsset);
     if(readOnly&&target)return {exitCode:1,output:'',error:'Produção visual exige etapa aprovada; planejamento não gera ativos.'};
-    const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId });
+    const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
+    const mcpSession=codexMcpSession(mcp);
+    const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId,...mcpSession.env });
     const startedAt = Date.now();
     const savedPaths:string[]=[];
     const inlineImages:Buffer[]=[];
@@ -150,9 +152,9 @@ export class CodexCliProvider implements AiProvider {
     }catch(e){return {exitCode:1,output:'',error:'Ativo visual: '+String((e as Error).message),stopReason:'visual_asset_error'};}
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
-    req.onLog(`codex ${args.join(' ')} -${req.mcp?.length ? ` + ferramentas MCP: ${req.mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
+    req.onLog(`codex ${args.join(' ')} -${mcp.length ? ` + ferramentas MCP: ${mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
     // Ferramentas MCP do projeto: só para esta execução (o config.toml da conta não muda).
-    if (req.options?.readOnlyReview!==true&&req.mcp?.length) args.push(...argsCodex(req.mcp));
+    args.push(...mcpSession.args);
     args.push('-');
     let pendente = '';
     const r = await runProcess(this.bin, args, {
