@@ -335,9 +335,13 @@ export class JobsService {
     // senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace. "Continuar" logo depois de "Pausar"
     // espera alguns segundos o encerramento em vez de recusar.
     const sessaoAindaFechando = async () => {
-      // Heartbeat of an idle worker or a different job does not prove that
-      // this attempt is alive. The actual task lease is authoritative.
-      return this.prisma.queueTask.findFirst({where:{jobId,status:{in:['RUNNING','CANCELLED']},lockedUntil:{gt:new Date()}},select:{id:true,lockedBy:true}});
+      // A sessão só está encerrada quando o worker SOLTA a tarefa (lockedBy=null,
+      // via acknowledgeCancelled, após matar o processo e reconciliar a tentativa).
+      // Não basta o lease ter vencido: um processo que ignora SIGTERM morre só no
+      // SIGKILL (alguns segundos depois), e nesse meio-tempo o lease pode expirar
+      // enquanto o worker ainda está encerrando. Retomar aí abriria uma 2ª sessão
+      // no mesmo trabalho e leria a tentativa antes de ela virar INTERROMPIDA.
+      return this.prisma.queueTask.findFirst({where:{jobId,status:{in:['RUNNING','CANCELLED']},lockedBy:{not:null}},select:{id:true,lockedBy:true}});
     };
     const ate = Date.now() + Number(process.env.NIVOO_ESPERA_ENCERRAR_MS ?? 20_000);
     let fechando = await sessaoAindaFechando();
@@ -346,7 +350,7 @@ export class JobsService {
       fechando = await sessaoAindaFechando();
     }
     if (fechando) {
-      throw new ConflictException(`A tarefa ${fechando.id} ainda tem lease ativo do worker ${fechando.lockedBy}. Aguarde alguns segundos e clique em Continuar de novo.`);
+      throw new ConflictException(`A sessão anterior deste trabalho ainda está sendo encerrada (tarefa ${fechando.id} no worker ${fechando.lockedBy}). Aguarde alguns segundos e clique em Continuar de novo; nunca rodam duas sessões no mesmo trabalho.`);
     }
     // Em jobs motion antigos, o núcleo inseria uma revisão de IA compulsória
     // ANTES do render. Ela podia bloquear toda a entrega apesar de o HTML e
