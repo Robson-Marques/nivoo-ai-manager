@@ -559,7 +559,7 @@ export class CompletionService {
       if(folder)await this.logs.log(job.id,'Resultados guardados na pasta do projeto: '+folder,{source:'evaluator'});
       await this.pedirEntrega(job,state.plan.target,state.checks,state.plan.changed);
       await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id)).catch(()=>null);
-      await descartarBancoDeTeste(job.id);
+      if(await descartarBancoDeTeste(job.id))await this.logs.log(job.id,'Banco de teste do trabalho apagado',{source:'evaluator'});
       await write({...state,phase:'DELIVERED'});
     }
     if(state.publish&&state.pushStatus!=='CONFIRMED'){
