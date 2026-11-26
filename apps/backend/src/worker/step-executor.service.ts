@@ -6,7 +6,8 @@ import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '.
 import { operationsNeedApproval,validateFileOperations } from '../common/file-operations';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
-import { trocarParaReserva } from '../projects/mover-trabalho';
+import { trocarEtapaParaReserva } from '../projects/mover-trabalho';
+import { projectSessionMcp } from '../mcp/session-policy';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
@@ -276,14 +277,20 @@ export class StepExecutorService {
       const retryAfter = Number(status.limits?.retryAfterMs);
       return this.awaitResource(task, workerId, job, step,
         `${providerId} indisponível: ${status.errors.join('; ') || 'sem detalhes'}`,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,signal);
     }
 
     let effectiveModel:string|undefined;
     try{
       effectiveModel=selectedModel(projectModel(job.project,providerId),step.providerOptions);
       const assessment=assessModel(providerId,effectiveModel,status,step.providerOptions);
-      if(assessment.state==='incompatible')return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'Modelo '+(assessment.model??'padrão')+' incompatível com a etapa em '+providerId+': '+assessment.reason+'. Selecione conexão/modelo compatível; arquivos preservados.');
+      if(assessment.state==='incompatible'){
+        const detail='Modelo '+(assessment.model??'padrão')+' incompatível com a etapa em '+providerId+': '+assessment.reason;
+        const switched=await this.tryReserve(task,workerId,job,step,detail,signal,false);
+        if(switched)return switched;
+        if(signal.aborted)return 'INTERROMPIDO';
+        return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,detail+'. Nenhuma reserva compatível encontrada; arquivos preservados.');
+      }
       if(status.kind!=='executor')await L('Capacidade do modelo '+(assessment.model??'padrão do CLI')+': '+assessment.state+' — '+assessment.reason,'INFO');
     }catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
 
@@ -565,7 +572,7 @@ export class StepExecutorService {
     if (attemptStatus === 'RECURSO_INDISPONIVEL') {
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recurso indisponível após tentativa '+number,{tentativa:number,log:logArt.id,artefatos:outputs.map(a=>a.id),notas:notes});
       this.registry.invalidate(providerId);
-      return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs);
+      return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs,signal);
     }
 
     if (ambiente && attemptStatus !== 'SUCESSO') {
@@ -677,7 +684,14 @@ export class StepExecutorService {
     });
     const erroAtual=(result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
-    if(result.stopReason==='model_incompatible'||result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
+    if(result.stopReason==='model_incompatible'){
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'modelo incompatível; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      const switched=await this.tryReserve(task,workerId,job,step,erroAtual,signal,false);
+      if(switched)return switched;
+      if(signal.aborted)return 'INTERROMPIDO';
+      return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,erroAtual+'; nenhuma reserva compatível encontrada.');
+    }
+    if(result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,recovery.kind==='blocked'?recovery.detail:erroAtual);
     }
@@ -934,21 +948,26 @@ export class StepExecutorService {
     return 'AGUARDANDO_APROVACAO';
   }
 
-  private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, retryAfterMs?: number): Promise<StepOutcome> {
-    // IA reserva: acabou o crédito/limite da IA do projeto → continua sozinho com a próxima conectada.
-    const providerId = step.provider ?? job.defaultProvider;
-    const visual=nativeImageTarget((step.providerOptions as Record<string,unknown>|null)?.visualAsset);
-    const pinned=(step.providerOptions as Record<string,unknown>|null)?.model;
-    const reserva = visual||pinned||!tipoDe(providerId)?null:await trocarParaReserva(this.prisma, this.registry, job.projectId, providerId,job.id).catch(() => null);
-    if (reserva) {
-      const aviso = `${reserva.anterior} ficou indisponível (${detail.slice(0, 200)}). O trabalho continua com ${reserva.nome}, do ponto em que estava.`;
-      await this.logs.log(job.id, aviso, { stepId: step.id, level: 'WARN', source: 'worker' });
-      const origem = await this.prisma.conversationMessage.findFirst({ where: { jobId: job.id }, select: { conversationId: true } });
-      if (origem) await this.prisma.conversationMessage.create({ data: { conversationId: origem.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: aviso, jobId: job.id } });
-      await this.prisma.step.update({ where: { id: step.id }, data: { provider:reserva.id,status: 'PENDENTE', statusDetail: `continua com ${reserva.nome}` } });
-      await this.queue.requeue(task.id, workerId, new Date(), `continua com ${reserva.id}`);
-      return 'CONTINUA';
-    }
+  private async tryReserve(task:ClaimedTask,workerId:string,job:Job,step:Step,detail:string,signal:AbortSignal,resourceFailure:boolean):Promise<StepOutcome|null>{
+    if(signal.aborted)return 'INTERROMPIDO';
+    const providerId=step.provider??job.defaultProvider;
+    if(!tipoDe(providerId))return null;
+    const rejected:string[]=[];
+    const reserva=await trocarEtapaParaReserva(this.prisma,this.registry,job.projectId,job.id,step.id,providerId,{
+      options:step.providerOptions,pinnedReview:!!approvedGoldfish(job.approvedScope),preserveMcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}).length>0,
+    },{taskId:task.id,workerId,claims:task.claims,signal,resourceFailure,onSkip:(id,reason)=>rejected.push(id+': '+reason)});
+    if(rejected.length)await this.logs.log(job.id,'Reservas não selecionadas: '+rejected.join('; '),{stepId:step.id,level:'INFO',source:'worker'});
+    if(!reserva)return signal.aborted?'INTERROMPIDO':null;
+    const aviso=reserva.anterior+' não pode continuar esta etapa ('+detail.slice(0,200)+'). Retomada com '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'. Demais etapas e preferência do projeto preservadas.';
+    await this.logs.log(job.id,aviso,{stepId:step.id,level:'WARN',source:'worker'}).catch(()=>undefined);
+    const origem=await this.prisma.conversationMessage.findFirst({where:{jobId:job.id},select:{conversationId:true}});
+    if(origem)await this.prisma.conversationMessage.create({data:{conversationId:origem.conversationId,role:'ASSISTENTE',status:'PRONTA',kind:'sistema',content:aviso,jobId:job.id}}).catch(()=>undefined);
+    return 'CONTINUA';
+  }
+
+  private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, retryAfterMs: number|undefined,signal:AbortSignal): Promise<StepOutcome> {
+    const switched=await this.tryReserve(task,workerId,job,step,detail,signal,true);
+    if(switched)return switched;
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL',number:{gt:step.resumeFromAttempt} } });
     const rateLimit = isTransientRateLimit(detail);
     // HTTP 429 pode significar cota diária esgotada: não é defeito permanente.
