@@ -42,6 +42,15 @@ describe('MCP session routing and credential transport',()=>{
   });
 });
 describe('native MCP observation',()=>{
+  it('logs only native inventory offered for configured servers without assuming success',()=>{
+    const log=jest.fn(),observe=observeMcpCalls('claude',tools,log);
+    observe(JSON.stringify({type:'system',subtype:'init',mcp_servers:[{name:'docs',status:'connected'},{name:'first',status:'failed'},{name:'unknown',status:'connected'}],tools:['mcp__docs__lookup','mcp__unknown__secret','Read']}));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('docs — connected'),'INFO');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('first — failed'),'WARN');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('docs — lookup'));
+    expect(JSON.stringify(log.mock.calls)).not.toContain('unknown');
+  });
+
   it('tracks Codex item identity without arguments and reports failed result only once',()=>{
     const log=jest.fn(),observe=observeMcpCalls('codex',tools,log);
     const item={id:'i',type:'mcp_tool_call',server:'docs',tool:'lookup',arguments:{private:'DATA'}};
