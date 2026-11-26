@@ -17,7 +17,7 @@ import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
 import { stopOwnedOrphan,processIdentity } from '../common/process-identity';
-import { assertStepLease,LostStepLease } from './executor/lease';
+import { assertStepLease,LostStepLease,ownsCancelledTask } from './executor/lease';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -523,6 +523,15 @@ export class StepExecutorService {
     if(signal.aborted)return 'INTERROMPIDO';
     await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PREPARED',{version:1,phase:'DISPATCHING'});
     const result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
+    if(signal.aborted){
+      // Pausa cooperativa: o processo filho JÁ foi encerrado pelo abort do lease.
+      // Como dono da tarefa cancelada, o worker reconcilia a própria tentativa
+      // (INTERROMPIDA) e devolve a etapa a PENDENTE SOMENTE depois de o processo
+      // ter parado — nunca antes —, preservando o diário de execução para a
+      // retomada. Nenhum custo/resultado é confirmado nesta via.
+      await this.reconcileCancelledAttempt(task,workerId,job,step,attempt);
+      return 'INTERROMPIDO';
+    }
     if(typeof result.costUsd!=='number'||!Number.isFinite(result.costUsd)||result.costUsd<0)delete result.costUsd;
     const input:AttemptReplayInput={providerId,isAi,nativeVisual:!!nativeVisual,protectedBefore,repoHarness,
       docsPendentes:[...docsPendentes].map(([key,value])=>[key,value.toString('base64')]),
@@ -556,6 +565,24 @@ export class StepExecutorService {
         tree:await this.workspace.snapshotHash(worktree),notes,context,knowledge,input
       });
     }catch{return null;}
+  }
+
+  /** Reconciliação da tentativa interrompida por uma pausa cooperativa. Só o
+   * worker dono da tarefa cancelada chega aqui, e só depois de o processo filho
+   * ter sido encerrado pelo abort — por isso a transição INTERROMPIDA/PENDENTE
+   * nunca aparece antes de o trabalho realmente parar. O diário de execução
+   * (executionState) e a identidade do processo são preservados para a retomada. */
+  private async reconcileCancelledAttempt(task:ClaimedTask,workerId:string,job:Job,step:Step,attempt:Attempt):Promise<void>{
+    await this.prisma.$transaction(async tx=>{
+      await OrchestratorService.lockJob(tx,job.id);
+      if(!(await ownsCancelledTask(tx,task,workerId)))return; // outro worker assumiu a tarefa: ele reconcilia.
+      await tx.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO',workerId},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'interrompido pela pausa; custo/resultado não confirmados'}});
+      const current=await tx.step.findUnique({where:{id:step.id},select:{resumeFromAttempt:true}});
+      const resumeFromAttempt=Math.min(current?.resumeFromAttempt??0,Math.max(0,attempt.number-1));
+      await tx.step.updateMany({where:{id:step.id,status:'EXECUTANDO'},data:{status:'PENDENTE',statusDetail:'interrompido; retomar do progresso salvo',resumeFromAttempt}});
+      const seq=(await tx.checkpoint.count({where:{jobId:job.id}}))+1;
+      await tx.checkpoint.create({data:{jobId:job.id,stepId:step.id,seq,label:`interrompido: ${step.key}`,gitCommit:null,state:{etapa:step.key,motivo:'pausa',tentativa:attempt.number,interrompido:true} as Prisma.InputJsonValue}});
+    });
   }
 
   private async reconcileReceiptConflict(task:ClaimedTask,workerId:string,job:Job,step:Step,attempt:Attempt,detail:string):Promise<StepOutcome>{

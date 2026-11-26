@@ -4,6 +4,22 @@ import type { ClaimedTask } from '../../queue/queue.service';
 export class LostStepLease extends Error{
   constructor(){super('Lease da etapa perdido; nenhuma gravação de resultado autorizada.');this.name='LostStepLease';}
 }
+/** Uma pausa cooperativa cancela as tarefas do job (status CANCELLED) enquanto o
+ * worker dono ainda segura lockedBy/claims. Só esse dono — depois de encerrar o
+ * processo filho — pode reconciliar a própria tentativa em andamento, marcando-a
+ * INTERROMPIDA e devolvendo a etapa a PENDENTE sem corrida com o resultado. Uma
+ * tarefa reivindicada por outro worker (status de volta a RUNNING sob novo dono)
+ * não casa aqui: nesse caso o próximo reivindicante é quem reconcilia. */
+export async function ownsCancelledTask(tx:Prisma.TransactionClient,task:Pick<ClaimedTask,'id'|'claims'|'jobId'|'stepId'>,workerId:string):Promise<boolean>{
+  const rows=await tx.$queryRaw<Array<{id:string}>>`
+    SELECT id FROM "QueueTask" WHERE id=${task.id} AND "lockedBy"=${workerId}
+      AND claims=${task.claims} AND status='CANCELLED'
+      AND "jobId" IS NOT DISTINCT FROM ${task.jobId}::text AND "stepId" IS NOT DISTINCT FROM ${task.stepId}::text
+    FOR UPDATE
+  `;
+  return rows.length===1;
+}
+
 /** Caller holds the transaction until its state mutation completes.
  * Claim generation is required even when a worker ID is reused. */
 export async function assertStepLease(tx:Prisma.TransactionClient,task:Pick<ClaimedTask,'id'|'claims'|'jobId'|'stepId'>,workerId:string):Promise<void>{
