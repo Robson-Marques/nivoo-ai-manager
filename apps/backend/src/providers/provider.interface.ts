@@ -1,3 +1,4 @@
+import type { SkillObservation } from '../specialties/skill-evidence';
 import type { McpResolvido } from '../mcp/mcp';
 export type ProviderKind = 'cli' | 'api' | 'executor' | 'test';
 
@@ -43,6 +44,8 @@ export interface ExecutionRequest {
   onLog: (line: string, level?: 'INFO' | 'WARN' | 'ERROR') => void;
   /** Informado quando o processo do agente inicia (pid do grupo). */
   onSpawn?: (pid: number) => void;
+  /** Adapter observations only; not model claims or log parsing. */
+  onSkillRead?: (event:SkillObservation)=>void;
   /** Opções por etapa (não secretas): modelo e limite de turnos da sessão. */
   /** images: arquivos de imagem anexados (para IAs que recebem imagem pela linha de comando). */
   /** Etapa de vídeo: arquivo, duracaoSeg, proporcao, resolucao, negativo, imagem, conexao. */
