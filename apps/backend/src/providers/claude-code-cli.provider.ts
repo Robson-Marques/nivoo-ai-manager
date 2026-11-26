@@ -259,7 +259,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       const base = { exitCode: -1, output: '', costUsd: est.costUsd, costEstimated: true, usagePartial:true, inputTokens: est.inputTokens, outputTokens: est.outputTokens };
       return r.aborted ? { ...base, interrupted: true, error: 'interrompido' } : { ...base, error: `timeout após ${req.timeoutMs} ms` };
     }
-    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     let parsed: any = null;
     for (const line of r.stdout.trim().split('\n').reverse()) {
       try {
@@ -290,7 +290,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       sessionId: parsed?.session_id,
       stopReason,
       numTurns: parsed?.num_turns,
-      resourceUnavailable: isError && looksLikeResourceProblem(`${text} ${r.stderr}`),
+      resourceUnavailable: isError && looksLikeResourceProblem(`${parsed?.is_error===true?String(parsed.result??''):''} ${r.stderr} ${!parsed?text:''}`),
       costUsd: typeof parsed?.total_cost_usd === 'number' ? parsed.total_cost_usd : undefined,
       inputTokens: parsed?.usage?.input_tokens,
       outputTokens: parsed?.usage?.output_tokens,
