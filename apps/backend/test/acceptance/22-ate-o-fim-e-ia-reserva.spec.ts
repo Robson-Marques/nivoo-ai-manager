@@ -223,9 +223,11 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     const x = await fim(p.id, j.id);
     ctl('mode', null);
     expect(x).toMatchObject({ status: 'BLOQUEADO', blockedReason: 'REPETICAO_IMPRODUTIVA' });
-    expect(x.statusDetail).toContain('a mesma conferência da etapa falhou três vezes (sem contar erros distintos)');
+    // Conferência que falha após a sessão de IA terminar = falha dura (não "sessão encerrada"): a MESMA
+    // falha na 3ª vez interrompe para não repetir indefinidamente, mesmo com a IA mexendo em arquivos.
+    expect(x.statusDetail).toContain('o mesmo erro ocorreu 3 vezes nesta etapa');
     expect(x.statusDetail).toContain('test -f relatorio-final.md — falta relatorio-final.md');
-    expect(x.attempts.filter((a: any) => a.status === 'SESSAO_ENCERRADA')).toHaveLength(3);
+    expect(x.attempts.filter((a: any) => a.status === 'FALHA')).toHaveLength(3);
   });
 
   it('critério final não passou: a IA corrige sozinha (com o critério e a evidência), confere as regras de novo e conclui', async () => {
