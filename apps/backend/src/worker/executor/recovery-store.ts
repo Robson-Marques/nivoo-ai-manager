@@ -104,6 +104,7 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
   }
 
 export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false,lease?:{task:ClaimedTask;workerId:string}) {
+    if(lease)await prisma.$transaction(tx=>assertStepLease(tx,lease.task,lease.workerId));
     let commit:string|null=null;
     let gitError:string|null=null;
     try {
