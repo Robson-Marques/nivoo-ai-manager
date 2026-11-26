@@ -1,3 +1,4 @@
+import { diagnoseAttempt,formatFailureEvidence } from './executor/failure-evidence';
 import { skillExecutionEvidence,collectSkillCoverage } from '../specialties/skill-evidence';
 import { nativeImageTarget,isCodexAccount } from '../providers/codex-image-assets';
 import { classifyMediaFailure } from '../specialties/media/failure-policy';
@@ -448,6 +449,7 @@ export class StepExecutorService {
     const normalizedSession=normalizeSessionResult(result,isAi);
     result=normalizedSession.result;
     const {sessionClosedNormally}=normalizedSession;
+    const beforeVerification={...result};
     const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L);
     result=verification.result;
     let {verified}=verification;
@@ -529,6 +531,8 @@ export class StepExecutorService {
     const classified=classifyExecutionResult(result,isAi,verified,sessionClosedNormally&&result.stopReason!=='repair_no_change');
     result=classified.result;
     const {attemptStatus}=classified;
+    const failureEvidence=diagnoseAttempt({result,beforeVerification,verification:verification.skillVerification,environment:ambiente,credential:credencialFaltando,tool:faltaPrograma,media:falhaTecnicaDaMidia,isAi,verified,attemptStatus});
+    if(failureEvidence&&contextStats)contextStats.failureEvidence=failureEvidence;
     const outputHash = normalizedOutputHash(result.output ?? '', result.error);
     if(contextStats?.skillManifest){
       contextStats.skillEvidence=skillExecutionEvidence({provider:providerId,model:effectiveModel??null,coverage:contextStats.skillCoverage??collectSkillCoverage(contextStats.skillManifest).snapshot(),verification:verification.skillVerification,attemptStatus,treeBefore,treeAfter,artifacts:[...outputs,...videos].map(a=>a.id)});
@@ -538,7 +542,7 @@ export class StepExecutorService {
         where: { id: attempt.id },
         data: {
           status: attemptStatus,
-          ...(contextStats?{contextStats:contextStats as unknown as Prisma.InputJsonValue}:{}),
+          ...(contextStats||failureEvidence?{contextStats:(contextStats??{failureEvidence}) as unknown as Prisma.InputJsonValue}:{}),
           exitCode: result.exitCode,
           output: (result.output ?? '').slice(-20000),
           outputHash,
@@ -564,6 +568,7 @@ export class StepExecutorService {
     await L(`Tentativa #${number}: ${attemptStatus} (exit ${result.exitCode}, ${elapsedSec}s${result.costUsd ? `, US$ ${result.costUsd}` : ''})${result.error ? ` — ${result.error.slice(0, 300)}` : ''}`,
       attemptStatus === 'SUCESSO' ? 'INFO' : 'WARN', attempt.id);
 
+    if(failureEvidence)await L(formatFailureEvidence(failureEvidence).slice(0,2200),'WARN',attempt.id);
     if (attemptStatus === 'INTERROMPIDA') {
       // Checkpoint primeiro: a etapa só volta a ser retomável depois que o estado está salvo.
       await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
@@ -580,6 +585,10 @@ export class StepExecutorService {
       return this.awaitResource(task, workerId, job, step, result.error ?? 'recurso indisponível', result.retryAfterMs,signal);
     }
 
+    if(failureEvidence?.layer==='connector'&&attemptStatus!=='SUCESSO'){
+      await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'falha do conector; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
+      return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,formatFailureEvidence(failureEvidence)+'. Corrija a instalação ou configuração do executor; não refaça o conteúdo do projeto.');
+    }
     if (ambiente && attemptStatus !== 'SUCESSO') {
       await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `conferência sem ambiente na etapa ${step.key}`, { tentativa: number });
       return this.blockJob(task, workerId, job, step, BlockedReason.VERIFICACAO_IMPOSSIVEL,
@@ -687,7 +696,7 @@ export class StepExecutorService {
       select: { error: true },
       orderBy: { number: 'desc' },
     });
-    const erroAtual=(result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
+    const erroAtual=(failureEvidence&&failureEvidence.kind!=='unknown'?failureEvidence.detail:result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
     if(result.stopReason==='model_incompatible'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'modelo incompatível; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
