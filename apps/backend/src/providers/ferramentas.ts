@@ -6,7 +6,7 @@ import { tipoDe } from '../accounts/connections';
  * lê arquivos com comandos e, obedecendo à regra ao pé da letra, ficava sem ler nada.
  */
 export function ferramentasDaIa(providerId: string, mcp: string[] = [], readOnly=false): string[] {
-  const extras = mcp.length ? [`- Ferramentas MCP liberadas para este projeto: ${mcp.join(', ')}. Use-as quando ajudarem (ex.: GitHub, documentação de uma biblioteca).`] : [];
+  const extras = mcp.length ? [`- Servidores MCP configurados para esta sessão (disponibilidade efetiva depende do CLI): ${mcp.join(', ')}. Use-as quando ajudarem (ex.: GitHub, documentação de uma biblioteca).`] : [];
   if (mcp.includes('servidores-ssh')) {
     extras.push(
       '- servidores-ssh: roda comandos nos servidores do projeto (listar_servidores, executar_no_servidor). O USUÁRIO PRECISA PERMITIR CADA',
