@@ -33,6 +33,9 @@ export interface ContextStats {
   artifactsOmitted: number;
   omittedMemoryIds: string[];
   skillIds?: string[];
+  skillManifest?:import('../specialties/skill-evidence').SkillManifestEntry[];
+  skillCoverage?:import('../specialties/skill-evidence').SkillCoverage[];
+  skillEvidence?:import('../specialties/skill-evidence').SkillExecutionEvidence;
   skillsVersion?: string;
   memoryTruncated?: number;
   promptChars?: number;
