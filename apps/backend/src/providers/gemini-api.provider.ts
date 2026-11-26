@@ -139,7 +139,7 @@ export class GeminiApiProvider implements AiProvider {
       }
       return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     }
-    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     const res = GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, () => undefined); // eventos já registrados
     if (res.output && res.exitCode === 0) req.onLog(`[agente] ${res.output.slice(0, 1500)}`);
     return res;
