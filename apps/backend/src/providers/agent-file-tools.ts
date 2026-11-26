@@ -175,7 +175,8 @@ export function skillReadReceipt(name:string,result:string):SkillReadReceipt|nul
   if(typeof v?.caminho!=='string'||!/^contexto\/(?:skills-nivoo\/[a-z0-9-]+\/SKILL\.md|egm\/original\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+)$/.test(v.caminho)||typeof v.sha256!=='string'||!/^[a-f0-9]{64}$/.test(v.sha256)||![v.inicio,v.proximo,v.total].every(Number.isSafeInteger)||v.inicio<0||v.proximo<=v.inicio||v.proximo>v.total||typeof v.conteudo!=='string'||v.conteudo.length!==v.proximo-v.inicio)return null;
   return {path:v.caminho,sha256:v.sha256,start:v.inicio,end:v.proximo,total:v.total};
 }
-export function announceSkillRead(name:string,result:string,log:(line:string)=>void):void{
+export function announceSkillRead(name:string,result:string,log:(line:string)=>void,observe?:(event:import('../specialties/skill-evidence').SkillObservation)=>void):void{
   const r=skillReadReceipt(name,result);
+  if(r)observe?.({kind:'http-page',...r});
   if(r)log('Skill — conteúdo retornado pela ferramenta: '+r.path+' sha256='+r.sha256+' intervalo='+r.start+'..'+r.end+'/'+r.total+'; leitura não comprova aplicação.');
 }
