@@ -1,3 +1,5 @@
+import { assertStepLease } from './lease';
+import type { ClaimedTask } from '../../queue/queue.service';
 import { Prisma,type Job,type Step } from '@prisma/client';
 import { readAgentNotes,parseAgentNotes } from './session-notes';
 import { BlockedReason } from '../../common/status';
@@ -101,7 +103,7 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
     return count;
   }
 
-export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false) {
+export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false,lease?:{task:ClaimedTask;workerId:string}) {
     let commit:string|null=null;
     let gitError:string|null=null;
     try {
@@ -111,6 +113,7 @@ export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceSer
 
     await prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      if(lease)await assertStepLease(tx,lease.task,lease.workerId);
       if(complete&&commit){
         await tx.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'resultado verificado; commit '+commit.slice(0,10)}});
       }
