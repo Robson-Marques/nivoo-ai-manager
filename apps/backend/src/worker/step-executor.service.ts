@@ -50,6 +50,7 @@ import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } f
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
 import { projectModel } from '../providers/project-model';
+import { assessModel,selectedModel } from '../providers/model-capabilities';
 export { projectModel } from '../providers/project-model';
 
 /** Conteúdo exato de uma etapa que uma aprovação cobre. */
@@ -278,10 +279,18 @@ export class StepExecutorService {
         Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined);
     }
 
+    let effectiveModel:string|undefined;
+    try{
+      effectiveModel=selectedModel(projectModel(job.project,providerId),step.providerOptions);
+      const assessment=assessModel(providerId,effectiveModel,status,step.providerOptions);
+      if(assessment.state==='incompatible')return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,'Modelo '+(assessment.model??'padrão')+' incompatível com a etapa em '+providerId+': '+assessment.reason+'. Selecione conexão/modelo compatível; arquivos preservados.');
+      if(status.kind!=='executor')await L('Capacidade do modelo '+(assessment.model??'padrão do CLI')+': '+assessment.state+' — '+assessment.reason,'INFO');
+    }catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
+
     // Etapa paga por uso (vídeo): o custo estimado não pode estourar o limite do trabalho nem o do projeto.
     const estimador = this.registry.get(providerId) as unknown as { estimarCusto?: (o: Record<string, unknown>) => number };
     if (estimador.estimarCusto) {
-      const estimado = estimador.estimarCusto({ model: projectModel(job.project, providerId), ...((step.providerOptions ?? {}) as Record<string, unknown>) });
+      const estimado = estimador.estimarCusto({ ...((step.providerOptions ?? {}) as Record<string, unknown>), model:effectiveModel });
       if (new Prisma.Decimal(job.maxCostUsd).gt(0) && new Prisma.Decimal(job.costSpentUsd).add(estimado).gt(job.maxCostUsd)) {
         return this.blockJob(task, workerId, job, step, BlockedReason.LIMITE_ORCAMENTO,
           `esta etapa custaria cerca de US$ ${estimado.toFixed(2)} e passaria o limite do trabalho (US$ ${job.maxCostUsd}; já gasto US$ ${job.costSpentUsd})`);
@@ -668,7 +677,7 @@ export class StepExecutorService {
     });
     const erroAtual=(result.error??result.output?.trim().slice(-5000)??'').trim()||'Executor terminou sem diagnóstico (exit '+result.exitCode+')';
     const recovery=decideFailedAttempt(job,errosDaEtapa.map(a=>a.error),erroAtual.slice(0,5000),isAi?(step.verifyCommand??''):step.instructions+'\n'+(step.verifyCommand??''),providerId,isAi,diagnosticoScript);
-    if(result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
+    if(result.stopReason==='model_incompatible'||result.stopReason==='repair_no_change'||result.stopReason==='file_operation_postcondition'||(providerId==='arquivos-projeto'&&attemptStatus==='FALHA')||recovery.kind==='blocked'){
       await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'causa não corrigida; arquivos preservados',{tentativa:number,log:logArt.id,notas:notes});
       return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,recovery.kind==='blocked'?recovery.detail:erroAtual);
     }
