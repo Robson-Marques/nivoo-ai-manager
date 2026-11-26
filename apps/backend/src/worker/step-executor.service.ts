@@ -948,19 +948,20 @@ export class StepExecutorService {
     return 'AGUARDANDO_APROVACAO';
   }
 
-  private async tryReserve(task:ClaimedTask,workerId:string,job:Job,step:Step,detail:string,signal:AbortSignal,resourceFailure:boolean):Promise<StepOutcome|null>{
+  private async tryReserve(task:ClaimedTask,workerId:string,job:Job&{project:{aiModels:unknown}},step:Step,detail:string,signal:AbortSignal,resourceFailure:boolean):Promise<StepOutcome|null>{
     if(signal.aborted)return 'INTERROMPIDO';
     const providerId=step.provider??job.defaultProvider;
     if(!tipoDe(providerId))return null;
     if(!resourceFailure){
-      const configured=await this.prisma.project.findUnique({where:{id:job.projectId},select:{aiModels:true}});
-      if(configured){const status=await this.registry.status(providerId,15000);const model=assessModel(providerId,selectedModel(projectModel(configured,providerId),step.providerOptions),status,step.providerOptions).model;markModelIncompatible(providerId,model);}
+      const status=await this.registry.status(providerId,15000);
+      const model=assessModel(providerId,selectedModel(projectModel(job.project,providerId),step.providerOptions),status,step.providerOptions).model;
+      markModelIncompatible(providerId,model);
     }
     const rejected:string[]=[];
     const reserva=await trocarEtapaParaReserva(this.prisma,this.registry,job.projectId,job.id,step.id,providerId,{
       options:step.providerOptions,pinnedReview:!!approvedGoldfish(job.approvedScope),preserveMcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}).length>0,
     },{taskId:task.id,workerId,claims:task.claims,signal,resourceFailure,onSkip:(id,reason)=>rejected.push(id+': '+reason)});
-    if(rejected.length)await this.logs.log(job.id,'Reservas não selecionadas: '+rejected.join('; '),{stepId:step.id,level:'INFO',source:'worker'});
+    if(rejected.length)await this.logs.log(job.id,'Reservas não selecionadas: '+rejected.join('; '),{stepId:step.id,level:'INFO',source:'worker'}).catch(()=>undefined);
     if(!reserva)return signal.aborted?'INTERROMPIDO':null;
     const aviso=reserva.anterior+' não pode continuar esta etapa ('+detail.slice(0,200)+'). Retomada com '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'. Demais etapas e preferência do projeto preservadas.';
     await this.logs.log(job.id,aviso,{stepId:step.id,level:'WARN',source:'worker'}).catch(()=>undefined);
@@ -969,7 +970,7 @@ export class StepExecutorService {
     return 'CONTINUA';
   }
 
-  private async awaitResource(task: ClaimedTask, workerId: string, job: Job, step: Step, detail: string, retryAfterMs: number|undefined,signal:AbortSignal): Promise<StepOutcome> {
+  private async awaitResource(task: ClaimedTask, workerId: string, job: Job&{project:{aiModels:unknown}}, step: Step, detail: string, retryAfterMs: number|undefined,signal:AbortSignal): Promise<StepOutcome> {
     const switched=await this.tryReserve(task,workerId,job,step,detail,signal,true);
     if(switched)return switched;
     const waits = await this.prisma.attempt.count({ where: { stepId: step.id, status: 'RECURSO_INDISPONIVEL',number:{gt:step.resumeFromAttempt} } });
