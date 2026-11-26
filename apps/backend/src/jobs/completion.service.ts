@@ -310,7 +310,15 @@ export class CompletionService {
           verifyCommand: confere,
         },
       });
-      if (review) await tx.step.update({ where: { id: review.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...review.dependsOn, key])], statusDetail: 'correção: conferir de novo' } });
+      // Re-execução INTENCIONAL da revisão (re-conferir após a correção): a
+      // tentativa anterior foi verificada, mas o worktree mudou de propósito.
+      // Marcar resumeFromAttempt = attemptCount evita que a recuperação de crash
+      // (step-executor) a confunda com uma tentativa verificada a recuperar e
+      // bloqueie o trabalho; a próxima sessão roda uma nova tentativa.
+      if (review) {
+        const rev = await tx.step.findUnique({ where: { id: review.id }, select: { attemptCount: true } });
+        await tx.step.update({ where: { id: review.id }, data: { status: 'PENDENTE', order: base + 1, resumeFromAttempt: rev?.attemptCount ?? 0, dependsOn: [...new Set([...review.dependsOn, key])], statusDetail: 'correção: conferir de novo' } });
+      }
       await tx.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `corrigindo o que a conferência final cobrou (rodada ${correcoesAgora.length + 1}${repetidas ? ', mudando a abordagem' : ''})` } });
     });
     await this.logs.log(job.id, `Conferência final não passou (${falhas.map((f) => f.key).join(', ')}): a IA corrige sozinha (rodada ${correcoesAgora.length + 1}${repetidas ? `; falha concreta repetida: mudar abordagem${quemCorrige !== (correcoesAgora[0]?.provider ?? quem) ? ` e passar para ${quemCorrige}` : ''}` : '; falha diferente das anteriores'})`, { source: 'evaluator', level: 'WARN' });
