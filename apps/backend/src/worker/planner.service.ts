@@ -380,7 +380,7 @@ export class PlannerService {
         registrarTempo('status_reserva',{provedor:providerId,disponivel:status.available});
       }
     }
-    if(!receipt&&!status.available)return fail('A IA deste projeto ('+status.label+') não está conectada: '+status.errors.join('; ')+'. Nenhuma reserva compatível disponível.');
+    if(!receipt&&!status.available)return fail('A IA deste projeto ('+status.label+') não está conectada: '+status.errors.join('; ')+'. Conecte-a ou escolha outra IA em Conexões; nenhuma reserva compatível disponível.');
     registrarTempo('capacidade_modelo',{provedor:providerId,modelo:assessment.model??'padrão',estado:assessment.state,motivo:assessment.reason});
     if(!receipt&&assessment.state==='incompatible')return fail('Modelo '+(assessment.model??'padrão')+' incompatível: '+assessment.reason+'. Nenhuma sessão de IA iniciada.');
 

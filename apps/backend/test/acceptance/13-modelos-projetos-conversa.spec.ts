@@ -214,16 +214,20 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(d.criteria.find((c: any) => c.key === 'conferencia-regras').status).toBe('APROVADO');
     const revisor = lido('prompt-revisor.txt');
     expect(revisor).toContain('Mudanças feitas por este trabalho');
-    expect(revisor).toContain('REGRA-SESSAO-7');
-    // Lente de interface: padrão local, contexto repetido e foto de toda tela alterada.
+    // Lente de interface do REVISOR (sempre presente nas instruções da conferência):
+    // padrão local, contexto repetido, foto de toda tela alterada. A lente de
+    // interface da EXECUÇÃO ("TELAS NO PADRÃO DO SISTEMA") é específica de áreas com
+    // interface de software; este projeto é da área "imagem", então não se aplica.
     expect(revisor).toMatch(/PADRÃO LOCAL[\s\S]*CONTEXTO REPETIDO[\s\S]*SEM foto/);
-    expect(lido('prompt.txt')).toMatch(/TELAS NO PADRÃO DO SISTEMA/);
+    // O perfil do projeto (regras do modelo e do projeto, materiais) chega pelo
+    // canal de sistema (--append-system-prompt), não inline no corpo do prompt.
     const args = lido('args.txt');
-    expect(args).toContain('--append-system-prompt'); // perfil também como instrução de sistema
-    expect(args).toContain('REGRA-SESSAO-7');
+    expect(args).toContain('--append-system-prompt');
     for (const codigo of ['MOD-SESSAO-31', 'REGRA-SESSAO-7', 'contexto/base/marca.md', 'contexto/base/_CLAUDE.md', 'contexto/conhecimento/precos.md']) {
-      expect(revisor).toContain(codigo);
+      expect(args).toContain(codigo);
     }
+    // Nada do outro modelo vaza, em nenhum dos canais.
+    expect(args).not.toContain('segredo-do-outro');
     expect(revisor).not.toContain('segredo-do-outro');
     const wt = path.join(p.workspacePath, 'worktrees', j.id);
     expect(fs.readFileSync(path.join(wt, 'contexto', 'conhecimento', 'precos.md'), 'utf8')).toContain('CONH-SESSAO-3');
@@ -359,7 +363,9 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(r1.plan.defaultProvider).toBe('claude-code-cli');
     expect(r1.content).toMatch(/Guardei na memória do projeto: Cor/);
     const prompt = lido('prompt.txt');
-    expect(prompt).toContain('ESCOPO-LP-4');
+    // A regra do projeto (escopo) chega pelo canal de sistema (--append-system-prompt),
+    // não inline no corpo do prompt de planejamento.
+    expect(lido('args.txt')).toContain('ESCOPO-LP-4');
     expect(prompt).toMatch(/TELAS NO PADRÃO DO SISTEMA[\s\S]*Diga no plano qual tela existente é a referência/);
     expect(prompt).toMatch(/fora do escopo/);
     expect(lido('args.txt')).toContain('--append-system-prompt');
