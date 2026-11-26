@@ -1,5 +1,7 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { aiConnectionIds } from '../accounts/connections';
+import { assessModel,selectedModel } from '../providers/model-capabilities';
+import { projectModel } from '../providers/project-model';
 import { chooseReserve,reservePin,type ReserveRequirements,type ReserveRegistry,type ReserveCandidate,reserveCompatibility } from '../providers/reserve-policy';
 import { nativeImageTarget } from '../providers/codex-image-assets';
 import { OrchestratorService } from '../jobs/orchestrator.service';
@@ -92,7 +94,7 @@ export async function trocarParaReserva(prisma:PrismaService,registry:ReserveReg
     }
     await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
     const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
-    if(!p||p.provider!==from||!Array.isArray(p.aiReserva)||!p.aiReserva.includes(choice.id)||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
+    if(!p||p.provider!==from||!Array.isArray(p.aiReserva)||!p.aiReserva.includes(choice.id)||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||assessModel(choice.id,selectedModel(projectModel(p,choice.id),requirements.options),choice.status,requirements.options).model!==choice.model||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
     const updated=await tx.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
     if(!updated.count)return null;
     if(retry){
@@ -119,7 +121,7 @@ export async function trocarEtapaParaReserva(prisma:PrismaService,registry:Reser
     if(JSON.stringify(step.providerOptions??{})!==JSON.stringify(requirements.options??{}))return null;
     if(reservePin({...requirements,pinnedReview:!!(job.approvedScope as {egmResolution?:unknown}|null)?.egmResolution}))return null;
     const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
-    if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
+    if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||assessModel(choice.id,selectedModel(projectModel(p,choice.id),requirements.options),choice.status,requirements.options).model!==choice.model||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
     const updated=await tx.step.updateMany({where:{id:stepId,provider:step.provider,status:step.status},data:{provider:choice.id,status:'PENDENTE',statusDetail:'continua com '+choice.nome}});
     if(!updated.count)return null;
     const queued=await tx.queueTask.updateMany({where:{id:opts.taskId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'continua com '+choice.id,resourceWaits:0}});
