@@ -5,6 +5,10 @@ import { softwareInterfaceEnabled } from '../../src/specialties/scope';
 import { mcpDoProjeto } from '../../src/mcp/mcp';
 
 jest.mock('../../src/mcp/mcp',()=>({mcpDoProjeto:jest.fn(()=>[{nome:'tool'}])}));
+// O dispatch encaminha o MCP da SESSÃO (política por fase), não o catálogo cru:
+// mockamos essa camada para verificar que o request recebe exatamente o que ela
+// devolve, sem depender de o provedor de teste estar na lista de suportados.
+jest.mock('../../src/mcp/session-policy',()=>({projectSessionMcp:jest.fn(()=>[{nome:'tool'}])}));
 jest.mock('../../src/diagnostico/erros',()=>({registrarErro:jest.fn()}));
 
 describe('Fronteiras do executor',()=>{
@@ -49,7 +53,7 @@ describe('Fronteiras do executor',()=>{
   const signal=new AbortController().signal;
   function fixtures(){
     const events:any[]=[];
-    const prisma={attempt:{update:jest.fn(async(x:any)=>events.push(['pid',x.data.pid]))},step:{updateMany:jest.fn(async()=>undefined)}};
+    const prisma={attempt:{updateMany:jest.fn(async(x:any)=>events.push(['pid',x.data.pid]))},step:{updateMany:jest.fn(async()=>undefined)}};
     const logs={log:jest.fn(async(_id:any,line:any,opts:any)=>{events.push(['log',line,opts.source]);})};
     const registry={registrarResultado:jest.fn((...args:any[])=>events.push(['auth',...args]))};
     const call=(provider:any,id:string)=>dispatchExecution(prisma as any,logs as any,registry as any,provider,id,job,step,{id:'a'},'/w','/out','/media','ctx','profile',900,signal,Date.now());

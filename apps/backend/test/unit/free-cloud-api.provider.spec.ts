@@ -84,7 +84,12 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
 
   it('valida chave OpenRouter com /key em vez de apenas consultar o catálogo público /models', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-or-chave-ficticia-de-teste';
-    const spy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: { label: 'free' } }), { status: 200 }));
+    // /key valida a chave (não é público); em seguida /models confirma ao menos
+    // um modelo elegível. Cada chamada recebe sua própria Response (o corpo só
+    // pode ser lido uma vez).
+    const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => String(url).includes('/key')
+      ? new Response(JSON.stringify({ data: { label: 'free' } }), { status: 200 })
+      : new Response(JSON.stringify({ data: [{ id: 'openrouter/free' }] }), { status: 200 }));
     const status = await new OpenRouterFreeProvider().checkAvailability();
     expect(status).toMatchObject({ available: true, authenticated: true });
     expect(String(spy.mock.calls[0][0])).toBe('https://openrouter.ai/api/v1/key');

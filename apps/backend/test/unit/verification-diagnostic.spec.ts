@@ -2,7 +2,9 @@ import {verificationDiagnostic} from '../../src/worker/executor/verification-dia
 describe('diagnóstico da conferência',()=>{
   it('preserva a asserção mesmo quando a saída termina com testes aprovados',()=>{
     const log=['AssertionError [ERR_ASSERTION]: Excluir: ação cortada na fatura','at conferirTelas (cartoes-vencimento.cjs:200:12)','[VersionHelper] git describe falhou: spawn /bin/sh ENOENT',...Array(183).fill('PASS teste'), 'Tests: 183 passed, 183 total'].join('\n');
-    expect(verificationDiagnostic(log)).toBe('AssertionError [ERR_ASSERTION]: Excluir: ação cortada na fatura');
+    // O diagnóstico preserva a asserção E a localização imediatamente após a
+    // exceção (linha "at ..."), sem varrer a suíte aprovada que vem depois.
+    expect(verificationDiagnostic(log)).toBe('AssertionError [ERR_ASSERTION]: Excluir: ação cortada na fatura\nat conferirTelas (cartoes-vencimento.cjs:200:12)');
   });
   it('não trata avisos e resultados aprovados como falha',()=>{
     expect(verificationDiagnostic('npm warn deprecated\n[VersionHelper] Error: spawn /bin/sh ENOENT\nTests: 183 passed')).toBe('');
