@@ -118,7 +118,9 @@ export class NvidiaApiProvider implements AiProvider {
       return base;
     }
     try {
-      await this.pedir('/models', null, 7_000);
+      const catalog=await this.pedir('/models', null, 7_000);
+      if(!Array.isArray(catalog?.data))throw Error('NVIDIA não retornou catálogo de modelos válido');
+      base.agentModels=catalog.data.filter((m:any)=>typeof m?.id==='string'&&modeloNvidiaServeComoAgente(m.id)).map((m:any)=>m.id);
       base.available = true;
       base.version = 'NVIDIA Build API';
     } catch (e: any) {
@@ -135,7 +137,7 @@ export class NvidiaApiProvider implements AiProvider {
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave NVIDIA não configurada', resourceUnavailable: true };
     const model = req.options?.model ?? process.env.NIVOO_NVIDIA_MODEL ?? NVIDIA_DEFAULT_MODEL;
     if (!modeloNvidiaServeComoAgente(model)) {
-      return { exitCode: 1, output: '',
+      return { exitCode: 1, output: '',stopReason:'model_incompatible',
         error: `O modelo NVIDIA "${model}" não está habilitado para edição de código por ferramentas. Escolha um modelo de Programação e agentes no catálogo; imagem/vídeo, embedding e rerank exigem executores próprios.` };
     }
     const turnos = Math.max(1, Math.min(MAX_TURNS, Number(req.options?.maxTurns) || DEFAULT_TURNS));
