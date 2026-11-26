@@ -52,6 +52,7 @@ export function minimalEnv(extra: Record<string, string | undefined> = {}, passK
 /** Executa um processo sem shell implícito; mata o grupo inteiro em timeout/abort. */
 export function runProcess(cmd: string, args: string[], opts: RunOptions): Promise<RunResult> {
   const started = Date.now();
+  if(opts.signal?.aborted)return Promise.resolve({exitCode:null,stdout:'',stderr:'',timedOut:false,aborted:true,durationMs:0});
   const maxBuffer = opts.maxBuffer ?? 20 * 1024 * 1024;
   return new Promise((resolve) => {
     let stdout = '';
