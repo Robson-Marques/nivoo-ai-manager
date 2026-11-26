@@ -3,7 +3,7 @@ import { planFpsResume } from './planner/fps-resume';
 import { validatedPlannerJob } from './planner/validated-job';
 import { bindPlanningSource,readApprovedScope,readPlanningSource } from '../jobs/approved-scope';
 import { SPECIALTY_HANDOFF_KIND } from '../jobs/workflow/specialty-handoff';
-import { mcpDoProjeto } from '../mcp/mcp';
+import { projectSessionMcp } from '../mcp/session-policy';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
@@ -523,7 +523,8 @@ export class PlannerService {
       const profile = await this.profiles.build(project.id);
       const entrega = msg.kind === 'entrega' && msg.jobId ? await this.dadosDaEntrega(msg.jobId, project.dirKey) : null;
       let routedSkillIds:readonly string[]=[];
-      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext,goldfishResolutionContext},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
+      const sessionMcp=projectSessionMcp(providerId,project.id,resolutionLedger||specResolution?'review':'planning',{mensagemId:msg.id});
+      const prompt = await buildPlannerPrompt(this.prisma,this.workspace,this.registry,{conversationId:msg.conversationId,messageId:msg.id,messageCreatedAt:msg.createdAt,project,profileText:profile.text,anexos,entrega,providerId,resultados,worktree:tmp,specialtyContext,goldfishResolutionContext,mcpNames:sessionMcp.map(m=>m.nome)},ids=>{routedSkillIds=ids;registrarTempo('skills_selecionadas',{provedor:providerId,skillsVersion:SKILLS_VERSION,skillIds:ids.join(', '),quantidade:ids.length});});
       // Andamento ao vivo: a última atividade da IA vai para a mensagem (no máximo a cada 3 s), e a tela mostra.
       let ultimaGravacao = 0;
       let pendenteAndamento: string | null = null;
@@ -556,7 +557,7 @@ export class PlannerService {
         cwd: tmp,
         outputDir: path.join(tmp, 'out'),
         systemPrompt: profile.text,
-        mcp: resolutionLedger||specResolution?[]:mcpDoProjeto(project.id, { mensagemId: msg.id }),
+        mcp:sessionMcp,
         timeoutMs: Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000,
         signal,
         options: {
@@ -676,7 +677,7 @@ export class PlannerService {
               jobId: 'conversa', stepId: msg.conversationId, attemptId: msg.id,
               instructions: instrucaoReparo, context: '', cwd: tmp,
               outputDir: path.join(tmp, 'out'), systemPrompt: profile.text,
-              mcp: mcpDoProjeto(project.id, { mensagemId: msg.id }),
+              mcp:[],
               timeoutMs: Math.min(180_000, Number(process.env.NIVOO_PLANNER_TIMEOUT_SEC ?? 900) * 1000),
               signal,
               options: { maxTurns: 3, model: projectModel(project, providerId) },
