@@ -72,7 +72,7 @@ export async function findProjectReserve(prisma:PrismaService,registry:ReserveRe
   if(!p||(!opts.includeCurrent&&p.provider!==from))return null;
   const choice=await chooseReserve({project:p,registry,from,requirements,knownIds:aiConnectionIds(),cooling:estaSemCredito,modelCooling,includeCurrent:opts.includeCurrent,onSkip:opts.onSkip});
   if(!choice)return null;
-  const anterior=await registry.status(from,60000).then(s=>s.label).catch(()=>from);
+  const anterior=from;
   return {...choice,anterior};
 }
 
@@ -90,8 +90,9 @@ export async function trocarParaReserva(prisma:PrismaService,registry:ReserveReg
       const active=await tx.queueTask.findFirst({where:{id:retry.taskId,messageId:retry.messageId,status:'RUNNING',lockedBy:retry.workerId,claims:retry.claims,lockedUntil:{gt:new Date()}},select:{id:true}});
       if(!pending||!active||retry.signal.aborted)return null;
     }
+    await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
     const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
-    if(!p||p.provider!==from||!Array.isArray(p.aiReserva)||!p.aiReserva.includes(choice.id)||reserveCompatibility(choice.id,p,choice.status,requirements)!==null)return null;
+    if(!p||p.provider!==from||!Array.isArray(p.aiReserva)||!p.aiReserva.includes(choice.id)||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
     const updated=await tx.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
     if(!updated.count)return null;
     if(retry){
@@ -118,7 +119,7 @@ export async function trocarEtapaParaReserva(prisma:PrismaService,registry:Reser
     if(JSON.stringify(step.providerOptions??{})!==JSON.stringify(requirements.options??{}))return null;
     if(reservePin({...requirements,pinnedReview:!!(job.approvedScope as {egmResolution?:unknown}|null)?.egmResolution}))return null;
     const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
-    if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null)return null;
+    if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
     const updated=await tx.step.updateMany({where:{id:stepId,provider:step.provider,status:step.status},data:{provider:choice.id,status:'PENDENTE',statusDetail:'continua com '+choice.nome}});
     if(!updated.count)return null;
     const queued=await tx.queueTask.updateMany({where:{id:opts.taskId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'continua com '+choice.id,resourceWaits:0}});
