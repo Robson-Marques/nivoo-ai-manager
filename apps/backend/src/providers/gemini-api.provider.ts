@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { serversGemini } from '../mcp/para-ia';
+import { observeMcpCalls,redactMcpLog } from '../mcp/observe';
 import { cliReadOnly,geminiSessionSettings } from './cli-session-policy';
 import { nativeSkillReadObserver } from './cli-skill-observer';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
@@ -103,12 +104,14 @@ export class GeminiApiProvider implements AiProvider {
     // extensions or approvals from another project/account session.
     const homeMcp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-gemini-'));
     const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
+    req={...req,onLog:redactMcpLog(mcp,req.onLog)};
+    const observeMcp=observeMcpCalls('gemini',mcp,req.onLog);
     try{
     fs.mkdirSync(path.join(homeMcp,'.gemini'),{mode:0o700});
     fs.writeFileSync(path.join(homeMcp,'.gemini','settings.json'),JSON.stringify(geminiSessionSettings(readOnly,serversGemini(mcp)),null,2),{mode:0o600,flag:'wx'});
     if(mcp.length)req.onLog('Ferramentas MCP nesta sessão: '+mcp.map(m=>m.nome).join(', '));
     const skillRead=nativeSkillReadObserver('gemini',req.cwd,req.onLog);
-    const observe=(line:string)=>{skillRead(line);GeminiApiProvider.logEvento(line,req.onLog);};
+    const observe=(line:string)=>{skillRead(line);if(!observeMcp(line))GeminiApiProvider.logEvento(line,req.onLog);};
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
