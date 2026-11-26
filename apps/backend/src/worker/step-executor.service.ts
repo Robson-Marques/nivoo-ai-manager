@@ -473,10 +473,12 @@ export class StepExecutorService {
     result=normalizedSession.result;
     const {sessionClosedNormally}=normalizedSession;
     const beforeVerification={...result};
+    let processWrite=Promise.resolve();
     const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L,pid=>{
       const identity=processIdentity(pid);
-      void this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO'},data:{pid,processIdentity:identity??Prisma.DbNull}}).catch(()=>undefined);
+      processWrite=processWrite.then(async()=>{await this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO'},data:{pid,processIdentity:identity??Prisma.DbNull}});}).catch(()=>undefined);
     });
+    await processWrite;
     result=verification.result;
     let {verified}=verification;
     const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
@@ -495,6 +497,8 @@ export class StepExecutorService {
         await L(`Revisão não aprovada com quadros antigos; capturas vencidas: ${desatualizadas.join(', ')}`, 'WARN', attempt.id);
       }
     }
+    const stillOwned=await this.prisma.$transaction(async tx=>{await assertStepLease(tx,task,workerId);return true;}).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
+    if(!stillOwned)return 'INTERROMPIDO';
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
     // Artefatos: saída da tentativa + arquivos novos em out/.
