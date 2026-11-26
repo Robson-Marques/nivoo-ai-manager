@@ -9,7 +9,7 @@ import type { ContextStats } from '../context-builder';
 import { registrarErro } from '../../diagnostico/erros';
 import { projectModel } from '../../providers/project-model';
 import { selectedModel } from '../../providers/model-capabilities';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { hasMotionCommand } from '../../jobs/motion/command';
 
 export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'|'stepTimeoutSec'>,providerId:string,instructions:string):number{
@@ -56,7 +56,7 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
           ...((step.providerOptions as { maxTurns?: number } | null)?.maxTurns ? { maxTurns: (step.providerOptions as { maxTurns: number }).maxTurns } : {}),
         },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
-        ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
+        ...(isAi ? { mcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}) } : {}),
         onSpawn: (pid) => {
           logChain = logChain.then(() => prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },
