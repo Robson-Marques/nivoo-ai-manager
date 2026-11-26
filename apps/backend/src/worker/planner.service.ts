@@ -41,6 +41,7 @@ import { jobsDaConversa } from '../conversations/jobs-da-conversa';
 import { ConversationsService } from '../conversations/conversations.service';
 import { historicoGit } from '../git/contexto-git';
 import { projectModel } from '../providers/project-model';
+import { assessModel } from '../providers/model-capabilities';
 import { buildPlannerPrompt } from './planner/prompt';
 import { extractJson,salvarTextoDaResposta,normalizarPerguntas } from './planner/response';
 import { ProjectProfileService } from '../projects/project-profile.service';
@@ -367,6 +368,10 @@ export class PlannerService {
     if (!status.available) {
       return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Conexões" e envie a mensagem de novo.`);
     }
+
+    const modelAssessment=assessModel(providerId,projectModel(project,providerId),status);
+    registrarTempo('capacidade_modelo',{provedor:providerId,modelo:modelAssessment.model??'padrão',estado:modelAssessment.state,motivo:modelAssessment.reason});
+    if(modelAssessment.state==='incompatible')return fail('Modelo '+(modelAssessment.model??'padrão')+' incompatível: '+modelAssessment.reason+'. Selecione um modelo elegível em Conexões/Projeto. Nenhuma sessão de IA iniciada.');
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
     const tmp = path.join(project.workspacePath, 'conversas-tmp', (goldfishScope!==null||driftScope!==null||lite!==null)?msg.id+'-goldfish-'+task.claims:msg.id);
