@@ -18,6 +18,8 @@ describe('durable attempt phases',()=>{
   it('requires the full verification receipt and does not infer success from exit zero',()=>{
     const verifiedReplay={...replay,input:{...input,beforeVerification:result,verification:{verified:false},verified:false,sessionClosedNormally:false}};
     expect(canReplayAttempt({version:1,phase:'VERIFIED',replay:verifiedReplay})).toBe(true);
+    expect(canReplayAttempt({version:1,phase:'PUBLISHING',replay:verifiedReplay})).toBe(true);
+    expect(canReplayAttempt({version:1,phase:'FINALIZING',replay:verifiedReplay})).toBe(false);
   });
   it('does not turn oversized or missing-head input into a replay',()=>{
     expect(makeReplayEnvelope({...replay,head:null})).toBeNull();
@@ -48,7 +50,11 @@ describe('durable attempt phases',()=>{
     expect(state.result.sessionId).toBe('s1');
     expect(state.replay).toBeNull();
     await writeAttemptPhase(prisma,task,'w','a','VERIFYING',{version:1,phase:'VERIFIED',result:{...result,exitCode:1}});
-    await writeAttemptPhase(prisma,task,'w','a','VERIFIED',{version:1,phase:'FINALIZING'});
+    await attachAttemptReplay(prisma,task,'w','a','VERIFIED',replay);
+    await writeAttemptPhase(prisma,task,'w','a','VERIFIED',{version:1,phase:'PUBLISHING'});
+    expect(state.replay.contract).toBe('contract');
+    await writeAttemptPhase(prisma,task,'w','a','PUBLISHING',{version:1,phase:'FINALIZING'});
+    expect(state.replay).toBeNull();
     const terminal:any=await terminalAttemptJournal(tx as any,'a','w','FALHA');
     expect(terminal.providerResult.exitCode).toBe(0);
     expect(terminal.result.exitCode).toBe(1);

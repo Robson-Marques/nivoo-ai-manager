@@ -144,7 +144,7 @@ export class StepExecutorService {
               const state=await stopOwnedOrphan(o.pid,o.processIdentity);
               if(state==='uncertain'||state==='owned'){unsafe.push('#'+o.number+': '+journal.phase+'; grupo ainda não reconciliado');continue;}
             }
-            if(o.pid||['RETURNED','VERIFIED','FINALIZING'].includes(journal.phase)){
+            if(o.pid||['RETURNED','VERIFIED','PUBLISHING','FINALIZING'].includes(journal.phase)){
               await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
             }
             unsafe.push('#'+o.number+': fase '+journal.phase+' sem retomada automática comprovada'+(journal.costKnown===false?'; custo não informado':''));
@@ -396,8 +396,8 @@ export class StepExecutorService {
     const previous=orphanRows.length?[...orphanRows].sort((a,b)=>b.number-a.number)[0]:
       step.attemptCount>0?await this.prisma.attempt.findFirst({where:{stepId:step.id,jobId:job.id,number:step.attemptCount,status:'INTERROMPIDA'}}):null;
     if(previous){
-      const recoveredNotes=await ingestNotes(this.prisma,this.workspace,this.logs,job,step,previous.id,worktree,previous.provider,previous.sessionId??undefined,[]);
-      await this.prisma.attempt.update({where:{id:previous.id},data:{notesIngested:{increment:recoveredNotes}}});
+      const recoveredNotes=await ingestNotes(this.prisma,this.workspace,this.logs,job,step,previous.id,worktree,previous.provider,previous.sessionId??undefined,[],{task,workerId});
+      await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.attempt.update({where:{id:previous.id},data:{notesIngested:recoveredNotes}});});
       const saved=await saveCheckpoint(this.prisma,this.workspace,job.id,step,worktree,'recuperação após interrupção da sessão',{tentativa:previous.number,notas:recoveredNotes,recuperacao:true});
       await L(saved?'Checkpoint da interrupção preservado; retomando arquivos existentes.':'Git não confirmou o checkpoint da interrupção; arquivos existentes preservados no worktree.',saved?'INFO':'WARN');
     }
@@ -497,10 +497,10 @@ export class StepExecutorService {
     // O prompt exato de cada sessão é guardado: prova do contexto recebido (objetivo, notas, evidências).
     const promptArt = await this.artifacts.storeContent(
       { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `prompts/${step.key}/tentativa-${number}.md`, kind: 'PROMPT' },
-      isAi ? buildPrompt({ context, instructions: step.instructions }) : step.instructions,
+      isAi ? buildPrompt({ context, instructions: step.instructions }) : step.instructions,{task,workerId},
     );
     if(contextStats)contextStats.promptChars=buildPrompt({context,instructions:step.instructions,systemPrompt:profileText}).length;
-    await this.prisma.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats ? contextStats as unknown as Prisma.InputJsonValue : Prisma.DbNull } });
+    await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,job.id);await assertStepLease(tx,task,workerId);await tx.attempt.update({ where: { id: attempt.id }, data: { promptArtifactId: promptArt.id, contextStats: contextStats ? contextStats as unknown as Prisma.InputJsonValue : Prisma.DbNull } });});
     if(contextStats?.skillIds?.length){
       await L('Skills v'+contextStats.skillsVersion+' — orientações selecionadas para o contexto desta sessão: '+contextStats.skillIds.join(', ')+'; seleção não comprova aplicação nem revisão independente.','INFO',attempt.id);
     }
@@ -567,7 +567,7 @@ export class StepExecutorService {
    * verification; a VERIFIED receipt continues at the existing finalization.
    * No extra provider session or duplicate verification is introduced. */
   private async finishAttempt(task:ClaimedTask,workerId:string,signal:AbortSignal,job:ExecutionJob,step:Step,
-    attempt:Attempt,worktree:string,input:AttemptReplayInput,phase:'RETURNED'|'VERIFIED'):Promise<StepOutcome>{
+    attempt:Attempt,worktree:string,input:AttemptReplayInput,phase:'RETURNED'|'VERIFIED'|'PUBLISHING'):Promise<StepOutcome>{
     const {providerId,isAi,nativeVisual,protectedBefore,repoHarness,treeBefore,repairBefore,contextStats,failures}=input;
     const effectiveModel=input.effectiveModel??undefined;
     const docsPendentes=new Map(input.docsPendentes.map(([key,value])=>[key,Buffer.from(value,'base64')]));
@@ -641,19 +641,23 @@ export class StepExecutorService {
     }
     const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
     if(signal.aborted)return 'INTERROMPIDO';
-    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
+    if(phase!=='PUBLISHING')await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'PUBLISHING',activeMs:Math.max(0,Date.now()-started)});
+    const lease={task,workerId};
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
     // Artefatos: saída da tentativa + arquivos novos em out/.
     const logArt = await this.artifacts.storeContent(
       { projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id, name: `logs/${step.key}/tentativa-${number}.log`, kind: 'LOG' },
-      `${result.output}\n${result.error ? `\n[erro] ${result.error}\n` : ''}`,
+      `${result.output}\n${result.error ? `\n[erro] ${result.error}\n` : ''}`,lease,
     );
-    const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir);
+    const outputs = await this.artifacts.collectOutputs({ projectId: job.projectId, jobId: job.id, stepId: step.id, attemptId: attempt.id }, outputDir,lease);
     if (outputs.length) await L(`Artefatos registrados: ${outputs.map((a) => `${a.name} (sha256 ${a.sha256.slice(0, 12)})`).join(', ')}`, 'INFO', attempt.id);
-    const videos=await publishAttemptMedia(this.artifacts,job,step,attempt.id,this.pastaDeMidia(job.project.dirKey),mediaBefore,result,verified);
+    const videos=await publishAttemptMedia(this.artifacts,job,step,attempt.id,this.pastaDeMidia(job.project.dirKey),mediaBefore,result,verified,lease);
     if(videos.length)await L('Vídeo(s) disponível(is) para assistir e baixar: '+videos.map(v=>v.name).join(', '),'INFO',attempt.id);
 
+    // The publishing phase is replayable: it only writes immutable blobs and
+    // the fenced catalog. Leave it before mutating the actual workspace.
+    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PUBLISHING',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
     if (protectedBefore !== null) {
       const protectedAfter = this.workspace.dirFingerprint(knowledgeDir);
       if (protectedAfter !== protectedBefore) {
@@ -695,7 +699,7 @@ export class StepExecutorService {
         await L(`A sessão criou arquivos de harness (hooks/instruções ocultas); removidos: ${novos.join(', ')}`, 'WARN', attempt.id);
       }
     }
-    const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs);
+    const notes = await ingestNotes(this.prisma,this.workspace,this.logs,job, step, attempt.id, worktree, providerId, result.sessionId, outputs,lease);
     const treeAfter = await this.workspace.snapshotHash(worktree);
     if(repairBefore!==null&&verified&&result.exitCode===0&&!result.interrupted&&!result.resourceUnavailable){
       const after=await this.workspace.repairSourceHash(worktree);

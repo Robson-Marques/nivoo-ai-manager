@@ -1,6 +1,7 @@
 import type { Job,Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ArtifactStoreService } from '../../storage/artifact-store.service';
+import type { StepLease } from './lease';
 import type { ExecutionResult } from '../../providers/provider.interface';
 import { mediaOutputs } from '../../jobs/workflow/media-dependencies';
 import { readMotionInvocations,normalizeMotionOutputs } from '../../jobs/motion/command';
@@ -34,11 +35,12 @@ export function captureMediaOutputs(job:Ownership,step:OutputStep,mediaDir:strin
 export function changedMediaOutputs(before:MediaSnapshot,identify:(name:string)=>string|null):string[]{
   return [...before].flatMap(([name,old])=>{const current=identify(name);return current!==null&&current!==old?[name]:[];});
 }
-export async function publishAttemptMedia(artifacts:ArtifactStoreService,job:Ownership,step:OutputStep,attemptId:string,mediaDir:string,before:MediaSnapshot,result:ExecutionResult,verified:boolean){
+export async function publishAttemptMedia(artifacts:ArtifactStoreService,job:Ownership,step:OutputStep,attemptId:string,mediaDir:string,before:MediaSnapshot,result:ExecutionResult,verified:boolean,lease?:StepLease){
   if(!verified||result.exitCode!==0||result.interrupted||result.resourceUnavailable)return [];
   const produced=changedMediaOutputs(before,name=>mediaIdentity(mediaDir,name));
   if(!produced.length)return [];
-  return artifacts.registrarVideosDoTrabalho({projectId:job.projectId,jobId:job.id,stepId:step.id,attemptId},mediaDir,produced);
+  const meta={projectId:job.projectId,jobId:job.id,stepId:step.id,attemptId};
+  return lease?artifacts.registrarVideosDoTrabalho(meta,mediaDir,produced,lease):artifacts.registrarVideosDoTrabalho(meta,mediaDir,produced);
 }
 
 /** Existing output can be recovered only with provenance from the SAME

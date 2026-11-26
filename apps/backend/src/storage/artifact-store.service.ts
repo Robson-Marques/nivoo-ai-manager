@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { Artifact } from '@prisma/client';
+import { Artifact, Prisma } from '@prisma/client';
+import { withStepLease, LostStepLease, type StepLease } from '../worker/executor/lease';
 import { appConfig } from '../config';
 import { sha256, sha256File } from '../common/hash';
 import { resolveInside } from '../common/path-guard';
@@ -48,53 +49,59 @@ export class ArtifactStoreService {
     return { abs, rel };
   }
 
-  async storeContent(meta: ArtifactMeta, content: string | Buffer): Promise<Artifact> {
+  private assertBinding(meta:Pick<ArtifactMeta,'jobId'|'stepId'|'attemptId'>,lease:StepLease):void{
+    if(!meta.attemptId||meta.jobId!==lease.task.jobId||meta.stepId!==lease.task.stepId)throw new LostStepLease();
+  }
+
+  /** The immutable blob is already present. Serialize the catalog write with
+   * the job/lease and reuse only the same attempt's exact artifact identity. */
+  private async persist(meta:ArtifactMeta,hash:string,rel:string,size:number,lease?:StepLease):Promise<Artifact>{
+    const data:Prisma.ArtifactUncheckedCreateInput={
+      projectId:meta.projectId,jobId:meta.jobId??null,stepId:meta.stepId??null,attemptId:meta.attemptId??null,
+      name:meta.name,kind:meta.kind,storagePath:rel,sha256:hash,sizeBytes:size,
+      mimeType:meta.mimeType??MIME[path.extname(meta.name).toLowerCase()]??'application/octet-stream'
+    };
+    if(!lease)return this.prisma.artifact.create({data});
+    this.assertBinding(meta,lease);
+    return withStepLease(this.prisma,lease,async tx=>{
+      const attempt=await tx.attempt.findFirst({where:{id:meta.attemptId!,jobId:meta.jobId!,stepId:meta.stepId!,workerId:lease.workerId,status:'EXECUTANDO'},select:{job:{select:{projectId:true}}}});
+      if(attempt?.job.projectId!==meta.projectId)throw new LostStepLease();
+      const existing=await tx.artifact.findFirst({where:{
+        projectId:data.projectId,jobId:data.jobId,stepId:data.stepId,attemptId:data.attemptId,
+        name:data.name,kind:data.kind,sha256:data.sha256
+      },orderBy:{createdAt:'asc'}});
+      if(existing){
+        if(existing.sizeBytes!==size||existing.storagePath!==rel||existing.mimeType!==data.mimeType)throw Error('Metadados de artefato divergentes; arquivo preservado: '+meta.name);
+        return existing;
+      }
+      return tx.artifact.create({data});
+    });
+  }
+
+  async storeContent(meta: ArtifactMeta, content: string | Buffer, lease?:StepLease): Promise<Artifact> {
+    if(lease)this.assertBinding(meta,lease);
     const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
     const hash = sha256(buf);
     const { abs, rel } = this.target(meta.projectId, hash);
     await publishArtifactBlob(abs,hash,buf);
-    return this.prisma.artifact.create({
-      data: {
-        projectId: meta.projectId,
-        jobId: meta.jobId ?? null,
-        stepId: meta.stepId ?? null,
-        attemptId: meta.attemptId ?? null,
-        name: meta.name,
-        kind: meta.kind,
-        storagePath: rel,
-        sha256: hash,
-        sizeBytes: buf.length,
-        mimeType: meta.mimeType ?? MIME[path.extname(meta.name).toLowerCase()] ?? 'application/octet-stream',
-      },
-    });
+    return this.persist(meta,hash,rel,buf.length,lease);
   }
 
-  async storeFile(meta: ArtifactMeta, file: string, expectedHash?:string): Promise<Artifact> {
+  async storeFile(meta: ArtifactMeta, file: string, expectedHash?:string, lease?:StepLease): Promise<Artifact> {
+    if(lease)this.assertBinding(meta,lease);
     if(!fs.lstatSync(file).isFile())throw new Error('Artefato de origem não é arquivo regular.');
     const hash = expectedHash??await sha256File(file);
     const { abs, rel } = this.target(meta.projectId, hash);
     const size = await publishArtifactBlob(abs,hash,file);
-    return this.prisma.artifact.create({
-      data: {
-        projectId: meta.projectId,
-        jobId: meta.jobId ?? null,
-        stepId: meta.stepId ?? null,
-        attemptId: meta.attemptId ?? null,
-        name: meta.name,
-        kind: meta.kind,
-        storagePath: rel,
-        sha256: hash,
-        sizeBytes: size,
-        mimeType: meta.mimeType ?? MIME[path.extname(meta.name).toLowerCase()] ?? 'application/octet-stream',
-      },
-    });
+    return this.persist(meta,hash,rel,size,lease);
   }
 
   /**
    * Registra como artefatos os arquivos novos/alterados em outDir (relativos a ele).
    * Arquivos idênticos (mesmo nome e sha256 já registrados no job) não são duplicados.
    */
-  async collectOutputs(meta: Omit<ArtifactMeta, 'name' | 'kind'>, outDir: string): Promise<Artifact[]> {
+  async collectOutputs(meta: Omit<ArtifactMeta, 'name' | 'kind'>, outDir: string, lease?:StepLease): Promise<Artifact[]> {
+    if(lease)this.assertBinding(meta,lease);
     if (!fs.existsSync(outDir)) return [];
     if(!fs.lstatSync(outDir).isDirectory())throw new Error('Diretório de entregas não é pasta regular.');
     const files: string[] = [];
@@ -111,8 +118,15 @@ export class ArtifactStoreService {
     for (const f of files.sort()) {
       const name = path.relative(outDir, f).split(path.sep).join('/');
       const hash = await sha256File(f);
+      const kind = name === 'metrics.json' || name.endsWith('.metrics.json') ? 'METRICS' : 'FILE';
+      // Prefer the current attempt on replay; do not attribute an older
+      // attempt's output to this one merely because its bytes are identical.
+      if(lease){
+        const own=await this.prisma.artifact.findFirst({where:{projectId:meta.projectId,jobId:meta.jobId,stepId:meta.stepId,attemptId:meta.attemptId,name,sha256:hash,kind}});
+        if(own){created.push(await this.storeFile({...meta,name,kind},f,hash,lease));continue;}
+      }
       const existing = await this.prisma.artifact.findFirst({
-        where: { projectId: meta.projectId, jobId: meta.jobId ?? null, name, sha256: hash },
+        where: { projectId: meta.projectId, jobId: meta.jobId ?? null, name, sha256: hash,kind },
       });
       if (existing) {
         // Repair a missing physical blob from the identical source, without
@@ -122,8 +136,7 @@ export class ArtifactStoreService {
           await publishArtifactBlob(target,hash,f);
         continue;
       }
-      const kind = name === 'metrics.json' || name.endsWith('.metrics.json') ? 'METRICS' : 'FILE';
-      created.push(await this.storeFile({ ...meta, name, kind }, f,hash));
+      created.push(await this.storeFile({ ...meta, name, kind }, f,hash,lease));
     }
     return created;
   }
@@ -134,7 +147,8 @@ export class ArtifactStoreService {
    * Não altera a mídia original e não aprova critérios visuais.
    */
   async registrarVideosDoTrabalho(meta: { projectId: string; jobId: string; stepId?: string; attemptId?: string },
-    mediaDir: string, caminhos: string[]): Promise<Artifact[]> {
+    mediaDir: string, caminhos: string[],lease?:StepLease): Promise<Artifact[]> {
+    if(lease)this.assertBinding(meta,lease);
     const registrados: Artifact[] = [];
     const unicos = [...new Set(caminhos)].filter(p => /^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(p));
     for (const nome of unicos) {
@@ -148,11 +162,16 @@ export class ArtifactStoreService {
         const existente = await this.prisma.artifact.findFirst({
           where: { projectId: meta.projectId, jobId: meta.jobId, ...(meta.stepId ? {stepId:meta.stepId} : {}), name: nome, sha256: hash, kind: 'FILE' },
         });
-        if (existente) { registrados.push(existente); continue; }
+        if (existente) {
+          if(lease&&existente.attemptId===meta.attemptId)registrados.push(await this.storeFile({...meta,name:nome,kind:'FILE',mimeType:'video/mp4'},real,hash,lease));
+          else if(!lease)registrados.push(existente);
+          continue;
+        }
         registrados.push(await this.storeFile({
           ...meta, name: nome, kind: 'FILE', mimeType: 'video/mp4',
-        }, real));
-      } catch {
+        }, real,hash,lease));
+      } catch (e) {
+        if(lease)throw e; // a known output cannot be silently dropped on a database/lease failure
         // Mídia ainda não produzida: não cria artefato falso nem falha o job.
       }
     }

@@ -16,3 +16,15 @@ export async function assertStepLease(tx:Prisma.TransactionClient,task:Pick<Clai
   `;
   if(rows.length!==1)throw new LostStepLease();
 }
+
+/** Short database-only mutation. Lock order is job advisory lock, then queue
+ * row, matching OrchestratorService; no filesystem/network work in callback. */
+export type StepLease={task:ClaimedTask;workerId:string};
+export async function withStepLease<T>(prisma:import('../../prisma/prisma.service').PrismaService,lease:StepLease,write:(tx:Prisma.TransactionClient)=>Promise<T>):Promise<T>{
+  if(!lease.task.jobId||!lease.task.stepId)throw new LostStepLease();
+  return prisma.$transaction(async tx=>{
+    await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${lease.task.jobId}))) AS l`;
+    await assertStepLease(tx,lease.task,lease.workerId);
+    return write(tx);
+  });
+}
