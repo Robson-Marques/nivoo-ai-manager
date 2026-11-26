@@ -482,6 +482,8 @@ model QueueTask {
   lockedUntil   DateTime?
   claims        Int                  @default(0)
   recoveries    Int                  @default(0) // reivindicações de lease EXPIRADO (worker caiu); só isso conta como "loop de quedas"
+  internalErrorSignature String?
+  internalErrorCount Int @default(0)
   resourceWaits Int                  @default(0) // esperas por recurso indisponível (define a espera crescente)
   lastError     String?
   createdAt     DateTime             @default(now())

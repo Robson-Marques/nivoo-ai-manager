@@ -101,7 +101,7 @@ export class StepExecutorService {
     const step = await this.prisma.step.findUnique({ where: { id: task.stepId! } });
     const job = step ? await this.prisma.job.findUnique({ where: { id: step.jobId }, include: { project: { include: { area: true } } } }) : null;
     if (!step || !job) {
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       return 'IGNORADO';
     }
     const L = (msg: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO', attemptId?: string) =>
@@ -143,11 +143,11 @@ export class StepExecutorService {
     }
 
     if (!['EXECUTANDO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       return 'IGNORADO';
     }
     if (step.status === 'CONCLUIDO') {
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       await this.orchestrator.scheduleReady(job.id);
       return 'IGNORADO';
     }
@@ -167,7 +167,7 @@ export class StepExecutorService {
     if(mediaRecovery.kind==='recovered'){
       await L('RECUPERAÇÃO SEM REFAZER: MP4 do mesmo produtor e tentativa, hash e contrato técnico válidos. '+mediaRecovery.detail,'WARN');
       await this.prisma.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'MP4 recuperado de tentativa anterior; sem rerenderizar'}});
-      await this.queue.complete(task.id,workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
     }
@@ -189,7 +189,7 @@ export class StepExecutorService {
             const commit=await saveCheckpoint(this.prisma,this.workspace,job.id,step,existing,'finalização recuperada da tentativa '+last.number,{tentativa:last.number,recuperacao:true,notas:last.notesIngested},true,{task,workerId});
             if(commit){
               await L('RECUPERAÇÃO SEM REFAZER: tentativa já verificada, estado dos arquivos idêntico; checkpoint concluído sem nova sessão.','INFO',last.id);
-              await this.queue.complete(task.id,workerId);
+              await this.queue.complete(task.id, workerId, task.claims);
               await this.orchestrator.scheduleReady(job.id);
               return 'CONCLUIDO';
             }
@@ -223,7 +223,7 @@ export class StepExecutorService {
           });
         }
         await L(`Montagem aguardando ${pendentes.join(', ')} produzir o vídeo mudo; sem tentar FFmpeg ou gastar IA.`);
-        await this.queue.complete(task.id, workerId);
+        await this.queue.complete(task.id, workerId, task.claims);
         await this.orchestrator.scheduleReady(job.id);
         return 'CONTINUA';
       }
@@ -380,7 +380,7 @@ export class StepExecutorService {
           await this.prisma.step.update({where:{id:step.id},data:{
             status:'CONCLUIDO',statusDetail:'Composição existente recuperada sem nova IA',
           }});
-          await this.queue.complete(task.id,workerId);
+          await this.queue.complete(task.id, workerId, task.claims);
           await this.orchestrator.scheduleReady(job.id);
           return 'CONCLUIDO';
         }
@@ -613,7 +613,7 @@ export class StepExecutorService {
       // Checkpoint primeiro: a etapa só volta a ser retomável depois que o estado está salvo.
       await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `interrompido na tentativa ${number}`, { tentativa: number, log: logArt.id });
       await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE', statusDetail: 'tentativa interrompida' } });
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       // Se o usuário já retomou o job enquanto abortávamos, reagenda.
       await this.orchestrator.scheduleReady(job.id);
       return 'INTERROMPIDO';
@@ -678,7 +678,7 @@ export class StepExecutorService {
         notas:notes,
       },true,{task,workerId});
       if(!commit)return this.blockJob(task,workerId,job,step,BlockedReason.FALHA_INFRAESTRUTURA,'Resultado verificado, mas o Git não confirmou o checkpoint. Arquivos preservados; corrija o Git antes de retomar. Não refaça o conteúdo.');
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONCLUIDO';
     }
@@ -768,7 +768,7 @@ export class StepExecutorService {
     await L(`NOVA TENTATIVA EXPLICADA: a etapa "${step.key}" será repetida em ${Math.ceil(backoff / 1000)}s porque a tentativa #${number} falhou. Causa: ${motivo}. Arquivos já entregues são preservados; o motivo precisa ser corrigido antes de reexecutar conteúdo caro.`, 'WARN', attempt.id);
     await this.prisma.step.update({ where: { id: step.id }, data: { status: 'PENDENTE',
       statusDetail: `Tentativa #${number} falhou: ${motivo.slice(0, 250)}. Retomada em ${Math.ceil(backoff / 1000)}s.` } });
-    await this.queue.requeue(task.id, workerId, new Date(Date.now() + backoff), result.error);
+    await this.queue.requeue(task.id, workerId, task.claims, new Date(Date.now() + backoff), result.error);
     return 'RETRY';
   }
 
@@ -829,7 +829,7 @@ export class StepExecutorService {
       await this.logs.log(job.id,
         `Quadros desatualizados após alteração na composição: recapturar ${vencidas.join(', ')} antes de nova revisão visual; não repetir IA sobre imagens antigas.`,
         { stepId: step.id, source: 'worker' });
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       await this.orchestrator.scheduleReady(job.id);
       return 'CONTINUA';
     }
@@ -841,7 +841,7 @@ export class StepExecutorService {
     await this.logs.log(job.id, `Continuação automática: nova sessão para "${step.key}" (${sessions.length}${job.maxSessionsPerStep > 0 ? `/${job.maxSessionsPerStep}` : ''} sessões usadas)`, {
       stepId: step.id, source: 'worker',
     });
-    await this.queue.requeue(task.id, workerId, new Date(), 'continuação em nova sessão');
+    await this.queue.requeue(task.id, workerId, task.claims, new Date(), 'continuação em nova sessão');
     return 'CONTINUA';
   }
 
@@ -874,7 +874,7 @@ export class StepExecutorService {
     await avisarConversaQueParou(this.prisma, job.id, `${reason}: ${detail}`);
     await this.limparAoFim(job);
     await recordLesson(this.prisma,job, step, reason, detail);
-    await this.queue.complete(task.id, workerId);
+    await this.queue.complete(task.id, workerId, task.claims);
     return 'BLOQUEADO';
   }
 
@@ -900,7 +900,7 @@ export class StepExecutorService {
       'Montagem aguardando o áudio correto, sem repetição automática e sem descartar o MP4 já renderizado: ' +
       detalhe.slice(0, 1600) + ' Após disponibilizar a mídia, use Continuar neste MESMO trabalho.',
       { stepId: step.id, level: 'WARN', source: 'worker' });
-    await this.queue.complete(task.id, workerId);
+    await this.queue.complete(task.id, workerId, task.claims);
     return 'AGUARDANDO_RECURSO';
   }
 
@@ -959,7 +959,7 @@ export class StepExecutorService {
     await this.logs.log(job.id,
       `Script da etapa "${step.key}" falhou; reparo ${chave} com ${agente} agendado no MESMO trabalho, preservando etapas concluídas. Não executar o mesmo teste antes do reparo.`,
       { stepId: step.id, level: 'WARN', source: 'worker' });
-    await this.queue.complete(task.id, workerId);
+    await this.queue.complete(task.id, workerId, task.claims);
     await this.orchestrator.scheduleReady(job.id);
     return 'CONTINUA';
   }
@@ -977,7 +977,7 @@ export class StepExecutorService {
     await avisarConversaQueParou(this.prisma, job.id, detail);
     await this.limparAoFim(job);
     await recordLesson(this.prisma,job, step, reason, detail);
-    await this.queue.complete(task.id, workerId);
+    await this.queue.complete(task.id, workerId, task.claims);
     return 'FALHOU';
   }
 
@@ -1004,7 +1004,7 @@ export class StepExecutorService {
       await tx.job.updateMany({ where: { id: job.id, status: { in: ['EXECUTANDO', 'AGUARDANDO_RECURSO'] } }, data: { status: 'AGUARDANDO_APROVACAO', statusDetail: `etapa ${step.key} aguarda aprovação` } });
     });
     await this.logs.log(job.id, `Etapa ${step.key} aguardando aprovação explícita (ação destrutiva)`, { stepId: step.id, level: 'WARN', source: 'worker' });
-    await this.queue.complete(task.id, workerId);
+    await this.queue.complete(task.id, workerId, task.claims);
     return 'AGUARDANDO_APROVACAO';
   }
 
@@ -1055,7 +1055,7 @@ export class StepExecutorService {
       level: 'WARN',
       source: 'worker',
     });
-    await this.queue.requeue(task.id, workerId, new Date(Date.now() + delay), detail, true);
+    await this.queue.requeue(task.id, workerId, task.claims, new Date(Date.now() + delay), detail, true);
     return 'AGUARDANDO_RECURSO';
   }
 

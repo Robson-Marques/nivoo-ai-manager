@@ -18,7 +18,7 @@ const MAX_RECOVERIES = 5;
  * em UTC). NUNCA usar `now()` contra essas colunas: `now()` vira hora LOCAL da sessão do PostgreSQL
  * (ex.: America/Sao_Paulo, -3 h) e a fila deixava tarefas novas paradas por 3 horas.
  */
-const AGORA_UTC = Prisma.raw(`(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')`);
+const AGORA_UTC = Prisma.raw(`(clock_timestamp() AT TIME ZONE 'UTC')`);
 
 /**
  * Fila persistente em PostgreSQL. Reivindicação com FOR UPDATE SKIP LOCKED e lease renovável.
@@ -86,25 +86,67 @@ export class QueueService {
     return { ...(task as QueueTask), previousLockedBy: prev_locked_by, recovered: prev_status === 'RUNNING' };
   }
 
-  /** Renova o lease. Retorna false se o lease foi perdido (outro worker assumiu ou tarefa cancelada). */
-  async heartbeat(taskId: string, workerId: string, leaseMs: number): Promise<boolean> {
+  /** A generation is required even when the same worker ID is reused after restart. */
+  async heartbeat(taskId: string, workerId: string, claims: number, leaseMs: number): Promise<boolean> {
     const n = await this.prisma.$executeRaw`
       UPDATE "QueueTask" SET "lockedUntil" = ${AGORA_UTC} + (${leaseMs}::int * interval '1 millisecond'), "updatedAt" = ${AGORA_UTC}
-      WHERE id = ${taskId} AND "lockedBy" = ${workerId} AND status = 'RUNNING'`;
+      WHERE id = ${taskId} AND "lockedBy" = ${workerId} AND claims = ${claims}
+        AND status = 'RUNNING' AND "lockedUntil" > ${AGORA_UTC}`;
     return n === 1;
   }
 
-  async complete(taskId: string, workerId: string): Promise<void> {
-    await this.prisma.queueTask.updateMany({
-      where: { id: taskId, lockedBy: workerId, status: 'RUNNING' },
-      data: { status: 'DONE', lockedUntil: null },
-    });
+  async complete(taskId: string, workerId: string, claims: number): Promise<boolean> {
+    const n = await this.prisma.$executeRaw`
+      UPDATE "QueueTask" SET status = 'DONE', "lockedUntil" = NULL,
+        "internalErrorSignature" = NULL, "internalErrorCount" = 0, "updatedAt" = ${AGORA_UTC}
+      WHERE id = ${taskId} AND "lockedBy" = ${workerId} AND claims = ${claims}
+        AND status = 'RUNNING' AND "lockedUntil" > ${AGORA_UTC}`;
+    return n === 1;
   }
 
-  async requeue(taskId: string, workerId: string, runAt: Date, lastError?: string, resourceWait = false): Promise<void> {
-    await this.prisma.queueTask.updateMany({
-      where: { id: taskId, lockedBy: workerId, status: 'RUNNING' },
-      data: { status: 'QUEUED', runAt, lockedBy: null, lockedUntil: null, lastError, ...(resourceWait ? { resourceWaits: { increment: 1 } } : {}) },
+  async requeue(taskId: string, workerId: string, claims: number, runAt: Date, lastError?: string, resourceWait = false): Promise<boolean> {
+    const n = await this.prisma.$executeRaw`
+      UPDATE "QueueTask" SET status = 'QUEUED', "runAt" = ${runAt}, "lockedBy" = NULL,
+        "lockedUntil" = NULL, "lastError" = ${lastError ?? null},
+        "resourceWaits" = "resourceWaits" + ${resourceWait ? 1 : 0},
+        "internalErrorSignature" = NULL, "internalErrorCount" = 0, "updatedAt" = ${AGORA_UTC}
+      WHERE id = ${taskId} AND "lockedBy" = ${workerId} AND claims = ${claims}
+        AND status = 'RUNNING' AND "lockedUntil" > ${AGORA_UTC}`;
+    return n === 1;
+  }
+
+  /** Persist the error series and its retry/terminal transition together.
+   * Lock order matches OrchestratorService: job advisory lock before queue row. */
+  async recordInternalFailure(task: ClaimedTask, workerId: string, signature: string, reason: string): Promise<'lost'|'retry'|'blocked'> {
+    return this.prisma.$transaction(async tx => {
+      if (task.jobId) await tx.$queryRaw`SELECT 1 AS ok FROM (SELECT pg_advisory_xact_lock(hashtext(${task.jobId}))) AS l`;
+      const rows = await tx.$queryRaw<Array<{internalErrorSignature:string|null;internalErrorCount:number}>>`
+        SELECT "internalErrorSignature", "internalErrorCount" FROM "QueueTask"
+        WHERE id = ${task.id} AND "lockedBy" = ${workerId} AND claims = ${task.claims}
+          AND status = 'RUNNING' AND "lockedUntil" > ${AGORA_UTC}
+        FOR UPDATE`;
+      if (rows.length !== 1) return 'lost';
+      const count = rows[0].internalErrorSignature === signature ? rows[0].internalErrorCount + 1 : 1;
+      const terminal = count >= 5;
+      const detail = terminal
+        ? 'Mesmo erro interno do Nivoo repetido 5 vezes: ' + reason.slice(0,500) + '. Execução interrompida; arquivos e checkpoint preservados.'
+        : reason.slice(0,2000);
+      await tx.queueTask.update({where:{id:task.id},data:{
+        status:terminal?'DEAD':'QUEUED', lockedBy:null, lockedUntil:null,
+        internalErrorSignature:signature, internalErrorCount:count, lastError:detail,
+        ...(terminal?{}:{runAt:new Date(Date.now()+10_000*count)})
+      }});
+      if (!terminal) return 'retry';
+      if(task.jobId){
+        const job=await tx.job.updateMany({where:{id:task.jobId,status:{in:['PENDENTE','EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INTERNA',statusDetail:detail}});
+        if(job.count){
+          await tx.step.updateMany({where:{jobId:task.jobId,...(task.stepId?{id:task.stepId}:{}),status:'EXECUTANDO'},data:{status:'BLOQUEADO',statusDetail:detail}});
+          await tx.attempt.updateMany({where:{jobId:task.jobId,...(task.stepId?{stepId:task.stepId}:{}),status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:detail}});
+          await tx.logEntry.create({data:{jobId:task.jobId,stepId:task.stepId,level:'ERROR',source:'fila',message:detail}});
+        }
+      }
+      if(task.messageId)await tx.conversationMessage.updateMany({where:{id:task.messageId,status:'PENDENTE'},data:{status:'ERRO',kind:'erro',content:'A IA não conseguiu responder: '+detail,completedAt:new Date()}});
+      return 'blocked';
     });
   }
 

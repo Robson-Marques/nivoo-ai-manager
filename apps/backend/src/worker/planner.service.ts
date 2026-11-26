@@ -74,7 +74,7 @@ export class PlannerService {
       include: { conversation: { include: { project: { include: { area: true } } } } },
     });
     if (!msg || msg.status !== 'PENDENTE') {
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
       return;
     }
     // Telemetria do planejamento: registrada no journalctl -u nivoo-worker.
@@ -103,7 +103,7 @@ export class PlannerService {
     });
     if (antes && (antes.createdAt < msg.createdAt || antes.id < msg.id)) {
       registrarTempo('aguarda_resposta_anterior');
-      await this.queue.requeue(task.id, workerId, new Date(Date.now() + 5_000), 'espera a resposta anterior da conversa');
+      await this.queue.requeue(task.id, workerId, task.claims, new Date(Date.now() + 5_000), 'espera a resposta anterior da conversa');
       return;
     }
     const project = msg.conversation.project;
@@ -115,11 +115,11 @@ export class PlannerService {
       });
       if(msg.goldfishState!=null){
         const write=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
-        if(await write({status:'ERRO',kind:'erro',content:[texto,msg.content].filter(Boolean).join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id,workerId);
+        if(await write({status:'ERRO',kind:'erro',content:[texto,msg.content].filter(Boolean).join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id, workerId, task.claims);
         return;
       }
       await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
     };
 
     const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
@@ -168,7 +168,7 @@ export class PlannerService {
         return 'intercepted';
       });
       if(intercepted!=='continue'){
-        await this.queue.complete(task.id,workerId);
+        await this.queue.complete(task.id, workerId, task.claims);
         return;
       }
     }
@@ -336,7 +336,7 @@ export class PlannerService {
           data:{status:'PRONTA',kind:'plano',content:'Vou recuperar a composição do trabalho anterior e renderizar somente na taxa de quadros solicitada. O vídeo anterior será preservado.',plan,completedAt:new Date(),costUsd:0},
         });
         if(saved.count)await this.seguirSozinho(project.id,msg.conversationId,msg.id,true);
-        await this.queue.complete(task.id,workerId);
+        await this.queue.complete(task.id, workerId, task.claims);
         return;
       }
     }
@@ -461,7 +461,7 @@ export class PlannerService {
           const ledger=result.mode==='lite-diff'&&result.status==='findings'?liteDiffLedger(result):undefined;
           const findings=result.status==='findings'?liteFindings(result.report):null;
           const saved=await writeReview({status:result.status==='incomplete'?'ERRO':'PRONTA',kind:result.status==='incomplete'?'erro':'resposta',content:renderLiteResult(result)+(findings?'\n\n'+findings.map(f=>f.id+' ['+f.priority+'] '+f.description).join('\n')+'\n\nTriagem e proposta de resolução: /goldfish-resolve '+msg.id:'')+'\n\nTentativas registradas: '+totals.calls+'; custo integral '+(totals.costKnown?'informado':'desconhecido')+'.',goldfishState:{...journal.state(),lite:result,...(ledger?{resolution:ledger}:{})} as unknown as Prisma.InputJsonValue,completedAt:new Date()});
-          if(saved)await this.queue.complete(task.id,workerId);
+          if(saved)await this.queue.complete(task.id, workerId, task.claims);
           return;
         }
         if(driftIntake){
@@ -471,7 +471,7 @@ export class PlannerService {
           if(signal.aborted||cancelled)return;
           const totals=journal.totals(),complete=!drift.pending.length&&drift.results.every(r=>r.status!=='not-run');
           const saved=await writeReview({status:complete?'PRONTA':'ERRO',kind:complete?'resposta':'erro',content:renderSemanticDrift(drift)+'\n\nTentativas registradas: '+totals.calls+'; custo integral '+(totals.costKnown?'informado':'desconhecido')+'.',goldfishState:{...journal.state(),drift} as unknown as Prisma.InputJsonValue,completedAt:new Date()});
-          if(saved)await this.queue.complete(task.id,workerId);
+          if(saved)await this.queue.complete(task.id, workerId, task.claims);
           return;
         }
         if(!intake)throw Error('Alvo Goldfish ausente.');
@@ -486,7 +486,7 @@ export class PlannerService {
           }});
         }catch(e){
           if(signal.aborted)return;
-          if(await writeReview({status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id,workerId);
+          if(await writeReview({status:'ERRO',kind:'erro',content:['Goldfish interrompido: '+(e as Error).message,...reports.map(p=>p.markdown)].join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id, workerId, task.claims);
           return;
         }
         if(signal.aborted||cancelled)return; // lease lost: do not overwrite the next worker.
@@ -500,7 +500,7 @@ export class PlannerService {
           goldfishState:{...journal.state(),resolution,loop} as unknown as Prisma.InputJsonValue,
         });
         registrarTempo('goldfish_fim',{provedor:providerId,estado:run.status,gravada:saved,custoUsdInformado:totals.costUsd,custoIntegralConhecido:totals.costKnown,tentativasIncertas:totals.uncertain});
-        if(saved)await this.queue.complete(task.id,workerId);
+        if(saved)await this.queue.complete(task.id, workerId, task.claims);
         return;
       }else{
         await runProcess('bash', ['-c', 'git -C "$1" archive main | tar -x -C "$2"', '_', repo, tmp], { cwd: tmp, env: minimalEnv(), timeoutMs: 120_000 });
@@ -779,7 +779,7 @@ export class PlannerService {
           : msg.id;
         await this.seguirSozinho(project.id, msg.conversationId, alvo, parsed?.continuacao === true);
       }
-      await this.queue.complete(task.id, workerId);
+      await this.queue.complete(task.id, workerId, task.claims);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
