@@ -73,7 +73,7 @@ describe('Vídeo completo (cenas juntadas)', () => {
       return ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'].includes(x.status) ? x : null;
     }, 90_000);
     expect(fim.status).toBe('CONCLUIDO');
-    expect(fim.attempts[0].output).toMatch(/Vídeo completo: videos\/pizzaria\/pizzaria-completo\.mp4 \(2 cenas, [45] s/);
+    expect(fim.attempts[0].output).toMatch(/Vídeo completo: videos\/pizzaria\/pizzaria-completo\.mp4 \(2 cenas, FPS 24, [45] s/);
 
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'video-final-'));
     const final = path.join(tmp, 'final.mp4');
