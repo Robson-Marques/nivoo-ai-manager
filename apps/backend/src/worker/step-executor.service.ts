@@ -48,7 +48,7 @@ import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
 import { descartarBancoDeTeste } from '../common/banco-de-teste';
 import { ProjectProfileService } from '../projects/project-profile.service';
 import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuation,repairKey,isRepairStep } from './executor/recovery-policy';
-import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia,durableMediaOutputs } from './executor/media-recovery';
+import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia,durableMediaOutputs,mediaSnapshotMatches } from './executor/media-recovery';
 import { recordLesson,ingestNotes,saveCheckpoint } from './executor/recovery-store';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
 import { mediaEnabledForArea,hasNativeMediaOperation } from '../specialties/media/scope';
@@ -217,7 +217,8 @@ export class StepExecutorService {
             &&(journal.phase==='RESTORING'?journal.finalization?.sourceHash===await this.workspace.snapshotHash(existing,true):journal.replay.tree===await this.workspace.snapshotHash(existing))
             &&journal.replay.notes===await replayAuxFingerprint(path.join(existing,'.nivoo'))
             &&journal.replay.context===await replayAuxFingerprint(path.join(existing,'contexto'))
-            &&journal.replay.knowledge===await replayAuxFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
+            &&journal.replay.knowledge===await replayAuxFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge)
+            &&mediaSnapshotMatches(this.pastaDeMidia(job.project.dirKey),journal.replay.input.mediaAfter??[]);
         }catch(e){if(e instanceof LostStepLease)return 'INTERROMPIDO';valid=false;}
       }
       if(!valid||!canReplayAttempt(journal)){
@@ -536,9 +537,10 @@ export class StepExecutorService {
       return 'INTERROMPIDO';
     }
     if(typeof result.costUsd!=='number'||!Number.isFinite(result.costUsd)||result.costUsd<0)delete result.costUsd;
+    const mediaAfter=captureMediaOutputs(job,step,this.pastaDeMidia(job.project.dirKey));
     const input:AttemptReplayInput={providerId,isAi,nativeVisual:!!nativeVisual,protectedBefore,repoHarness,
       docsPendentes:[...docsPendentes].map(([key,value])=>[key,value.toString('base64')]),
-      treeBefore,repairBefore,contextStats,effectiveModel:effectiveModel??null,failures,mediaBefore:[...mediaBefore],
+      treeBefore,repairBefore,contextStats,effectiveModel:effectiveModel??null,failures,mediaBefore:[...mediaBefore],mediaAfter:[...mediaAfter],
       result,activeMs:Math.max(0,Date.now()-started)};
     // Cost and provider receipt become durable before any verification or artifact publication.
     // A receipt with no replay envelope is still useful for reconciliation and accounting.
@@ -552,11 +554,12 @@ export class StepExecutorService {
   }
 
   private async replayEnvelope(job:ExecutionJob,step:Step,worktree:string,input:AttemptReplayInput){
-    // Scope of automatic replay: ordinary isolated workspaces only. Native
-    // media, external file operations and destructive verification need their
-    // own durable output contracts; never infer those from a Git tree.
-    if(hasNativeMediaOperation([step],job.defaultProvider)
-      ||input.nativeVisual||input.mediaBefore.length||(!input.isAi&&input.providerId!=='local-shell')
+    // Durable MP4 producers may be resumed only with an exact before/after
+    // snapshot. Other native media and external effects remain non-replayable.
+    const nativeMedia=hasNativeMediaOperation([step],job.defaultProvider);
+    const durableVideo=input.mediaBefore.length>0&&input.mediaAfter?.length===input.mediaBefore.length;
+    if((nativeMedia&&!durableVideo)
+      ||input.nativeVisual||(!input.isAi&&input.providerId!=='local-shell'&&!durableVideo)
       ||step.requiresApproval||evaluatePolicy((input.isAi?'':step.instructions)+'\n'+(step.verifyCommand??'')).requiresApproval)return null;
     try{
       const notes=await replayAuxFingerprint(path.join(worktree,'.nivoo'));

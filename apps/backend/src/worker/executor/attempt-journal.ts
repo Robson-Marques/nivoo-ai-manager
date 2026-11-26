@@ -14,7 +14,7 @@ export type AttemptPhase='PREPARED'|'DISPATCHING'|'RETURNED'|'VERIFYING'|'VERIFI
 export interface AttemptReplayInput {
   providerId:string;isAi:boolean;nativeVisual:boolean;protectedBefore:string|null;repoHarness:string[];
   docsPendentes:[string,string][];treeBefore:string;repairBefore:string|null;contextStats:ContextStats|null;
-  effectiveModel:string|null;failures:number;mediaBefore:[string,string|null][];result:ExecutionResult;activeMs:number;
+  effectiveModel:string|null;failures:number;mediaBefore:[string,string|null][];mediaAfter?:[string,string|null][];result:ExecutionResult;activeMs:number;
   beforeVerification?:ExecutionResult;verification?:Awaited<ReturnType<typeof verifyExecution>>;
   verified?:boolean;sessionClosedNormally?:boolean;
 }
@@ -56,10 +56,25 @@ export function canReplayAttempt(state:AttemptJournal|null):state is AttemptJour
   const r=state.replay,i=r.input;
   return [r.contract,r.head,r.tree,r.notes,r.context,r.knowledge].every(x=>typeof x==='string'&&x.length>0)
     &&!!i&&typeof i.providerId==='string'&&typeof i.isAi==='boolean'&&typeof i.nativeVisual==='boolean'
-    &&Array.isArray(i.repoHarness)&&Array.isArray(i.docsPendentes)&&Array.isArray(i.mediaBefore)
+    &&Array.isArray(i.repoHarness)&&Array.isArray(i.docsPendentes)&&validMediaSnapshots(i.mediaBefore,i.mediaAfter)
     &&typeof i.treeBefore==='string'&&Number.isFinite(i.activeMs)&&i.activeMs>=0
     &&Number.isFinite(i.failures)&&!!i.result&&typeof i.result.exitCode==='number'&&typeof i.result.output==='string'
     &&(state.phase==='RETURNED'||!!i.verification&&!!i.beforeVerification&&typeof i.verified==='boolean'&&typeof i.sessionClosedNormally==='boolean');
+}
+export function validMediaSnapshots(before:unknown,after:unknown):boolean{
+  if(!Array.isArray(before))return false;
+  if(after===undefined)return before.length===0;
+  if(!Array.isArray(after)||after.length!==before.length)return false;
+  const names=new Set<string>();
+  for(let index=0;index<before.length;index++){
+    const previous=before[index],current=after[index];
+    if(!Array.isArray(previous)||previous.length!==2||!Array.isArray(current)||current.length!==2)return false;
+    const [beforeName,beforeIdentity]=previous,[afterName,afterIdentity]=current;
+    if(typeof beforeName!=='string'||!/^midia\/saida\/[A-Za-z0-9._-]+\.mp4$/i.test(beforeName)||names.has(beforeName))return false;
+    if(afterName!==beforeName||(beforeIdentity!==null&&typeof beforeIdentity!=='string')||(afterIdentity!==null&&typeof afterIdentity!=='string'))return false;
+    names.add(beforeName);
+  }
+  return true;
 }
 export function validFinalizationPlan(p:FinalizationPlan|undefined):p is FinalizationPlan{
   return !!p&&typeof p.logId==='string'&&Array.isArray(p.outputIds)&&p.outputIds.every(x=>typeof x==='string')
