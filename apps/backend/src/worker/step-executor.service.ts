@@ -16,7 +16,8 @@ import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
 import { normalizedOutputHash } from '../common/hash';
-import { killProcessGroup } from '../common/exec';
+import { stopOwnedOrphan,processIdentity } from '../common/process-identity';
+import { assertStepLease,LostStepLease } from './executor/lease';
 import * as os from 'node:os';
 import { BlockedReason } from '../common/status';
 import { LogService } from '../jobs/log.service';
@@ -106,20 +107,39 @@ export class StepExecutorService {
     const L = (msg: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO', attemptId?: string) =>
       this.logs.log(job.id, msg, { stepId: step.id, attemptId, level, source: `worker:${workerId}` });
 
-    // Recuperação: tentativas órfãs de um worker anterior que perdeu o lease.
-    const orphanRows = await this.prisma.attempt.findMany({ where: { stepId: step.id, status: 'EXECUTANDO' } });
-    for (const o of orphanRows) {
-      if (o.pid && o.hostname === os.hostname() && killProcessGroup(o.pid)) {
-        await L(`Processo órfão (pgid ${o.pid}) da tentativa #${o.number} encerrado`, 'WARN');
-      }
-    }
-    const orphans = await this.prisma.attempt.updateMany({
-      where: { stepId: step.id, status: 'EXECUTANDO' },
-      data: { status: 'INTERROMPIDA', endedAt: new Date(), error: `worker perdido (${task.previousLockedBy ?? 'desconhecido'}); lease expirado` },
-    });
-    if (orphans.count > 0 || task.recovered) {
-      await L(`Recuperação: ${orphans.count} tentativa(s) órfã(s) de ${task.previousLockedBy ?? '?'} encerradas; retomando a partir do último checkpoint`, 'WARN');
-      await this.prisma.step.updateMany({ where: { id: step.id, status: 'EXECUTANDO' }, data: { status: 'PENDENTE' } });
+    if(signal.aborted)return 'INTERROMPIDO';
+    // Reconcile only under the current claim. Never signal a group on
+    // another host or an unrelated process that reused an old PID.
+    const orphanRows=await this.prisma.attempt.findMany({where:{stepId:step.id,status:'EXECUTANDO'}});
+    if(orphanRows.length||task.recovered){
+      const recovery=await this.prisma.$transaction(async tx=>{
+        await OrchestratorService.lockJob(tx,job.id);
+        await assertStepLease(tx,task,workerId);
+        const current=await tx.attempt.findMany({where:{stepId:step.id,status:'EXECUTANDO'}});
+        const unsafe:string[]=[];
+        for(const o of current){
+          if(o.hostname!==os.hostname()){unsafe.push('#'+o.number+': host diferente ou não identificado');continue;}
+          if(o.pid){
+            const state=await stopOwnedOrphan(o.pid,o.processIdentity);
+            if(state==='uncertain'||state==='owned')unsafe.push('#'+o.number+': grupo de processos não confirmado como encerrado');
+          }else if(!['nvidia-api','openrouter-free-api','groq-free-api'].includes(tipoDe(o.provider)??'')){
+            unsafe.push('#'+o.number+': processo não registrado; resultado anterior incerto');
+          }
+        }
+        if(unsafe.length){
+          const detail='Recuperação pendente: '+unsafe.join('; ')+'. Arquivos preservados; confirme o encerramento da sessão anterior antes de retomar.';
+          await tx.step.updateMany({where:{id:step.id,status:{not:'CONCLUIDO'}},data:{status:'BLOQUEADO',statusDetail:detail}});
+          await tx.job.updateMany({where:{id:job.id,status:{in:['EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INFRAESTRUTURA',statusDetail:detail}});
+          await tx.queueTask.updateMany({where:{id:task.id,claims:task.claims,lockedBy:workerId,status:'RUNNING'},data:{status:'DONE',lockedUntil:null,lastError:detail}});
+          return {count:0,detail};
+        }
+        const changed=await tx.attempt.updateMany({where:{id:{in:current.map(o=>o.id)},status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'worker anterior perdeu lease; custo/resultado não confirmados'}});
+        await tx.step.updateMany({where:{id:step.id,status:'EXECUTANDO'},data:{status:'PENDENTE'}});
+        return {count:changed.count,detail:null};
+      }).catch(e=>{if(e instanceof LostStepLease)return null;throw e;});
+      if(!recovery)return 'INTERROMPIDO';
+      if(recovery.detail){await L(recovery.detail,'WARN');return 'BLOQUEADO';}
+      await L('Recuperação: '+recovery.count+' tentativa(s) órfã(s) reconciliada(s); arquivos e checkpoints preservados.','WARN');
     }
 
     if (!['EXECUTANDO', 'AGUARDANDO_RECURSO'].includes(job.status)) {
@@ -410,6 +430,7 @@ export class StepExecutorService {
     const number = (await this.prisma.attempt.count({ where: { stepId: step.id } })) + 1;
     const attempt = await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, job.id);
+      await assertStepLease(tx,task,workerId);
       await tx.job.updateMany({ where: { id: job.id, status: 'AGUARDANDO_RECURSO' }, data: { status: 'EXECUTANDO', statusDetail: null } });
       await tx.step.update({ where: { id: step.id }, data: { status: 'EXECUTANDO', statusDetail: null, attemptCount: number } });
       return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname(), treeBefore } });
@@ -440,6 +461,8 @@ export class StepExecutorService {
     const started = Date.now();
     let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
 
+    const owned=await this.prisma.$transaction(async tx=>{await assertStepLease(tx,task,workerId);return true;}).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
+    if(!owned)return 'INTERROMPIDO';
     if (isAi && !result.interrupted) {
       // Remoções/movimentações pedidas pela IA (.nivoo/remover.txt): o sistema faz por ela, ANTES da conferência.
       const rem = this.workspace.aplicarRemocoesPedidas(worktree, this.pastaDeMidia(job.project.dirKey));
@@ -450,7 +473,10 @@ export class StepExecutorService {
     result=normalizedSession.result;
     const {sessionClosedNormally}=normalizedSession;
     const beforeVerification={...result};
-    const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L);
+    const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L,pid=>{
+      const identity=processIdentity(pid);
+      void this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO'},data:{pid,processIdentity:identity??Prisma.DbNull}}).catch(()=>undefined);
+    });
     result=verification.result;
     let {verified}=verification;
     const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
@@ -537,9 +563,11 @@ export class StepExecutorService {
     if(contextStats?.skillManifest){
       contextStats.skillEvidence=skillExecutionEvidence({provider:providerId,model:effectiveModel??null,coverage:contextStats.skillCoverage??collectSkillCoverage(contextStats.skillManifest).snapshot(),verification:verification.skillVerification,attemptStatus,treeBefore,treeAfter,artifacts:[...outputs,...videos].map(a=>a.id)});
     }
-    await this.prisma.$transaction([
-      this.prisma.attempt.update({
-        where: { id: attempt.id },
+    const persisted=await this.prisma.$transaction(async tx=>{
+      await OrchestratorService.lockJob(tx,job.id);
+      await assertStepLease(tx,task,workerId);
+      const updated=await tx.attempt.updateMany({
+        where: { id: attempt.id,status:'EXECUTANDO',workerId },
         data: {
           status: attemptStatus,
           ...(contextStats||failureEvidence?{contextStats:(contextStats??{failureEvidence}) as unknown as Prisma.InputJsonValue}:{}),
@@ -558,13 +586,16 @@ export class StepExecutorService {
           notesIngested: notes,
           endedAt: new Date(),
         },
-      }),
-      this.prisma.job.update({
+      });
+      if(updated.count!==1)throw new LostStepLease();
+      await tx.job.update({
         where: { id: job.id },
         data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } },
-      }),
-      this.prisma.step.update({ where: { id: step.id }, data: { lastOutput: (result.output ?? '').slice(-4000) } }),
-    ]);
+      });
+      await tx.step.update({ where: { id: step.id }, data: { lastOutput: (result.output ?? '').slice(-4000) } });
+      return true;
+    }).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
+    if(!persisted)return 'INTERROMPIDO';
     await L(`Tentativa #${number}: ${attemptStatus} (exit ${result.exitCode}, ${elapsedSec}s${result.costUsd ? `, US$ ${result.costUsd}` : ''})${result.error ? ` — ${result.error.slice(0, 300)}` : ''}`,
       attemptStatus === 'SUCESSO' ? 'INFO' : 'WARN', attempt.id);
 
