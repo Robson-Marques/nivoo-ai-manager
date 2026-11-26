@@ -22,7 +22,12 @@ export function classifyExecutionResult(result:ExecutionResult,isAi:boolean,veri
         ? 'RECURSO_INDISPONIVEL'
         : result.exitCode === 0 && verified
           ? 'SUCESSO'
-          : isAi && sessionClosedNormally
+            // Sessão de IA encerrada sem concluir = retomável (SESSAO_ENCERRADA).
+            // Mas uma falha dura do PRÓPRIO resultado (ex.: verificação exit!=0,
+            // sem sessionEnded) é FALHA, mesmo que a sessão anterior tenha
+            // fechado normalmente: olhamos o exitCode/sessionEnded deste resultado,
+            // não só o flag da sessão (que pode vir de um resultado anterior).
+          : isAi && sessionClosedNormally && (result.exitCode === 0 || !!result.sessionEnded)
             ? 'SESSAO_ENCERRADA'
             : 'FALHA';
     if (attemptStatus === 'SESSAO_ENCERRADA' && !result.error) {

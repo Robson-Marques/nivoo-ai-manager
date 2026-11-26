@@ -2,7 +2,7 @@ import { componentLibraryIntent,componentLibraryFocus,componentLibraryContext,CO
 import { selectSkills } from '../../src/specialties/skills';
 import { softwareEngineeringSections } from '../../src/specialties/software/catalog';
 import { MCP_PRONTOS } from '../../src/mcp/mcp';
-import { configClaude,argsCodex,serversGemini } from '../../src/mcp/para-ia';
+import { configClaude,codexMcpSession,serversGemini } from '../../src/mcp/para-ia';
 
 describe('Biblioteca 21st.dev',()=>{
   const base={phase:'planner' as const,media:false,software:true};
@@ -45,7 +45,15 @@ describe('Biblioteca 21st.dev',()=>{
     expect(p).toMatchObject({url:'https://21st.dev/api/mcp',cabecalhos:['x-api-key'],somenteProjetosEscolhidos:true});
     const m=[{nome:'21st-dev',tipo:'http' as const,url:p.url,headers:{'x-api-key':'dummy'}}];
     expect(configClaude(m).mcpServers['21st-dev']).toMatchObject({type:'http',url:p.url,headers:{'x-api-key':'dummy'}});
-    expect(argsCodex(m)).toContain('mcp_servers.21st-dev.http_headers={"x-api-key"="dummy"}');
+    // O Codex recebe o cabeçalho secreto por variável de ambiente aliased, nunca
+    // inline na linha de comando (não vaza em listagens de processo).
+    const codex=codexMcpSession(m);
+    const argsText=codex.args.join(' ');
+    expect(argsText).toContain('env_http_headers');
+    expect(argsText).not.toContain('dummy');
+    const alias=Object.keys(codex.env).find(k=>codex.env[k]==='dummy');
+    expect(alias).toBeTruthy();
+    expect(argsText).toContain(alias!);
     expect(serversGemini(m)['21st-dev']).toMatchObject({httpUrl:p.url,headers:{'x-api-key':'dummy'}});
   });
 });
