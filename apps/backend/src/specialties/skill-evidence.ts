@@ -3,13 +3,13 @@ import { createHash } from 'node:crypto';
 export type SkillManifestEntry={id:string;path:string;sha256:string;chars:number};
 export type SkillObservation={kind:'http-page';path:string;sha256:string;start:number;end:number;total:number}|{kind:'cli-read';path:string;cli:'claude'|'gemini'};
 export type SkillCoverage={id:string;sha256:string;chars:number;read:'not-observed'|'partial'|'full-local'|'cli-reported';ranges:Array<[number,number]>;cli?:'claude'|'gemini'};
-export type SkillVerification={state:'not-run'|'passed'|'failed'|'interrupted';commandHash?:string;exitCode?:number;timedOut?:boolean};
+export type SkillVerification={state:'not-run'|'passed'|'failed'|'interrupted';commandHash?:string;exitCode?:number|null;timedOut?:boolean};
 export type SkillExecutionEvidence={version:1;provider:string;model:string|null;coverage:SkillCoverage[];verification:SkillVerification;attemptStatus:string;treeBefore:string;treeAfter:string;artifacts:string[];application:'not-independently-established'};
 const sha=(v:string)=>createHash('sha256').update(v,'utf8').digest('hex');
 export function manifestEntry(id:string,content:string):SkillManifestEntry{
   return {id,path:'contexto/skills-nivoo/'+id+'/SKILL.md',sha256:sha(content),chars:content.length};
 }
-export function verificationReceipt(command:string,exitCode:number,passed:boolean,interrupted:boolean,timedOut:boolean):SkillVerification{
+export function verificationReceipt(command:string,exitCode:number|null,passed:boolean,interrupted:boolean,timedOut:boolean):SkillVerification{
   return {state:interrupted?'interrupted':passed?'passed':'failed',commandHash:sha(command),exitCode,timedOut};
 }
 function mergeRanges(ranges:Array<[number,number]>,next:[number,number]){
