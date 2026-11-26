@@ -11,7 +11,7 @@ export async function assertStepLease(tx:Prisma.TransactionClient,task:Pick<Clai
     SELECT id FROM "QueueTask" WHERE id=${task.id} AND "lockedBy"=${workerId}
       AND claims=${task.claims} AND status='RUNNING'
       AND "jobId"=${task.jobId} AND "stepId"=${task.stepId}
-      AND "lockedUntil" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+      AND "lockedUntil" > (clock_timestamp() AT TIME ZONE 'UTC')
     FOR UPDATE
   `;
   if(rows.length!==1)throw new LostStepLease();
