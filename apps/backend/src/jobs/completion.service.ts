@@ -1,3 +1,4 @@
+import { summarizeSkillEvidence } from '../specialties/skill-evidence';
 import { readApprovedScope } from './approved-scope';
 import { approvedGoldfish,checkApprovedGoldfishStep,type ApprovedGoldfishResolution } from '../specialties/software/egm/resolution-execution';
 import { assertGoldfishProofContracts,goldfishProofEvidence,detectGoldfishGitDrift,renderGoldfishGitDrift,type GoldfishProof } from '../specialties/software/egm/resolution-proof';
@@ -505,6 +506,9 @@ export class CompletionService {
     const approved=checks.filter(c=>c.passed);
     const criteria=await this.prisma.acceptanceCriterion.findMany({where:{jobId}});
     const adoption=adoptionSummaries(criteria);
+    const completedSteps=await this.prisma.step.findMany({where:{jobId,status:'CONCLUIDO'},select:{id:true,status:true,attemptCount:true}});
+    const successfulAttempts=completedSteps.length?await this.prisma.attempt.findMany({where:{jobId,status:'SUCESSO',OR:completedSteps.map(s=>({stepId:s.id,number:s.attemptCount}))},select:{stepId:true,number:true,status:true,contextStats:true}}):[];
+    const skillSummary=summarizeSkillEvidence(completedSteps,successfulAttempts);
     const initial=changed&&mergedCommit?await this.prisma.attempt.findFirst({where:{jobId},orderBy:{startedAt:'asc'},select:{contextStats:true}}):null;
     const lite=(initial?.contextStats as {egmExecution?:{route?:string;baseline?:{complete?:boolean;dirty?:string[]}}}|null)?.egmExecution;
     const liteNotice=lite?.route==='lite'&&lite.baseline?.complete&&lite.baseline.dirty?.length===0&&!approvedGoldfish(job.approvedScope)?'Revisão independente Lite do diff incorporado (sujeita à validação da base): /goldfish-lite diff '+jobId:'';
@@ -512,7 +516,7 @@ export class CompletionService {
       const p=c.evidence.egmProof as {observed?:{actionId:string;scenario:string}[]}|undefined;
       return c.passed?(p?.observed??[]).map(e=>'- '+e.actionId+' — cenário registrado no teste '+c.key+': '+e.scenario):[];
     }):[];
-    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption,...(liteNotice?[liteNotice]:[]),...(egmProofLines.length?['Evidências de regressão Goldfish (contratos executados, não revisão semântica independente):',...egmProofLines]:[]), ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
+    const content=[handoff?SPECIALTY_HANDOFF_NOTICE:'Trabalho concluído. Resultado incorporado à pasta principal do projeto.', 'Critérios deste trabalho verificados pelo Nivoo: '+approved.length+' de '+checks.length+'.', ...adoption,...skillSummary,...(liteNotice?[liteNotice]:[]),...(egmProofLines.length?['Evidências de regressão Goldfish (contratos executados, não revisão semântica independente):',...egmProofLines]:[]), ...approved.slice(0,20).map(c=>'- '+c.key+' ('+c.kind+')'), ...(approved.length>20?['… demais critérios no relatório do trabalho.']:[]), 'Este estado comprova os critérios registrados do trabalho, não a aceitação automática de uma capacidade ou de todo o software. Os arquivos e as prévias estão disponíveis abaixo.'].join('\n');
     // A entrega é determinística: os arquivos e quadros reais já são exibidos pela interface.
     // Nunca iniciar uma segunda sessão de IA só para repetir o pedido de aprovação.
     // Também evita nova entrega se uma avaliação for repetida.
