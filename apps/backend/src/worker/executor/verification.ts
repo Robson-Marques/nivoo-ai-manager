@@ -1,3 +1,4 @@
+import { verificationReceipt,type SkillVerification } from '../../specialties/skill-evidence';
 import { nativeImageTarget } from '../../providers/codex-image-assets';
 import type { Job,Step } from '@prisma/client';
 import type { ExecutionResult } from '../../providers/provider.interface';
@@ -75,6 +76,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const normalized=normalizeMotionOutputs(verifyCommandEfetivo);
     const saidaMotionCorrigida=Object.entries(normalized.aliases).map(([old,next])=>old+' → '+next).join(', ');
     verifyCommandEfetivo=replaceMediaAliases(normalized.command,normalized.aliases);
+    let skillVerification:SkillVerification={state:'not-run'};
     let verified = !verifyCommand&&result.stopReason!=='file_operation_postcondition';
     // The provider already decoded the image. The worker may have applied
     // requested file operations after that decode; never conclude with a missing output.
@@ -114,7 +116,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         if(problem.kind==='credential')credencialFaltando=problem.detail;else ambiente=problem.detail;
         await L('Verificação não iniciada: '+problem.detail,'WARN',attempt.id);
         result={...result,exitCode:1,error:'verificação não executada: '+problem.detail};
-        return {result,verified:false,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando};
+        return {result,verified:false,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando,skillVerification};
       }
       // A conferência pode levar minutos (instalar, testar, compilar): registra o andamento para a tela não parecer
       // parada — a última linha da saída a cada 15 s e um "ainda rodando" a cada minuto.
@@ -219,6 +221,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       }
       await L(`Verificação da etapa: exit ${v.exitCode}${v.timedOut?' (tempo esgotado)':''}${v.aborted?' (interrompida)':''}${vOut ? ` — ${vOut}` : ''}`, verificationPassed(v) ? 'INFO' : 'WARN', attempt.id);
       verified = verificationPassed(v);
+      skillVerification=verificationReceipt(verifyCommandEfetivo,v.exitCode,verified,!!v.aborted,!!v.timedOut);
       if (v.aborted) result = { ...result, interrupted: true };
       else if (verified && result.sessionEnded && !target && !deliveries.length) {
         // A time/turn-limited coding session may already have satisfied its real check.
@@ -228,5 +231,5 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       }
     }
 
-  return {result,verified,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando};
+  return {result,verified,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando,skillVerification};
 }
