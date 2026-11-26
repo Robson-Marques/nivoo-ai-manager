@@ -5,6 +5,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { configClaude, permissoesClaude } from '../mcp/para-ia';
+import { observeMcpCalls,redactMcpLog } from '../mcp/observe';
 import { Injectable } from '@nestjs/common';
 import { isolatedHome, segredoDaConexao, secretEnv } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -188,6 +189,9 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // --strict-mcp-config: nenhum servidor MCP além dos passados explicitamente (nenhum).
     // Comprovado: sem isso, um .claude/settings.json plantado no workspace executava shell na sessão seguinte.
     const review=req.options?.readOnlyReview===true;
+    const mcp=review?[]:req.mcp??[];
+    req={...req,onLog:redactMcpLog(mcp,req.onLog)};
+    const observeMcp=observeMcpCalls('claude',mcp,req.onLog);
     const readOnly=cliReadOnly(req);
     const args = [
       '-p', '--output-format', 'stream-json', '--verbose',
@@ -198,13 +202,13 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const extra = readOnly?[]:ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
     // Ferramentas MCP do projeto: arquivo só desta sessão (fora da pasta do trabalho, 600) e permissão só a elas.
     let pastaMcp: string | null = null;
-    if (!review&&req.mcp?.length) {
+    if (mcp.length) {
       pastaMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
       const arq = path.join(pastaMcp, 'mcp.json');
-      fs.writeFileSync(arq, JSON.stringify(configClaude(req.mcp)), { mode: 0o600 });
+      fs.writeFileSync(arq, JSON.stringify(configClaude(mcp)), { mode: 0o600 });
       args.push('--mcp-config', arq);
-      extra.push(...permissoesClaude(req.mcp));
-      req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
+      extra.push(...permissoesClaude(mcp));
+      req.onLog(`Ferramentas MCP nesta sessão: ${mcp.map((m) => m.nome).join(', ')}`);
     }
     if (extra.length) args.push('--allowedTools', ...extra);
     // Sem MCP, mostrar ao Claude SOMENTE ferramentas presentes neste executor.
@@ -227,7 +231,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     // Perfil integral no canal de sistema; não duplicar no prompt.
     args.push('--append-system-prompt', [toolsPolicy, req.systemPrompt].filter(Boolean).join('\n\n'));
     const skillRead=nativeSkillReadObserver('claude',req.cwd,req.onLog);
-    const observe=(line:string)=>{skillRead(line);ClaudeCodeCliProvider.logEvent(line,req.onLog);};
+    const observe=(line:string)=>{skillRead(line);if(!observeMcp(line))ClaudeCodeCliProvider.logEvent(line,req.onLog);};
     let pending = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
