@@ -6,7 +6,7 @@ type Log=(line:string)=>void;
  * actual read; unlike HTTP tools, we do not know the returned byte range.
  * Do not log result contents, arguments other than authorized skill paths,
  * or infer success from a tool invocation alone. */
-export function nativeSkillReadObserver(cli:Cli,cwd:string,log:Log):(line:string)=>void{
+export function nativeSkillReadObserver(cli:Cli,cwd:string,log:Log,observe?:(event:import('../specialties/skill-evidence').SkillObservation)=>void):(line:string)=>void{
   const pending=new Map<string,string>(),reported=new Set<string>();
   const skillPath=(value:unknown):string|null=>{
     if(typeof value!=='string'||value.includes('\0'))return null;
@@ -23,6 +23,7 @@ export function nativeSkillReadObserver(cli:Cli,cwd:string,log:Log):(line:string
     const rel=pending.get(id);pending.delete(id);
     if(!rel||!success||reported.has(rel))return;
     reported.add(rel);
+    observe?.({kind:'cli-read',path:rel,cli});
     log('Skill — CLI '+cli+' informou leitura bem-sucedida: '+rel+'; cobertura e aplicação não comprovadas.');
   }
   return line=>{
