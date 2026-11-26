@@ -75,6 +75,7 @@ function LinhaMcp({ m, projetos, onEditar, onMudou }: { m: any; projetos: any[];
         <>
           <code className="small">{m.tipo === 'comando' ? `${m.comando} ${(m.args ?? []).join(' ')}` : m.url}</code>
           <span> · para {onde} · a IA vê como “{m.nomeTecnico}”</span>
+          {m.tipo==='http'&&<span className="small muted"> · Planejamento: {(m.ferramentasPlanejamentoEfetivas??[]).join(', ')||'nenhuma'} · Execução: {Array.isArray(m.ferramentasExecucao)?m.ferramentasExecucao.join(', ')||'nenhuma':'todas autorizadas pelo servidor'}</span>}
         </>
       }
       estado={
@@ -92,7 +93,7 @@ function LinhaMcp({ m, projetos, onEditar, onMudou }: { m: any; projetos: any[];
       {testando && <p className="muted small">Ligando a ferramenta… (na primeira vez pode baixar o programa e levar um pouco)</p>}
       {teste && (teste.ok ? (
         <div className="small">
-          <b>Funcionando.</b> {teste.ferramentas.length} ferramenta(s): {teste.ferramentas.map((f: any) => f.nome).join(', ') || '—'}
+          <b>Descoberta concluída.</b> {teste.ferramentas.length} ferramenta(s): {teste.ferramentas.map((f: any) => f.nome).join(', ') || '—'}
         </div>
       ) : (
         <div className="error small">Não funcionou: {teste.erro}</div>
@@ -110,6 +111,27 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
   const [tipo, setTipo] = useState<'comando' | 'http'>(atual?.tipo ?? 'comando');
   const [comando, setComando] = useState(atual ? `${atual.comando ?? ''} ${(atual.args ?? []).map((a: string) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`.trim() : '');
   const [url, setUrl] = useState(atual?.url ?? '');
+  const [planCustom,setPlanCustom]=useState(Array.isArray(atual?.ferramentasPlanejamento));
+  const [execCustom,setExecCustom]=useState(Array.isArray(atual?.ferramentasExecucao));
+  const [planNames,setPlanNames]=useState<string>((atual?.ferramentasPlanejamento??[]).join('\n'));
+  const [execNames,setExecNames]=useState<string>((atual?.ferramentasExecucao??[]).join('\n'));
+  const [discovered,setDiscovered]=useState<string[]>([]);
+  const [discoveryBusy,setDiscoveryBusy]=useState(false);
+  const names=(text:string)=>[...new Set(text.split(/[\s,]+/).filter(Boolean))];
+  const mudarUrl=(value:string)=>{
+    setUrl(value);setDiscovered([]);
+    if(value.trim()!==String(atual?.url??'').trim()){setPlanNames('');setExecNames('');}
+  };
+  const discover=async()=>{
+    if(!atual||tipo!=='http'||url.trim()!==atual.url)return;
+    setDiscoveryBusy(true);setErro(null);
+    try{
+      const data=await api<any>('/mcp/'+atual.id+'/testar','POST');
+      if(!data.ok)throw Error(data.erro??'Não foi possível descobrir ferramentas.');
+      setDiscovered(data.ferramentas.map((f:any)=>String(f.nome)));
+    }catch(e:any){setErro(e.message);}
+    finally{setDiscoveryBusy(false);}
+  };
   const [variaveis, setVariaveis] = useState(paraLinhas(atual?.variaveis));
   // Segredos: nome → valor digitado ('' = manter o atual).
   const [segredos, setSegredos] = useState<Array<{ nome: string; valor: string; definido: boolean; cabecalho: boolean }>>(
@@ -127,6 +149,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
     setTipo(p.tipo);
     setComando(p.tipo === 'comando' ? [p.comando, ...(p.args ?? [])].join(' ') : '');
     setUrl(p.url ?? '');
+    setPlanCustom(false);setExecCustom(false);setPlanNames('');setExecNames('');setDiscovered([]);
     setSegredos((p.cabecalhos ?? []).map((c: string) => ({ nome: c, valor: '', definido: false, cabecalho: true })));
   };
   const salvar = async (e: FormEvent) => {
@@ -149,7 +172,7 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
         if (!segredos.some((x) => x.nome === s.nome)) ((atual.cabecalhosSecretos ?? []).includes(s.nome) ? corpo.cabecalhos : corpo.segredos)[s.nome] = null;
       }
       if (tipo === 'comando') Object.assign(corpo, { comando: sem(partes[0] ?? ''), args: partes.slice(1).map(sem) });
-      else corpo.url = url.trim();
+      else Object.assign(corpo,{url:url.trim(),ferramentasPlanejamento:planCustom?names(planNames):null,ferramentasExecucao:execCustom?names(execNames):null});
       if (atual) await api(`/mcp/${atual.id}`, 'PATCH', corpo);
       else await api('/mcp', 'POST', corpo);
       onSalvo();
@@ -192,8 +215,24 @@ function FormMcp({ atual, prontos, projetos, onFechar, onSalvo }: { atual: any |
             <span className="muted small">O programa é instalado e roda no servidor (ex.: npx baixa na primeira vez).</span>
           </label>
         ) : (
-          <label>Endereço<input value={url} onChange={(e) => setUrl(e.target.value)} required placeholder="https://mcp.exemplo.com/mcp" /></label>
+          <label>Endereço<input value={url} onChange={(e) => mudarUrl(e.target.value)} required placeholder="https://mcp.exemplo.com/mcp" /></label>
         )}
+        {tipo==='http'&&<div className="campo">
+          <b className="small">Permissões por ferramenta</b>
+          <label>Planejamento<select value={planCustom?'custom':'default'} onChange={e=>setPlanCustom(e.target.value==='custom')}>
+            <option value="default">Consultas oficiais conhecidas (demais bloqueadas)</option>
+            <option value="custom">Somente nomes escolhidos</option>
+          </select></label>
+          {planCustom&&<label>Nomes autorizados antes de Fazer<textarea rows={3} value={planNames} onChange={e=>setPlanNames(e.target.value)} placeholder="resolve-library-id&#10;query-docs"/><span className="muted small">Vazio bloqueia todas. Autorize apenas consultas que você confia; nomes não garantem ausência de efeitos.</span></label>}
+          <label>Execução aprovada<select value={execCustom?'custom':'default'} onChange={e=>setExecCustom(e.target.value==='custom')}>
+            <option value="default">Todas as ferramentas do servidor autorizado</option>
+            <option value="custom">Somente nomes escolhidos</option>
+          </select></label>
+          {execCustom&&<label>Nomes autorizados na execução<textarea rows={3} value={execNames} onChange={e=>setExecNames(e.target.value)} placeholder="search&#10;get_component"/><span className="muted small">Vazio bloqueia todas. Revisões independentes não recebem MCP.</span></label>}
+          {atual&&url.trim()===atual.url&&<button type="button" className="secondary" disabled={discoveryBusy} onClick={discover}>{discoveryBusy?'Consultando…':'Descobrir nomes disponíveis'}</button>}
+          {discovered.length>0&&<div className="small">{discovered.map(n=><div key={n} className="row"><code>{n}</code>{planCustom&&<label><input type="checkbox" checked={names(planNames).includes(n)} onChange={e=>setPlanNames((e.target.checked?[...names(planNames),n]:names(planNames).filter(x=>x!==n)).join('\n'))}/> Planejar</label>}{execCustom&&<label><input type="checkbox" checked={names(execNames).includes(n)} onChange={e=>setExecNames((e.target.checked?[...names(execNames),n]:names(execNames).filter(x=>x!==n)).join('\n'))}/> Executar</label>}</div>)}</div>}
+          <span className="muted small">A descoberta consulta a configuração salva; não executa ferramentas. O filtro valida novamente a lista quando o CLI conecta.</span>
+        </div>}
         <label>
           Variáveis (não secretas), uma por linha
           <textarea rows={2} value={variaveis} onChange={(e) => setVariaveis(e.target.value)} placeholder="MODO=leitura" />
