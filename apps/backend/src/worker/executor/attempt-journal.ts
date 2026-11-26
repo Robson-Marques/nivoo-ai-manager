@@ -1,5 +1,7 @@
 import { Prisma,type Job,type Step } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { ExecutionResult } from '../../providers/provider.interface';
 import type { ContextStats } from '../context-builder';
 import type { verifyExecution } from './verification';
@@ -21,7 +23,7 @@ export interface ReplayEnvelope {
 }
 export interface AttemptJournal {
   version:1;phase:AttemptPhase;costKnown?:boolean;activeMs?:number;replay?:ReplayEnvelope|null;
-  result?:ExecutionResult;verification?:unknown;verified?:boolean;outcome?:string;
+  result?:ExecutionResult;providerResult?:ExecutionResult;verification?:unknown;verified?:boolean;outcome?:string;
 }
 const phases:AttemptPhase[]=['PREPARED','DISPATCHING','RETURNED','VERIFYING','VERIFIED','FINALIZING','TERMINAL'];
 const successors:Partial<Record<AttemptPhase,AttemptPhase>>={PREPARED:'DISPATCHING',DISPATCHING:'RETURNED',RETURNED:'VERIFYING',VERIFYING:'VERIFIED',VERIFIED:'FINALIZING',FINALIZING:'TERMINAL'};
@@ -52,6 +54,36 @@ export function canReplayAttempt(state:AttemptJournal|null):state is AttemptJour
     &&Number.isFinite(i.failures)&&!!i.result&&typeof i.result.exitCode==='number'&&typeof i.result.output==='string'
     &&(state.phase!=='VERIFIED'||!!i.verification&&!!i.beforeVerification&&typeof i.verified==='boolean'&&typeof i.sessionClosedNormally==='boolean');
 }
+/** Hash exact auxiliary file bytes; bound cost and refuse symlinks or
+ * oversized inputs rather than falsely certifying an incomplete snapshot. */
+export async function replayAuxFingerprint(root:string):Promise<string|null>{
+  const hash=createHash('sha256');
+  let files=0,bytes=0;
+  async function walk(dir:string,rel:string):Promise<boolean>{
+    const st=await fs.lstat(dir);
+    if(!st.isDirectory()||st.isSymbolicLink())return false;
+    hash.update(JSON.stringify(['dir',rel]));
+    const entries=await fs.readdir(dir,{withFileTypes:true});
+    for(const e of entries.sort((a,b)=>a.name.localeCompare(b.name))){
+      const p=path.join(dir,e.name),name=rel?rel+'/'+e.name:e.name;
+      if(++files>5000)return false;
+      if(e.isDirectory()){if(!await walk(p,name))return false;continue;}
+      if(!e.isFile()||e.isSymbolicLink())return false;
+      const before=await fs.lstat(p);
+      if(!before.isFile()||bytes+before.size>32*1024*1024)return false;
+      const content=await fs.readFile(p);
+      const after=await fs.lstat(p);
+      if(content.length!==before.size||before.ino!==after.ino||before.dev!==after.dev||before.mtimeMs!==after.mtimeMs||before.ctimeMs!==after.ctimeMs)return false;
+      bytes+=content.length;
+      hash.update(JSON.stringify(['file',name,content.length,createHash('sha256').update(content).digest('hex')]));
+    }
+    return true;
+  }
+  try{
+    try{await fs.lstat(root);}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return hash.update('absent').digest('hex');throw e;}
+    return await walk(root,'')?hash.digest('hex'):null;
+  }catch{return null;}
+}
 function json(value:unknown):Prisma.InputJsonValue{return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;}
 function resultSummary(result:ExecutionResult){
   return {...result,output:(result.output??'').slice(-20000),...(result.error?{error:result.error.slice(0,5000)}:{})};
@@ -73,7 +105,7 @@ export async function writeAttemptPhase(prisma:PrismaService,task:ClaimedTask,wo
     const cost=returned&&result&&typeof result.costUsd==='number'&&Number.isFinite(result.costUsd)&&result.costUsd>=0?result.costUsd:null;
     // A large replay envelope is omitted, not silently truncated into a replayable result.
     const journal={...old,...next,replay:next.replay??null,
-      ...(result?{result:resultSummary(result)}:{}),...(returned?{costKnown:cost!==null}:{})};
+      ...(result?{result:resultSummary(result)}:{}),...(returned&&result?{costKnown:cost!==null,providerResult:resultSummary(result)}:{})};
     const changed=await tx.attempt.updateMany({where:{id:attemptId,status:'EXECUTANDO',workerId},data:{
       executionState:json(journal),
       ...(['RETURNED','VERIFIED'].includes(next.phase)?{pid:null,processIdentity:Prisma.DbNull}:{}),
@@ -84,4 +116,26 @@ export async function writeAttemptPhase(prisma:PrismaService,task:ClaimedTask,wo
     if(changed.count!==1)throw new LostStepLease();
     if(returned&&cost!==null)await tx.job.update({where:{id:task.jobId!},data:{costSpentUsd:{increment:cost}}});
   });
+}
+
+/** Persist the optional replay envelope AFTER the minimal result/cost receipt.
+ * A failure here cannot roll back accounting or falsely authorize redispatch. */
+export async function attachAttemptReplay(prisma:PrismaService,task:ClaimedTask,workerId:string,attemptId:string,phase:'RETURNED'|'VERIFIED',replay:ReplayEnvelope){
+  await prisma.$transaction(async tx=>{
+    await OrchestratorService.lockJob(tx,task.jobId!);
+    await assertStepLease(tx,task,workerId);
+    const where={id:attemptId,jobId:task.jobId!,stepId:task.stepId!,status:'EXECUTANDO' as const,workerId};
+    const previous=await tx.attempt.findFirst({where,select:{executionState:true}});
+    const old=readAttemptJournal(previous?.executionState);
+    if(old?.phase!==phase||old.replay)throw new LostStepLease();
+    const changed=await tx.attempt.updateMany({where,data:{executionState:json({...old,replay})}});
+    if(changed.count!==1)throw new LostStepLease();
+  });
+}
+/** Used inside the same fenced transaction that closes the attempt and
+ * records time. Preserve known/unknown cost and original provider receipt. */
+export async function terminalAttemptJournal(tx:Prisma.TransactionClient,attemptId:string,workerId:string,outcome:string):Promise<Prisma.InputJsonValue>{
+  const old=readAttemptJournal((await tx.attempt.findFirst({where:{id:attemptId,workerId,status:'EXECUTANDO'},select:{executionState:true}}))?.executionState);
+  if(old?.phase!=='FINALIZING')throw new LostStepLease();
+  return json({...old,phase:'TERMINAL',outcome,replay:null});
 }

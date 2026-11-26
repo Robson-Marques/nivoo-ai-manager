@@ -26,7 +26,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { buildPrompt } from '../providers/provider.interface';
 import type { ExecutionResult } from '../providers/provider.interface';
-import { attemptContract,readAttemptJournal,writeAttemptPhase,makeReplayEnvelope,canReplayAttempt,type AttemptPhase,type AttemptReplayInput } from './executor/attempt-journal';
+import { attemptContract,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,makeReplayEnvelope,canReplayAttempt,replayAuxFingerprint,type AttemptReplayInput } from './executor/attempt-journal';
 import * as fs from 'node:fs';
 import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
@@ -135,6 +135,7 @@ export class StepExecutorService {
         for(const o of current){
           if(o.hostname!==os.hostname()){unsafe.push('#'+o.number+': host diferente ou não identificado');continue;}
           const journal=readAttemptJournal(o.executionState);
+          if(o.executionState!=null&&!journal){unsafe.push('#'+o.number+': diário de execução inválido ou de versão desconhecida');continue;}
           if(journal?.phase==='PREPARED')continue; // no provider dispatch authorized yet
           if(journal){
             // A phase in flight has no trustworthy completion receipt. Never
@@ -143,7 +144,7 @@ export class StepExecutorService {
               const state=await stopOwnedOrphan(o.pid,o.processIdentity);
               if(state==='uncertain'||state==='owned'){unsafe.push('#'+o.number+': '+journal.phase+'; grupo ainda não reconciliado');continue;}
             }
-            if(['RETURNED','VERIFIED','FINALIZING'].includes(journal.phase)&&!o.pid){
+            if(o.pid||['RETURNED','VERIFIED','FINALIZING'].includes(journal.phase)){
               await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
             }
             unsafe.push('#'+o.number+': fase '+journal.phase+' sem retomada automática comprovada'+(journal.costKnown===false?'; custo não informado':''));
@@ -157,7 +158,7 @@ export class StepExecutorService {
           }
         }
         if(unsafe.length){
-          const detail='Recuperação pendente: '+unsafe.join('; ')+'. Arquivos preservados; confirme o encerramento da sessão anterior antes de retomar.';
+          const detail='Recuperação pendente: '+unsafe.join('; ')+'. Arquivos e recibos preservados; reconcilie a fase anterior antes de retomar.';
           await tx.step.updateMany({where:{id:step.id,status:{not:'CONCLUIDO'}},data:{status:'BLOQUEADO',statusDetail:detail}});
           await tx.job.updateMany({where:{id:job.id,status:{in:['EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INFRAESTRUTURA',statusDetail:detail}});
           await tx.queueTask.updateMany({where:{id:task.id,claims:task.claims,lockedBy:workerId,status:'RUNNING'},data:{status:'DONE',lockedUntil:null,lastError:detail}});
@@ -198,15 +199,15 @@ export class StepExecutorService {
       const journal=readAttemptJournal(replay.executionState);
       const existing=path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id);
       let valid=false;
-      if(canReplayAttempt(journal)&&journal.replay.contract===attemptContract(job,step,replay.provider)
+      if(canReplayAttempt(journal)&&journal.replay.input.providerId===replay.provider&&journal.replay.contract===attemptContract(job,step,replay.provider)
         &&fs.existsSync(path.join(existing,'.git'))){
         try{
           await this.prisma.$transaction(tx=>assertStepLease(tx,task,workerId));
           valid=journal.replay.head===await this.workspace.headCommit(existing)
             &&journal.replay.tree===await this.workspace.snapshotHash(existing)
-            &&journal.replay.notes===this.workspace.dirFingerprint(path.join(existing,'.nivoo'))
-            &&journal.replay.context===this.workspace.dirFingerprint(path.join(existing,'contexto'))
-            &&journal.replay.knowledge===this.workspace.dirFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
+            &&journal.replay.notes===await replayAuxFingerprint(path.join(existing,'.nivoo'))
+            &&journal.replay.context===await replayAuxFingerprint(path.join(existing,'contexto'))
+            &&journal.replay.knowledge===await replayAuxFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
         }catch(e){if(e instanceof LostStepLease)return 'INTERROMPIDO';valid=false;}
       }
       if(!valid||!canReplayAttempt(journal)){
@@ -514,6 +515,7 @@ export class StepExecutorService {
     if(signal.aborted)return 'INTERROMPIDO';
     await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PREPARED',{version:1,phase:'DISPATCHING'});
     const result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
+    if(typeof result.costUsd!=='number'||!Number.isFinite(result.costUsd)||result.costUsd<0)delete result.costUsd;
     const input:AttemptReplayInput={providerId,isAi,nativeVisual:!!nativeVisual,protectedBefore,repoHarness,
       docsPendentes:[...docsPendentes].map(([key,value])=>[key,value.toString('base64')]),
       treeBefore,repairBefore,contextStats,effectiveModel:effectiveModel??null,failures,mediaBefore:[...mediaBefore],
@@ -522,8 +524,10 @@ export class StepExecutorService {
     // A receipt with no replay envelope is still useful for reconciliation and accounting.
     await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'DISPATCHING',{
       version:1,phase:'RETURNED',costKnown:typeof result.costUsd==='number'&&Number.isFinite(result.costUsd),
-      activeMs:input.activeMs,replay:await this.replayEnvelope(job,step,worktree,input),result:result
+      activeMs:input.activeMs,result
     });
+    const returnedReplay=await this.replayEnvelope(job,step,worktree,input);
+    if(returnedReplay)await attachAttemptReplay(this.prisma,task,workerId,attempt.id,'RETURNED',returnedReplay);
     return this.finishAttempt(task,workerId,signal,job,step,attempt,worktree,input,'RETURNED');
   }
 
@@ -535,13 +539,13 @@ export class StepExecutorService {
       ||input.nativeVisual||input.mediaBefore.length||(!input.isAi&&input.providerId!=='local-shell')
       ||step.requiresApproval||evaluatePolicy((input.isAi?'':step.instructions)+'\n'+(step.verifyCommand??'')).requiresApproval)return null;
     try{
+      const notes=await replayAuxFingerprint(path.join(worktree,'.nivoo'));
+      const context=await replayAuxFingerprint(path.join(worktree,'contexto'));
+      const knowledge=await replayAuxFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
+      if(!notes||!context||!knowledge)return null;
       return makeReplayEnvelope({
         contract:attemptContract(job,step,input.providerId),head:await this.workspace.headCommit(worktree),
-        tree:await this.workspace.snapshotHash(worktree),
-        notes:this.workspace.dirFingerprint(path.join(worktree,'.nivoo')),
-        context:this.workspace.dirFingerprint(path.join(worktree,'contexto')),
-        knowledge:this.workspace.dirFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge),
-        input
+        tree:await this.workspace.snapshotHash(worktree),notes,context,knowledge,input
       });
     }catch{return null;}
   }
@@ -578,6 +582,7 @@ export class StepExecutorService {
     let verification:Awaited<ReturnType<typeof verifyExecution>>;
     let verified:boolean;
     let sessionClosedNormally:boolean;
+    if(signal.aborted)return 'INTERROMPIDO';
     if(phase==='RETURNED'){
       await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'RETURNED',{version:1,phase:'VERIFYING',activeMs:input.activeMs});
 
@@ -597,7 +602,7 @@ export class StepExecutorService {
     let processWrite=Promise.resolve();
     verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L,pid=>{
       const identity=processIdentity(pid);
-      processWrite=processWrite.then(async()=>{await this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO'},data:{pid,processIdentity:identity??Prisma.DbNull}});}).catch(()=>undefined);
+      processWrite=processWrite.then(async()=>{await this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO',workerId},data:{pid,processIdentity:identity??Prisma.DbNull}});}).catch(()=>undefined);
     });
     await processWrite;
     result=verification.result;
@@ -621,10 +626,11 @@ export class StepExecutorService {
     if(!stillOwned)return 'INTERROMPIDO';
       const verifiedInput:AttemptReplayInput={...input,result,beforeVerification,verification,verified,sessionClosedNormally,activeMs:Math.max(0,Date.now()-started)};
       await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFYING',{
-        version:1,phase:'VERIFIED',activeMs:verifiedInput.activeMs,replay:await this.replayEnvelope(job,step,worktree,verifiedInput),
+        version:1,phase:'VERIFIED',activeMs:verifiedInput.activeMs,
         verification:verification.skillVerification,verified,result
       });
-      phase='VERIFIED';
+      const verifiedReplay=await this.replayEnvelope(job,step,worktree,verifiedInput);
+      if(verifiedReplay)await attachAttemptReplay(this.prisma,task,workerId,attempt.id,'VERIFIED',verifiedReplay);
     }else{
       if(!input.beforeVerification||!input.verification||typeof input.verified!=='boolean'||typeof input.sessionClosedNormally!=='boolean')
         return this.reconcileReceiptConflict(task,workerId,job,step,attempt,'Recibo da conferência incompleto; resultado preservado.');
@@ -634,6 +640,7 @@ export class StepExecutorService {
       sessionClosedNormally=input.sessionClosedNormally;
     }
     const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
+    if(signal.aborted)return 'INTERROMPIDO';
     await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
@@ -657,7 +664,7 @@ export class StepExecutorService {
           const updated=await tx.attempt.updateMany({
             where: { id: attempt.id,status:'EXECUTANDO',workerId },
             data: {
-              status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),executionState:{version:1,phase:'TERMINAL',outcome:'FALHA'},
+              status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),executionState:await terminalAttemptJournal(tx,attempt.id,workerId,'FALHA'),
               costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
               inputTokens:result.inputTokens,outputTokens:result.outputTokens,
             },
@@ -715,7 +722,7 @@ export class StepExecutorService {
         where: { id: attempt.id,status:'EXECUTANDO',workerId },
         data: {
           status: attemptStatus,
-          executionState:{version:1,phase:'TERMINAL',outcome:attemptStatus},
+          executionState:await terminalAttemptJournal(tx,attempt.id,workerId,attemptStatus),
           ...(contextStats||failureEvidence?{contextStats:(contextStats??{failureEvidence}) as unknown as Prisma.InputJsonValue}:{}),
           exitCode: result.exitCode,
           output: (result.output ?? '').slice(-20000),

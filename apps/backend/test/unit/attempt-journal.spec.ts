@@ -1,4 +1,8 @@
-import { attemptContract,canReplayAttempt,makeReplayEnvelope,readAttemptJournal,writeAttemptPhase } from '../../src/worker/executor/attempt-journal';
+import { attemptContract,canReplayAttempt,makeReplayEnvelope,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,replayAuxFingerprint } from '../../src/worker/executor/attempt-journal';
+
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const result={exitCode:0,output:'done',costUsd:0.25,sessionId:'s1'};
 const input:any={providerId:'codex-cli',isAi:true,nativeVisual:false,repoHarness:[],docsPendentes:[],mediaBefore:[],treeBefore:'old',activeMs:1200,failures:0,result};
@@ -32,7 +36,10 @@ describe('durable attempt phases',()=>{
     const tx={$queryRaw:jest.fn().mockResolvedValue([{id:'q'}]),attempt:{findFirst:async()=>({executionState:state}),updateMany:update},job:{update:charge}};
     const prisma:any={$transaction:(fn:any)=>fn(tx)};
     const task:any={id:'q',claims:2,jobId:'j',stepId:'s'};
-    await writeAttemptPhase(prisma,task,'w','a','DISPATCHING',{version:1,phase:'RETURNED',result,replay});
+    await writeAttemptPhase(prisma,task,'w','a','DISPATCHING',{version:1,phase:'RETURNED',result});
+    expect(state.replay).toBeNull();
+    await attachAttemptReplay(prisma,task,'w','a','RETURNED',replay);
+    expect(state.replay.contract).toBe('contract');
     expect(charge).toHaveBeenCalledTimes(1);
     expect(charge).toHaveBeenCalledWith({where:{id:'j'},data:{costSpentUsd:{increment:0.25}}});
     await expect(writeAttemptPhase(prisma,task,'w','a','DISPATCHING',{version:1,phase:'RETURNED',result})).rejects.toThrow();
@@ -40,5 +47,21 @@ describe('durable attempt phases',()=>{
     expect(charge).toHaveBeenCalledTimes(1);
     expect(state.result.sessionId).toBe('s1');
     expect(state.replay).toBeNull();
+    await writeAttemptPhase(prisma,task,'w','a','VERIFYING',{version:1,phase:'VERIFIED',result:{...result,exitCode:1}});
+    await writeAttemptPhase(prisma,task,'w','a','VERIFIED',{version:1,phase:'FINALIZING'});
+    const terminal:any=await terminalAttemptJournal(tx as any,'a','w','FALHA');
+    expect(terminal.providerResult.exitCode).toBe(0);
+    expect(terminal.result.exitCode).toBe(1);
+    expect(terminal.costKnown).toBe(true);
+    expect(charge).toHaveBeenCalledTimes(1);
+  });
+  it('detects changed auxiliary content and refuses links',async()=>{
+    const dir=await fs.mkdtemp(path.join(os.tmpdir(),'nivoo-replay-'));
+    try{
+      const file=path.join(dir,'note');await fs.writeFile(file,'one');
+      const first=await replayAuxFingerprint(dir);expect(first).not.toBeNull();
+      await fs.writeFile(file,'two');expect(await replayAuxFingerprint(dir)).not.toBe(first);
+      await fs.symlink(file,path.join(dir,'alias'));expect(await replayAuxFingerprint(dir)).toBeNull();
+    }finally{await fs.rm(dir,{recursive:true,force:true});}
   });
 });
