@@ -178,7 +178,7 @@ export class CodexCliProvider implements AiProvider {
     if (pendente.trim()) observe(pendente);
     if (r.aborted) return { exitCode: -1, output: target?'Geração interrompida':r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut && !target) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
-    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     let lastMessage = '';
     let sessionId: string | undefined;
     let inputTokens: number | undefined;
@@ -221,6 +221,7 @@ export class CodexCliProvider implements AiProvider {
         resourceUnavailable: true,
         sessionId,
         stopReason: 'sandbox',
+        connectorFailure:{kind:'sandbox',detail:bloqueios[0]},
         inputTokens,
         outputTokens,
       cacheReadInputTokens,
