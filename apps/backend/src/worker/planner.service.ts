@@ -27,7 +27,7 @@ import { consolidateGoldfish,renderResolutionLedger,resolutionRequest,resolution
 import type { ExecutionResult } from '../providers/provider.interface';
 import { SKILLS_VERSION } from '../specialties/skills';
 import { measureAiCall } from './token-benchmark';
-import { trocarParaReserva } from '../projects/mover-trabalho';
+import { trocarParaReserva,markModelIncompatible } from '../projects/mover-trabalho';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { minimalEnv, runProcess } from '../common/exec';
@@ -353,25 +353,29 @@ export class PlannerService {
       disponivel: status.available,
       limite429: status.errors.some((x) => /(?:HTTP\s*429|Too Many Requests)/i.test(x)),
     });
-    let trocou = '';
-    if (!status.available && goldfishScope===null&&driftScope===null&&lite===null) {
-      // IA reserva do projeto: responde com a próxima conectada em vez de parar.
-      const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
-      if (reserva) {
-        trocou = `(${reserva.anterior} está indisponível; quem respondeu foi ${reserva.nome}, que agora é a IA do projeto.)\n\n`;
-        providerId = reserva.id;
-        project.provider = reserva.id;
-        status = await this.registry.status(providerId, 0);
-        registrarTempo('status_reserva', { provedor: providerId, disponivel: status.available });
+    let trocou='';
+    const isolated=goldfishScope!==null||driftScope!==null||lite!==null||resolutionLedger!==null||specResolution!==null;
+    const comAnexos=isolated?[]:await this.prisma.conversationMessage.findMany({
+      where:{conversationId:msg.conversationId,role:'USUARIO',NOT:{attachments:{equals:Prisma.DbNull}}},
+      orderBy:{createdAt:'desc'},select:{id:true,conversationId:true,attachments:true},
+    });
+    const hasImages=comAnexos.some(m=>Array.isArray(m.attachments)&&m.attachments.some(a=>!!a&&typeof a==='object'&&!Array.isArray(a)&&a.tipo==='imagem'));
+    const reserveRequirements={preserveMcp:!isolated&&projectSessionMcp(providerId,project.id,'planning',{mensagemId:msg.id}).length>0,hasImages,pinnedReview:isolated};
+    let assessment=assessModel(providerId,projectModel(project,providerId),status);
+    if(!isolated&&(!status.available||assessment.state==='incompatible')){
+      const rejected:string[]=[];
+      const reserva=await trocarParaReserva(this.prisma,this.registry,project.id,providerId,reserveRequirements,{resourceFailure:!status.available,onSkip:(id,reason)=>rejected.push(id+': '+reason)});
+      if(rejected.length)registrarTempo('reservas_ignoradas',{motivo:rejected.join('; ')});
+      if(reserva){
+        trocou='('+reserva.anterior+' estava indisponível ou incompatível; resposta encaminhada a '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'. Preferência do projeto atualizada.)\n\n';
+        providerId=reserva.id;project.provider=reserva.id;status=reserva.status;
+        assessment=assessModel(providerId,projectModel(project,providerId),status);
+        registrarTempo('status_reserva',{provedor:providerId,disponivel:status.available});
       }
     }
-    if (!status.available) {
-      return fail(`A IA deste projeto (${status.label}) não está conectada: ${status.errors.join('; ')}. Conecte em "Conexões" e envie a mensagem de novo.`);
-    }
-
-    const modelAssessment=assessModel(providerId,projectModel(project,providerId),status);
-    registrarTempo('capacidade_modelo',{provedor:providerId,modelo:modelAssessment.model??'padrão',estado:modelAssessment.state,motivo:modelAssessment.reason});
-    if(modelAssessment.state==='incompatible')return fail('Modelo '+(modelAssessment.model??'padrão')+' incompatível: '+modelAssessment.reason+'. Selecione um modelo elegível em Conexões/Projeto. Nenhuma sessão de IA iniciada.');
+    if(!status.available)return fail('A IA deste projeto ('+status.label+') não está conectada: '+status.errors.join('; ')+'. Nenhuma reserva compatível disponível.');
+    registrarTempo('capacidade_modelo',{provedor:providerId,modelo:assessment.model??'padrão',estado:assessment.state,motivo:assessment.reason});
+    if(assessment.state==='incompatible')return fail('Modelo '+(assessment.model??'padrão')+' incompatível: '+assessment.reason+'. Nenhuma sessão de IA iniciada.');
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
     const tmp = path.join(project.workspacePath, 'conversas-tmp', (goldfishScope!==null||driftScope!==null||lite!==null)?msg.id+'-goldfish-'+task.claims:msg.id);
@@ -510,11 +514,6 @@ export class PlannerService {
       await this.workspace.hideRepoHarness(tmp, harness);
       this.workspace.sanitizeHarnessFiles(tmp);
       // Anexos da conversa (mais recentes primeiro): imagens para ver, documentos já em texto.
-      const comAnexos = await this.prisma.conversationMessage.findMany({
-        where: { conversationId: msg.conversationId, role: 'USUARIO', NOT: { attachments: { equals: Prisma.DbNull } } },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true, conversationId: true, attachments: true },
-      });
       const anexos = copiarAnexosParaSessao(this.workspace.projectDirs(project.dirKey).root, tmp, comAnexos);
       // Resultados dos trabalhos desta conversa (relatórios, inventários, planos em out/): ficam fora do repositório,
       // mas a IA precisa lê-los para apresentar a entrega e para seguir ("pode fazer a limpeza").
@@ -587,15 +586,16 @@ export class PlannerService {
         return;
       }
       this.registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
-      // Sem crédito/limite no meio da resposta: se houver IA reserva, a mesma pergunta vai para ela.
-      if (result.resourceUnavailable) {
-        const reserva = await trocarParaReserva(this.prisma, this.registry, project.id, providerId).catch(() => null);
-        if (reserva) {
-          registrarTempo('reencaminhada_para_reserva', { provedorAnterior: providerId, proximoProvedor: reserva.id });
-          await this.prisma.conversationMessage.create({
-            data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'sistema', content: `${reserva.anterior} ficou indisponível (${(result.error ?? '').slice(0, 200)}). Quem responde agora é ${reserva.nome}, que passou a ser a IA do projeto.` },
-          });
-          await this.queue.requeue(task.id, workerId, new Date(), 'resposta refeita com a IA reserva');
+      // A failed provider call can already have cost. Persist that cost in
+      // the same transaction that changes the preference and requeues.
+      if(!isolated&&(result.resourceUnavailable||result.stopReason==='model_incompatible')){
+        if(result.stopReason==='model_incompatible')markModelIncompatible(providerId,assessment.model);
+        const rejected:string[]=[];
+        const reserva=await trocarParaReserva(this.prisma,this.registry,project.id,providerId,{...reserveRequirements,preserveMcp:sessionMcp.length>0},{resourceFailure:!!result.resourceUnavailable,onSkip:(id,reason)=>rejected.push(id+': '+reason),retry:{messageId:msg.id,taskId:task.id,workerId,claims:task.claims,signal,costUsd:result.costUsd??0}});
+        if(rejected.length)registrarTempo('reservas_ignoradas',{motivo:rejected.join('; ')});
+        if(reserva){
+          registrarTempo('reencaminhada_para_reserva',{provedorAnterior:providerId,proximoProvedor:reserva.id,modelo:reserva.model??'padrão'});
+          await this.prisma.conversationMessage.create({data:{conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA',kind:'sistema',content:reserva.anterior+' ficou indisponível ou incompatível. A resposta continua com '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'.'}}).catch(()=>undefined);
           return;
         }
       }
@@ -760,7 +760,7 @@ export class PlannerService {
           ...(specialtyResume?{jobId:null}:{}),
           ...(perguntas ? { perguntas: perguntas as unknown as Prisma.InputJsonValue } : {}),
           sessionId: result.sessionId,
-          costUsd: result.costUsd ?? 0,
+          costUsd:{increment:result.costUsd??0},
           completedAt: new Date(),
         },
       });
@@ -771,7 +771,7 @@ export class PlannerService {
         tipo: kind,
         custoUsd: result.costUsd ?? 0,
       });
-      if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data: { sessionId: result.sessionId, costUsd: result.costUsd ?? 0 } });
+      if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data:{sessionId:result.sessionId,costUsd:{increment:result.costUsd??0}} });
       if (gravada.count && !erro && plan && !resolutionLedger && !specResolution) {
         const alvo = planoDaEntrega
           ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
