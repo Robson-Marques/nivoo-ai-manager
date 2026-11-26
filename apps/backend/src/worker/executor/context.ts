@@ -22,7 +22,7 @@ import { mediaAuthorRules } from '../../specialties/media/planner-contract';
 import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } from '../../jobs/motion/authoring';
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
-import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
+import { selectSkills,skillContext,skillManifest,SKILLS_VERSION } from '../../specialties/skills';
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { visualFontAssetsContext } from '../../projects/visual-font-assets';
@@ -292,6 +292,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const result = assembleContext(sections, memory, artLines, budget,lean?{memoryChars:6000,artifactChars:1500}:undefined);
     if(egmExecution)result.stats.egmExecution=egmExecution;
     result.stats.skillIds=skillIds;
+    if(worktree)result.stats.skillManifest=skillManifest(skills);
     result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
       fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });
