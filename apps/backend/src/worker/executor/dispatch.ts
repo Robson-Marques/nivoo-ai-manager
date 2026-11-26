@@ -1,4 +1,5 @@
-import type { Job,Step } from '@prisma/client';
+import { processIdentity } from '../../common/process-identity';
+import { Prisma,type Job,type Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { LogService } from '../../jobs/log.service';
 import type { ProviderRegistry } from '../../providers/provider-registry.service';
@@ -61,7 +62,8 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
         ...(isAi ? { mcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}) } : {}),
         onSkillRead: event=>skillCoverage.observe(event),
         onSpawn: (pid) => {
-          logChain = logChain.then(() => prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
+          const identity=processIdentity(pid);
+          logChain = logChain.then(() => prisma.attempt.updateMany({ where: { id: attempt.id,status:'EXECUTANDO' }, data: { pid,processIdentity:identity??Prisma.DbNull } }).then(() => undefined).catch(() => undefined));
         },
         onLog: (line, level = 'INFO') => {
           ultimoEvento = Date.now();
