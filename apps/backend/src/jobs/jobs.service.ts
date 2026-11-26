@@ -568,7 +568,12 @@ export class JobsService {
           verifyCommand: conferenciasDasEtapas(outras).join(' && ') || 'true',
         },
       });
-      await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
+      // Re-execução INTENCIONAL da revisão após a resposta do usuário: a tentativa
+      // anterior foi verificada, mas o worktree mudou. resumeFromAttempt = attemptCount
+      // evita que a recuperação de crash a confunda com uma tentativa a recuperar e
+      // pule a reconferência; a próxima sessão roda uma nova tentativa da revisão.
+      const rev = await tx.step.findUnique({ where: { id: revisao.id }, select: { attemptCount: true } });
+      await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, resumeFromAttempt: rev?.attemptCount ?? 0, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
       await tx.job.update({ where: { id: jobId }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `aplicando a resposta de ${por}`, finishedAt: null } });
       // A resposta do usuário é decisão dele: memória do projeto, um item por pergunta (responder de novo atualiza).
       await gravarNoProjeto(tx, {

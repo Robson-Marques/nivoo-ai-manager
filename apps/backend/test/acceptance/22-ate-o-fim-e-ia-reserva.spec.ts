@@ -236,7 +236,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('correcao.sh', "printf 'Atualize o CHANGELOG\\n' > CLAUDE-regras.md");
     const j = (
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
-        title: 'regra', objective: 'registrar a regra', defaultProvider: 'claude-code-cli',
+        title: 'regra', objective: 'registrar a regra', defaultProvider: 'claude-code-cli', conferencia: true,
         steps: [{ key: 'regra', instructions: 'echo rascunho > notas.md', verifyCommand: 'test -f notas.md' }],
         criteria: [{ key: 'regra-registrada', description: 'regra do CHANGELOG registrada', kind: 'COMMAND', config: { command: "grep -q CHANGELOG CLAUDE-regras.md" } }],
       }).expect(201)
@@ -291,7 +291,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('correcao.sh', `echo true > '${path.join(CTL, 'conforme')}'; echo corrigido > inventario.tsv`);
     const j = (
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
-        title: 'auditoria', objective: 'inventário', defaultProvider: 'claude-code-cli',
+        title: 'auditoria', objective: 'inventário', defaultProvider: 'claude-code-cli', conferencia: true,
         steps: [{ key: 'inv', instructions: 'echo cabecalho > inventario.tsv', verifyCommand: 'test -s inventario.tsv' }],
         criteria: [{ key: 'i', description: 'inventário', kind: 'FILE_EXISTS', config: { path: 'inventario.tsv' } }],
       }).expect(201)
@@ -315,7 +315,7 @@ describe('Até o fim: sem limite de sessões, conferência impossível e IA rese
     ctl('conforme', 'duvida');
     const j = (
       await h.http().post(`/api/projects/${p.id}/jobs`).send({
-        title: 'auditoria', objective: 'auditoria', defaultProvider: 'claude-code-cli',
+        title: 'auditoria', objective: 'auditoria', defaultProvider: 'claude-code-cli', conferencia: true,
         steps: [{ key: 'aud', instructions: 'echo relatorio > auditoria.md', verifyCommand: 'test -s auditoria.md' }],
         criteria: [{ key: 'r', description: 'relatório', kind: 'FILE_EXISTS', config: { path: 'auditoria.md' } }],
       }).expect(201)
