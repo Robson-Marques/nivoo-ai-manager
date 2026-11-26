@@ -32,6 +32,7 @@ export interface ContextStats {
   artifactsIncluded: number;
   artifactsOmitted: number;
   omittedMemoryIds: string[];
+  failureEvidence?:import('./executor/failure-evidence').FailureEvidence;
   skillIds?: string[];
   skillManifest?:import('../specialties/skill-evidence').SkillManifestEntry[];
   skillCoverage?:import('../specialties/skill-evidence').SkillCoverage[];
