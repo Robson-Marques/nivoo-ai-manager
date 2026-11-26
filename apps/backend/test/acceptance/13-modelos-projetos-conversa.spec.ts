@@ -584,7 +584,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
   it('contas de IA: Claude, ChatGPT e Gemini; login pela tela com o fluxo oficial; chave guardada fora do banco', async () => {
     // Tipos para "+ Nova conexão": Claude, ChatGPT e Gemini, pela conta e por chave de API.
     const tipos = (await h.http().get('/api/accounts/tipos').expect(200)).body;
-    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini api']); // Gemini pela conta: encerrado pelo Google, removido
+    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini api', 'NVIDIA api', 'OpenRouter Free api', 'GroqCloud api']); // Gemini pela conta: encerrado pelo Google, removido. NVIDIA/OpenRouter/Groq: provedores por chave de API.
 
     // Login do Claude pela tela (CLI simulado: mostra o link, lê o código e devolve o token oficial).
     const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-claude-')), 'claude');
