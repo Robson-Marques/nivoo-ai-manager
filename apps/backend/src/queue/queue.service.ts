@@ -63,7 +63,7 @@ export class QueueService {
           AND t.type::text = ANY(${types}::text[])
           AND (t."jobId" IS NULL OR NOT EXISTS (
             SELECT 1 FROM "QueueTask" other WHERE other."jobId"=t."jobId" AND other.id<>t.id
-              AND ((other.status='RUNNING' AND (t.status='QUEUED' OR other."lockedUntil">${AGORA_UTC} OR (other."runAt",other."createdAt",other.id)<(t."runAt",t."createdAt",t.id))) OR (other.status='QUEUED' AND t.status='QUEUED'
+              AND ((other.status='CANCELLED' AND other."lockedUntil">${AGORA_UTC}) OR (other.status='RUNNING' AND (t.status='QUEUED' OR other."lockedUntil">${AGORA_UTC} OR (other."runAt",other."createdAt",other.id)<(t."runAt",t."createdAt",t.id))) OR (other.status='QUEUED' AND t.status='QUEUED'
                 AND other."runAt"<=${AGORA_UTC}
                 AND (other."runAt",other."createdAt",other.id)<(t."runAt",t."createdAt",t.id)))
           ))
@@ -174,11 +174,13 @@ export class QueueService {
     });
   }
 
+  async acknowledgeCancelled(id:string,workerId:string,claims:number):Promise<void>{
+    await this.prisma.queueTask.updateMany({where:{id,status:'CANCELLED',lockedBy:workerId,claims},data:{lockedUntil:null,lockedBy:null}});
+  }
+
   async cancelForJob(tx: Tx | PrismaService, jobId: string): Promise<number> {
-    const r = await tx.queueTask.updateMany({
-      where: { jobId, status: { in: ['QUEUED', 'RUNNING'] } },
-      data: { status: 'CANCELLED', lockedUntil: null },
-    });
-    return r.count;
+    const queued=await tx.queueTask.updateMany({where:{jobId,status:'QUEUED'},data:{status:'CANCELLED',lockedBy:null,lockedUntil:null}});
+    const running=await tx.queueTask.updateMany({where:{jobId,status:'RUNNING'},data:{status:'CANCELLED'}});
+    return queued.count+running.count;
   }
 }

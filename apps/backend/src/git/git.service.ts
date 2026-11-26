@@ -357,7 +357,8 @@ export class GitService {
     const checkBranch=async(oid:string|undefined)=>{
       if(!oid)return 'absent';
       await this.ok(repo,['fetch','--quiet','--no-tags','origin',branchRef],conta);
-      const fetched=(await this.ok(repo,['rev-parse','FETCH_HEAD'],null)).stdout.trim();
+      await this.ok(repo,['cat-file','-e',oid+'^{commit}'],null);
+      const fetched=oid;
       if((await this.git(repo,['merge-base','--is-ancestor',commit,fetched],null)).exitCode===0)return 'contains';
       if((await this.git(repo,['merge-base','--is-ancestor',fetched,commit],null)).exitCode===0)return 'behind';
       return 'diverged';

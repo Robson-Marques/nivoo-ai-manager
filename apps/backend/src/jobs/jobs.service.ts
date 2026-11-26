@@ -337,7 +337,7 @@ export class JobsService {
     const sessaoAindaFechando = async () => {
       // Heartbeat of an idle worker or a different job does not prove that
       // this attempt is alive. The actual task lease is authoritative.
-      return this.prisma.queueTask.findFirst({where:{jobId,status:'RUNNING',lockedUntil:{gt:new Date()}},select:{id:true,lockedBy:true}});
+      return this.prisma.queueTask.findFirst({where:{jobId,status:{in:['RUNNING','CANCELLED']},lockedUntil:{gt:new Date()}},select:{id:true,lockedBy:true}});
     };
     const ate = Date.now() + Number(process.env.NIVOO_ESPERA_ENCERRAR_MS ?? 20_000);
     let fechando = await sessaoAindaFechando();

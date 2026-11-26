@@ -327,7 +327,7 @@ export class CompletionService {
     const report: EvaluationReport = { jobId, finalStatus: job.status, pendingSteps: [], criteria: [], pendencias: [] };
     const saved=readCompletion(job.completionState);
     if(saved){
-      if(saved.phase==='DELIVERED'&&job.status==='CONCLUIDO'&&saved.pushStatus!=='ERROR'){report.criteria=saved.checks;return report;}
+      if(saved.phase==='DELIVERED'&&job.status==='CONCLUIDO'&&(!saved.publish||saved.pushStatus==='CONFIRMED')){report.criteria=saved.checks;return report;}
       if(saved.contract!==completionContract(job))return this.blockGoldfishEvaluation(job,report,'O contrato mudou após preparar a incorporação. Recibo anterior preservado; não publicar automaticamente.',lease);
       if(saved.phase==='PREPARED'&&['EXECUTANDO','AGUARDANDO_APROVACAO','AGUARDANDO_RECURSO'].includes(job.status))
         return this.finishCompletion(job,report,saved,lease);
@@ -476,17 +476,11 @@ export class CompletionService {
           status,
           blockedReason: reason,
           statusDetail: detail,
-          finishedAt: status === 'CONCLUIDO' ? new Date() : null,
+          finishedAt: null,
 
         },
       });
 
-      // Trabalho concluído: as lições das tentativas que falharam nele perderam o sentido (o problema foi resolvido).
-      if (r.count && status === 'CONCLUIDO') {
-        await tx.memoryEntry.deleteMany({
-          where: { projectId: job.projectId, AND: [{ references: { path: ['origem'], equals: 'licao-automatica' } }, { references: { path: ['jobId'], equals: job.id } }] },
-        });
-      }
       return r.count;
     });
     report.finalStatus = updated ? status : (await this.prisma.job.findUniqueOrThrow({ where: { id: jobId } })).status;
@@ -502,7 +496,7 @@ export class CompletionService {
     }
     await this.logs.log(jobId, `Avaliação de conclusão: ${report.finalStatus}. ${detail}`, {
       source: 'evaluator',
-      level: status === 'CONCLUIDO' ? 'INFO' : 'WARN',
+      level: 'WARN',
     });
     return report;
   }

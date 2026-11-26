@@ -105,17 +105,24 @@ export class WorkerRunnerService {
   async process(task: ClaimedTask, leaseMs: number): Promise<void> {
     const ctrl = new AbortController();
     const hbEvery = Math.max(200, Math.floor(leaseMs / 4));
+    let confirmedUntil=task.lockedUntil?.getTime()??Date.now()+leaseMs;
+    let renewing=false;
+    const watchdog=setInterval(()=>{if(Date.now()>=confirmedUntil)ctrl.abort();},Math.min(hbEvery,1000));
     const hb = setInterval(async () => {
+      if(renewing||ctrl.signal.aborted)return;
+      renewing=true;
+      const requestedAt=Date.now();
       try {
         const ok = await this.queue.heartbeat(task.id, this.workerId, task.claims, leaseMs);
+        if(ok)confirmedUntil=requestedAt+leaseMs;
         await this.prisma.workerHeartbeat.update({ where: { id: this.workerId }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
         if (!ok && !ctrl.signal.aborted) {
           this.logger.warn(`Lease perdido para tarefa ${task.id}; abortando execução`);
           ctrl.abort();
         }
       } catch {
-        /* falha transitória de banco: tenta no próximo ciclo */
-      }
+        /* O watchdog cancela ao vencer o último lease confirmado. */
+      }finally{renewing=false;}
     }, hbEvery);
     try {
       if (task.recovered && task.jobId) {
@@ -159,6 +166,8 @@ export class WorkerRunnerService {
       if (outcome === 'lost') this.logger.warn('Erro de uma geração de lease obsoleta: nenhuma transição aplicada à tarefa '+task.id);
     } finally {
       clearInterval(hb);
+      clearInterval(watchdog);
+      await this.queue.acknowledgeCancelled(task.id,this.workerId,task.claims).catch(()=>undefined);
     }
   }
 }

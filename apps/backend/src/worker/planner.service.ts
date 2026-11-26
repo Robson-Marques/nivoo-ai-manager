@@ -108,6 +108,7 @@ export class PlannerService {
     }
     const project = msg.conversation.project;
     const planningSource={projectId:project.id,areaId:project.areaId,cutoff:msg.createdAt.toISOString(),visualRevision:project.visualProfileRevision};
+    const writeMessage=goldfishMessageWriter(this.prisma,{messageId:msg.id,taskId:task.id,workerId,claims:task.claims},signal);
     const fail = async (texto: string) => {
       // Só se ainda estiver pendente: o usuário pode ter cancelado a resposta.
       registrarTempo('erro_antes_ou_sem_execucao', {
@@ -118,10 +119,10 @@ export class PlannerService {
         if(await write({status:'ERRO',kind:'erro',content:[texto,msg.content].filter(Boolean).join('\n\n'),completedAt:new Date()}))await this.queue.complete(task.id, workerId, task.claims);
         return;
       }
-      await this.prisma.conversationMessage.updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: texto, completedAt: new Date() } });
-      await this.queue.complete(task.id, workerId, task.claims);
+      if(await writeMessage({status:'ERRO',kind:'erro',content:texto,completedAt:new Date()}))await this.queue.complete(task.id,workerId,task.claims);
     };
 
+    if(msg.startedAt&&!msg.goldfishState&&(task.recovered||task.internalErrorCount>0))return fail('A chamada anterior foi interrompida sem confirmação integral. O resultado e o custo podem ter sido processados pelo provedor; não será disparada outra chamada automaticamente.');
     const specialtyResume=msg.kind===SPECIALTY_HANDOFF_KIND;
     const automaticReview=msg.kind===AUTOMATIC_GOLDFISH_KIND;
     let specialtyContext:string|null=null;
@@ -379,7 +380,7 @@ export class PlannerService {
     if(assessment.state==='incompatible')return fail('Modelo '+(assessment.model??'padrão')+' incompatível: '+assessment.reason+'. Nenhuma sessão de IA iniciada.');
 
     // Cópia descartável: pasta principal do projeto + contexto/ (padrões da base e conhecimento).
-    const tmp = path.join(project.workspacePath, 'conversas-tmp', (goldfishScope!==null||driftScope!==null||lite!==null)?msg.id+'-goldfish-'+task.claims:msg.id);
+    const tmp = path.join(project.workspacePath, 'conversas-tmp', msg.id+'-claim-'+task.claims);
     fs.rmSync(tmp, { recursive: true, force: true });
     fs.mkdirSync(tmp, { recursive: true });
     try {
@@ -536,17 +537,13 @@ export class PlannerService {
         ultimaGravacao = Date.now();
         const texto = pendenteAndamento;
         pendenteAndamento = null;
-        gravando = this.prisma.conversationMessage
-          .updateMany({ where: { id: msg.id, status: 'PENDENTE' }, data: { andamento: texto } })
+        gravando = writeMessage({andamento:texto})
           .catch(() => undefined)
           .finally(() => (gravando = null));
       };
       // Registrar quando a execução pelo provedor foi SOLICITADA.
       // Se um erro de configuração ocorrer antes, startedAt permanece null.
-      await this.prisma.conversationMessage.updateMany({
-        where: { id: msg.id, status: 'PENDENTE', startedAt: null },
-        data: { startedAt: new Date() },
-      });
+      if(!await writeMessage({startedAt:msg.startedAt??new Date()}))return;
       const iniciouIaMs = Date.now();
       registrarTempo('ia_chamada_inicio', { provedor: providerId, preparacaoMs: iniciouIaMs - entrouNoWorkerMs, promptBaseCaracteres:prompt.length,perfilCaracteres:profile.text.length });
       const result = await measureAiCall({projectId:project.id,provider:providerId,model:projectModel(project,providerId),phase:'planner',messageId:msg.id,skillsVersion:SKILLS_VERSION,skillIds:routedSkillIds,promptChars:prompt.length},()=>this.registry.get(providerId).execute({
@@ -753,9 +750,7 @@ export class PlannerService {
       }
       // A entrega continua sendo o relatório; se ela traz o plano do que falta, ele vira uma mensagem de plano à parte.
       const planoDaEntrega = msg.kind === 'entrega' && plan ? plan : undefined;
-      const gravada = await this.prisma.conversationMessage.updateMany({
-        where: { id: msg.id, status: 'PENDENTE' },
-        data: {
+      const gravada={count:(await writeMessage({
           status: erro ? 'ERRO' : 'PRONTA',
           kind: erro ? 'erro' : msg.kind === 'entrega' ? 'entrega' : kind,
           content: erro ?? `${trocou}${content || '(sem resposta)'}`,
@@ -765,16 +760,15 @@ export class PlannerService {
           sessionId: result.sessionId,
           costUsd:{increment:result.costUsd??0},
           completedAt: new Date(),
-        },
-      });
-      // Resposta cancelada pelo usuário enquanto a IA trabalhava: o custo da sessão conta mesmo assim.
+      }))?1:0};
+      // Apenas a geração proprietária registra o resultado e o custo.
       registrarTempo('resposta_gravada', {
         gravada: gravada.count > 0,
         status: erro ? 'ERRO' : 'PRONTA',
         tipo: kind,
         custoUsd: result.costUsd ?? 0,
       });
-      if (!gravada.count) await this.prisma.conversationMessage.update({ where: { id: msg.id }, data:{sessionId:result.sessionId,costUsd:{increment:result.costUsd??0}} });
+      if (!gravada.count)return;
       if (gravada.count && !erro && plan && !resolutionLedger && !specResolution) {
         const alvo = planoDaEntrega
           ? (await this.prisma.conversationMessage.create({ data: { conversationId: msg.conversationId, role: 'ASSISTENTE', status: 'PRONTA', kind: 'plano', content: String(parsed?.texto ?? 'Plano do que falta.'), plan: planoDaEntrega, completedAt: new Date() } })).id
