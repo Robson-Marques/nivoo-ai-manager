@@ -618,13 +618,16 @@ export class StepExecutorService {
       return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, mediaFailure.detail);
     }
 
-    if (attemptStatus === 'SESSAO_ENCERRADA') {
+    // Preserve the existing visual recapture/review path even when the
+    // normal author session is now recorded as a failed verification.
+    const visualRecovery=attemptStatus==='FALHA'&&isAi&&sessionClosedNormally&&!nativeVisual&&/^direcao-arte-/.test(step.key);
+    if (attemptStatus === 'SESSAO_ENCERRADA'||visualRecovery) {
       const reprovacaoVisual = parecerVisualNaoAprovado(worktree, step.verifyCommand ?? '');
       if (reprovacaoVisual) {
         await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `parecer visual pendente na etapa ${step.key}`, { tentativa: number });
         return this.blockJob(task, workerId, job, step, BlockedReason.CRITERIOS_NAO_ATENDIDOS, reprovacaoVisual);
       }
-      return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes);
+      return this.continueInNewSession(task, workerId, job, step, worktree, number, treeBefore, treeAfter, notes,visualRecovery);
     }
 
     if (attemptStatus === 'SUCESSO') {
@@ -735,7 +738,7 @@ export class StepExecutorService {
    */
   private async continueInNewSession(
     task: ClaimedTask, workerId: string, job: Job, step: Step, worktree: string, number: number,
-    treeBefore: string, treeAfter: string, notes: number,
+    treeBefore: string, treeAfter: string, notes: number,visualRecovery=false,
   ): Promise<StepOutcome> {
     await saveCheckpoint(this.prisma,this.workspace,job.id, step, worktree, `sessão ${number} encerrada sem concluir ${step.key}`, {
       tentativa: number, progresso: treeBefore !== treeAfter, notas: notes,
@@ -743,7 +746,7 @@ export class StepExecutorService {
     // Contar a mesma falha antes de agendar outra recaptura: um agente que
     // altera a composição minimamente a cada volta não pode girar sem fim.
     const sessions = await this.prisma.attempt.findMany({
-      where: { stepId: step.id, status: 'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
+      where: { stepId: step.id, status: visualRecovery?{in:['SESSAO_ENCERRADA','FALHA']}:'SESSAO_ENCERRADA', number: { gt: step.resumeFromAttempt } },
       orderBy: { number: 'desc' },
     });
     const repeatedVerification=repeatedSessionVerification(sessions,step.verifyCommand??'');
