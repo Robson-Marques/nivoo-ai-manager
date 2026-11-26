@@ -1,11 +1,11 @@
-import { attemptContract,canReplayAttempt,makeReplayEnvelope,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,replayAuxFingerprint } from '../../src/worker/executor/attempt-journal';
+import { attemptContract,canReplayAttempt,makeReplayEnvelope,readAttemptJournal,writeAttemptPhase,attachAttemptReplay,terminalAttemptJournal,replayAuxFingerprint,validMediaSnapshots } from '../../src/worker/executor/attempt-journal';
 
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 const result={exitCode:0,output:'done',costUsd:0.25,sessionId:'s1'};
-const input:any={providerId:'codex-cli',isAi:true,nativeVisual:false,repoHarness:[],docsPendentes:[],mediaBefore:[],treeBefore:'old',activeMs:1200,failures:0,result};
+const input:any={providerId:'codex-cli',isAi:true,nativeVisual:false,repoHarness:[],docsPendentes:[],mediaBefore:[],mediaAfter:[],treeBefore:'old',activeMs:1200,failures:0,result};
 const replay=makeReplayEnvelope({contract:'contract',head:'head',tree:'tree',notes:'notes',context:'context',knowledge:'knowledge',input})!;
 describe('durable attempt phases',()=>{
   it('only allows replay of a completed phase with a complete envelope',()=>{
@@ -23,6 +23,18 @@ describe('durable attempt phases',()=>{
     const finalization={logId:'log',outputIds:['out'],videoIds:[],remove:['AGENTS.md'],docs:[['AGENTS.md','eA==']] as [string,string][],sourceHash:'source'};
     expect(canReplayAttempt({version:1,phase:'RESTORING',replay:verifiedReplay,finalization})).toBe(true);
     expect(canReplayAttempt({version:1,phase:'FINALIZING',replay:verifiedReplay,finalization})).toBe(true);
+  });
+  it('requires a complete, matching snapshot for durable MP4 replay',()=>{
+    const before:[string,string|null][]=[['midia/saida/reel.mp4',null]];
+    const after:[string,string|null][]=[['midia/saida/reel.mp4','identity']];
+    expect(validMediaSnapshots(before,after)).toBe(true);
+    expect(validMediaSnapshots([],undefined)).toBe(true);
+    expect(validMediaSnapshots(before,undefined)).toBe(false);
+    expect(validMediaSnapshots(before,[['midia/saida/outro.mp4','identity']])).toBe(false);
+    expect(validMediaSnapshots([...before,...before],[...after,...after])).toBe(false);
+    expect(validMediaSnapshots([['../reel.mp4',null]],[["../reel.mp4",'identity']])).toBe(false);
+    expect(canReplayAttempt({version:1,phase:'RETURNED',replay:{...replay,input:{...input,mediaBefore:before,mediaAfter:after}}})).toBe(true);
+    expect(canReplayAttempt({version:1,phase:'RETURNED',replay:{...replay,input:{...input,mediaBefore:before,mediaAfter:undefined}}})).toBe(false);
   });
   it('does not turn oversized or missing-head input into a replay',()=>{
     expect(makeReplayEnvelope({...replay,head:null})).toBeNull();

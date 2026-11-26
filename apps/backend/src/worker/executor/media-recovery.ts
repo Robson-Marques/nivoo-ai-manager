@@ -32,6 +32,9 @@ export function mediaIdentity(mediaDir:string,name:string):string|null{
 export function captureMediaOutputs(job:Ownership,step:OutputStep,mediaDir:string):MediaSnapshot{
   return new Map(durableMediaOutputs(job,step).map(name=>[name,mediaIdentity(mediaDir,name)]));
 }
+export function mediaSnapshotMatches(mediaDir:string,snapshot:[string,string|null][]):boolean{
+  return snapshot.every(([name,identity])=>mediaIdentity(mediaDir,name)===identity);
+}
 export function changedMediaOutputs(before:MediaSnapshot,identify:(name:string)=>string|null):string[]{
   return [...before].flatMap(([name,old])=>{const current=identify(name);return current!==null&&current!==old?[name]:[];});
 }
