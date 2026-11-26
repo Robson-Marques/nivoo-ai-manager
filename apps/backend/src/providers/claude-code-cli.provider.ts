@@ -202,6 +202,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
     const extra = readOnly?[]:ClaudeCodeCliProvider.scopedAllowRules(process.env.NIVOO_CLAUDE_ALLOWED_TOOLS);
     // Ferramentas MCP do projeto: arquivo só desta sessão (fora da pasta do trabalho, 600) e permissão só a elas.
     let pastaMcp: string | null = null;
+    try{
     if (mcp.length) {
       pastaMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
       const arq = path.join(pastaMcp, 'mcp.json');
@@ -250,7 +251,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       onStderr: (c) => c.split('\n').filter(Boolean).forEach((l) => req.onLog(l, 'WARN')),
     });
     if (pending.trim()) observe(pending);
-    if (pastaMcp) fs.rmSync(pastaMcp, { recursive: true, force: true });
+
     // Sessão encerrada à força: o CLI não emite o custo final. Estima pelos tokens já informados no stream,
     // para que o orçamento do job e do projeto continue valendo.
     if (r.aborted || r.timedOut) {
@@ -298,6 +299,7 @@ export class ClaudeCodeCliProvider implements AiProvider {
       cacheWriteInputTokens:parsed?.usage?.cache_creation_input_tokens,
       usagePartial:!parsed,
     };
+    }finally{if(pastaMcp)fs.rmSync(pastaMcp,{recursive:true,force:true});}
   }
 }
 
