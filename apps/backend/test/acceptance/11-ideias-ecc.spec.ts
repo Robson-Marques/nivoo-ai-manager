@@ -70,7 +70,7 @@ describe('Ideias do ECC no Nivoo', () => {
     for (let i = 0; i < 40; i++) {
       await h.http().post(`/api/projects/${p.id}/memory`).send({ category: 'PENDENCIA', title: `nota-${i}`, content: `PENDENCIA-${i} ` + 'x'.repeat(400) }).expect(201);
     }
-    process.env.NIVOO_CONTEXT_MAX_CHARS = '11000'; // pequeno de propósito: só parte da memória cabe (seções obrigatórias ~8 mil)
+    process.env.NIVOO_CONTEXT_MAX_CHARS = '14000'; // pequeno de propósito: só parte da memória cabe (seções obrigatórias ~11 mil; sobra para a decisão e as pendências recentes, não para as antigas)
     const j = await run(p.id, {
       title: 'contexto', defaultProvider: 'claude-code-cli',
       steps: [{ key: 'a', instructions: 'trabalhe', verifyCommand: 'true' }],
@@ -84,7 +84,7 @@ describe('Ideias do ECC no Nivoo', () => {
     expect(prompt).not.toContain('PENDENCIA-0 ');
     const stats = (await h.prisma.attempt.findFirstOrThrow({ where: { jobId: j.id } })).contextStats as any;
     expect(stats.memoryOmitted).toBeGreaterThan(20);
-    expect(stats.budgetChars).toBe(11000);
+    expect(stats.budgetChars).toBe(14000);
     const wt = path.join(p.workspacePath, 'worktrees', j.id);
     const full = fs.readFileSync(path.join(wt, '.nivoo', 'memoria.md'), 'utf8');
     expect(full).toContain('PENDENCIA-0 ');
@@ -109,7 +109,8 @@ describe('Ideias do ECC no Nivoo', () => {
     });
     await run(a.id, body('novo job A'));
     const promptA = promptRecebido();
-    expect(promptA).toMatch(/\[LIÇÃO\] Lição: "baixar" \(.*\) — a IA ficou repetindo sem avançar/);
+    // Limite de tentativas ou repetição improdutiva: ambos geram lição (ver comentário acima).
+    expect(promptA).toMatch(/\[LIÇÃO\] Lição: "baixar" \(.*\) — (a IA ficou repetindo sem avançar|esgotou as tentativas)/);
     expect(promptA).toContain('ERRO-UNICO-7731');
     await run(b.id, body('job B'));
     expect(promptRecebido()).not.toContain('ERRO-UNICO-7731');
