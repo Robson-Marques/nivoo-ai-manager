@@ -6,7 +6,7 @@ import { dependenciasDeMontagemPorArquivo, etapaPedeRenderizacaoMotion } from '.
 import { operationsNeedApproval,validateFileOperations } from '../common/file-operations';
 import { descreverOperacoes } from '../providers/arquivos-projeto.provider';
 import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/resource-rate-limit';
-import { trocarEtapaParaReserva } from '../projects/mover-trabalho';
+import { trocarEtapaParaReserva,markModelIncompatible } from '../projects/mover-trabalho';
 import { projectSessionMcp } from '../mcp/session-policy';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma, Step } from '@prisma/client';
@@ -952,6 +952,10 @@ export class StepExecutorService {
     if(signal.aborted)return 'INTERROMPIDO';
     const providerId=step.provider??job.defaultProvider;
     if(!tipoDe(providerId))return null;
+    if(!resourceFailure){
+      const configured=await this.prisma.project.findUnique({where:{id:job.projectId},select:{aiModels:true}});
+      if(configured){const status=await this.registry.status(providerId,15000);const model=assessModel(providerId,selectedModel(projectModel(configured,providerId),step.providerOptions),status,step.providerOptions).model;markModelIncompatible(providerId,model);}
+    }
     const rejected:string[]=[];
     const reserva=await trocarEtapaParaReserva(this.prisma,this.registry,job.projectId,job.id,step.id,providerId,{
       options:step.providerOptions,pinnedReview:!!approvedGoldfish(job.approvedScope),preserveMcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}).length>0,
