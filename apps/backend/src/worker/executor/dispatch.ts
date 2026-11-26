@@ -8,6 +8,7 @@ import { SKILLS_VERSION } from '../../specialties/skills';
 import type { ContextStats } from '../context-builder';
 import { registrarErro } from '../../diagnostico/erros';
 import { projectModel } from '../../providers/project-model';
+import { selectedModel } from '../../providers/model-capabilities';
 import { mcpDoProjeto } from '../../mcp/mcp';
 import { hasMotionCommand } from '../../jobs/motion/command';
 
@@ -48,8 +49,8 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
         signal,
         // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
         options: {
-          model: projectModel(job.project, providerId),
           ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }),
+          model:selectedModel(projectModel(job.project,providerId),step.providerOptions),
           // Sem corte arbitrário em 20 turnos: a sessão já tem timeout controlado.
           // Só encaminha um teto se o plano/projeto o configurou explicitamente.
           ...((step.providerOptions as { maxTurns?: number } | null)?.maxTurns ? { maxTurns: (step.providerOptions as { maxTurns: number }).maxTurns } : {}),
