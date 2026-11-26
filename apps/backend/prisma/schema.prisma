@@ -362,6 +362,7 @@ model Attempt {
   hostname         String?
   pid              Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
   processIdentity  Json? // boot_id e starttime do líder observado pelo worker
+  executionState   Json? // durable attempt phase and bounded continuation receipt
   sessionId        String? // id da sessão no provedor (ex.: session_id do Claude Code)
   stopReason       String? // motivo de término informado pelo provedor (completed, max_turns, api_error...)
   numTurns         Int?

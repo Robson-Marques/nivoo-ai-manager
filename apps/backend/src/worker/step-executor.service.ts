@@ -11,7 +11,7 @@ import { isTransientRateLimit, resourceRateLimitDelayMs } from '../providers/res
 import { trocarEtapaParaReserva,markModelIncompatible } from '../projects/mover-trabalho';
 import { projectSessionMcp } from '../mcp/session-policy';
 import { Injectable, Logger } from '@nestjs/common';
-import { Job, Prisma, Step } from '@prisma/client';
+import { Attempt, Job, Prisma, Step } from '@prisma/client';
 import * as path from 'node:path';
 import { appConfig } from '../config';
 import { armazenamentoDisponivel, MIN_FREE_VIDEO_BYTES } from '../common/disk-guard';
@@ -25,6 +25,8 @@ import { OrchestratorService } from '../jobs/orchestrator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderRegistry } from '../providers/provider-registry.service';
 import { buildPrompt } from '../providers/provider.interface';
+import type { ExecutionResult } from '../providers/provider.interface';
+import { attemptContract,readAttemptJournal,writeAttemptPhase,makeReplayEnvelope,canReplayAttempt,type AttemptPhase,type AttemptReplayInput } from './executor/attempt-journal';
 import * as fs from 'node:fs';
 import { sha256 } from '../common/hash';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
@@ -49,7 +51,7 @@ import { decideFailedAttempt,repeatedSessionVerification,decideSessionContinuati
 import { recoverRenderedOutput,captureMediaOutputs,publishAttemptMedia,durableMediaOutputs } from './executor/media-recovery';
 import { recordLesson,ingestNotes,saveCheckpoint } from './executor/recovery-store';
 import { capturasParaRecuperar } from '../jobs/motion-capture-freshness';
-import { mediaEnabledForArea } from '../specialties/media/scope';
+import { mediaEnabledForArea,hasNativeMediaOperation } from '../specialties/media/scope';
 import { parecerVisualNaoAprovado, prepararQuadrosDoVideo, quadrosRequeridos } from '../jobs/video-frame-extraction';
 
 /** Modelo escolhido para a IA no projeto (undefined = padrão da IA). */
@@ -78,6 +80,7 @@ export { ehProblemaDeInfra } from './executor/recovery-store';
 
 export { explicarConferencia } from './executor/verification';
 
+type ExecutionJob=Prisma.JobGetPayload<{include:{project:{include:{area:true}}}}>;
 @Injectable()
 export class StepExecutorService {
   private readonly logger = new Logger('StepExecutor');
@@ -111,14 +114,41 @@ export class StepExecutorService {
     // Reconcile only under the current claim. Never signal a group on
     // another host or an unrelated process that reused an old PID.
     const orphanRows=await this.prisma.attempt.findMany({where:{stepId:step.id,status:'EXECUTANDO'}});
+    let replay:Attempt|null=null;
     if(orphanRows.length||task.recovered){
       const recovery=await this.prisma.$transaction(async tx=>{
         await OrchestratorService.lockJob(tx,job.id);
         await assertStepLease(tx,task,workerId);
         const current=await tx.attempt.findMany({where:{stepId:step.id,status:'EXECUTANDO'}});
         const unsafe:string[]=[];
+        // Only a single latest attempt with a complete receipt may be adopted.
+        // The provider has already returned and the next side-effecting phase has not begun.
+        if(current.length===1){
+          const o=current[0],journal=readAttemptJournal(o.executionState);
+          if(o.hostname===os.hostname()&&!o.pid&&o.number===step.attemptCount&&o.number>step.resumeFromAttempt
+            &&step.status==='EXECUTANDO'&&['EXECUTANDO','AGUARDANDO_RECURSO'].includes(job.status)
+            &&canReplayAttempt(journal)){
+            await tx.attempt.update({where:{id:o.id},data:{workerId}});
+            return {count:0,detail:null,replay:{...o,workerId}};
+          }
+        }
         for(const o of current){
           if(o.hostname!==os.hostname()){unsafe.push('#'+o.number+': host diferente ou não identificado');continue;}
+          const journal=readAttemptJournal(o.executionState);
+          if(journal?.phase==='PREPARED')continue; // no provider dispatch authorized yet
+          if(journal){
+            // A phase in flight has no trustworthy completion receipt. Never
+            // redispatch, repeat a verification, or publish from an unknown state.
+            if(o.pid){
+              const state=await stopOwnedOrphan(o.pid,o.processIdentity);
+              if(state==='uncertain'||state==='owned'){unsafe.push('#'+o.number+': '+journal.phase+'; grupo ainda não reconciliado');continue;}
+            }
+            if(['RETURNED','VERIFIED','FINALIZING'].includes(journal.phase)&&!o.pid){
+              await tx.attempt.updateMany({where:{id:o.id,status:'EXECUTANDO'},data:{status:'INTERROMPIDA',endedAt:new Date(),error:'recibo preservado; reconciliação necessária na fase '+journal.phase}});
+            }
+            unsafe.push('#'+o.number+': fase '+journal.phase+' sem retomada automática comprovada'+(journal.costKnown===false?'; custo não informado':''));
+            continue;
+          }
           if(o.pid){
             const state=await stopOwnedOrphan(o.pid,o.processIdentity);
             if(state==='uncertain'||state==='owned')unsafe.push('#'+o.number+': grupo de processos não confirmado como encerrado');
@@ -139,6 +169,7 @@ export class StepExecutorService {
       }).catch(e=>{if(e instanceof LostStepLease)return null;throw e;});
       if(!recovery)return 'INTERROMPIDO';
       if(recovery.detail){await L(recovery.detail,'WARN');return 'BLOQUEADO';}
+      replay=recovery.replay??null;
       await L('Recuperação: '+recovery.count+' tentativa(s) órfã(s) reconciliada(s); arquivos e checkpoints preservados.','WARN');
     }
 
@@ -163,6 +194,27 @@ export class StepExecutorService {
         if(drift.status!=='unchanged')throw Error(renderGoldfishGitDrift(drift)+'\nEvidências precisam ser reconciliadas antes de continuar.');
       }
     }catch(e){return this.blockJob(task,workerId,job,step,BlockedReason.VERIFICACAO_IMPOSSIVEL,(e as Error).message);}
+    if(replay){
+      const journal=readAttemptJournal(replay.executionState);
+      const existing=path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id);
+      let valid=false;
+      if(canReplayAttempt(journal)&&journal.replay.contract===attemptContract(job,step,replay.provider)
+        &&fs.existsSync(path.join(existing,'.git'))){
+        try{
+          await this.prisma.$transaction(tx=>assertStepLease(tx,task,workerId));
+          valid=journal.replay.head===await this.workspace.headCommit(existing)
+            &&journal.replay.tree===await this.workspace.snapshotHash(existing)
+            &&journal.replay.notes===this.workspace.dirFingerprint(path.join(existing,'.nivoo'))
+            &&journal.replay.context===this.workspace.dirFingerprint(path.join(existing,'contexto'))
+            &&journal.replay.knowledge===this.workspace.dirFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge);
+        }catch(e){if(e instanceof LostStepLease)return 'INTERROMPIDO';valid=false;}
+      }
+      if(!valid||!canReplayAttempt(journal)){
+        return this.reconcileReceiptConflict(task,workerId,job,step,replay,'Recibo da tentativa anterior existe, mas o contrato ou os arquivos não correspondem ao estado registrado. Não repetir a sessão automaticamente.');
+      }
+      await L('RETOMADA DO RECIBO: tentativa #'+replay.number+' na fase '+journal.phase+'; nenhuma nova sessão do provedor.','INFO',replay.id);
+      return this.finishAttempt(task,workerId,signal,job,step,replay,existing,journal.replay.input,journal.phase);
+    }
     const mediaRecovery=await recoverRenderedOutput(this.prisma,job,step,this.pastaDeMidia(job.project.dirKey));
     if(mediaRecovery.kind==='recovered'){
       await L('RECUPERAÇÃO SEM REFAZER: MP4 do mesmo produtor e tentativa, hash e contrato técnico válidos. '+mediaRecovery.detail,'WARN');
@@ -433,7 +485,7 @@ export class StepExecutorService {
       await assertStepLease(tx,task,workerId);
       await tx.job.updateMany({ where: { id: job.id, status: 'AGUARDANDO_RECURSO' }, data: { status: 'EXECUTANDO', statusDetail: null } });
       await tx.step.update({ where: { id: step.id }, data: { status: 'EXECUTANDO', statusDetail: null, attemptCount: number } });
-      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname(), treeBefore } });
+      return tx.attempt.create({ data: { jobId: job.id, stepId: step.id, number, provider: providerId, workerId, hostname: os.hostname(), treeBefore,executionState:{version:1,phase:'PREPARED'} } });
     });
     await L(`Tentativa #${number} da etapa "${step.key}" com ${providerId}${isAi ? ' (nova sessão de IA)' : ''}`, 'INFO', attempt.id);
 
@@ -459,7 +511,76 @@ export class StepExecutorService {
     const timeoutMs=executionTimeoutMs(job,providerId,step.instructions);
     const mediaBefore=captureMediaOutputs(job,step,this.pastaDeMidia(job.project.dirKey));
     const started = Date.now();
-    let result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
+    if(signal.aborted)return 'INTERROMPIDO';
+    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'PREPARED',{version:1,phase:'DISPATCHING'});
+    const result=await dispatchExecution(this.prisma,this.logs,this.registry,provider,providerId,job,step,attempt,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),context,profileText,timeoutMs,signal,started,contextStats);
+    const input:AttemptReplayInput={providerId,isAi,nativeVisual:!!nativeVisual,protectedBefore,repoHarness,
+      docsPendentes:[...docsPendentes].map(([key,value])=>[key,value.toString('base64')]),
+      treeBefore,repairBefore,contextStats,effectiveModel:effectiveModel??null,failures,mediaBefore:[...mediaBefore],
+      result,activeMs:Math.max(0,Date.now()-started)};
+    // Cost and provider receipt become durable before any verification or artifact publication.
+    // A receipt with no replay envelope is still useful for reconciliation and accounting.
+    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'DISPATCHING',{
+      version:1,phase:'RETURNED',costKnown:typeof result.costUsd==='number'&&Number.isFinite(result.costUsd),
+      activeMs:input.activeMs,replay:await this.replayEnvelope(job,step,worktree,input),result:result
+    });
+    return this.finishAttempt(task,workerId,signal,job,step,attempt,worktree,input,'RETURNED');
+  }
+
+  private async replayEnvelope(job:ExecutionJob,step:Step,worktree:string,input:AttemptReplayInput){
+    // Scope of automatic replay: ordinary isolated workspaces only. Native
+    // media, external file operations and destructive verification need their
+    // own durable output contracts; never infer those from a Git tree.
+    if(mediaEnabledForArea(job.project.area)||hasNativeMediaOperation([step],job.defaultProvider)
+      ||input.nativeVisual||input.mediaBefore.length||(!input.isAi&&input.providerId!=='local-shell')
+      ||step.requiresApproval||evaluatePolicy((input.isAi?'':step.instructions)+'\n'+(step.verifyCommand??'')).requiresApproval)return null;
+    try{
+      return makeReplayEnvelope({
+        contract:attemptContract(job,step,input.providerId),head:await this.workspace.headCommit(worktree),
+        tree:await this.workspace.snapshotHash(worktree),
+        notes:this.workspace.dirFingerprint(path.join(worktree,'.nivoo')),
+        context:this.workspace.dirFingerprint(path.join(worktree,'contexto')),
+        knowledge:this.workspace.dirFingerprint(this.workspace.projectDirs(job.project.dirKey).knowledge),
+        input
+      });
+    }catch{return null;}
+  }
+
+  private async reconcileReceiptConflict(task:ClaimedTask,workerId:string,job:Job,step:Step,attempt:Attempt,detail:string):Promise<StepOutcome>{
+    await this.prisma.$transaction(async tx=>{
+      await OrchestratorService.lockJob(tx,job.id);
+      await assertStepLease(tx,task,workerId);
+      await tx.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO',workerId},data:{status:'INTERROMPIDA',endedAt:new Date(),error:detail}});
+      await tx.step.updateMany({where:{id:step.id,status:'EXECUTANDO'},data:{status:'BLOQUEADO',statusDetail:detail}});
+      await tx.job.updateMany({where:{id:job.id,status:{in:['EXECUTANDO','AGUARDANDO_RECURSO']}},data:{status:'BLOQUEADO',blockedReason:'FALHA_INFRAESTRUTURA',statusDetail:detail}});
+      await tx.queueTask.update({where:{id:task.id},data:{status:'DONE',lockedUntil:null,lastError:detail}});
+    });
+    await this.logs.log(job.id,detail,{level:'WARN',stepId:step.id,attemptId:attempt.id,source:'worker'});
+    return 'BLOQUEADO';
+  }
+
+  /** Shared normal/recovery path: a RETURNED receipt continues at the existing
+   * verification; a VERIFIED receipt continues at the existing finalization.
+   * No extra provider session or duplicate verification is introduced. */
+  private async finishAttempt(task:ClaimedTask,workerId:string,signal:AbortSignal,job:ExecutionJob,step:Step,
+    attempt:Attempt,worktree:string,input:AttemptReplayInput,phase:'RETURNED'|'VERIFIED'):Promise<StepOutcome>{
+    const {providerId,isAi,nativeVisual,protectedBefore,repoHarness,treeBefore,repairBefore,contextStats,failures}=input;
+    const effectiveModel=input.effectiveModel??undefined;
+    const docsPendentes=new Map(input.docsPendentes.map(([key,value])=>[key,Buffer.from(value,'base64')]));
+    const mediaBefore=new Map(input.mediaBefore);
+    const number=attempt.number;
+    const knowledgeDir=this.workspace.projectDirs(job.project.dirKey).knowledge;
+    const outputDir=path.join(worktree,'out');
+    const L=(msg:string,level:'INFO'|'WARN'|'ERROR'='INFO',attemptId?:string)=>this.logs.log(job.id,msg,{stepId:step.id,attemptId,level,source:'worker:'+workerId});
+    const started=Date.now()-input.activeMs;
+    let result=input.result;
+    let beforeVerification:ExecutionResult;
+    let verification:Awaited<ReturnType<typeof verifyExecution>>;
+    let verified:boolean;
+    let sessionClosedNormally:boolean;
+    if(phase==='RETURNED'){
+      await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'RETURNED',{version:1,phase:'VERIFYING',activeMs:input.activeMs});
+
 
     const owned=await this.prisma.$transaction(async tx=>{await assertStepLease(tx,task,workerId);return true;}).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
     if(!owned)return 'INTERROMPIDO';
@@ -471,17 +592,16 @@ export class StepExecutorService {
     }
     const normalizedSession=normalizeSessionResult(result,isAi);
     result=normalizedSession.result;
-    const {sessionClosedNormally}=normalizedSession;
-    const beforeVerification={...result};
+    sessionClosedNormally=normalizedSession.sessionClosedNormally;
+    beforeVerification={...result};
     let processWrite=Promise.resolve();
-    const verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L,pid=>{
+    verification=await verifyExecution(job,step,providerId,isAi,result,worktree,outputDir,this.pastaDeMidia(job.project.dirKey),attempt,signal,L,pid=>{
       const identity=processIdentity(pid);
       processWrite=processWrite.then(async()=>{await this.prisma.attempt.updateMany({where:{id:attempt.id,status:'EXECUTANDO'},data:{pid,processIdentity:identity??Prisma.DbNull}});}).catch(()=>undefined);
     });
     await processWrite;
     result=verification.result;
-    let {verified}=verification;
-    const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
+    verified=verification.verified;
     // Uma revisão não pode ser aprovada com os PNG anteriores à última
     // alteração no HTML. Mesmo se a IA marcar conforme=true, a composição
     // alterada precisa ser recapturada pelo local-shell antes da aprovação.
@@ -499,6 +619,22 @@ export class StepExecutorService {
     }
     const stillOwned=await this.prisma.$transaction(async tx=>{await assertStepLease(tx,task,workerId);return true;}).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
     if(!stillOwned)return 'INTERROMPIDO';
+      const verifiedInput:AttemptReplayInput={...input,result,beforeVerification,verification,verified,sessionClosedNormally,activeMs:Math.max(0,Date.now()-started)};
+      await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFYING',{
+        version:1,phase:'VERIFIED',activeMs:verifiedInput.activeMs,replay:await this.replayEnvelope(job,step,worktree,verifiedInput),
+        verification:verification.skillVerification,verified,result
+      });
+      phase='VERIFIED';
+    }else{
+      if(!input.beforeVerification||!input.verification||typeof input.verified!=='boolean'||typeof input.sessionClosedNormally!=='boolean')
+        return this.reconcileReceiptConflict(task,workerId,job,step,attempt,'Recibo da conferência incompleto; resultado preservado.');
+      beforeVerification=input.beforeVerification;
+      verification=input.verification;
+      verified=input.verified;
+      sessionClosedNormally=input.sessionClosedNormally;
+    }
+    const {falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando}=verification;
+    await writeAttemptPhase(this.prisma,task,workerId,attempt.id,'VERIFIED',{version:1,phase:'FINALIZING',activeMs:Math.max(0,Date.now()-started)});
     const elapsedSec = Math.ceil((Date.now() - started) / 1000);
 
     // Artefatos: saída da tentativa + arquivos novos em out/.
@@ -521,13 +657,13 @@ export class StepExecutorService {
           const updated=await tx.attempt.updateMany({
             where: { id: attempt.id,status:'EXECUTANDO',workerId },
             data: {
-              status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),
+              status: 'FALHA', error: 'violação de isolamento: conhecimento do projeto alterado', endedAt: new Date(),executionState:{version:1,phase:'TERMINAL',outcome:'FALHA'},
               costUsd: result.costUsd ?? 0, costEstimated: !!result.costEstimated, sessionId: result.sessionId, stopReason: result.stopReason,
               inputTokens:result.inputTokens,outputTokens:result.outputTokens,
             },
           });
           if(updated.count!==1)throw new LostStepLease();
-          await tx.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } } });
+          await tx.job.update({ where: { id: job.id }, data: { activeSeconds: { increment: elapsedSec } } });
           return true;
         }).catch(e=>{if(e instanceof LostStepLease)return false;throw e;});
         if(!recorded)return 'INTERROMPIDO';
@@ -579,6 +715,7 @@ export class StepExecutorService {
         where: { id: attempt.id,status:'EXECUTANDO',workerId },
         data: {
           status: attemptStatus,
+          executionState:{version:1,phase:'TERMINAL',outcome:attemptStatus},
           ...(contextStats||failureEvidence?{contextStats:(contextStats??{failureEvidence}) as unknown as Prisma.InputJsonValue}:{}),
           exitCode: result.exitCode,
           output: (result.output ?? '').slice(-20000),
@@ -599,7 +736,7 @@ export class StepExecutorService {
       if(updated.count!==1)throw new LostStepLease();
       await tx.job.update({
         where: { id: job.id },
-        data: { activeSeconds: { increment: elapsedSec }, costSpentUsd: { increment: result.costUsd ?? 0 } },
+        data: { activeSeconds: { increment: elapsedSec } },
       });
       await tx.step.update({ where: { id: step.id }, data: { lastOutput: (result.output ?? '').slice(-4000) } });
       return true;
