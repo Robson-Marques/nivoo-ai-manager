@@ -4,6 +4,7 @@ import type { LogService } from '../../jobs/log.service';
 import type { ProviderRegistry } from '../../providers/provider-registry.service';
 import type { AiProvider,ExecutionResult,ExecutionRequest } from '../../providers/provider.interface';
 import { measureAiCall } from '../token-benchmark';
+import { collectSkillCoverage } from '../../specialties/skill-evidence';
 import { SKILLS_VERSION } from '../../specialties/skills';
 import type { ContextStats } from '../context-builder';
 import { registrarErro } from '../../diagnostico/erros';
@@ -21,6 +22,7 @@ export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'
 /** Dispatch exactly once. The caller owns attempt creation, outcome and retry. */
 export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,providerId:string,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number,contextStats?:ContextStats|null):Promise<ExecutionResult>{
   const isAi=provider.kind!=='executor';
+  const skillCoverage=collectSkillCoverage(contextStats?.skillManifest??[]);
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
     let logChain = Promise.resolve();
@@ -57,6 +59,7 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
         },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
         ...(isAi ? { mcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}) } : {}),
+        onSkillRead: event=>skillCoverage.observe(event),
         onSpawn: (pid) => {
           logChain = logChain.then(() => prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
         },
@@ -75,6 +78,7 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
       clearInterval(progresso);
     }
     await logChain;
+    if(contextStats?.skillManifest)contextStats.skillCoverage=skillCoverage.snapshot();
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
     if (isAi) registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
 
