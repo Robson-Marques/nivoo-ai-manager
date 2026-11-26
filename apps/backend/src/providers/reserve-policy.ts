@@ -31,7 +31,7 @@ export function reserveCompatibility(id:string,project:ReserveProject,status:Pro
 }
 /** Configured order is intentional. Only skip proven incompatibility; CLI
  * capability unknown is not a reason to stop an otherwise valid job. */
-export async function chooseReserve(input:{project:ReserveProject;registry:ReserveRegistry;from:string;requirements:ReserveRequirements;knownIds:readonly string[];cooling:(id:string)=>boolean;includeCurrent?:boolean;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveCandidate|null>{
+export async function chooseReserve(input:{project:ReserveProject;registry:ReserveRegistry;from:string;requirements:ReserveRequirements;knownIds:readonly string[];cooling:(id:string)=>boolean;modelCooling?:(id:string,model:string|null)=>boolean;includeCurrent?:boolean;onSkip?:(id:string,reason:string)=>void}):Promise<ReserveCandidate|null>{
   const {project,registry,from,requirements}=input;
   if(reservePin(requirements))return null;
   const candidates=[...(input.includeCurrent?[project.provider]:[]),...(Array.isArray(project.aiReserva)?project.aiReserva.filter((x):x is string=>typeof x==='string'):[])];
@@ -46,6 +46,7 @@ export async function chooseReserve(input:{project:ReserveProject;registry:Reser
       const reason=reserveCompatibility(id,project,status,requirements);
       if(reason){input.onSkip?.(id,reason);continue;}
       const model=assessModel(id,selectedModel(projectModel(project,id),requirements.options),status,requirements.options).model;
+      if(input.modelCooling?.(id,model)){input.onSkip?.(id,'modelo com incompatibilidade recente');continue;}
       return {id,nome:status.label,model,status};
     }catch{input.onSkip?.(id,'não foi possível consultar ou validar a conexão');}
   }
