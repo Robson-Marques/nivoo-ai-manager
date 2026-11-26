@@ -59,6 +59,8 @@ export interface ExecutionResult {
   exitCode: number;
   output: string;
   error?: string;
+  /** Structured failure emitted by the local connector, not inferred from model text. */
+  connectorFailure?:{kind:'spawn'|'connector-exception'|'sandbox';detail:string};
   /** Recurso indisponível (limite de uso, autenticação ausente, rede): reagendar. */
   resourceUnavailable?: boolean;
   /** Tempo mínimo de espera indicado pelo provedor (ex.: Retry-After no HTTP 429). */
