@@ -4,7 +4,7 @@ import type { ProviderRegistry } from '../../providers/provider-registry.service
 import { SESSION_CONTEXT_DIR } from '../../storage/workspace.service';
 import { AGENT_RULES } from '../../security/policy';
 import { ferramentasDaIa } from '../../providers/ferramentas';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
@@ -40,7 +40,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       profileText,
       '',
-      ...ferramentasDaIa(providerId, request.goldfishResolutionContext?[]:mcpDoProjeto(project.id).map((m) => m.nome),true),
+      ...ferramentasDaIa(providerId, (request.mcpNames??projectSessionMcp(providerId,project.id,request.goldfishResolutionContext?'review':'planning').map(m=>m.nome)),true),
       '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
       '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
       '',
