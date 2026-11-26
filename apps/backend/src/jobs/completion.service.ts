@@ -542,6 +542,9 @@ export class CompletionService {
       await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
       const fresh=await this.prisma.job.findUniqueOrThrow({where:{id:job.id}});
       const folder=await this.artifacts.guardarNaPastaDoProjeto(this.workspace.projectDirs(job.project.dirKey).root,fresh);
+      // Veredito da avaliação também no caminho de sucesso (os demais status já
+      // registram "Avaliação de conclusão: <status>"): registro único na entrega.
+      await this.logs.log(job.id,'Avaliação de conclusão: CONCLUIDO. todos os critérios verificados com evidências; resultado incorporado à pasta principal do projeto',{source:'evaluator',level:'WARN'});
       if(folder)await this.logs.log(job.id,'Resultados guardados na pasta do projeto: '+folder,{source:'evaluator'});
       await this.pedirEntrega(job,state.plan.target,state.checks,state.plan.changed);
       await this.workspace.limparLixoDeExecucao(path.join(this.workspace.projectDirs(job.project.dirKey).worktrees,job.id)).catch(()=>null);
