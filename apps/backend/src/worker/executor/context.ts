@@ -233,6 +233,10 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
         'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
       for (const a of (lean?priorAttempts.slice(0,1):[...priorAttempts].reverse())) {
+        const observed=(a.contextStats as {failureEvidence?:{version?:number;layer?:string;kind?:string;detail?:string}}|null)?.failureEvidence;
+        if(observed?.version===1&&typeof observed.layer==='string'&&typeof observed.kind==='string'&&typeof observed.detail==='string'){
+          history.push('Origem registrada pelo backend na tentativa '+a.number+': '+observed.layer+' / '+observed.kind+' — '+observed.detail.slice(0,1800));
+        }
         const e = a.error ?? '';
         // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
         const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
@@ -249,7 +253,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         history.push(lean?'Log integral em .nivoo/ultima-conferencia.txt. Consulte as linhas pertinentes se o diagnóstico abaixo for insuficiente; não releia os testes aprovados.':'A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
         // Also recover the actual diagnostic from older logs whose stdout/stderr
         // were concatenated. Do not treat a prior successful check as a failure.
-        if(priorAttempts.some(a=>(a.error??'').startsWith('verificação da etapa falhou'))){
+        if((priorAttempts[0]?.error??'').startsWith('verificação da etapa falhou')){
           try{
             const log=fs.readFileSync(path.join(worktree,'.nivoo','ultima-conferencia.txt'),'utf8');
             if(/^\(exit (?!0\))\S+\)/m.test(log)){
