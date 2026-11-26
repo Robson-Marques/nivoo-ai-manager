@@ -82,6 +82,7 @@ export async function trocarEtapaParaReserva(prisma:PrismaService,registry:Reser
   if(!choice||opts.signal.aborted)return null;
   return prisma.$transaction(async tx=>{
     await OrchestratorService.lockJob(tx,jobId);
+    await tx.$queryRaw`SELECT id FROM "QueueTask" WHERE id = ${opts.taskId} FOR UPDATE`;
     const active=await tx.queueTask.findFirst({where:{id:opts.taskId,jobId,stepId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING',lockedUntil:{gt:new Date()}},select:{id:true}});
     if(!active||opts.signal.aborted)return null;
     const job=await tx.job.findUnique({where:{id:jobId},select:{projectId:true,defaultProvider:true,status:true,approvedScope:true}});
@@ -92,6 +93,9 @@ export async function trocarEtapaParaReserva(prisma:PrismaService,registry:Reser
     const p=await tx.project.findUnique({where:{id:projectId},select:{provider:true,aiReserva:true,aiModels:true}});
     if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null)return null;
     const updated=await tx.step.updateMany({where:{id:stepId,provider:step.provider,status:step.status},data:{provider:choice.id,status:'PENDENTE',statusDetail:'continua com '+choice.nome}});
-    return updated.count?choice:null;
+    if(!updated.count)return null;
+    const queued=await tx.queueTask.updateMany({where:{id:opts.taskId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'continua com '+choice.id,resourceWaits:0}});
+    if(!queued.count)throw Error('Lease da etapa mudou; troca de reserva não aplicada.');
+    return choice;
   });
 }
