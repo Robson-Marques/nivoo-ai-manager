@@ -152,19 +152,10 @@ const CONHECIDOS: Linha[] = [
   ["cuOpt",null,["dados"],"Otimização de rotas e logística","especializado","download"],
 ];
 
-function chave(nome: string): string {
-  return nome.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
-}
-function igual(a: string, b: string): boolean {
-  const x = chave(a.split('/').pop() ?? a);
-  const y = chave(b.split('/').pop() ?? b);
-  // A página mostra nomes curtos; os IDs reais às vezes incluem quantização
-  // e versão (ex.: "nemotron-3-nano-omni-30b-a3b-reasoning").
-  return x === y || (x.length >= 16 && y.startsWith(x)) || (y.length >= 16 && x.startsWith(y));
-}
 function modeloConhecido(id: string): Linha | undefined {
-  return CONHECIDOS.find((l) => (l[1] && igual(l[1], id)) || igual(l[0], id));
+  // Capability identity is the exact documented API ID, including vendor.
+  // A similar display name or a longer variant is not the same endpoint.
+  return CONHECIDOS.find(l=>l[1]===id);
 }
 
 function adivinharEspecialidadePeloId(id: string): Pick<NvidiaCatalogItem, 'areas' | 'endpoint' | 'uso'> {
@@ -190,13 +181,13 @@ function adivinharEspecialidadePeloId(id: string): Pick<NvidiaCatalogItem, 'area
 export function catalogarNvidiaModelos(idsDaApi: string[] = []): NvidiaCatalogItem[] {
   const ids = [...new Set(idsDaApi.filter((id) => typeof id === 'string' && /^[A-Za-z0-9._:/-]{1,150}$/.test(id)))];
   const lista: NvidiaCatalogItem[] = CONHECIDOS.map(([nome, id, areas, uso, endpoint, oferta, ferramentas]): NvidiaCatalogItem => {
-    const idReal = ids.find((v) => (id && igual(id, v)) || igual(nome, v));
+    const idReal = ids.find(v=>v===id);
     return { id: idReal ?? id, nome, areas, uso, endpoint, oferta,
       ferramentas: ferramentas === true, utilizavelNoWorkflow: endpoint === 'chat-completions' && ferramentas === true,
       listadoNaChave: !!idReal, fonte: 'nvidia-build' };
   });
   for (const id of ids) {
-    if (lista.some((m) => m.id && igual(m.id, id))) continue;
+    if (lista.some(m=>m.id===id)) continue;
     const espec = modeloConhecido(id);
     if (espec) continue;
     const reconhecido = adivinharEspecialidadePeloId(id);
