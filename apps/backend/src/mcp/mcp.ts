@@ -1,3 +1,4 @@
+import { validateMcpToolNames,defaultPlanningTools,allowedMcpToolNames } from './tool-policy';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -28,6 +29,10 @@ export interface Mcp {
   url?: string;
   /** Cabeçalhos HTTP cujo valor é secreto (ex.: Authorization) — só o nome aqui. */
   cabecalhosSecretos?: string[];
+  /** Undefined uses the conservative official HTTP default for planning. [] denies all. */
+  ferramentasPlanejamento?:string[];
+  /** Undefined preserves the existing execution authorization; [] denies all. */
+  ferramentasExecucao?:string[];
   projetos: 'todos' | string[];
   ativo: boolean;
   criadaEm: string;
@@ -42,6 +47,10 @@ export interface McpResolvido {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  ferramentasPlanejamento?:string[];
+  ferramentasExecucao?:string[];
+  /** Internal marker for a filtered server, not a credential or model instruction. */
+  ferramentasPermitidas?:string[];
 }
 
 const NOME_VARIAVEL = /^[A-Z_][A-Z0-9_]{0,63}$/;
@@ -98,7 +107,7 @@ function nomeTecnico(nome:string,existentes:Mcp[],proprio:string):string{
 /** Visão para a tela: segredos só aparecem como "definido / falta". */
 export function paraTela(m: Mcp) {
   const segredos = [...(m.segredos ?? []), ...(m.cabecalhosSecretos ?? [])].map((s) => ({ nome: s, definido: !!segredoDaConexao(`mcp--${m.id}`, s as never) }));
-  return { ...m, nomeTecnico: nomeTecnico(m.nome, listarMcp(), m.id), segredos };
+  return { ...m, ferramentasPlanejamentoEfetivas:m.tipo==='http'?(m.ferramentasPlanejamento===undefined?defaultPlanningTools(m.url):allowedMcpToolNames(m.ferramentasPlanejamento)):[], nomeTecnico: nomeTecnico(m.nome, listarMcp(), m.id), segredos };
 }
 
 /**
@@ -126,6 +135,14 @@ export function salvarMcp(body: any, id?: string): Mcp {
     const url = String(body?.url ?? atual?.url ?? '').trim();
     if (!/^https?:\/\/[^\s]+$/.test(url) || /^https?:\/\/[^/]*@/.test(url)) throw new BadRequestException('Endereço inválido (use https://… e coloque tokens em "cabeçalhos", não no endereço)');
     m.url = url;
+  }
+  // Never carry an explicit tool authorization over to a different endpoint.
+  const sameTarget=atual?.tipo===m.tipo&&atual?.url===m.url&&atual?.comando===m.comando&&JSON.stringify(atual?.args??[])===JSON.stringify(m.args??[]);
+  for(const key of ['ferramentasPlanejamento','ferramentasExecucao'] as const){
+    const value=body?.[key]!==undefined?body[key]:sameTarget?atual?.[key]:undefined;
+    if(value===undefined||value===null)continue;
+    if(m.tipo!=='http')throw new BadRequestException('A seleção individual nesta versão está disponível para MCP HTTP; servidores stdio externos só na execução aprovada.');
+    try{m[key]=validateMcpToolNames(value);}catch(e){throw new BadRequestException((e as Error).message);}
   }
   const variaveis = body?.variaveis ?? atual?.variaveis ?? {};
   m.variaveis = {};
@@ -210,7 +227,9 @@ function resolver(m: Mcp, todas: Mcp[] = listarMcp()): McpResolvido {
   else {
     const headers: Record<string, string> = {};
     for (const k of m.cabecalhosSecretos ?? []) headers[k] = segredo(k);
-    Object.assign(r, { url: m.url, headers });
+    Object.assign(r, { url: m.url, headers,
+      ferramentasPlanejamento:m.ferramentasPlanejamento===undefined?defaultPlanningTools(m.url):allowedMcpToolNames(m.ferramentasPlanejamento),
+      ...(m.ferramentasExecucao!==undefined?{ferramentasExecucao:allowedMcpToolNames(m.ferramentasExecucao)}:{}) });
   }
   return r;
 }
