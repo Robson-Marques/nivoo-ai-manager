@@ -148,7 +148,7 @@ export function salvarMcp(body: any, id?: string): Mcp {
     else if (!m.cabecalhosSecretos.includes(k)) m.cabecalhosSecretos.push(k);
     segredosNovos[k] = v === null ? null : String(v);
   }
-  const projetos = body?.projetos ?? atual?.projetos ?? 'todos';
+  const projetos = body?.projetos!==undefined?body.projetos:atual?.projetos??'todos';
   if(projetos!=='todos'&&(!Array.isArray(projetos)||projetos.length>500||projetos.some(p=>typeof p!=='string'||!p.trim())))throw new BadRequestException('Escopo de projetos inválido; escolha projetos ou todos explicitamente.');
   m.projetos=projetos==='todos'?'todos':[...new Set(projetos as string[])];
   const nova = atual ? lista.map((x) => (x.id === m.id ? m : x)) : [...lista, m];
@@ -229,8 +229,9 @@ export function partirArgumentos(texto: string): string[] {
 export async function testarMcp(id: string, timeoutMs = 60_000): Promise<{ ok: boolean; ferramentas: Array<{ nome: string; descricao: string }>; erro?: string }> {
   const r = resolver(acharMcp(id));
   try {
+    if(r.tipo==='comando'&&Object.values(r.env??{}).some(v=>v.includes('\0')))throw Error('Variável MCP inválida.');
     const ferramentas = r.tipo === 'comando' ? await testarComando(r, timeoutMs) : await testarHttp(r, timeoutMs);
-    return {ok:true,ferramentas:ferramentas.map(t=>({nome:t.nome,descricao:ocultarSegredosMcp(t.descricao,r)}))};
+    return {ok:true,ferramentas:ferramentas.map(t=>({nome:ocultarSegredosMcp(t.nome,r),descricao:ocultarSegredosMcp(t.descricao,r)}))};
   } catch (e: any) {
     return { ok: false, ferramentas: [], erro: ocultarSegredosMcp(String(e?.message ?? e),r).slice(0,600) };
   }
