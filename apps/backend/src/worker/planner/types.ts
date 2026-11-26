@@ -21,6 +21,7 @@ export interface PlannerRequest {
   specialtyContext?:string|null;
   goldfishResolutionContext?:string|null;
   providerId:string;
+  mcpNames?:string[];
   resultados:string[];
   worktree?:string;
 }
