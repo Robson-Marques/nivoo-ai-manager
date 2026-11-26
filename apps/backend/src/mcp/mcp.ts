@@ -139,7 +139,7 @@ export function salvarMcp(body: any, id?: string): Mcp {
   // Never carry an explicit tool authorization over to a different endpoint.
   const sameTarget=atual?.tipo===m.tipo&&atual?.url===m.url&&atual?.comando===m.comando&&JSON.stringify(atual?.args??[])===JSON.stringify(m.args??[]);
   for(const key of ['ferramentasPlanejamento','ferramentasExecucao'] as const){
-    const value=body?.[key]!==undefined?body[key]:sameTarget?atual?.[key]:undefined;
+    const value=body?.[key]!==undefined?body[key]:sameTarget?atual?.[key]:atual?.[key]!==undefined&&m.tipo==='http'?[]:undefined;
     if(value===undefined||value===null)continue;
     if(m.tipo!=='http')throw new BadRequestException('A seleção individual nesta versão está disponível para MCP HTTP; servidores stdio externos só na execução aprovada.');
     try{m[key]=validateMcpToolNames(value);}catch(e){throw new BadRequestException((e as Error).message);}
