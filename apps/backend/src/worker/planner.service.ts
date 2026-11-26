@@ -611,7 +611,7 @@ export class PlannerService {
         if(rejected.length)registrarTempo('reservas_ignoradas',{motivo:rejected.join('; ')});
         if(reserva){
           registrarTempo('reencaminhada_para_reserva',{provedorAnterior:providerId,proximoProvedor:reserva.id,modelo:reserva.model??'padrão'});
-          await this.prisma.conversationMessage.create({data:{conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA',kind:'sistema',content:reserva.anterior+' ficou indisponível ou incompatível. A resposta continua com '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'.'}}).catch(()=>undefined);
+          await this.prisma.conversationMessage.create({data:{conversationId:msg.conversationId,role:'ASSISTENTE',status:'PRONTA',kind:'sistema',content:reserva.anterior+' ficou indisponível ('+(result.error??'').slice(0,200)+'). Quem responde agora é '+reserva.nome+', que passou a ser a IA do projeto.'}}).catch(()=>undefined);
           return;
         }
       }

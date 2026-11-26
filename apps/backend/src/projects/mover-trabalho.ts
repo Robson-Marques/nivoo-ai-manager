@@ -75,7 +75,8 @@ export async function findProjectReserve(prisma:PrismaService,registry:ReserveRe
   if(!p||(!opts.includeCurrent&&p.provider!==from))return null;
   const choice=await chooseReserve({project:p,registry,from,requirements,knownIds:aiConnectionIds(),cooling:estaSemCredito,modelCooling,includeCurrent:opts.includeCurrent,onSkip:opts.onSkip});
   if(!choice)return null;
-  const anterior=from;
+  // Rótulo amigável da IA anterior (ex.: "Claude (conta)"), não o id cru, para o aviso ao usuário.
+  const anterior=(await registry.status(from,60_000).catch(()=>null))?.label??from;
   return {...choice,anterior};
 }
 
@@ -125,6 +126,9 @@ export async function trocarEtapaParaReserva(prisma:PrismaService,registry:Reser
     if(!p||!(p.provider===choice.id||Array.isArray(p.aiReserva)&&p.aiReserva.includes(choice.id))||reserveCompatibility(choice.id,p,choice.status,requirements)!==null||assessModel(choice.id,selectedModel(projectModel(p,choice.id),requirements.options),choice.status,requirements.options).model!==choice.model||modelCooling(choice.id,choice.model)||estaSemCredito(choice.id))return null;
     const updated=await tx.step.updateMany({where:{id:stepId,provider:step.provider,status:step.status},data:{provider:choice.id,status:'PENDENTE',statusDetail:'continua com '+choice.nome}});
     if(!updated.count)return null;
+    // A IA do projeto ficou indisponível: a reserva passa a ser a preferência do projeto
+    // (não insistir na IA sem crédito nas próximas etapas/trabalhos), igual ao caminho da conversa.
+    if(p.provider===from)await tx.project.updateMany({where:{id:projectId,provider:from},data:{provider:choice.id}});
     const queued=await tx.queueTask.updateMany({where:{id:opts.taskId,lockedBy:opts.workerId,claims:opts.claims,status:'RUNNING'},data:{status:'QUEUED',runAt:new Date(),lockedBy:null,lockedUntil:null,lastError:'continua com '+choice.id,resourceWaits:0}});
     if(!queued.count)throw Error('Lease da etapa mudou; troca de reserva não aplicada.');
     return choice;

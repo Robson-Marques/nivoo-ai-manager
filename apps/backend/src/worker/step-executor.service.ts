@@ -1237,7 +1237,7 @@ export class StepExecutorService {
     },{taskId:task.id,workerId,claims:task.claims,signal,resourceFailure,onSkip:(id,reason)=>rejected.push(id+': '+reason)});
     if(rejected.length)await this.logs.log(job.id,'Reservas não selecionadas: '+rejected.join('; '),{stepId:step.id,level:'INFO',source:'worker'}).catch(()=>undefined);
     if(!reserva)return signal.aborted?'INTERROMPIDO':null;
-    const aviso=reserva.anterior+' não pode continuar esta etapa ('+detail.slice(0,200)+'). Retomada com '+reserva.nome+' / '+(reserva.model??'modelo padrão')+'. Demais etapas e preferência do projeto preservadas.';
+    const aviso=reserva.anterior+' ficou indisponível ('+detail.slice(0,200)+'). O trabalho continua com '+reserva.nome+', do ponto em que estava.';
     await this.logs.log(job.id,aviso,{stepId:step.id,level:'WARN',source:'worker'}).catch(()=>undefined);
     const origem=await this.prisma.conversationMessage.findFirst({where:{jobId:job.id},select:{conversationId:true}});
     if(origem)await this.prisma.conversationMessage.create({data:{conversationId:origem.conversationId,role:'ASSISTENTE',status:'PRONTA',kind:'sistema',content:aviso,jobId:job.id}}).catch(()=>undefined);
