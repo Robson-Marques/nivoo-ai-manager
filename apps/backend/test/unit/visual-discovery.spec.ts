@@ -1,4 +1,4 @@
-import {visualDiscoveryIntent,visualDiscoveryQuestions,profileFromVisualAnswers,validateVisualSelection,visualDecisionText,visualDiscoveryReason} from '../../src/projects/visual-discovery';
+import {visualDiscoveryIntent,visualDiscoveryQuestions,profileFromVisualAnswers,validateVisualSelection,visualDecisionText,visualDiscoveryReason,visualRedesignIntent} from '../../src/projects/visual-discovery';
 
 describe('Assistente de definição visual',()=>{
   it('detecta criação de produto visual e não manutenção ou briefing já decidido',()=>{
@@ -16,6 +16,21 @@ describe('Assistente de definição visual',()=>{
     expect(visualDiscoveryReason({...input,software:false})).toBe('other-domain');
     expect(visualDiscoveryReason({...input,answered:true})).toBe('answered');
     expect(visualDiscoveryReason({...input,text:'Corrigir endpoint'})).toBe('not-new-ui');
+  });
+  it('reconhece pedido de nova cara para software existente, sem confundir com ajuste de função',()=>{
+    for(const s of ['Dá uma nova cara no meu sistema','Quero mudar o visual do app','Troca o template pra Liquid Glass','Migrar a interface para liquid glass','Aplicar liquid glass no painel','Redesenhar as telas','Moderniza a aparência do sistema','Mudar as cores','Sair desse template e ir para liquid glass','Quero outra identidade visual','Deixar com estilo minimalista'])expect(visualRedesignIntent(s)).toBe(true);
+    for(const s of ['Corrigir endpoint','Ajustar o cálculo do frete','Mudar o endpoint da API','Alterar a função de login','Como mudar o tema?','Criar um ERP','Adicionar um relatório','Continuar o trabalho'])expect(visualRedesignIntent(s)).toBe(false);
+  });
+  it('reabre a seleção visual no redesign de software existente, mas respeita round já respondido',()=>{
+    const base={software:true,profile:null as unknown,gitUrl:null as string|null,hasWork:true,answered:false,text:'Dá uma nova cara no sistema'};
+    expect(visualDiscoveryReason(base)).toBe('ask');
+    expect(visualDiscoveryReason({...base,profile:{schemaVersion:1,mode:'guided',styleId:'corporate'}})).toBe('ask');
+    expect(visualDiscoveryReason({...base,gitUrl:'https://example.com/repo'})).toBe('ask');
+    expect(visualDiscoveryReason({...base,text:'Adicionar um relatório'})).toBe('existing-work');
+    expect(visualDiscoveryReason({...base,profile:{schemaVersion:1,mode:'guided'},text:'Adicionar um relatório'})).toBe('profile-defined');
+    expect(visualDiscoveryReason({...base,answered:true})).toBe('answered');
+    expect(visualDiscoveryReason({...base,software:false})).toBe('other-domain');
+    expect(visualDiscoveryQuestions('Deixar o sistema com Liquid Glass','p',0)[0].opcoes[0].id).toBe('liquid-glass');
   });
   it('recomenda sem impor, delega e valida respostas do chat existente',()=>{
     const q=visualDiscoveryQuestions('Criar ERP','p',0);

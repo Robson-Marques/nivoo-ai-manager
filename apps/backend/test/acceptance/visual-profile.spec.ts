@@ -21,7 +21,7 @@ describe('API — perfil visual de projeto',()=>{
   it('expõe paletas, densidades e fundações visuais',async()=>{
     const result=(await h.http().get('/api/projects/visual-tokens').expect(200)).body;
     expect(result.version).toBe(1);
-    expect(result.palettes.map((p:any)=>p.id)).toEqual(['ocean-blue','emerald','violet','graphite']);
+    expect(result.palettes.map((p:any)=>p.id)).toEqual(['ocean-blue','emerald','violet','graphite','ruby','amber','teal','magenta','indigo','bordeaux']);
     expect(result.densities.map((d:any)=>d.id)).toEqual(['compact','balanced','spacious']);
     expect(result.foundations).toHaveLength(4);
   });

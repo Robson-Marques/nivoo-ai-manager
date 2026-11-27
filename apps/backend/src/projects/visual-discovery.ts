@@ -22,14 +22,34 @@ export function visualDiscoveryIntent(text:string):boolean{
   const t=normalize(text);
   return CREATE.test(t)&&PRODUCT.test(t)&&UI.test(t)&&!EXCLUDED.test(t)&&!DECIDED.test(t)&&!/^\s*(?:como|qual|quais|o que|por que|sera que)\b/.test(t);
 }
-/** Shared deterministic decision. A greeting or reference image is not a visual decision. */
+
+// Pedido explícito de dar nova cara a uma interface que já existe: redesenhar,
+// trocar o template/tema/estilo, migrar para Liquid Glass, mudar a paleta. Exige
+// um alvo visual real, então um ajuste comum de função ("corrigir cálculo",
+// "mudar o endpoint") não dispara a seleção visual. Diferente de visualDiscoveryIntent,
+// não exige que seja um produto novo: vale também para software existente.
+const REDESIGN_PHRASE=/\b(?:(?:nova|outra) (?:cara|aparencia|identidade|interface|roupagem)|cara nova|(?:novo|outro) visual|visual novo|redesenh\w*|reestiliz\w*|repagin\w*|remodel\w*)\b/;
+const REDESIGN_TARGET='visual|tema|template|estilo|layout|design|aparencia|identidade|interface|cara|cores|paleta|liquid[- ]glass|vidro liquido|glassmorphism';
+const REDESIGN_VERB=new RegExp('\\b(?:troc\\w*|mud\\w*|alter\\w*|atualiz\\w*|renov\\w*|moderniz\\w*|migr\\w*|aplic\\w*|adot\\w*|convert\\w*|transform\\w*|pass\\w*|sair|ir|deix\\w*|coloc\\w*|refazer|refaz\\w*)\\b[^.?!]{0,40}\\b(?:'+REDESIGN_TARGET+')\\b');
+const REDESIGN_PARA_LIQUID=/\b(?:para|pro|pra|ao|a)\s+(?:o\s+)?(?:liquid[- ]glass|vidro liquido)\b/;
+const DAR_CARA=/\bdar\b[^.?!]{0,20}\bcara\b/;
+export function visualRedesignIntent(text:string):boolean{
+  const t=normalize(text);
+  if(/^\s*(?:como|qual|quais|o que|por que|sera que)\b/.test(t))return false;
+  return REDESIGN_PHRASE.test(t)||DAR_CARA.test(t)||REDESIGN_PARA_LIQUID.test(t)||REDESIGN_VERB.test(t);
+}
+
+/** Shared deterministic decision. A greeting or reference image is not a visual decision.
+ * A clear restyle request ("nova cara", migrar para Liquid Glass) reopens the visual
+ * selection even on an existing software, but an already answered round never re-asks. */
 export function visualDiscoveryReason(input:{software:boolean;profile:unknown;gitUrl?:string|null;hasWork:boolean;answered:boolean;text:string}):'ask'|'other-domain'|'profile-defined'|'existing-repository'|'existing-work'|'answered'|'not-new-ui'{
   if(!input.software)return 'other-domain';
-  if(input.profile!=null)return 'profile-defined';
-  if(input.gitUrl)return 'existing-repository';
-  if(input.hasWork)return 'existing-work';
+  const redesign=visualRedesignIntent(input.text);
   if(input.answered)return 'answered';
-  return visualDiscoveryIntent(input.text)?'ask':'not-new-ui';
+  if(input.profile!=null)return redesign?'ask':'profile-defined';
+  if(input.gitUrl)return redesign?'ask':'existing-repository';
+  if(input.hasWork)return redesign?'ask':'existing-work';
+  return (redesign||visualDiscoveryIntent(input.text))?'ask':'not-new-ui';
 }
 type DiscoveryProject={id:string;area:{template?:string|null;slug?:string|null};visualProfile:unknown;gitUrl?:string|null};
 type DiscoveryDb=Pick<Prisma.TransactionClient,'job'|'conversationMessage'>;
@@ -52,7 +72,8 @@ export function visualDiscoveryQuestions(text:string,projectId:string,revision:n
   const mobile=/\b(?:app|aplicativo|pwa|celular|mobile)\b/.test(t);
   const operational=/\b(?:erp|crm|gestao|gerenciamento|administracao|cadastro|dashboard|painel|sistema)\b/.test(t);
   const publicSite=/\b(?:site|website|landing page|loja virtual)\b/.test(t);
-  const style=operational?'corporate':mobile?'liquid-glass':publicSite?'minimalist':'minimalist';
+  const glass=/\bliquid[- ]glass\b|\bvidro liquido\b|\bglassmorphism\b/.test(t);
+  const style=glass?'liquid-glass':operational?'corporate':mobile?'liquid-glass':publicSite?'minimalist':'minimalist';
   const meta={version:1 as const,projectId,revision};
   const q=(id:string,pergunta:string,opcoes:Option[]):Question=>({id,pergunta,opcoes:[...opcoes,delegate()],multipla:false,visualDiscovery:meta});
   return [
