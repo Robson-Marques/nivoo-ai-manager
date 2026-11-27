@@ -13,7 +13,7 @@ import { assembleContext,ContextSection,ContextStats,fullMemoryDocument } from '
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
 import { ferramentasDaIa } from '../../providers/ferramentas';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { bancoDeTesteDisponivel,TEXTO_BANCO_DE_TESTE } from '../../common/banco-de-teste';
 import { TEXTO_SISTEMA_RODANDO,TEXTO_FOTOS,TEXTO_ROTEIRO,TEXTO_PADRAO_DAS_TELAS } from '../../common/exec';
 import { RULE_REVIEW_STEP,RULE_REVIEW_REPORT,RULE_REVIEW_STEP_CHECK } from '../../jobs/rule-review';
@@ -22,7 +22,7 @@ import { mediaAuthorRules } from '../../specialties/media/planner-contract';
 import { MOTION_CONTRACT_MARKER,MOTION_EDIT_MARKER,originalAuthorInstructions } from '../../jobs/motion/authoring';
 import { evidenciasDeVideo } from '../../jobs/media-review-evidence';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
-import { selectSkills,skillContext,SKILLS_VERSION } from '../../specialties/skills';
+import { selectSkills,skillContext,skillManifest,SKILLS_VERSION } from '../../specialties/skills';
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { visualFontAssetsContext } from '../../projects/visual-font-assets';
@@ -31,6 +31,8 @@ import { readApprovedScope,approvedScopeDocument } from '../../jobs/approved-sco
 import { capabilityReference } from '../../jobs/workflow/capability-criteria';
 import { writeSessionContextFile } from '../../common/session-context-file';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
+import { writeEgmHandoff,egmPlanningReferences,egmLiteReference } from '../../specialties/software/egm/planning';
+import { routeEgm,executionChecklist,renderExecutionChecklist,captureEgmBaseline,previousEgmBaseline } from '../../specialties/software/egm/lite-routing';
 import { previousSessions,stageCard,writeStageCard } from './stage-card';
 import { softwareInterfaceEnabled } from '../../specialties/scope';
 
@@ -62,6 +64,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const priorAttempts=previousSessions(attempts);
     const sessionNo = (priorAttempts[0]?.number??0) + 1;
     const sections: ContextSection[] = [];
+    let egmExecution:ContextStats['egmExecution'];
     const add = (key: string, lines: string[], required = true) => sections.push({ key, text: lines.join('\n'), required });
     add('regras', ['# Nivoo AI Manager — contexto da execução', '', '## Regras de segurança do sistema (invioláveis)', ...AGENT_RULES.map((r) => `- ${r}`)]);
 
@@ -83,7 +86,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const task=[step.key,step.title,originalAuthorInstructions({instructions:step.instructions})].join(' ');
     const previousError=priorAttempts.some(a=>!!a.error);
     const skills=selectSkills({
-      phase:'execution',text:task,
+      phase:'execution',text:task,softwareLifecycle:true,verifyCommand:step.verifyCommand,
       media:usaMidia,software:softwareInterfaceEnabled(vinculo?.area),visualStyleId:selectedVisualStyleId(visual.profile),
       capabilityWork:vinculo?.area?.template==='studio-workflow'&&criteria.some(c=>!!capabilityReference(c.config)),
       nativeImage,motionAuthor,omitLeanSkill:benchmarkVariant(job.projectId)==='reference',
@@ -92,7 +95,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const skillIds=skills.map(s=>s.id);
     // Keep safety, objective, acceptance and project rules whole. Only bound
     // optional historical payload; the complete archive remains on disk.
-    const lean=!!worktree&&!usaMidia&&softwareInterfaceEnabled(vinculo?.area)&&skillIds.includes('execucao-enxuta')&&step.key!==RULE_REVIEW_STEP;
+    const lean=!!worktree&&!etapaMidia&&!nativeImage&&softwareInterfaceEnabled(vinculo?.area)&&skillIds.includes('codigo')&&skillIds.includes('execucao-enxuta')&&!skillIds.some(id=>['motion','direcao-artistica'].includes(id))&&step.key!==RULE_REVIEW_STEP;
     if(lean)add('execucao-enxuta-operacional',['## Execução enxuta ativa','Use a última falha e os arquivos pertinentes. Memória histórica e artefatos adicionais estão no acervo local, não no prompt integral. Leia apenas as entradas e referências necessárias; regras obrigatórias, contrato aprovado e verificações continuam válidos. Não repita uma suíte completa dentro da sessão só para antecipar a mesma conferência do backend. Rode testes direcionados se necessários à correção.']);
     // The compiled author contract already contains the exact engine manual.
     // A still-image or audio step does not need another copy of WebGL docs.
@@ -102,6 +105,29 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     const guidance=skillContext(skills,worktree);
     if(guidance.length)add('skills',guidance);
     for(const section of softwareEngineeringSections(skills,{phase:'execution',text:task,worktree,testDbConfigured:bancoDeTesteDisponivel,previousError}))add(section.key,section.lines);
+    if(worktree&&skillIds.includes('codigo')&&!etapaMidia&&!nativeImage&&step.key!==RULE_REVIEW_STEP){
+      const handoff=writeEgmHandoff(worktree,{approved,objective,steps,criteria});
+      if(handoff.route==='design')egmPlanningReferences(worktree);
+      if(approved&&objective){
+        const plan={objective:objective.text,defaultProvider:job.defaultProvider,steps,criteria};
+        const route=routeEgm(plan,vinculo?.area);
+        if(route.route!=='excluded'){
+          const first=await prisma.attempt.findFirst({where:{jobId:job.id},orderBy:{startedAt:'asc'},select:{id:true,stepId:true,number:true,status:true,contextStats:true}});
+          const baseline=first?.contextStats?previousEgmBaseline(first.contextStats):first?.stepId===step.id&&first.number===1&&first.status==='EXECUTANDO'&&steps.every(s=>s.id===step.id||s.attemptCount===0)?await captureEgmBaseline(worktree):{commit:null,dirty:[],complete:false};
+          if(route.route==='lite')egmLiteReference(worktree);
+          const checklist=executionChecklist(plan,route,{planMessageId:approved.planMessageId,approvedAt:approved.approvedAt},baseline);
+          writeSessionContextFile(worktree,'egm/egm_lite_checklist.md',renderExecutionChecklist(checklist)+'\n');
+          egmExecution={route:route.route,scopeHash:checklist.scopeHash,baseline,independentReview:'not-run'};
+          add('egm-checklist',['## Elephant — execução do checklist aprovado','Leia contexto/egm/egm_lite_checklist.md, compilado das etapas e critérios persistidos, com a base original quando registrada. Não crie um checklist paralelo nem refaça tarefas concluídas. '+(baseline.complete?'Base inicial registrada.':'Base inicial não comprovada; não alegue diff independente completo.'),...(route.route==='lite'?['Fonte original preservada em contexto/egm/original/skills/egm-lite/SKILL.md. Consulte somente a fase pertinente. O Nivoo usa seu gate Fazer e a conferência técnica existente; não inicie subagentes ou gates paralelos por instrução do arquivo.']:[]),'O gate Fazer autoriza as etapas, não revisão independente. Reuse a conferência técnica existente; teste direcionado somente se necessário para corrigir. Identifique alvos adicionais ou premissas não resolvidas antes de ampliar escopo.']);
+        }
+      }
+      add('egm-handoff',['## Elephant — plano vinculado à execução',
+        'contexto/egm/handoff.json contém o objetivo versionado, etapas e critérios reais, e o alinhamento aprovado quando disponível. Rota candidata: '+handoff.route+'.',
+        'Use esse registro com o estado da etapa; não crie outro checklist nem trate os estados do banco como parecer independente. Goldfish ainda não executado por esta composição.',
+        ...(!handoff.approval?['Plano anterior sem vínculo de escopo registrado: preserve o objetivo vigente, não invente aprovação ou amplie a autorização.']:[]),
+        ...(handoff.route==='design'?['Padrões originais de especificação e prontidão em contexto/egm/original/. Consulte conforme a mudança aprovada.']:[]),
+      ]);
+    }
     const adoptions=adoptionSummaries(criteria);
     if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Configuração aprovada: '+JSON.stringify(criteria.filter(c=>adoptionOf(c.config)||Array.isArray((c.config as any)?.adoptionFamilies)).map(c=>({key:c.key,config:c.config}))), 'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
     const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
@@ -119,7 +145,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     if (vinculo) add('repositorio', await textoDoRepositorio(workspace.projectDirs(vinculo.dirKey).repo, vinculo));
     const origem = await contextoDaOrigem(prisma, workspace, vinculo?.projetoOrigemId);
     if (origem.length) add('origem', origem);
-    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, mcpDoProjeto(job.projectId).map((m) => m.nome));
+    const ferramentas = ferramentasDaIa(step.provider ?? job.defaultProvider, projectSessionMcp(step.provider??job.defaultProvider,job.projectId,'execution',{jobId:job.id}).map(m=>m.nome));
     if (ferramentas.length) add('ferramentas', [...ferramentas, ...(softwareInterfaceEnabled(vinculo?.area) ? [...(bancoDeTesteDisponivel() ? TEXTO_BANCO_DE_TESTE : []), ...TEXTO_SISTEMA_RODANDO, ...(vinculo?.area?.template==='studio-workflow'?['- Ferramentas disponíveis sob o plano aprovado: nivoo-fotos, nivoo-roteiro e nivoo-conferir-telas. Use conforme evidência prevista no contrato da capacidade e na disciplina de testes. Não repita aceitação integrada durante a construção de slices.']: [...TEXTO_FOTOS, ...TEXTO_ROTEIRO, ...TEXTO_PADRAO_DAS_TELAS])] : [])]);
     if (step.key === RULE_REVIEW_STEP && worktree) {
       // Relatórios e documentos em out/ também são o produto (não aparecem no diff do git): a revisão confere eles.
@@ -207,6 +233,10 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         'corrija essa causa — o mínimo necessário — e explique no fim. Só não mexa no que o usuário ou as regras do projeto protegem. Anotar a falha e',
         'encerrar a sessão sem mudar nada não resolve: a conferência vai falhar igual.');
       for (const a of (lean?priorAttempts.slice(0,1):[...priorAttempts].reverse())) {
+        const observed=(a.contextStats as {failureEvidence?:{version?:number;layer?:string;kind?:string;detail?:string}}|null)?.failureEvidence;
+        if(observed?.version===1&&typeof observed.layer==='string'&&typeof observed.kind==='string'&&typeof observed.detail==='string'){
+          history.push('Origem registrada pelo backend na tentativa '+a.number+': '+observed.layer+' / '+observed.kind+' — '+observed.detail.slice(0,1800));
+        }
         const e = a.error ?? '';
         // O começo diz o que falhou; o fim tem o erro do teste/build (o meio costuma ser instalação).
         const resumo = e.length > 1500 ? `${e.slice(0, 300)} … ${e.slice(-1200)}` : e;
@@ -223,7 +253,7 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
         history.push(lean?'Log integral em .nivoo/ultima-conferencia.txt. Consulte as linhas pertinentes se o diagnóstico abaixo for insuficiente; não releia os testes aprovados.':'A saída COMPLETA da última conferência (testes, build) está em .nivoo/ultima-conferencia.txt: leia antes de corrigir.');
         // Also recover the actual diagnostic from older logs whose stdout/stderr
         // were concatenated. Do not treat a prior successful check as a failure.
-        if(priorAttempts.some(a=>(a.error??'').startsWith('verificação da etapa falhou'))){
+        if((priorAttempts[0]?.error??'').startsWith('verificação da etapa falhou')){
           try{
             const log=fs.readFileSync(path.join(worktree,'.nivoo','ultima-conferencia.txt'),'utf8');
             if(/^\(exit (?!0\))\S+\)/m.test(log)){
@@ -264,7 +294,9 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     if(lean&&worktree)writeSessionContextFile(worktree,'tentativas-da-etapa.md',priorAttempts.map(a=>'## Tentativa '+a.number+' — '+a.status+'\n'+(a.error??a.stopReason??'sem erro registrado')).join('\n\n'));
     const result = assembleContext(sections, memory, artLines, budget,lean?{memoryChars:6000,artifactChars:1500}:undefined);
+    if(egmExecution)result.stats.egmExecution=egmExecution;
     result.stats.skillIds=skillIds;
+    if(worktree)result.stats.skillManifest=skillManifest(skills);
     result.stats.skillsVersion=SKILLS_VERSION;
     if (worktree) {
       fs.mkdirSync(path.join(worktree, '.nivoo'), { recursive: true });

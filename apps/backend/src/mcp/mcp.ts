@@ -1,3 +1,4 @@
+import { validateMcpToolNames,defaultPlanningTools,allowedMcpToolNames } from './tool-policy';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -28,6 +29,10 @@ export interface Mcp {
   url?: string;
   /** Cabeçalhos HTTP cujo valor é secreto (ex.: Authorization) — só o nome aqui. */
   cabecalhosSecretos?: string[];
+  /** Undefined uses the conservative official HTTP default for planning. [] denies all. */
+  ferramentasPlanejamento?:string[];
+  /** Undefined preserves the existing execution authorization; [] denies all. */
+  ferramentasExecucao?:string[];
   projetos: 'todos' | string[];
   ativo: boolean;
   criadaEm: string;
@@ -42,6 +47,10 @@ export interface McpResolvido {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  ferramentasPlanejamento?:string[];
+  ferramentasExecucao?:string[];
+  /** Internal marker for a filtered server, not a credential or model instruction. */
+  ferramentasPermitidas?:string[];
 }
 
 const NOME_VARIAVEL = /^[A-Z_][A-Z0-9_]{0,63}$/;
@@ -75,17 +84,30 @@ export function acharMcp(id: string): Mcp {
 }
 
 /** Nome que a IA vê (ex.: "github"): minúsculas, números e hífen; único. */
-function nomeTecnico(nome: string, existentes: Mcp[], proprio?: string): string {
-  const base = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'mcp';
-  let n = base;
-  for (let i = 2; existentes.some((m) => m.id !== proprio && nomeTecnico(m.nome, [], m.id) === n); i++) n = `${base}-${i}`;
-  return n;
+function baseTecnica(nome:string):string{
+  return nome.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40)||'mcp';
+}
+/** Allocate over the full persisted inventory, including disabled tools.
+ * Reserve the internal SSH name. Every caller receives the same mapping. */
+export function nomesTecnicos(existentes:readonly Pick<Mcp,'id'|'nome'>[]):Map<string,string>{
+  const used=new Set(['servidores-ssh','constructor','prototype','__proto__']);
+  const result=new Map<string,string>();
+  for(const m of existentes){
+    const base=baseTecnica(m.nome);let n=base,i=2;
+    while(used.has(n))n=base+'-'+i++;
+    used.add(n);result.set(m.id,n);
+  }
+  return result;
+}
+function nomeTecnico(nome:string,existentes:Mcp[],proprio:string):string{
+  const all=existentes.some(m=>m.id===proprio)?existentes:[...existentes,{id:proprio,nome}];
+  return nomesTecnicos(all).get(proprio)!;
 }
 
 /** Visão para a tela: segredos só aparecem como "definido / falta". */
 export function paraTela(m: Mcp) {
   const segredos = [...(m.segredos ?? []), ...(m.cabecalhosSecretos ?? [])].map((s) => ({ nome: s, definido: !!segredoDaConexao(`mcp--${m.id}`, s as never) }));
-  return { ...m, nomeTecnico: nomeTecnico(m.nome, listarMcp(), m.id), segredos };
+  return { ...m, ferramentasPlanejamentoEfetivas:m.tipo==='http'?(m.ferramentasPlanejamento===undefined?defaultPlanningTools(m.url):allowedMcpToolNames(m.ferramentasPlanejamento)):[], nomeTecnico: nomeTecnico(m.nome, listarMcp(), m.id), segredos };
 }
 
 /**
@@ -114,6 +136,14 @@ export function salvarMcp(body: any, id?: string): Mcp {
     if (!/^https?:\/\/[^\s]+$/.test(url) || /^https?:\/\/[^/]*@/.test(url)) throw new BadRequestException('Endereço inválido (use https://… e coloque tokens em "cabeçalhos", não no endereço)');
     m.url = url;
   }
+  // Never carry an explicit tool authorization over to a different endpoint.
+  const sameTarget=atual?.tipo===m.tipo&&atual?.url===m.url&&atual?.comando===m.comando&&JSON.stringify(atual?.args??[])===JSON.stringify(m.args??[]);
+  for(const key of ['ferramentasPlanejamento','ferramentasExecucao'] as const){
+    const value=body?.[key]!==undefined?body[key]:sameTarget?atual?.[key]:atual?.[key]!==undefined&&m.tipo==='http'?[]:undefined;
+    if(value===undefined||value===null)continue;
+    if(m.tipo!=='http')throw new BadRequestException('A seleção individual nesta versão está disponível para MCP HTTP; servidores stdio externos só na execução aprovada.');
+    try{m[key]=validateMcpToolNames(value);}catch(e){throw new BadRequestException((e as Error).message);}
+  }
   const variaveis = body?.variaveis ?? atual?.variaveis ?? {};
   m.variaveis = {};
   for (const [k, v] of Object.entries(variaveis)) {
@@ -135,8 +165,9 @@ export function salvarMcp(body: any, id?: string): Mcp {
     else if (!m.cabecalhosSecretos.includes(k)) m.cabecalhosSecretos.push(k);
     segredosNovos[k] = v === null ? null : String(v);
   }
-  const projetos = body?.projetos ?? atual?.projetos ?? 'todos';
-  m.projetos = projetos === 'todos' ? 'todos' : Array.isArray(projetos) ? projetos.map(String).slice(0, 500) : 'todos';
+  const projetos = body?.projetos!==undefined?body.projetos:atual?.projetos??'todos';
+  if(projetos!=='todos'&&(!Array.isArray(projetos)||projetos.length>500||projetos.some(p=>typeof p!=='string'||!p.trim())))throw new BadRequestException('Escopo de projetos inválido; escolha projetos ou todos explicitamente.');
+  m.projetos=projetos==='todos'?'todos':[...new Set(projetos as string[])];
   const nova = atual ? lista.map((x) => (x.id === m.id ? m : x)) : [...lista, m];
   gravar(nova);
   for (const [k, v] of Object.entries(segredosNovos)) {
@@ -155,7 +186,7 @@ export function removerMcp(id: string): void {
 /** Ferramentas ativas deste projeto, com segredos preenchidos (para a sessão de IA). */
 export function mcpDoProjeto(projectId: string, origem: { jobId?: string; mensagemId?: string } = {}): McpResolvido[] {
   const todas = listarMcp();
-  const lista = todas.filter((m) => m.ativo && (m.projetos === 'todos' || m.projetos.includes(projectId))).map((m) => resolver(m, todas));
+  const lista = todas.filter((m) => m.ativo===true && (m.projetos === 'todos' || (Array.isArray(m.projetos)&&m.projetos.includes(projectId)))).map((m) => resolver(m, todas));
   // Servidores SSH do projeto: a ferramenta do próprio Nivoo, em que cada comando espera a permissão do usuário.
   const ssh = servidoresDoProjeto(projectId);
   if (ssh.length) lista.push(ferramentaSsh(projectId, ssh, origem));
@@ -196,7 +227,9 @@ function resolver(m: Mcp, todas: Mcp[] = listarMcp()): McpResolvido {
   else {
     const headers: Record<string, string> = {};
     for (const k of m.cabecalhosSecretos ?? []) headers[k] = segredo(k);
-    Object.assign(r, { url: m.url, headers });
+    Object.assign(r, { url: m.url, headers,
+      ferramentasPlanejamento:m.ferramentasPlanejamento===undefined?defaultPlanningTools(m.url):allowedMcpToolNames(m.ferramentasPlanejamento),
+      ...(m.ferramentasExecucao!==undefined?{ferramentasExecucao:allowedMcpToolNames(m.ferramentasExecucao)}:{}) });
   }
   return r;
 }
@@ -215,21 +248,43 @@ export function partirArgumentos(texto: string): string[] {
 export async function testarMcp(id: string, timeoutMs = 60_000): Promise<{ ok: boolean; ferramentas: Array<{ nome: string; descricao: string }>; erro?: string }> {
   const r = resolver(acharMcp(id));
   try {
+    if(r.tipo==='comando'&&Object.values(r.env??{}).some(v=>v.includes('\0')))throw Error('Variável MCP inválida.');
     const ferramentas = r.tipo === 'comando' ? await testarComando(r, timeoutMs) : await testarHttp(r, timeoutMs);
-    return { ok: true, ferramentas };
+    return {ok:true,ferramentas:ferramentas.map(t=>({nome:ocultarSegredosMcp(t.nome,r),descricao:ocultarSegredosMcp(t.descricao,r)}))};
   } catch (e: any) {
-    return { ok: false, ferramentas: [], erro: String(e?.message ?? e).slice(0, 600) };
+    return { ok: false, ferramentas: [], erro: ocultarSegredosMcp(String(e?.message ?? e),r).slice(0,600) };
   }
+}
+
+export function ocultarSegredosMcp(texto:string,r:McpResolvido):string{
+  const values=[...Object.values(r.env??{}),...Object.values(r.headers??{})].filter(Boolean).sort((a,b)=>b.length-a.length);
+  for(const v of values){
+    texto=texto.split(v).join('[ocultado]');
+    // HTTP credentials are often echoed without the Bearer prefix.
+    const bearer=/^Bearer\s+(.+)$/i.exec(v)?.[1];
+    if(bearer)texto=texto.split(bearer).join('[ocultado]');
+  }
+  return texto;
 }
 
 const INICIAR = { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'nivoo', version: '1' } } };
 const LISTAR = { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} };
 
-function ferramentasDe(res: any): Array<{ nome: string; descricao: string }> {
-  if (res?.error) throw new Error(`a ferramenta respondeu erro: ${res.error.message ?? JSON.stringify(res.error)}`);
-  return (res?.result?.tools ?? []).map((t: any) => ({ nome: String(t.name), descricao: String(t.description ?? '').slice(0, 300) }));
+const PROTOCOLS=new Set(['2024-11-05','2025-03-26','2025-06-18','2025-11-25']);
+export function protocoloMcp(res:any):string{
+  if(res?.jsonrpc!=='2.0'||res.id!==1||res.error||!PROTOCOLS.has(res.result?.protocolVersion)||!res.result?.capabilities?.tools||!res.result?.serverInfo?.name)throw Error('Resposta initialize inválida ou servidor sem capacidade de ferramentas.');
+  return res.result.protocolVersion;
 }
-
+export function paginaMcp(res:any,id:number):{ferramentas:Array<{nome:string;descricao:string}>;cursor?:string}{
+  if(res?.jsonrpc!=='2.0'||res.id!==id||res.error||!Array.isArray(res.result?.tools))throw Error('Resposta tools/list inválida.');
+  const ferramentas=res.result.tools.map((t:any)=>{
+    if(typeof t?.name!=='string'||!t.name.trim()||!t.inputSchema||t.inputSchema.type!=='object')throw Error('Ferramenta MCP sem nome ou esquema de entrada válido.');
+    return {nome:t.name,descricao:String(t.description??'').slice(0,300)};
+  });
+  const cursor=res.result.nextCursor;
+  if(cursor!==undefined&&(typeof cursor!=='string'||!cursor||cursor.length>4096))throw Error('Cursor MCP inválido.');
+  return {ferramentas,cursor};
+}
 function testarComando(r: McpResolvido, timeoutMs: number): Promise<Array<{ nome: string; descricao: string }>> {
   return new Promise((ok, falha) => {
     const pasta = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-mcp-'));
@@ -237,6 +292,8 @@ function testarComando(r: McpResolvido, timeoutMs: number): Promise<Array<{ nome
     let saida = '';
     let erros = '';
     let fim = false;
+    let initialized=false,requestId=2;
+    const tools:Array<{nome:string;descricao:string}>=[],cursors=new Set<string>(),names=new Set<string>();
     const terminar = (e: Error | null, v?: Array<{ nome: string; descricao: string }>) => {
       if (fim) return;
       fim = true;
@@ -253,6 +310,7 @@ function testarComando(r: McpResolvido, timeoutMs: number): Promise<Array<{ nome
     p.stderr.on('data', (d) => (erros = (erros + d).slice(-4000)));
     p.stdout.on('data', (d) => {
       saida += d;
+      if(saida.length>2_000_000)return terminar(new Error('Resposta MCP acima do limite.'));
       let i: number;
       while ((i = saida.indexOf('\n')) >= 0) {
         const linha = saida.slice(0, i).trim();
@@ -264,39 +322,87 @@ function testarComando(r: McpResolvido, timeoutMs: number): Promise<Array<{ nome
         } catch {
           continue;
         }
-        if (msg.id === 1) {
-          if (msg.error) return terminar(new Error(`a ferramenta recusou o início: ${msg.error.message}`));
-          p.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-          p.stdin.write(`${JSON.stringify(LISTAR)}\n`);
-        } else if (msg.id === 2) {
-          try {
-            terminar(null, ferramentasDe(msg));
-          } catch (e: any) {
-            terminar(e);
+        try{
+          if(msg.id===1&&!initialized){
+            protocoloMcp(msg);initialized=true;
+            p.stdin.write(JSON.stringify({jsonrpc:'2.0',method:'notifications/initialized'})+'\n');
+            p.stdin.write(JSON.stringify(LISTAR)+'\n');
+          }else if(initialized&&msg.id===requestId){
+            const page=paginaMcp(msg,requestId);
+            for(const tool of page.ferramentas){
+              if(names.has(tool.nome)||tools.length>=1000)throw Error('Inventário MCP duplicado ou acima do limite.');
+              names.add(tool.nome);tools.push(tool);
+            }
+            if(!page.cursor)return terminar(null,tools);
+            if(cursors.has(page.cursor)||cursors.size>=19)throw Error('Paginação MCP repetida ou acima do limite.');
+            cursors.add(page.cursor);
+            p.stdin.write(JSON.stringify({...LISTAR,id:++requestId,params:{cursor:page.cursor}})+'\n');
           }
-        }
+        }catch(e){return terminar(e as Error);}
       }
     });
     p.stdin.write(`${JSON.stringify(INICIAR)}\n`);
   });
 }
 
-async function testarHttp(r: McpResolvido, timeoutMs: number): Promise<Array<{ nome: string; descricao: string }>> {
-  const base = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(r.headers ?? {}) };
-  const enviar = async (corpo: unknown, sessao?: string) => {
-    const res = await fetch(r.url!, { method: 'POST', headers: { ...base, ...(sessao ? { 'Mcp-Session-Id': sessao } : {}) }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(timeoutMs) });
-    const texto = await res.text();
-    if (res.status === 401 || res.status === 403) throw new Error(`o servidor recusou o acesso (${res.status}): confira o token nos cabeçalhos`);
-    if (!res.ok && res.status !== 202) throw new Error(`o servidor respondeu ${res.status}: ${texto.slice(0, 200)}`);
-    // Resposta em JSON ou em SSE ("data: {...}").
-    const json = /^\s*\{/.test(texto) ? texto : texto.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).pop() ?? '';
-    return { sessao: res.headers.get('mcp-session-id') ?? sessao, msg: json ? JSON.parse(json) : null };
-  };
-  const ini = await enviar(INICIAR);
-  if (ini.msg?.error) throw new Error(`a ferramenta recusou o início: ${ini.msg.error.message}`);
-  await enviar({ jsonrpc: '2.0', method: 'notifications/initialized' }, ini.sessao ?? undefined).catch(() => undefined);
-  const lista = await enviar(LISTAR, ini.sessao ?? undefined);
-  return ferramentasDe(lista.msg);
+async function testarHttp(r:McpResolvido,timeoutMs:number):Promise<Array<{nome:string;descricao:string}>>{
+  const deadline=Date.now()+timeoutMs;
+  const base={...(r.headers??{}),'Content-Type':'application/json',Accept:'application/json, text/event-stream'};
+  let session:string|undefined,protocol:string|undefined;
+  async function enviar(body:Record<string,unknown>){
+    const remaining=deadline-Date.now();if(remaining<=0)throw Error('Tempo total de descoberta MCP esgotado.');
+    const res=await fetch(r.url!,{method:'POST',redirect:'error',headers:{...base,...(session?{'Mcp-Session-Id':session}:{}),...(protocol?{'MCP-Protocol-Version':protocol}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(remaining)});
+    if(!res.ok){await res.body?.cancel();throw Error('Servidor MCP respondeu HTTP '+res.status+'.');}
+    const next=res.headers.get('mcp-session-id');if(next)session=next;
+    if(body.id===undefined){await res.body?.cancel();return null;}
+    if(!res.body)throw Error('Resposta MCP sem corpo.');
+    const reader=res.body.getReader(),decoder=new TextDecoder();let buffer='',bytes=0;
+    const sse=res.headers.get('content-type')?.includes('text/event-stream');
+    try{
+      for(;;){
+        const chunk=await reader.read();
+        if(chunk.done){buffer+=decoder.decode();break;}
+        bytes+=chunk.value.byteLength;if(bytes>2_000_000)throw Error('Resposta MCP acima do limite.');
+        buffer+=decoder.decode(chunk.value,{stream:true});
+        if(sse){
+          const events=buffer.split(/\r?\n\r?\n/);buffer=events.pop()??'';
+          for(const ev of events){
+            const data=ev.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');
+            if(!data)continue;
+            const msg=JSON.parse(data);if(msg.id===body.id)return msg;
+          }
+        }
+      }
+      if(sse){
+        const data=buffer.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');
+        if(data){const msg=JSON.parse(data);if(msg.id===body.id)return msg;}
+        throw Error('SSE MCP terminou sem resposta ao pedido.');
+      }
+      return JSON.parse(buffer);
+    }finally{await reader.cancel().catch(()=>undefined);}
+  }
+  try{
+    protocol=protocoloMcp(await enviar(INICIAR));
+    await enviar({jsonrpc:'2.0',method:'notifications/initialized'});
+    const tools:Array<{nome:string;descricao:string}>=[],names=new Set<string>(),cursors=new Set<string>();
+    let cursor:string|undefined;
+    for(let id=2;id<22;id++){
+      const page=paginaMcp(await enviar({...LISTAR,id,params:cursor?{cursor}:{}}),id);
+      for(const tool of page.ferramentas){
+        if(names.has(tool.nome)||tools.length>=1000)throw Error('Inventário MCP duplicado ou acima do limite.');
+        names.add(tool.nome);tools.push(tool);
+      }
+      if(!page.cursor)return tools;
+      if(cursors.has(page.cursor))throw Error('Cursor MCP repetido.');
+      cursors.add(page.cursor);cursor=page.cursor;
+    }
+    throw Error('Paginação MCP acima do limite.');
+  }finally{
+    if(session&&protocol){
+      // Best effort termination, no extra inference and no cross-origin redirect.
+      try{const res=await fetch(r.url!,{method:'DELETE',redirect:'error',headers:{...base,'Mcp-Session-Id':session,'MCP-Protocol-Version':protocol},signal:AbortSignal.timeout(Math.max(1,Math.min(2000,deadline-Date.now())))});await res.body?.cancel();}catch{/* server may not support DELETE */}
+    }
+  }
 }
 
 /** Modelos prontos para a tela (o usuário completa o token, quando houver). */

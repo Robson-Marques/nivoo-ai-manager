@@ -61,6 +61,7 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
       { id: 'openai/gpt-5', supported_parameters: ['tools'] },
       { id: 'meta/free-chat:free', supported_parameters: ['tools'] },
       { id: 'meta/free-simples:free', supported_parameters: ['response_format'] },
+      { id: 'meta/free-unknown:free' },
       { id: 'meta/model-falso:free', supported_parameters: ['tools'], pricing: { prompt: '0.50', completion: '0' } },
       { id: 'nvidia/free-embed:free', supported_parameters: ['tools'] },
     ] }), { status: 200 }));
@@ -69,6 +70,7 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
     expect(opcoes.map(m => m.id)).toContain('meta/free-chat:free');
     expect(opcoes.map(m => m.id)).not.toContain('openai/gpt-5');
     expect(opcoes.map(m => m.id)).not.toContain('meta/free-simples:free');
+    expect(opcoes.map(m => m.id)).not.toContain('meta/free-unknown:free');
     expect(opcoes.map(m => m.id)).not.toContain('meta/model-falso:free');
   });
 
@@ -82,7 +84,12 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
 
   it('valida chave OpenRouter com /key em vez de apenas consultar o catálogo público /models', async () => {
     process.env.OPENROUTER_API_KEY = 'sk-or-chave-ficticia-de-teste';
-    const spy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: { label: 'free' } }), { status: 200 }));
+    // /key valida a chave (não é público); em seguida /models confirma ao menos
+    // um modelo elegível. Cada chamada recebe sua própria Response (o corpo só
+    // pode ser lido uma vez).
+    const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => String(url).includes('/key')
+      ? new Response(JSON.stringify({ data: { label: 'free' } }), { status: 200 })
+      : new Response(JSON.stringify({ data: [{ id: 'openrouter/free' }] }), { status: 200 }));
     const status = await new OpenRouterFreeProvider().checkAvailability();
     expect(status).toMatchObject({ available: true, authenticated: true });
     expect(String(spy.mock.calls[0][0])).toBe('https://openrouter.ai/api/v1/key');
@@ -102,11 +109,11 @@ describe('Provedores hospedados gratuitos — OpenRouter e GroqCloud', () => {
     process.env.GROQ_API_KEY = 'gsk_chave-ficticia-de-teste';
     const spy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ data: [
       { id: 'whisper-large-v3' }, { id: 'openai/gpt-oss-120b' },
-      { id: 'meta-llama/llama-4-scout' },
+      { id: 'llama-3.3-70b-versatile' }, { id:'unknown/text-agent' }, { id:'groq/compound' },
     ] }), { status: 200 }));
     expect(modeloGroqDeTexto('whisper-large-v3')).toBe(false);
     const modelos = await new GroqFreeProvider().modelos();
-    expect(modelos.map(m => m.id)).toEqual(['openai/gpt-oss-120b', 'meta-llama/llama-4-scout']);
+    expect(modelos.map(m => m.id)).toEqual(['openai/gpt-oss-120b', 'llama-3.3-70b-versatile']);
     expect(String(spy.mock.calls[0][0])).toBe('https://api.groq.com/openai/v1/models');
   });
 

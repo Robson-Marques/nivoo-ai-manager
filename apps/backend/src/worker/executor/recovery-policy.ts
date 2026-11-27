@@ -11,9 +11,17 @@ export function immutableCommandFailure(diagnostic:string):boolean{
 }
 export function decideFailedAttempt(job:FailureJob,errors:Array<string|null>,current:string,command:string,providerId:string,isAi:boolean,diagnostic:string){
   const repetitions=repeticoesDoMesmoErro(errors,current,command);
-  if(current.trim()&&job.maxAttemptsPerStep>0&&job.maxAttemptsPerStep<MAX_OCORRENCIAS_MESMA_FALHA&&repetitions>=job.maxAttemptsPerStep)
-    return {kind:'limit' as const,repetitions,detail:'limite configurado de '+job.maxAttemptsPerStep+' tentativa(s) para o mesmo erro atingido'};
-  if(current.trim()&&repetitions>=MAX_OCORRENCIAS_MESMA_FALHA)
+  // Um TIMEOUT não é "repetição improdutiva de conteúdo": é problema de tempo.
+  // Repeti-lo não deve virar REPETICAO_IMPRODUTIVA — quem governa é o orçamento
+  // de tempo do job (maxDurationSec → LIMITE_TEMPO) e o teto de tentativas. Senão
+  // 3 timeouts seguidos bloqueariam como "repetição" antes de o tempo total estourar.
+  const ehTimeout=/^timeout após \d+\s*ms$/.test(current.trim());
+  // Limite configurado baixo (< 3) é um teto de TOTAL de tentativas da etapa, não
+  // de "mesmo erro": vale mesmo quando as falhas variam a cada tentativa. (errors já
+  // inclui a tentativa FALHA atual, então errors.length é o total de tentativas.)
+  if(current.trim()&&job.maxAttemptsPerStep>0&&job.maxAttemptsPerStep<MAX_OCORRENCIAS_MESMA_FALHA&&errors.length>=job.maxAttemptsPerStep)
+    return {kind:'limit' as const,repetitions,detail:'limite configurado de '+job.maxAttemptsPerStep+' tentativa(s) na etapa atingido'};
+  if(current.trim()&&!ehTimeout&&repetitions>=MAX_OCORRENCIAS_MESMA_FALHA)
     return {kind:'repeat' as const,repetitions,detail:'o mesmo erro ocorreu '+repetitions+' vezes nesta etapa; interrompido para não repetir indefinidamente: '+current.slice(-700)};
   if(!isAi&&providerId==='local-shell'&&immutableCommandFailure(diagnostic))return {kind:'blocked' as const,repetitions,detail:'Comando, argumento ou ambiente inválido; repetir sem corrigir a causa não resolve: '+current.slice(-1000)};
   if(!isAi&&providerId==='local-shell'&&falhaLocalCorrigivel(diagnostic))return {kind:'repair' as const,repetitions};
@@ -26,9 +34,13 @@ export function repeatedSessionVerification(sessions:Session[],command:string):s
     ? 'a mesma conferência da etapa falhou três vezes (sem contar erros distintos): '+current.slice(-600):null;
 }
 export function decideSessionContinuation(job:SessionJob,sessions:Session[]){
-  const recent=sessions.slice(0,MAX_OCORRENCIAS_MESMA_FALHA);
+  // Sessões improdutivas (sem alterar arquivo e sem anotar progresso) param na
+  // janela de repetição CONFIGURADA do job (repetitionWindow, padrão 2), não num
+  // valor fixo: é o controle que o pedido/limites do trabalho definem.
+  const janela=Math.max(2,job.repetitionWindow||2);
+  const recent=sessions.slice(0,janela);
   const unchanged=(a:Session)=>!!a.treeBefore&&!!a.treeAfter&&a.treeBefore===a.treeAfter;
-  if(recent.length>=MAX_OCORRENCIAS_MESMA_FALHA&&recent.every(a=>unchanged(a)&&a.notesIngested===0))
+  if(recent.length>=janela&&recent.every(a=>unchanged(a)&&a.notesIngested===0))
     return {kind:'repeat' as const,detail:'as últimas '+recent.length+' sessões terminaram sem alterar nenhum arquivo e sem anotar progresso'};
   const window=Math.max(8,job.repetitionWindow*4);
   if(sessions.length>=window&&sessions.slice(0,window).every(unchanged))

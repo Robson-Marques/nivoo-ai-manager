@@ -1,3 +1,4 @@
+import type { SkillObservation } from '../specialties/skill-evidence';
 import type { McpResolvido } from '../mcp/mcp';
 export type ProviderKind = 'cli' | 'api' | 'executor' | 'test';
 
@@ -14,6 +15,8 @@ export interface ProviderStatus {
   /** Limites conhecidos (documentados ou configurados); nunca contornados. */
   limits: Record<string, string | number>;
   capabilities: string[];
+  /** Exact eligible agent IDs reported by the connection; absence means unknown, not empty. */
+  agentModels?:string[];
   errors: string[];
   checkedAt: string;
   isAi: boolean;
@@ -41,6 +44,8 @@ export interface ExecutionRequest {
   onLog: (line: string, level?: 'INFO' | 'WARN' | 'ERROR') => void;
   /** Informado quando o processo do agente inicia (pid do grupo). */
   onSpawn?: (pid: number) => void;
+  /** Adapter observations only; not model claims or log parsing. */
+  onSkillRead?: (event:SkillObservation)=>void;
   /** Opções por etapa (não secretas): modelo e limite de turnos da sessão. */
   /** images: arquivos de imagem anexados (para IAs que recebem imagem pela linha de comando). */
   /** Etapa de vídeo: arquivo, duracaoSeg, proporcao, resolucao, negativo, imagem, conexao. */
@@ -54,6 +59,8 @@ export interface ExecutionResult {
   exitCode: number;
   output: string;
   error?: string;
+  /** Structured failure emitted by the local connector, not inferred from model text. */
+  connectorFailure?:{kind:'spawn'|'connector-exception'|'sandbox';detail:string};
   /** Recurso indisponível (limite de uso, autenticação ausente, rede): reagendar. */
   resourceUnavailable?: boolean;
   /** Tempo mínimo de espera indicado pelo provedor (ex.: Retry-After no HTTP 429). */
@@ -75,6 +82,8 @@ export interface ExecutionResult {
    */
   sessionEnded?: boolean;
   sessionId?: string;
+  /** Set only by the dedicated CLI transport after native event validation. */
+  reviewIsolation?: 'cli-inline-v1';
   stopReason?: string;
   numTurns?: number;
 }

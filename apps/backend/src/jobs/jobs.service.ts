@@ -20,6 +20,7 @@ export { opcoesDeVideo, opcoesDeJuncao, TRANSICOES } from './workflow/media-opti
 export { operacoesDeArquivos } from './workflow/file-options';
 import { AreaScope, mediaEnabledForArea } from '../specialties/media/scope';
 import { appConfig } from '../config';
+import { readAttemptJournal } from '../worker/executor/attempt-journal';
 import { BlockedReason } from '../common/status';
 import { optNumber, optString, reqString } from '../common/validate';
 import { PrismaService } from '../prisma/prisma.service';
@@ -28,6 +29,8 @@ import { QueueService } from '../queue/queue.service';
 import { LogService } from './log.service';
 import { aceitarRevisao, conferenciasDasEtapas, lerRevisao, RULE_REVIEW_CRITERION, RULE_REVIEW_STEP, ruleReviewStep } from './rule-review';
 import { OrchestratorService } from './orchestrator.service';
+import { approvedGoldfish,checkApprovedGoldfishStep } from '../specialties/software/egm/resolution-execution';
+import { assertGoldfishProofContracts } from '../specialties/software/egm/resolution-proof';
 import { capturasParaRecuperar } from './motion-capture-freshness';
 
 
@@ -99,6 +102,16 @@ export class JobsService {
     const criteria = parseCriteria(compiled.criteria, [], mediaEnabledForArea(project.area));
     validateCapabilityCriteria(criteria,steps);
     if(approvedScope)requireAdoptionContract({title,objective,steps,criteria},project.area,approvedScope.visual.profile,approvedScope.request?.content);
+    const egm=approvedGoldfish(approvedScope);
+    if(egm){
+      if(!egm.proofs)throw new ConflictException('Correção Goldfish exige contratos de regressão por achado.');
+      assertGoldfishProofContracts(egm.proofs,criteria);
+      if(steps.length!==egm.steps.length)throw new ConflictException('Etapas Goldfish divergentes do plano aprovado.');
+      for(const step of steps){
+        if(this.registry.get(step.provider??defaultProvider).kind==='executor')throw new ConflictException('Correção Goldfish exige agente de software, não executor direto.');
+        checkApprovedGoldfishStep(egm,step);
+      }
+    }
     // Revisão editorial/visual é decisão do USUÁRIO. Não adicionar sessão
     // independente de IA por padrão; só se a pessoa solicitar conferência
     // explicitamente. Testes técnicos necessários permanecem nos executores.
@@ -322,13 +335,13 @@ export class JobsService {
     // senão duas sessões trabalhariam ao mesmo tempo no mesmo workspace. "Continuar" logo depois de "Pausar"
     // espera alguns segundos o encerramento em vez de recusar.
     const sessaoAindaFechando = async () => {
-      const vivos = await this.prisma.attempt.findMany({ where: { jobId, status: 'EXECUTANDO' } });
-      const limite = new Date(Date.now() - 2 * appConfig().leaseMs);
-      for (const a of vivos) {
-        const hb = await this.prisma.workerHeartbeat.findUnique({ where: { id: a.workerId } });
-        if (hb && hb.lastSeenAt > limite) return a;
-      }
-      return null;
+      // A sessão só está encerrada quando o worker SOLTA a tarefa (lockedBy=null,
+      // via acknowledgeCancelled, após matar o processo e reconciliar a tentativa).
+      // Não basta o lease ter vencido: um processo que ignora SIGTERM morre só no
+      // SIGKILL (alguns segundos depois), e nesse meio-tempo o lease pode expirar
+      // enquanto o worker ainda está encerrando. Retomar aí abriria uma 2ª sessão
+      // no mesmo trabalho e leria a tentativa antes de ela virar INTERROMPIDA.
+      return this.prisma.queueTask.findFirst({where:{jobId,status:{in:['RUNNING','CANCELLED']},lockedBy:{not:null}},select:{id:true,lockedBy:true}});
     };
     const ate = Date.now() + Number(process.env.NIVOO_ESPERA_ENCERRAR_MS ?? 20_000);
     let fechando = await sessaoAindaFechando();
@@ -337,7 +350,7 @@ export class JobsService {
       fechando = await sessaoAindaFechando();
     }
     if (fechando) {
-      throw new ConflictException(`A sessão #${fechando.number} ainda está sendo encerrada pelo worker ${fechando.workerId}. Aguarde alguns segundos e clique em Continuar de novo.`);
+      throw new ConflictException(`A sessão anterior deste trabalho ainda está sendo encerrada (tarefa ${fechando.id} no worker ${fechando.lockedBy}). Aguarde alguns segundos e clique em Continuar de novo; nunca rodam duas sessões no mesmo trabalho.`);
     }
     // Em jobs motion antigos, o núcleo inseria uma revisão de IA compulsória
     // ANTES do render. Ela podia bloquear toda a entrega apesar de o HTML e
@@ -369,6 +382,8 @@ export class JobsService {
     );
     await this.prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      const current=await tx.job.findUniqueOrThrow({where:{id:jobId},select:{status:true}});
+      if(!['BLOQUEADO','FALHOU','AGUARDANDO_RECURSO'].includes(current.status))throw new ConflictException('Estado do trabalho mudou durante a retomada.');
       if (dispensaRevisaoFinal && criterioRegraLegado && entregaFinal) {
         // Não apagar evidências nem falsificar relatório: substituir o
         // critério de IA que o próprio Nivoo adicionou pelo mesmo teste real
@@ -403,20 +418,17 @@ export class JobsService {
           } });
           continue;
         }
-        const ultima = await tx.attempt.aggregate({ where: { stepId: s.id }, _max: { number: true } });
-        const recomeco = { resumeFromAttempt: ultima._max.number ?? 0 }; // limites contam a partir da retomada
+        const last=await tx.attempt.findFirst({where:{stepId:s.id},orderBy:{number:'desc'}});
+        const journal=readAttemptJournal(last?.executionState);
+        const recoverable=!!last&&(last.status==='EXECUTANDO'||(last.status==='SUCESSO'&&!!last.treeAfter)
+          ||(last.status==='INTERROMPIDA'&&!!journal&&journal.phase!=='TERMINAL'));
+        const recomeco={resumeFromAttempt:recoverable?Math.min(s.resumeFromAttempt,Math.max(0,last!.number-1)):last?.number??0};
         if (recapturar.has(s.key) && s.status === 'CONCLUIDO') {
-          await tx.step.update({
-            where: { id: s.id },
-            data: { status: 'PENDENTE', statusDetail: 'recapturar visual atualizado antes da revisão' },
-          });
-        } else if (s.status === 'EXECUTANDO') {
-          // Worker morreu (sem sinal): a tentativa órfã é encerrada; a etapa volta para PENDENTE.
-          await tx.attempt.updateMany({
-            where: { stepId: s.id, status: 'EXECUTANDO' },
-            data: { status: 'INTERROMPIDA', endedAt: new Date(), error: 'tentativa órfã encerrada na retomada (worker sem sinal)' },
-          });
-          await tx.step.update({ where: { id: s.id }, data: { status: 'PENDENTE', statusDetail: 'retomada', ...recomeco } });
+          await tx.step.update({where:{id:s.id},data:{status:'PENDENTE',statusDetail:'recapturar visual atualizado antes da revisão'}});
+        } else if(s.status==='EXECUTANDO'){
+          // Preserve the process identity and receipt; only the executor
+          // holding the next valid claim may reconcile an abandoned attempt.
+          await tx.step.update({where:{id:s.id},data:{status:'PENDENTE',statusDetail:'retomada com reconciliação da tentativa anterior',...recomeco}});
         } else if (['BLOQUEADO', 'FALHOU', 'AGUARDANDO_RECURSO'].includes(s.status)) {
           await tx.step.update({
             where: { id: s.id },
@@ -431,6 +443,11 @@ export class JobsService {
           });
         }
       }
+      // "Tentar de novo" é uma intervenção do usuário: a contagem de "mesma falha
+      // N vezes" recomeça. Neutraliza os marcadores de assinatura das correções
+      // anteriores (sem apagar o histórico) para que o ciclo de correção não pare
+      // de cara pela repetição do ciclo já encerrado.
+      await tx.$executeRaw`UPDATE "Step" SET instructions = regexp_replace(instructions, '^NIVOO_RECOVERY_SIGNATURES_V1:', 'NIVOO_RECOVERY_SIGNATURES_V1_CICLO_ANTERIOR:', 'm') WHERE "jobId" = ${jobId} AND key ~ '^correcao-criterios-[0-9]+$'`;
       await tx.job.update({
         where: { id: jobId },
         data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `retomado por ${by}`, finishedAt: null, startedAt: job.startedAt ?? new Date() },
@@ -448,7 +465,13 @@ export class JobsService {
   /** Solicita nova verificação de critérios (nunca marca conclusão diretamente). */
   async requestEvaluation(projectId: string, jobId: string) {
     const job = await this.get(projectId, jobId);
-    if (job.status === 'CONCLUIDO') return job;
+    if (job.status === 'CONCLUIDO') {
+      const receipt=job.completionState as {phase?:string;publish?:boolean;pushStatus?:string}|null;
+      if(receipt&&(receipt.phase!=='DELIVERED'||(receipt.publish&&receipt.pushStatus!=='CONFIRMED'))){
+        await this.prisma.$transaction(async tx=>{await OrchestratorService.lockJob(tx,jobId);await this.queue.enqueue(tx,'EVALUATE_JOB',jobId,null);});
+      }
+      return job;
+    }
     if (job.steps.some((s) => s.status !== 'CONCLUIDO')) {
       throw new ConflictException('Há etapas não concluídas; retome o job em vez de reavaliar');
     }
@@ -545,7 +568,12 @@ export class JobsService {
           verifyCommand: conferenciasDasEtapas(outras).join(' && ') || 'true',
         },
       });
-      await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
+      // Re-execução INTENCIONAL da revisão após a resposta do usuário: a tentativa
+      // anterior foi verificada, mas o worktree mudou. resumeFromAttempt = attemptCount
+      // evita que a recuperação de crash a confunda com uma tentativa a recuperar e
+      // pule a reconferência; a próxima sessão roda uma nova tentativa da revisão.
+      const rev = await tx.step.findUnique({ where: { id: revisao.id }, select: { attemptCount: true } });
+      await tx.step.update({ where: { id: revisao.id }, data: { status: 'PENDENTE', order: base + 1, resumeFromAttempt: rev?.attemptCount ?? 0, dependsOn: [...new Set([...revisao.dependsOn, key])], statusDetail: 'resposta do usuário: conferir de novo' } });
       await tx.job.update({ where: { id: jobId }, data: { status: 'EXECUTANDO', blockedReason: null, statusDetail: `aplicando a resposta de ${por}`, finishedAt: null } });
       // A resposta do usuário é decisão dele: memória do projeto, um item por pergunta (responder de novo atualiza).
       await gravarNoProjeto(tx, {

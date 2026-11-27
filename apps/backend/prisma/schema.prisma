@@ -164,6 +164,10 @@ model ConversationMessage {
   status         MessageStatus @default(PRONTA)
   kind           String? // resposta | plano | erro
   plan           Json? // rascunho de job proposto pela IA (só vira job com aprovação)
+  /// Diário interno de revisão independente; nunca é um plano aprovável.
+  goldfishState  Json?
+  /// Provider receipt for ordinary planning and its optional repair.
+  planningState  Json?
   /// Perguntas da IA com opções de clicar: [{ pergunta, opcoes: [{ rotulo, descricao }], multipla }]
   perguntas      Json?
   jobId          String? // job criado ao aprovar o plano
@@ -258,6 +262,7 @@ model Job {
   gitBranch          String?
   mergeStatus        String? // INCORPORADO | CONFLITO: resultado do job na pasta principal do projeto
   mergedCommit       String?
+  completionState    Json? // durable verified integration and publication receipt
   startedAt          DateTime?
   finishedAt         DateTime?
   activeSeconds      Int        @default(0)
@@ -359,6 +364,8 @@ model Attempt {
   workerId         String
   hostname         String?
   pid              Int? // grupo de processos do agente (para encerrar órfãos após queda do worker)
+  processIdentity  Json? // boot_id e starttime do líder observado pelo worker
+  executionState   Json? // durable attempt phase and bounded continuation receipt
   sessionId        String? // id da sessão no provedor (ex.: session_id do Claude Code)
   stopReason       String? // motivo de término informado pelo provedor (completed, max_turns, api_error...)
   numTurns         Int?
@@ -479,6 +486,8 @@ model QueueTask {
   lockedUntil   DateTime?
   claims        Int                  @default(0)
   recoveries    Int                  @default(0) // reivindicações de lease EXPIRADO (worker caiu); só isso conta como "loop de quedas"
+  internalErrorSignature String?
+  internalErrorCount Int @default(0)
   resourceWaits Int                  @default(0) // esperas por recurso indisponível (define a espera crescente)
   lastError     String?
   createdAt     DateTime             @default(now())
@@ -524,4 +533,12 @@ model SshPedido {
   terminadoEm  DateTime?
 
   @@index([projectId, status])
+}
+
+// Shared transient provider quota state; no credentials or prompt content.
+model ProviderCooldown {
+  providerId String @id
+  until DateTime
+  failures Int @default(0)
+  updatedAt DateTime @updatedAt
 }

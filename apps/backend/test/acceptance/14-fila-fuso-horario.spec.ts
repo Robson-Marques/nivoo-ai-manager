@@ -79,7 +79,7 @@ describe.each(['America/Sao_Paulo', 'UTC'])('Fila persistente com o banco em %s'
     const tarefa = await fila.enqueue(h.prisma, 'RUN_STEP', job.id, job.steps[0].id);
     const a = await fila.claim('worker-a', 2_000);
     expect(a?.id).toBe(tarefa!.id);
-    expect(await fila.heartbeat(a!.id, 'worker-a', LEASE)).toBe(true);
+    expect(await fila.heartbeat(a!.id, 'worker-a', a!.claims, LEASE)).toBe(true);
     const renovada = await h.prisma.queueTask.findUniqueOrThrow({ where: { id: a!.id } });
     expect(Math.abs(renovada.lockedUntil!.getTime() - (Date.now() + LEASE))).toBeLessThan(10_000);
     expect(Math.abs(renovada.updatedAt.getTime() - Date.now())).toBeLessThan(10_000);
@@ -92,7 +92,7 @@ describe.each(['America/Sao_Paulo', 'UTC'])('Fila persistente com o banco em %s'
     expect(b!.recovered).toBe(true);
     expect(b!.previousLockedBy).toBe('worker-a');
     expect(b!.recoveries).toBe(1);
-    expect(await fila.heartbeat(a!.id, 'worker-a', LEASE)).toBe(false); // A perdeu o lease
+    expect(await fila.heartbeat(a!.id, 'worker-a', a!.claims, LEASE)).toBe(false); // A perdeu o lease (geração antiga)
     // Quedas repetidas com lease vencido: a tarefa vira DEAD e o job é bloqueado (não fica preso).
     await h.prisma.job.update({ where: { id: job.id }, data: { status: 'EXECUTANDO' } });
     await h.prisma.queueTask.update({ where: { id: a!.id }, data: { recoveries: 5, lockedUntil: new Date(Date.now() - 1_000) } });

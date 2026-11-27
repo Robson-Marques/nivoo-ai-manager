@@ -9,7 +9,7 @@ describe('Integração de engenharia de software',()=>{
   const task='Refatorar arquitetura backend e frontend React, migração Prisma, integração webhook, autorização RBAC, testes Jest, desempenho, requisitos, especificação técnica, contexto arquitetural redesign de dashboard , identidade visual do site , composição de interfaces , microinterações, biblioteca de componentes 21st.dev e estilo Liquid Glass';
   const input={phase:'execution' as const,text:task,testDbConfigured:()=>false};
   it('mantém IDs estáveis e registra uma orientação por especialidade selecionada',()=>{
-    expect(SKILLS_VERSION).toBe('1.5.0');
+    expect(SKILLS_VERSION).toBe('1.7.0');
     expect(NIVOO_SKILLS).toHaveLength(27);
     expect(SOFTWARE_SKILLS.map(s=>s.id)).toEqual(['software-arquitetura','software-backend','software-frontend','software-dados','software-integracoes','software-seguranca','software-qualidade','software-manutencao','software-requisitos','software-especificacao','software-contexto-arquitetural','software-revisao-independente','software-refinamento-visual','software-direcao-artistica','software-composicao-interface','software-microinteracoes','software-biblioteca-componentes','software-liquid-glass']);
     const skills=selectSkills({...base,text:task});

@@ -1,3 +1,5 @@
+import { assertStepLease,withStepLease,LostStepLease,type StepLease } from './lease';
+import type { ClaimedTask } from '../../queue/queue.service';
 import { Prisma,type Job,type Step } from '@prisma/client';
 import { readAgentNotes,parseAgentNotes } from './session-notes';
 import { BlockedReason } from '../../common/status';
@@ -60,20 +62,22 @@ export async function recordLesson(prisma:PrismaService,job: Job, step: Step, re
    * São versionadas no git do job e importadas para a memória do projeto. Decisões do agente
    * entram como PENDENCIA (proposta) — só o operador aprova decisões.
    */
-export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceService,logs:LogService,job: Job, step: Step, attemptId: string, worktree: string, providerId: string, sessionId: string | undefined, outputs: { id: string; name: string }[]): Promise<number> {
+export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceService,logs:LogService,job: Job, step: Step, attemptId: string, worktree: string, providerId: string, sessionId: string | undefined, outputs: { id: string; name: string }[],lease?:StepLease): Promise<number> {
     const journal=readAgentNotes(worktree);
     if(journal.warning)await logs.log(job.id,journal.warning,{stepId:step.id,attemptId,level:'WARN',source:'worker'});
-    if(!journal.text)return 0;
+    if(!journal.text&&!lease)return 0;
     const parsed=parseAgentNotes(journal.text);
     if(parsed.invalid)await logs.log(job.id,`Notas inválidas ignoradas: ${parsed.invalid}; conteúdo bruto não importado.`,{stepId:step.id,attemptId,level:'WARN',source:'worker'});
     // Deduplicação por hash do conteúdo: robusta mesmo se o agente reescrever o arquivo inteiro.
-    const known = await prisma.memoryEntry.findMany({
+    const commit = await workspace.headCommit(worktree);
+    if(lease&&(lease.task.jobId!==job.id||lease.task.stepId!==step.id))throw new LostStepLease();
+    const importOnce=async(db:Prisma.TransactionClient)=>{
+    const known = await db.memoryEntry.findMany({
       where: { projectId: job.projectId, references: { path: ['jobId'], equals: job.id } },
       select: { references: true },
     });
     const seen=new Set(known.flatMap(k=>{const r=k.references as {noteHash?:string;canonicalNoteHash?:string}|null;return [r?.noteHash,r?.canonicalNoteHash].filter((h):h is string=>typeof h==='string');}));
     const fresh=parsed.notes.filter(n=>{if(seen.has(n.hash)||seen.has(n.canonicalHash))return false;seen.add(n.hash);seen.add(n.canonicalHash);return true;});
-    const commit = await workspace.headCommit(worktree);
     const author = `agente:${providerId}:sessao:${sessionId ?? attemptId}`;
     let count = 0;
     for (const n of fresh) {
@@ -83,25 +87,52 @@ export async function ingestNotes(prisma:PrismaService,workspace:WorkspaceServic
       let references: Record<string, unknown> = refsBase;
       if (tipo === 'EVIDENCIA') {
         const wanted=n.arquivos;
-        const arts = await prisma.artifact.findMany({ where: { projectId:job.projectId,jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
+        const arts = await db.artifact.findMany({ where: { projectId:job.projectId,jobId: job.id, name: { in: wanted } }, orderBy: { createdAt: 'desc' } });
         if (wanted.length && wanted.every(name=>arts.some(a=>a.name===name)) && commit) {
           category = 'EVIDENCIA';
           references = { ...refsBase, artifactIds: arts.map((a) => a.id), gitCommit: commit, parameters: {} };
         }
       }
       const prefix = tipo === 'DECISAO_PROPOSTA' ? '[decisão proposta pelo agente — requer aprovação] ' : tipo === 'PROGRESSO' ? '[progresso] ' : tipo === 'EVIDENCIA' && category !== 'EVIDENCIA' ? '[evidência sem artefato verificável] ' : '';
-      await prisma.memoryEntry.create({
+      await db.memoryEntry.create({
         data: { camada: 'INTERNA', projectId: job.projectId, category, title: titulo, content: prefix + conteudo, references: references as Prisma.InputJsonValue, author },
       });
       count++;
     }
-    if (count) await escreverArquivosDaMemoria(prisma, job.projectId);
-    if (count) await logs.log(job.id, `${count} nota(s) do agente guardada(s) na memória interna do processo`, { stepId: step.id, source: 'worker' });
+    if(!lease)return {created:count,total:count};
+    const owned=new Set(known.flatMap(k=>{
+      const ref=k.references as {attemptId?:string;noteHash?:string;canonicalNoteHash?:string}|null;
+      return ref?.attemptId===attemptId?[ref.canonicalNoteHash??ref.noteHash].filter((x):x is string=>typeof x==='string'):[];
+    }));
+    for(const n of fresh)owned.add(n.canonicalHash);
+    return {created:count,total:owned.size};
+    };
+    const result=lease?await withStepLease(prisma,lease,async tx=>{
+      const attempt=await tx.attempt.findFirst({where:{id:attemptId,jobId:job.id,stepId:step.id},select:{id:true}});
+      if(!attempt)throw new LostStepLease();
+      return importOnce(tx);
+    }):await importOnce(prisma);
+    if(result.total)await escreverArquivosDaMemoria(prisma,job.projectId);
+    if(result.created)await logs.log(job.id,`${result.created} nota(s) do agente guardada(s) na memória interna do processo`,{stepId:step.id,source:'worker'});
     void outputs;
-    return count;
+    return result.total;
   }
 
-export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false) {
+export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceService,jobId: string, step: Step, worktree: string, label: string, extra: Record<string, unknown>,complete=false,lease?:{task:ClaimedTask;workerId:string}) {
+    const attemptNumber=typeof extra.tentativa==='number'&&Number.isSafeInteger(extra.tentativa)?extra.tentativa:null;
+  const completionWhere:Prisma.CheckpointWhereInput|null=complete&&attemptNumber!==null?{jobId,stepId:step.id,gitCommit:{not:null},AND:[{state:{path:['tentativa'],equals:attemptNumber}},{state:{path:['concluido'],equals:true}}]}:null;
+  if(lease){
+    if(lease.task.jobId!==jobId||lease.task.stepId!==step.id)throw new LostStepLease();
+    const existing=await withStepLease(prisma,lease,async tx=>{
+      if(!completionWhere)return null;
+      const current=await tx.step.findUnique({where:{id:step.id},select:{status:true,attemptCount:true,resumeFromAttempt:true}});
+      if(!current||current.attemptCount!==attemptNumber||current.resumeFromAttempt>=attemptNumber!)throw new LostStepLease();
+      const saved=await tx.checkpoint.findFirst({where:completionWhere});
+      if(saved&&current.status!=='CONCLUIDO')throw Error('Checkpoint já concluído, mas estado da etapa diverge; não sobrescrever.');
+      return saved;
+    });
+    if(existing?.gitCommit)return existing.gitCommit;
+  }
     let commit:string|null=null;
     let gitError:string|null=null;
     try {
@@ -111,6 +142,13 @@ export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceSer
 
     await prisma.$transaction(async (tx) => {
       await OrchestratorService.lockJob(tx, jobId);
+      if(lease)await assertStepLease(tx,lease.task,lease.workerId);
+      if(lease&&complete&&commit&&completionWhere){
+        const current=await tx.step.findUnique({where:{id:step.id},select:{status:true,attemptCount:true,resumeFromAttempt:true}});
+        if(!current||current.attemptCount!==attemptNumber||current.resumeFromAttempt>=attemptNumber!)throw new LostStepLease();
+        const existing=await tx.checkpoint.findFirst({where:completionWhere});
+        if(existing?.gitCommit){if(existing.gitCommit!==commit)throw Error('Checkpoint de conclusão divergente; arquivos preservados.');return;}
+      }
       if(complete&&commit){
         await tx.step.update({where:{id:step.id},data:{status:'CONCLUIDO',statusDetail:'resultado verificado; commit '+commit.slice(0,10)}});
       }
@@ -123,7 +161,7 @@ export async function saveCheckpoint(prisma:PrismaService,workspace:WorkspaceSer
           seq,
           label,
           gitCommit: commit,
-          state: { ...extra, etapa: step.key, etapas: Object.fromEntries(steps.map((s) => [s.key, s.status])), gitPreservado:!!commit, ...(gitError?{gitError}: {}) } as Prisma.InputJsonValue,
+          state: { ...extra, etapa: step.key, etapas: Object.fromEntries(steps.map((s) => [s.key, s.status])), gitPreservado:!!commit, concluido:complete&&!!commit, ...(gitError?{gitError}: {}) } as Prisma.InputJsonValue,
         },
       });
     });

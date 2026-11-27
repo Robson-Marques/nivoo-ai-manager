@@ -19,7 +19,9 @@ export interface PlannerRequest {
   anexos:PlannerAttachment[];
   entrega:string|null;
   specialtyContext?:string|null;
+  goldfishResolutionContext?:string|null;
   providerId:string;
+  mcpNames?:string[];
   resultados:string[];
   worktree?:string;
 }

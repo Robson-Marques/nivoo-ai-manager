@@ -177,4 +177,30 @@ describe('Revisão independente — regressões', () => {
     expect(reconexao).toContain('event: state');
     expect(reconexao).not.toContain('linha-antiga');
   });
+
+  it('#11 concorrência real: dois workers disputam a mesma tarefa ao mesmo tempo; só um vence e quem perdeu o lease não altera o estado', async () => {
+    const p = await createProject(h, 'rev concorrencia');
+    await h.worker.stop(); // controla a fila manualmente neste teste
+    try {
+      const queue = h.app.get(QueueService);
+      const j = await job(p.id, { title: 'disputada', steps: [{ key: 's', instructions: 'true' }] });
+      // Isola: só a tarefa RUN_STEP deste job fica disponível para ser reivindicada.
+      await h.prisma.queueTask.updateMany({ where: { NOT: { jobId: j.id, type: 'RUN_STEP' } }, data: { status: 'DONE' } });
+      await h.prisma.queueTask.updateMany({ where: { jobId: j.id, type: 'RUN_STEP' }, data: { status: 'QUEUED', lockedBy: null, lockedUntil: null, claims: 0, recoveries: 0, runAt: new Date(Date.now() - 1000) } });
+      // Dois workers reivindicam exatamente ao mesmo tempo: FOR UPDATE ... SKIP LOCKED garante um só vencedor.
+      const [a, b] = await Promise.all([queue.claim('w-A', 5000, ['RUN_STEP']), queue.claim('w-B', 5000, ['RUN_STEP'])]);
+      const vencedores = [a, b].filter((t): t is NonNullable<typeof t> => !!t);
+      expect(vencedores).toHaveLength(1); // exatamente um vence a disputa
+      const v = vencedores[0];
+      const perdedor = v.lockedBy === 'w-A' ? 'w-B' : 'w-A';
+      // Quem não é dono do lease (perdeu a disputa) não renova, não conclui e não refileira a tarefa.
+      expect(await queue.heartbeat(v.id, perdedor, v.claims, 5000)).toBe(false);
+      expect(await queue.complete(v.id, perdedor, v.claims)).toBe(false);
+      // O dono do lease consegue renovar e concluir.
+      expect(await queue.heartbeat(v.id, v.lockedBy!, v.claims, 5000)).toBe(true);
+      expect(await queue.complete(v.id, v.lockedBy!, v.claims)).toBe(true);
+    } finally {
+      h.worker.start();
+    }
+  });
 });

@@ -1,10 +1,11 @@
+import { manifestEntry,type SkillManifestEntry } from './skill-evidence';
 import { writeSessionContextFile } from '../common/session-context-file';
 import { SOFTWARE_SKILLS,selectSoftwareSkillIds } from './software/catalog';
 
 /** Bundled, reviewed guidance. No npm installer, remote API, arbitrary scripts,
  * hooks, provider credentials or change of permissions. Native CLI discovery is
  * deliberately not relied on: every supported connector can read contexto/. */
-export const SKILLS_VERSION='1.5.0';
+export const SKILLS_VERSION='1.7.0';
 const upstream='https://github.com/NVIDIA/skills/tree/71e61c7209cb4ca64cba247a7d20a5438b30aef5/skills/';
 export type Skill={id:string;description:string;action:string;body:string;source?:string;sourceAttribution?:string;domain?:'software'};
 export const NIVOO_SKILLS:readonly Skill[]=[
@@ -44,6 +45,10 @@ export interface SkillIntent {
   /** Only the operator-configured benchmark reference suppresses this auxiliary skill. */
   omitLeanSkill?:boolean;
   capabilityWork?:boolean;
+  /** Enable phase-specific EGM routing for the live software workflow, not only Capability jobs. */
+  softwareLifecycle?:boolean;
+  /** Structured, already approved step check; never execute it here or route on raw failure logs. */
+  verifyCommand?:string|null;
 }
 /** Route by the current request or step, not the accumulated conversation,
  * project title, or a remote description that could instruct the system. */
@@ -68,8 +73,23 @@ export function selectSkills(intent:SkillIntent):Skill[]{
   if(!intent.nativeImage&&/\b(arquivo|arquivos|gravar|gravacao|salvar|escrever|editar|exportar|planilha|documento|relatorio|file|files)\b/.test(t))selected.add('arquivos');
   if(intent.software&&!intent.nativeImage&&!intent.motionAuthor){
     const specialists=[...softwareIds,...(intent.capabilityWork?['software-requisitos','software-especificacao','software-contexto-arquitetural']:[])];
+    // The step title can be purely functional; an approved test command is
+    // concrete evidence of the engineering discipline, not proof of success.
+    const check=intent.phase==='execution'?intent.verifyCommand??'':'';
+    const checkIsSoftware=check.length>0&&/(?:^|[\s;&|])(?:node\s+[^;&|\n]*\bnivoo-roteiros\/|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test[\w:-]*|build[\w:-]*|lint[\w:-]*|typecheck[\w:-]*)\b|(?:npx\s+)?(?:jest|vitest|tsc|pytest|playwright|prisma)\b|python(?:3)?\s+-m\s+pytest\b)/i.test(check);
+    if(checkIsSoftware){
+      specialists.push('software-qualidade');
+      if(/\b(?:postgres(?:ql)?|prisma|mysql|sqlite|mariadb|mongodb)\b/i.test(check))specialists.push('software-dados');
+    }
     if(specialists.length||/\b(codigo|program\w*|backend|frontend|typescript|javascript|python|compil\w*|api|script|repositorio|bug|build|testes?|endpoint|controller|funcao|funcoes|classe|modulo|implement\w*|refator\w*|prisma|sql|migrac\w*)\b/.test(t))selected.add('codigo');
     for(const id of specialists)selected.add(id);
+    if(intent.softwareLifecycle&&selected.has('codigo')){
+      // A local maintenance job without a Capability still has requirements and
+      // contracts. Use the relevant EGM phase in the existing productive session.
+      for(const id of intent.phase==='planner'
+        ? ['software-requisitos','software-especificacao']
+        : ['software-contexto-arquitetural'])selected.add(id);
+    }
     // A prior failure can deepen an actual code step without routing on raw logs.
     if(intent.phase==='execution'&&intent.previousError&&selected.has('codigo'))selected.add('software-manutencao');
   }
@@ -83,14 +103,16 @@ export function studioAlignmentSkills():Skill[]{
   return NIVOO_SKILLS.filter(s=>s.id==='software-requisitos'||s.id==='software-especificacao');
 }
 
+export function skillDocument(s:Skill):string{return ['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em '+(s.sourceAttribution??'NVIDIA Agent Skills (Apache-2.0)')+', '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n';}
+export function skillManifest(skills:readonly Skill[]):SkillManifestEntry[]{return skills.map(s=>manifestEntry(s.id,skillDocument(s)));}
 export function skillContext(skills:readonly Skill[],worktree?:string):string[]{
   if(!skills.length)return [];
   if(worktree){
     for(const s of skills){
-      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',['---','name: '+s.id,'description: '+JSON.stringify(s.description),'---','','# '+s.description,'',s.body,'',...(s.source?['Inspirada em '+(s.sourceAttribution??'NVIDIA Agent Skills (Apache-2.0)')+', '+s.source+'. Adaptação Nivoo; sem scripts upstream.']:[])].join('\n')+'\n');
+      writeSessionContextFile(worktree,'skills-nivoo/'+s.id+'/SKILL.md',skillDocument(s));
     }
   }
   return ['## Skills Nivoo v'+SKILLS_VERSION+' selecionadas para esta sessão',
     'Orientações auxiliares, subordinadas ao perfil, às regras de segurança e ao contrato dos executores. Não instale ferramentas, não altere permissões e não crie etapas extras por causa de uma skill.',
-    ...skills.map(s=>'- '+s.id+': '+s.action+(worktree?' Leia contexto/skills-nivoo/'+s.id+'/SKILL.md se precisar dos detalhes.':''))];
+    ...skills.map(s=>'- '+s.id+': '+s.action+(worktree?' Consulte contexto/skills-nivoo/'+s.id+'/SKILL.md antes de aplicar esta orientação à tarefa pertinente; leia por páginas quando necessário.':''))];
 }

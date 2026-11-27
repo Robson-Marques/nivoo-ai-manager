@@ -31,6 +31,29 @@ describe('Skills Nivoo',()=>{
     expect(ids({...base,software:true,text:'Animar imagem da pizza em JavaScript',motionAuthor:true})).toEqual(['execucao-enxuta','direcao-artistica','motion']);
     expect(ids({...sw,text:'Implementar backend',executor:true})).toEqual([]);
   });
+  it('roteia EGM por fase em trabalhos de software sem Capability, sem ativar revisão independente',()=>{
+    const sw={...base,media:false,software:true,softwareLifecycle:true};
+    const planning=ids({...sw,phase:'planner',text:'Corrigir endpoint'});
+    expect(planning).toEqual(expect.arrayContaining(['codigo','software-backend','software-requisitos','software-especificacao']));
+    const execution=ids({...sw,text:'Corrigir endpoint'});
+    expect(execution).toEqual(expect.arrayContaining(['codigo','software-backend','software-contexto-arquitetural']));
+    expect(execution).not.toContain('software-revisao-independente');
+    expect(ids({...sw,phase:'planner',text:'Olá'})).toEqual([]);
+    expect(ids({...sw,text:'Corrigir endpoint',executor:true})).toEqual([]);
+    expect(ids({...sw,media:true,nativeImage:true,text:'Criar imagem de pizza'})).not.toContain('software-contexto-arquitetural');
+  });
+  it('combina intenção funcional e conferência aprovada sem depender de Capability',()=>{
+    const sw={...base,media:false,software:true,softwareLifecycle:true};
+    const check='node nivoo-roteiros/despesas-postgres.cjs';
+    const task='Mostrar uma linha por cartão nas Despesas do mês';
+    expect(ids({...sw,text:task,verifyCommand:check})).toEqual(expect.arrayContaining(['codigo','software-frontend','software-dados','software-qualidade','software-contexto-arquitetural']));
+    expect(ids({...sw,text:'Atualizar valores',verifyCommand:check,previousError:true})).toContain('software-manutencao');
+    expect(ids({...sw,text:'Atualizar valores',verifyCommand:'test -f out/relatorio.md'})).not.toContain('software-qualidade');
+    expect(ids({...sw,text:'Exibir linha no terminal'})).not.toContain('software-frontend');
+    expect(ids({...sw,text:task,verifyCommand:check,executor:true})).toEqual([]);
+    expect(ids({...base,text:task,verifyCommand:check})).not.toContain('software-qualidade');
+    expect(ids({...sw,text:'Atualizar valores',verifyCommand:'npm run test:integration'})).toContain('software-qualidade');
+  });
   it('distingue microinterações de motion audiovisual em áreas mistas',()=>{
     const mixed={...base,software:true};
     for(const phase of ['planner','execution'] as const){

@@ -11,7 +11,7 @@ import { QueueTaskType } from '@prisma/client';
 import { ClaimedTask, QueueService } from '../queue/queue.service';
 import { StepExecutorService } from './step-executor.service';
 import { PlannerService } from './planner.service';
-import { avisarConversaQueParou } from '../conversations/jobs-da-conversa';
+import { LostStepLease } from './executor/lease';
 
 /**
  * Loop do worker: reivindica tarefas da fila persistente, mantém heartbeat do lease e
@@ -27,25 +27,6 @@ const FAIXAS: Array<{ nome: string; tipos: QueueTaskType[] }> = [
 @Injectable()
 export class WorkerRunnerService {
   private readonly logger = new Logger('Worker');
-  private readonly errosSeguidos = new Map<string, { assinatura: string; total: number }>();
-
-  /** Erro interno repetido: a tarefa sai da fila e o trabalho/mensagem mostra o motivo (diagnóstico tem o resto). */
-  private async desistirDaTarefa(task: ClaimedTask, motivo: string): Promise<void> {
-    const texto = `mesmo erro interno do Nivoo repetido 5 vezes: ${motivo.slice(0, 500)}. Execução interrompida para preservar recursos e o checkpoint; verifique o diagnóstico antes de retomar.`;
-    await this.queue.complete(task.id, this.workerId);
-    if (task.jobId) {
-      await this.prisma.$transaction([
-        this.prisma.step.updateMany({ where: { jobId: task.jobId, status: 'EXECUTANDO' }, data: { status: 'BLOQUEADO', statusDetail: texto } }),
-        this.prisma.attempt.updateMany({ where: { jobId: task.jobId, status: 'EXECUTANDO' }, data: { status: 'INTERROMPIDA', endedAt: new Date(), error: texto } }),
-        this.prisma.job.updateMany({ where: { id: task.jobId, status: { in: ['PENDENTE', 'EXECUTANDO', 'AGUARDANDO_RECURSO'] } }, data: { status: 'BLOQUEADO', blockedReason: 'FALHA_INTERNA', statusDetail: texto } }),
-      ]);
-      await this.logs.log(task.jobId, `Trabalho parado: ${texto}`, { level: 'ERROR', source: `worker:${this.workerId}` }).catch(() => undefined);
-      await avisarConversaQueParou(this.prisma, task.jobId, texto);
-    }
-    if (task.messageId) {
-      await this.prisma.conversationMessage.updateMany({ where: { id: task.messageId, status: 'PENDENTE' }, data: { status: 'ERRO', kind: 'erro', content: `A IA não conseguiu responder: ${texto}` } });
-    }
-  }
   private running = false;
   private loopPromise: Promise<void> | null = null;
   readonly workerId: string;
@@ -124,17 +105,24 @@ export class WorkerRunnerService {
   async process(task: ClaimedTask, leaseMs: number): Promise<void> {
     const ctrl = new AbortController();
     const hbEvery = Math.max(200, Math.floor(leaseMs / 4));
+    let confirmedUntil=task.lockedUntil?.getTime()??Date.now()+leaseMs;
+    let renewing=false;
+    const watchdog=setInterval(()=>{if(Date.now()>=confirmedUntil)ctrl.abort();},Math.min(hbEvery,1000));
     const hb = setInterval(async () => {
+      if(renewing||ctrl.signal.aborted)return;
+      renewing=true;
+      const requestedAt=Date.now();
       try {
-        const ok = await this.queue.heartbeat(task.id, this.workerId, leaseMs);
+        const ok = await this.queue.heartbeat(task.id, this.workerId, task.claims, leaseMs);
+        if(ok)confirmedUntil=requestedAt+leaseMs;
         await this.prisma.workerHeartbeat.update({ where: { id: this.workerId }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
         if (!ok && !ctrl.signal.aborted) {
           this.logger.warn(`Lease perdido para tarefa ${task.id}; abortando execução`);
           ctrl.abort();
         }
       } catch {
-        /* falha transitória de banco: tenta no próximo ciclo */
-      }
+        /* O watchdog cancela ao vencer o último lease confirmado. */
+      }finally{renewing=false;}
     }, hbEvery);
     try {
       if (task.recovered && task.jobId) {
@@ -146,15 +134,15 @@ export class WorkerRunnerService {
       if (task.type === 'RUN_STEP') {
         await this.executor.run(task, this.workerId, ctrl.signal);
       } else if (task.type === 'EVALUATE_JOB' && task.jobId) {
-        await this.completion.evaluate(task.jobId);
-        await this.queue.complete(task.id, this.workerId);
+        await this.completion.evaluate(task.jobId,{task,workerId:this.workerId,signal:ctrl.signal});
+        await this.queue.complete(task.id, this.workerId, task.claims);
       } else if (task.type === 'PLAN_MESSAGE' && task.messageId) {
         await this.planner.handle(task, this.workerId, ctrl.signal);
       } else {
-        await this.queue.complete(task.id, this.workerId);
+        await this.queue.complete(task.id, this.workerId, task.claims);
       }
-      this.errosSeguidos.delete(task.id);
     } catch (e: any) {
+      if(e instanceof LostStepLease){ctrl.abort();return;}
       if (/ENOSPC|no space left on device/i.test(String(e?.message ?? e))) {
         this.running = false;
         ctrl.abort();
@@ -174,17 +162,12 @@ export class WorkerRunnerService {
         .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '<id>')
         .replace(/\b\d{2}:\d{2}:\d{2}\b/g, '<hora>')
         .replace(/\s+/g, ' ').trim().slice(0, 600);
-      const anterior = this.errosSeguidos.get(task.id);
-      const n = anterior?.assinatura === assinatura ? anterior.total + 1 : 1;
-      this.errosSeguidos.set(task.id, { assinatura, total: n });
-      if (n >= 5) {
-        this.errosSeguidos.delete(task.id);
-        await this.desistirDaTarefa(task, String(e?.message ?? e)).catch(() => undefined);
-      } else {
-        await this.queue.requeue(task.id, this.workerId, new Date(Date.now() + 10_000 * n), String(e?.message ?? e)).catch(() => undefined);
-      }
+      const outcome = await this.queue.recordInternalFailure(task, this.workerId, assinatura, String(e?.message ?? e));
+      if (outcome === 'lost') this.logger.warn('Erro de uma geração de lease obsoleta: nenhuma transição aplicada à tarefa '+task.id);
     } finally {
       clearInterval(hb);
+      clearInterval(watchdog);
+      await this.queue.acknowledgeCancelled(task.id,this.workerId,task.claims).catch(()=>undefined);
     }
   }
 }

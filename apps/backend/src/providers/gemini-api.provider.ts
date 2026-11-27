@@ -5,6 +5,9 @@ import * as path from 'node:path';
 import { isolatedHome, segredoDaConexao } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import { serversGemini } from '../mcp/para-ia';
+import { observeMcpCalls,redactMcpLog } from '../mcp/observe';
+import { cliReadOnly,geminiSessionSettings } from './cli-session-policy';
+import { nativeSkillReadObserver } from './cli-skill-observer';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 
 /**
@@ -58,8 +61,8 @@ export class GeminiApiProvider implements AiProvider {
 
   /** Ambiente do CLI: HOME próprio da conexão e a chave dela. */
   env(extra: Record<string, string> = {}) {
-    const home = isolatedHome(this.conexao ?? 'gemini-api');
-    GeminiApiProvider.ensureUserSettings(home);
+    const home = extra.HOME??isolatedHome(this.conexao ?? 'gemini-api');
+    if(!extra.HOME)GeminiApiProvider.ensureUserSettings(home);
     const k = segredoDaConexao(this.conexao, 'GEMINI_API_KEY');
     return minimalEnv({ ...(k ? { GEMINI_API_KEY: k } : {}), HOME: home, ...extra });
   }
@@ -92,26 +95,29 @@ export class GeminiApiProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
-    const args = ['-p', '', '--output-format', 'stream-json', '--approval-mode', 'auto_edit', '--skip-trust'];
+    const readOnly=cliReadOnly(req);
+    const args = ['-p', '', '--output-format', 'stream-json', '--approval-mode', readOnly?'default':'auto_edit', '--skip-trust'];
     const model = req.options?.model ?? process.env.NIVOO_GEMINI_MODEL;
     if (model) args.push('--model', model);
     req.onLog(`gemini ${args.join(' ')} (cwd=${req.cwd})`);
-    // Ferramentas MCP do projeto: num HOME só desta sessão (o da conexão é compartilhado entre projetos).
-    let homeMcp: string | null = null;
-    if (req.mcp?.length) {
-      homeMcp = fs.mkdtempSync(path.join(os.tmpdir(), 'nivoo-gemini-'));
-      GeminiApiProvider.ensureUserSettings(homeMcp);
-      const arq = path.join(homeMcp, '.gemini', 'settings.json');
-      const s = JSON.parse(fs.readFileSync(arq, 'utf8'));
-      fs.writeFileSync(arq, JSON.stringify({ ...s, mcpServers: serversGemini(req.mcp) }, null, 2), { mode: 0o600 });
-      req.onLog(`Ferramentas MCP nesta sessão: ${req.mcp.map((m) => m.nome).join(', ')}`);
-    }
+    // Fresh per-session settings, even without MCP. Do not inherit tools,
+    // extensions or approvals from another project/account session.
+    const homeMcp=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-gemini-'));
+    const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
+    req={...req,onLog:redactMcpLog(mcp,req.onLog)};
+    const observeMcp=observeMcpCalls('gemini',mcp,req.onLog);
+    try{
+    fs.mkdirSync(path.join(homeMcp,'.gemini'),{mode:0o700});
+    fs.writeFileSync(path.join(homeMcp,'.gemini','settings.json'),JSON.stringify(geminiSessionSettings(readOnly,serversGemini(mcp)),null,2),{mode:0o600,flag:'wx'});
+    if(mcp.length)req.onLog('Ferramentas MCP nesta sessão: '+mcp.map(m=>m.nome).join(', '));
+    const skillRead=nativeSkillReadObserver('gemini',req.cwd,req.onLog,req.onSkillRead);
+    const observe=(line:string)=>{skillRead(line);if(!observeMcp(line))GeminiApiProvider.logEvento(line,req.onLog);};
     let pendente = '';
     // Sem instrução de sistema separada no modo headless: o perfil do projeto vai no topo do prompt (contexto).
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
-      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId, ...(homeMcp ? { HOME: homeMcp } : {}) }),
-      input: buildPrompt(req),
+      env: this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId, HOME:homeMcp,GEMINI_CLI_HOME:homeMcp }),
+      input: buildPrompt(req)+(readOnly?'\n\nSessão local somente leitura: não altere arquivos; proponha a execução no plano.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
@@ -120,11 +126,10 @@ export class GeminiApiProvider implements AiProvider {
         pendente += c;
         const linhas = pendente.split('\n');
         pendente = linhas.pop() ?? '';
-        for (const l of linhas) GeminiApiProvider.logEvento(l, req.onLog);
+        for (const l of linhas) observe(l);
       },
     });
-    if (homeMcp) fs.rmSync(homeMcp, { recursive: true, force: true });
-    if (pendente.trim()) GeminiApiProvider.logEvento(pendente, req.onLog);
+    if (pendente.trim()) observe(pendente);
     if (r.aborted) return { exitCode: -1, output: r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut) {
       // O Gemini CLI repete sozinho, em silêncio, quando o Google responde 503 (sobrecarga): o tempo acaba
@@ -134,10 +139,11 @@ export class GeminiApiProvider implements AiProvider {
       }
       return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
     }
-    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     const res = GeminiApiProvider.parse(r.stdout, r.stderr, r.exitCode ?? 1, () => undefined); // eventos já registrados
     if (res.output && res.exitCode === 0) req.onLog(`[agente] ${res.output.slice(0, 1500)}`);
     return res;
+    }finally{fs.rmSync(homeMcp,{recursive:true,force:true});}
   }
 
   /** Um evento do stream-json em linha de log (ferramentas e erros; o texto vai no fim, inteiro). */

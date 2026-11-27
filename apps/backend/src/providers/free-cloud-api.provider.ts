@@ -4,7 +4,7 @@ import type { SecretKey } from '../accounts/secrets';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { retryAfterHeaderMs,isTransientRateLimit } from './resource-rate-limit';
 import { compactRepeatedReads } from './tool-history';
-import { executeFileTool,AGENT_FILE_TOOLS,AGENT_READ_TOOLS } from './agent-file-tools';
+import { executeFileTool,AGENT_FILE_TOOLS,AGENT_READ_TOOLS,announceSkillRead } from './agent-file-tools';
 
 /**
  * Integrações INDEPENDENTES do free-claude-code (AGPL): nenhuma linha do projeto
@@ -37,8 +37,16 @@ function pareceModeloNaoTextual(id: string): boolean {
   return /(?:whisper|transcri|guard|tts|speech|audio|image|embed|rerank|vision|video|music)/i.test(id);
 }
 
+// Exact IDs from the Groq local tool-calling matrix, verified 2026-11-25.
+// Exclude moderation and hosted agent systems: this adapter executes local
+// function calls, not the provider's built-in agents.
+const GROQ_LOCAL_AGENTS=new Set([
+  'openai/gpt-oss-20b','openai/gpt-oss-120b','qwen/qwen3.8-27b',
+  'minimaxai/minimax-m2.7','meta-models/muse-spark-open',
+  'llama-3.3-70b-versatile','llama-3.1-8b-instant',
+]);
 export function modeloGroqDeTexto(id: string): boolean {
-  return /^[A-Za-z0-9._/-]{1,150}$/.test(id) && !pareceModeloNaoTextual(id);
+  return GROQ_LOCAL_AGENTS.has(id);
 }
 
 type ModeloApi = { id?: unknown; name?: unknown; description?: unknown; supported_parameters?: unknown; active?: boolean; pricing?: { prompt?: unknown; completion?: unknown } };
@@ -104,7 +112,7 @@ export class FreeCloudApiProvider implements AiProvider {
       .filter(m => this.tipo === 'openrouter-free-api'
         ? modeloOpenRouterGratuito(m.id as string) && !pareceModeloNaoTextual(m.id as string) &&
           (m.pricing == null || (Number(m.pricing.prompt ?? 0) === 0 && Number(m.pricing.completion ?? 0) === 0)) &&
-          (!Array.isArray(m.supported_parameters) || m.supported_parameters.includes('tools'))
+          (m.id==='openrouter/free'||(Array.isArray(m.supported_parameters)&&m.supported_parameters.includes('tools')))
         : modeloGroqDeTexto(m.id as string))
       .map(m => ({
         id: String(m.id),
@@ -136,6 +144,7 @@ export class FreeCloudApiProvider implements AiProvider {
         status.errors.push('Nenhum modelo de texto elegível retornado para esta conexão');
       } else {
         status.available = true;
+        status.agentModels=opcoes.map(m=>m.id);
       }
     } catch (e: any) {
       status.errors.push(String(e?.message ?? e).slice(0, 450));
@@ -145,25 +154,26 @@ export class FreeCloudApiProvider implements AiProvider {
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     const readOnlyReview=req.options?.readOnlyReview===true;
+    const readOnly=readOnlyReview||req.jobId==='conversa';
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave não configurada', resourceUnavailable: true };
     const model = String(req.options?.model || this.conf.padrao);
     if (this.tipo === 'openrouter-free-api' && !modeloOpenRouterGratuito(model)) {
-      return { exitCode: 1, output: '', error: 'Modelo pago bloqueado: escolha openrouter/free ou um ID terminado em :free' };
+      return { exitCode: 1, output: '', stopReason:'model_incompatible',error: 'Modelo pago bloqueado: escolha openrouter/free ou um ID terminado em :free' };
     }
     if (this.tipo === 'groq-free-api' && !modeloGroqDeTexto(model)) {
-      return { exitCode: 1, output: '', error: 'Modelo não compatível com agente de texto' };
+      return { exitCode: 1, output: '', stopReason:'model_incompatible',error: 'Modelo não compatível com agente de texto' };
     }
     let entrada = 0, saida = 0, escritas = 0;
     const inicio = Date.now();
     const turnos = Math.max(1, Math.min(30, Number(req.options?.maxTurns) || 20));
     const mensagens: Array<Record<string, unknown>> = [
-      { role: 'system', content: [req.systemPrompt ?? '', readOnlyReview?'Revisão independente somente leitura: liste e leia fontes autorizadas no workspace; não edite, não registre notas, não execute comandos, não acesse segredos e devolva somente o parecer textual.':'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
+      { role: 'system', content: [req.systemPrompt ?? '', readOnly?'Sessão somente leitura: liste e leia fontes autorizadas no workspace; não edite, não registre notas, não execute comandos nem acesse segredos. Responda conforme a tarefa, sem editar.':'Você é agente de engenharia do Nivoo AI Manager. Trabalhe somente no diretório do projeto. Ferramentas disponíveis permitem ler/editar arquivos, não executar comandos. Leia contexto autorizado e Skills com ler_arquivo. Use registrar_progresso para notas internas. Não leia segredos nem invente verificações. O Nivoo valida builds/testes em etapa separada.'].join('\n') },
       { role: 'user', content: buildPrompt(req,true) },
     ];
     req.onLog(this.conf.nome + ': modelo ' + model + ' — ' + this.conf.mensagem);
     try {
       const permitidos = await this.modelos();
-      if (!permitidos.some(m => m.id === model)) throw new Error('Modelo não listado como acessível nesta conexão: ' + model);
+      if (!permitidos.some(m => m.id === model)) return {exitCode:1,output:'',stopReason:'model_incompatible',error:'Modelo não listado como agente elegível nesta conexão: '+model};
       for (let turno = 0; turno < turnos; turno++) {
         if (req.signal.aborted) return { exitCode: -1, output: '', interrupted: true, error: 'interrompido' };
         const restante = req.timeoutMs - (Date.now() - inicio);
@@ -171,7 +181,7 @@ export class FreeCloudApiProvider implements AiProvider {
         const compact=compactRepeatedReads(mensagens);
         if(compact.savedChars)req.onLog('Contexto '+this.conf.nome+': '+compact.savedChars+' caracteres de leituras idênticas não reenviados nesta chamada.');
         const resposta = await this.chamar('/chat/completions', {
-          model, messages: compact.messages, tools: readOnlyReview?AGENT_READ_TOOLS:AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
+          model, messages: compact.messages, tools: readOnly?AGENT_READ_TOOLS:AGENT_FILE_TOOLS, tool_choice: 'auto', stream: false, max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal) as Resposta;
         entrada += resposta.usage?.prompt_tokens ?? 0;
         saida += resposta.usage?.completion_tokens ?? 0;
@@ -192,7 +202,8 @@ export class FreeCloudApiProvider implements AiProvider {
           try {
             const args = JSON.parse(String(call.function?.arguments ?? '{}'));
             if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Argumentos inválidos');
-            resultado = executeFileTool(req.cwd, nome, args,readOnlyReview||req.jobId==='conversa');
+            resultado = executeFileTool(req.cwd, nome, args,readOnly);
+            announceSkillRead(nome,resultado,req.onLog,req.onSkillRead);
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) escritas++;
             req.onLog('[ferramenta segura] ' + nome + ': ' + String(args.caminho ?? args.pasta ?? '').slice(0, 100));
           } catch (e: any) {

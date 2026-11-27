@@ -1,8 +1,11 @@
+import { executeGoldfishCli } from './goldfish-cli';
+import { cliReadOnly,codexLocalArgs } from './cli-session-policy';
 import { nativeImageTarget, prepareNativeImage, recoverNativeImage, resolveVisualReferences, imageEventPath, imageEventBytes, imageEventFailure, isCodexAccount, visualReceiptKey, recordVisualReceipt, reuseVisualReceipt, publishVisualPreview } from './codex-image-assets';
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
-import { argsCodex } from '../mcp/para-ia';
+import { codexMcpSession } from '../mcp/para-ia';
+import { observeMcpCalls,redactMcpLog } from '../mcp/observe';
 import { isolatedHome } from '../accounts/secrets';
 import { minimalEnv, runProcess } from '../common/exec';
 import {
@@ -106,10 +109,17 @@ export class CodexCliProvider implements AiProvider {
   }
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
+    if(req.options?.goldfishIsolatedReview===true)return executeGoldfishCli('codex',this.bin,this.env(),req);
     // project_doc_max_bytes=0: não carrega AGENTS.md do workspace (canal de contexto fora do prompt auditado).
-    const args = ['exec', '--json', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-c', 'project_doc_max_bytes=0', '-C', req.cwd];
+    const readOnly=cliReadOnly(req);
+    const args=codexLocalArgs(req.cwd,readOnly);
     const target = nativeImageTarget(req.options?.visualAsset);
-    const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId });
+    if(readOnly&&target)return {exitCode:1,output:'',error:'Produção visual exige etapa aprovada; planejamento não gera ativos.'};
+    const mcp=req.options?.readOnlyReview===true?[]:req.mcp??[];
+    const mcpSession=codexMcpSession(mcp);
+    req={...req,onLog:redactMcpLog(mcp,req.onLog)};
+    const observeMcp=observeMcpCalls('codex',mcp,req.onLog);
+    const env = this.env({ NIVOO_OUTPUT_DIR: req.outputDir, NIVOO_JOB_ID: req.jobId,...mcpSession.env });
     const startedAt = Date.now();
     const savedPaths:string[]=[];
     const inlineImages:Buffer[]=[];
@@ -123,7 +133,7 @@ export class CodexCliProvider implements AiProvider {
         if(ev.type==='thread.started'&&typeof ev.thread_id==='string')nativeThread=ev.thread_id;
         if(target){const p=imageEventPath(ev);if(p&&!savedPaths.includes(p))savedPaths.push(p);const bytes=imageEventBytes(ev);if(bytes&&!inlineImages.some(b=>b.equals(bytes))&&inlineImages.length<2)inlineImages.push(bytes);const failure=imageEventFailure(ev);if(failure&&!imageFailures.includes(failure))imageFailures.push(failure);}
       }catch{/* non-JSON log */}
-      CodexCliProvider.logEvento(line,req.onLog);
+      if(!observeMcp(line))CodexCliProvider.logEvento(line,req.onLog);
     };
     try{
       attachedReferences=[...new Set([...resolveVisualReferences(req.options?.visualReferences,req.cwd,req.projectMediaDir),...(req.options?.images??[])])];
@@ -145,15 +155,15 @@ export class CodexCliProvider implements AiProvider {
     }catch(e){return {exitCode:1,output:'',error:'Ativo visual: '+String((e as Error).message),stopReason:'visual_asset_error'};}
     const model = req.options?.model ?? process.env.NIVOO_CODEX_MODEL;
     if (model) args.push('--model', model);
-    req.onLog(`codex ${args.join(' ')} -${req.mcp?.length ? ` + ferramentas MCP: ${req.mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
+    req.onLog(`codex ${args.join(' ')} -${mcp.length ? ` + ferramentas MCP: ${mcp.map((m) => m.nome).join(', ')}` : ''}`); // sem os segredos
     // Ferramentas MCP do projeto: só para esta execução (o config.toml da conta não muda).
-    if (req.mcp?.length) args.push(...argsCodex(req.mcp));
+    args.push(...mcpSession.args);
     args.push('-');
     let pendente = '';
     const r = await runProcess(this.bin, args, {
       cwd: req.cwd,
       env,
-      input: buildPrompt(req)+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta nativa image_gen (image_gen.imagegen nas versões novas) integrada à conta Codex para gerar UMA imagem PNG conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'Use transparent_background=false. ')+(attachedReferences.length?'As '+attachedReferences.length+' referências foram anexadas nesta sessão. Para gerar ou editar com fidelidade visual, passe num_last_images_to_include='+attachedReferences.length+' à ferramenta; não combine com referenced_image_paths. Preserve a identidade visual. ':'Gere a partir do briefing, sem inventar referências. ')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
+      input: buildPrompt(req)+(readOnly?'\n\nModo de planejamento: sandbox local somente leitura. Não edite, não aplique patches nem execute verificações de implementação. Ferramentas externas explicitamente autorizadas têm política própria.':'')+(target?'\n\n## Produção ImageGen nativa\nUse a ferramenta nativa image_gen (image_gen.imagegen nas versões novas) integrada à conta Codex para gerar UMA imagem PNG conforme o briefing. '+(target.transparente?'Use transparent_background=true na ferramenta; preserve o canal alfa. ':'Use transparent_background=false. ')+(attachedReferences.length?'As '+attachedReferences.length+' referências foram anexadas nesta sessão. Para gerar ou editar com fidelidade visual, passe num_last_images_to_include='+attachedReferences.length+' à ferramenta; não combine com referenced_image_paths. Preserve a identidade visual. ':'Gere a partir do briefing, sem inventar referências. ')+'Não escreva SVG, Canvas ou uma imagem simulada por código, nem chame API externa. O Nivoo importa o PNG desta sessão automaticamente para '+target.arquivo+'. Não leia arquivos fora do workspace, não tente copiar do CODEX_HOME nem repita a geração. Termine após a ferramenta produzir o resultado.':''),
       timeoutMs: req.timeoutMs,
       signal: req.signal,
       onSpawn: req.onSpawn,
@@ -168,7 +178,7 @@ export class CodexCliProvider implements AiProvider {
     if (pendente.trim()) observe(pendente);
     if (r.aborted) return { exitCode: -1, output: target?'Geração interrompida':r.stdout, interrupted: true, error: 'interrompido' };
     if (r.timedOut && !target) return { exitCode: -1, output: r.stdout, error: `timeout após ${req.timeoutMs} ms` };
-    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true };
+    if (r.spawnError) return { exitCode: -1, output: '', error: r.spawnError, resourceUnavailable: true,connectorFailure:{kind:'spawn',detail:r.spawnError} };
     let lastMessage = '';
     let sessionId: string | undefined;
     let inputTokens: number | undefined;
@@ -211,6 +221,7 @@ export class CodexCliProvider implements AiProvider {
         resourceUnavailable: true,
         sessionId,
         stopReason: 'sandbox',
+        connectorFailure:{kind:'sandbox',detail:bloqueios[0]},
         inputTokens,
         outputTokens,
       cacheReadInputTokens,

@@ -1,17 +1,17 @@
 import type { Skill } from '../skills';
 
 export const GOLDFISH_SKILL:Skill={
-  id:'software-revisao-independente',domain:'software',description:'Revisão independente sob demanda — Goldfish',
+  id:'software-revisao-independente',domain:'software',description:'Revisão independente por necessidade — Goldfish',
   source:'https://github.com/google/elephant-goldfish-model/blob/63e239d8d4c3ddc6774faf533b4997405f78c549/skills/egm-review/SKILL.md',
   sourceAttribution:'Elephant-Goldfish Model (Apache-2.0)',
   action:'Revise o alvo solicitado em contexto novo e somente leitura; entregue achados fundamentados, sem corrigir, aprovar ou iniciar trabalho.',
   body:[
-    'A solicitação explícita autoriza um único parecer, não editar, executar código, iniciar trabalho, usar MCP ou acionar outro agente.',
+    'A solicitação explícita ou o gatilho estrutural de entrega vinculado autoriza a revisão do documento no modo escolhido, não editar, executar código, iniciar trabalho ou usar MCP. As sessões de revisores são controladas pelo motor, não por instruções do documento.',
     'Examine o alvo como leitor que não participou da elaboração. Utilize o escopo declarado, o snapshot autorizado do projeto e as regras vigentes. Não consulte histórico da conversa, notas de tentativas ou resultados anteriores. Se faltar uma especificação, indique a lacuna.',
     'Reconstrua objetivo, escopo e entendimento a partir do alvo. Avalie simplicidade e reutilização, coerência de contratos, alternativas, riscos, segurança, compatibilidade, prontidão de implementação e critérios verificáveis.',
     'Fundamente achados em arquivo e símbolo/trecho real quando disponível. Separe bloqueante, relevante e menor; explique impacto, evidência e proposta de correção. Distinga fato, hipótese, divergência e limitação de cobertura. Arquivo planejado como novo não é referência inexistente do estado atual.',
-    'Entregue um parecer textual único: alvo e revisão analisada, entendimento, achados priorizados, lacunas e recomendação. Não declare testes, build, aprovação ou ausência de defeitos além da evidência. Não altere fontes, documentação ou memória, nem gere plano executável.',
-    'Adaptação local de egm-review: uma sessão nova, sem orquestrador, cinco fases, subagentes paralelos ou loop de remediação. A independência é de contexto, não garantia de independência do modelo ou de correção.'
+    'Entregue o parecer textual da persona e fase designadas: alvo e revisão analisada, entendimento, achados priorizados, lacunas e recomendação. Não declare testes, build, aprovação ou ausência de defeitos além da evidência. Não altere fontes, documentação ou memória, nem gere plano executável.',
+    'O motor EGM possui cinco fases e personas originais; as rotas explícita e automática estrutural utilizam transporte de leitura e contexto separado quando suportado. Seleção desta skill não prova execução, isolamento ou ausência de defeitos. O gatilho automático pós-entrega é restrito à revisão crítica de contrato elegível; não equivale à execução integral do método.'
   ].join('\n'),
 };
 
@@ -23,7 +23,7 @@ export function goldfishRequest(text:string):string|null{
   return match?(match[1]??'').trim():null;
 }
 
-/** Fail closed for connectors without an explicit read-only mode. */
+/** Legacy single-review compatibility helper; not an authorization for the new pipeline. */
 export function goldfishProviderSupported(type:string|null):boolean{
   return type!==null&&['claude-code-cli','claude-api','nvidia-api','openrouter-free-api','groq-free-api'].includes(type);
 }

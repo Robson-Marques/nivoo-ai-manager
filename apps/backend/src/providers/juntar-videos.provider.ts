@@ -375,7 +375,7 @@ export class JuntarVideosProvider implements AiProvider {
                 if (trechos.some(t => t.velocidade !== undefined && t.velocidade !== velocidade))
                   req.onLog('Velocidades individuais ignoradas para preservar a locução contínua.', 'WARN');
                 const local = await this.kokoro.gerar(textoGeracao, vozEscolhida, velocidade, pronuncias, req.signal);
-                g = { bytes: local.bytes, mime: local.mime, modelo: 'Kokoro-82M locução contínua', custo: 0 };
+                g = { bytes: local.bytes, mime: local.mime, modelo: local.modelo, custo: 0 };
               } catch (e: any) {
                 const k = e instanceof KokoroTtsError ? e : new KokoroTtsError(String(e?.message ?? e));
                 g = { erro: k.message, indisponivel: k.indisponivel };

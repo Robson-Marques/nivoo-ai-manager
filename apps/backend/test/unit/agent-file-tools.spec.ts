@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { executeFileTool } from '../../src/providers/agent-file-tools';
+import { executeFileTool,skillReadReceipt,announceSkillRead,AGENT_READ_TOOLS } from '../../src/providers/agent-file-tools';
 describe('Ferramentas compartilhadas de arquivo',()=>{
   let root:string;
   beforeEach(()=>root=fs.mkdtempSync(path.join(os.tmpdir(),'nivoo-file-tools-')));
@@ -16,6 +16,32 @@ describe('Ferramentas compartilhadas de arquivo',()=>{
     expect(call('registrar_progresso',note).alterado).toBe(true);
     expect(call('registrar_progresso',note).alterado).toBe(false);
     expect(fs.readFileSync(path.join(root,'.nivoo/notas.jsonl'),'utf8').trim().split('\n')).toHaveLength(1);
+  });
+  it('permite ler o histórico de tentativas gerado pelo backend sem liberar outros arquivos internos',()=>{
+    fs.mkdirSync(path.join(root,'contexto'));
+    fs.writeFileSync(path.join(root,'contexto/tentativas-da-etapa.md'),'Falha anterior');
+    fs.writeFileSync(path.join(root,'contexto/privado.txt'),'Interno');
+    expect(call('ler_arquivo',{caminho:'contexto/tentativas-da-etapa.md'}).conteudo).toBe('Falha anterior');
+    expect(call('listar_arquivos',{pasta:'contexto'}).arquivos).toContain('contexto/tentativas-da-etapa.md');
+    expect(()=>call('ler_arquivo',{caminho:'contexto/privado.txt'})).toThrow();
+    expect(()=>call('escrever_arquivo',{caminho:'contexto/tentativas-da-etapa.md',conteudo:'alterado'})).toThrow();
+  });
+  it('registra páginas de skill realmente retornadas, sem expor seu texto nem aceitar avisos como leitura',()=>{
+    const p='contexto/skills-nivoo/codigo/SKILL.md';
+    fs.mkdirSync(path.dirname(path.join(root,p)),{recursive:true});
+    fs.writeFileSync(path.join(root,p),'0123456789');
+    const result=executeFileTool(root,'ler_arquivo',{caminho:p,inicio:2,limite:4},true);
+    const receipt=skillReadReceipt('ler_arquivo',result);
+    expect(receipt).toMatchObject({path:p,start:2,end:6,total:10,sha256:expect.stringMatching(/^[a-f0-9]{64}$/)});
+    const log=jest.fn();announceSkillRead('ler_arquivo',result,log);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('intervalo=2..6/10'));
+    expect(skillReadReceipt('ler_arquivo',JSON.stringify({aviso:'já lido'}))).toBeNull();
+    expect(skillReadReceipt('listar_arquivos',result)).toBeNull();
+    expect(skillReadReceipt('ler_arquivo',JSON.stringify({...JSON.parse(result),proximo:10}))).toBeNull();
+    expect(skillReadReceipt('ler_arquivo',executeFileTool(root,'ler_arquivo',{caminho:p,inicio:10},true))).toBeNull();
+  });
+  it('expõe apenas as operações permitidas na sessão de leitura',()=>{
+    expect(AGENT_READ_TOOLS.map(t=>(t.function as {name:string}).name)).toEqual(['listar_arquivos','ler_arquivo']);
   });
   it('planejador tem somente leitura',()=>{
     fs.writeFileSync(path.join(root,'a.txt'),'original');

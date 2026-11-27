@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { segredoDaConexao } from '../accounts/secrets';
-import { executeFileTool,AGENT_FILE_TOOLS,AGENT_READ_TOOLS } from './agent-file-tools';
+import { executeFileTool,AGENT_FILE_TOOLS,AGENT_READ_TOOLS,announceSkillRead } from './agent-file-tools';
 import { AiProvider, buildPrompt, ExecutionRequest, ExecutionResult, looksLikeResourceProblem, ProviderStatus } from './provider.interface';
 import { modeloNvidiaServeComoAgente } from './nvidia-model-catalog';
 import { compactRepeatedReads } from './tool-history';
@@ -118,7 +118,9 @@ export class NvidiaApiProvider implements AiProvider {
       return base;
     }
     try {
-      await this.pedir('/models', null, 7_000);
+      const catalog=await this.pedir('/models', null, 7_000);
+      if(!Array.isArray(catalog?.data))throw Error('NVIDIA não retornou catálogo de modelos válido');
+      base.agentModels=catalog.data.filter((m:any)=>typeof m?.id==='string'&&modeloNvidiaServeComoAgente(m.id)).map((m:any)=>m.id);
       base.available = true;
       base.version = 'NVIDIA Build API';
     } catch (e: any) {
@@ -131,10 +133,11 @@ export class NvidiaApiProvider implements AiProvider {
 
   async execute(req: ExecutionRequest): Promise<ExecutionResult> {
     const readOnlyReview=req.options?.readOnlyReview===true;
+    const readOnly=readOnlyReview||req.jobId==='conversa';
     if (!this.chave()) return { exitCode: 1, output: '', error: 'Chave NVIDIA não configurada', resourceUnavailable: true };
     const model = req.options?.model ?? process.env.NIVOO_NVIDIA_MODEL ?? NVIDIA_DEFAULT_MODEL;
     if (!modeloNvidiaServeComoAgente(model)) {
-      return { exitCode: 1, output: '',
+      return { exitCode: 1, output: '',stopReason:'model_incompatible',
         error: `O modelo NVIDIA "${model}" não está habilitado para edição de código por ferramentas. Escolha um modelo de Programação e agentes no catálogo; imagem/vídeo, embedding e rerank exigem executores próprios.` };
     }
     const turnos = Math.max(1, Math.min(MAX_TURNS, Number(req.options?.maxTurns) || DEFAULT_TURNS));
@@ -142,12 +145,12 @@ export class NvidiaApiProvider implements AiProvider {
       { role: 'system', content: [
         req.systemPrompt ?? '',
         'Você é um agente de engenharia trabalhando APENAS na pasta do projeto Nivoo.',
-        readOnlyReview?'Revisão somente leitura: liste e leia arquivos, sem alterações, terminal, rede ou segredos.':'Use as ferramentas de arquivo para ler e modificar o projeto. Sem terminal, sem rede ou acesso a segredos.',
-        readOnlyReview?'Fundamente achados em fontes; não modifique arquivos.':'Leia antes de alterar. Preserve as mudanças existentes e registre de forma clara o que fez.',
+        readOnly?'Sessão somente leitura: liste e leia arquivos, sem alterações, terminal, rede ou segredos.':'Use as ferramentas de arquivo para ler e modificar o projeto. Sem terminal, sem rede ou acesso a segredos.',
+        readOnly?'Fundamente a resposta em fontes; não modifique arquivos.':'Leia antes de alterar. Preserve as mudanças existentes e registre de forma clara o que fez.',
         'As ferramentas aceitam SOMENTE caminhos relativos à pasta do trabalho (ex.: apps/api/src/routes/official-whatsapp.ts).',
-        readOnlyReview?'Leia a Skill e referências autorizadas em contexto/; não consulte memória de sessões anteriores nem registre notas.':'Leia Skills e estado em contexto/ e memória autorizada em .nivoo/memoria.md; não edite contexto ou arquivos internos. Para notas de progresso use registrar_progresso. Não acesse segredos, node_modules ou .git.',
+        readOnly?'Leia referências autorizadas em contexto/; não registre notas nem altere arquivos.':'Leia Skills e estado em contexto/ e memória autorizada em .nivoo/memoria.md; não edite contexto ou arquivos internos. Para notas de progresso use registrar_progresso. Não acesse segredos, node_modules ou .git.',
         'Não repita a mesma leitura sem novo início: ler_arquivo entrega até 18000 caracteres; use proximo retornado como inicio para ler a parte seguinte.',
-        readOnlyReview?'Depois de entender o alvo, responda com o parecer textual, sem editar.':'Depois de entender o código, edite os arquivos solicitados em vez de repetir leituras sem avanço.',
+        readOnly?'Depois de entender o alvo, responda sem editar.':'Depois de entender o código, edite os arquivos solicitados em vez de repetir leituras sem avanço.',
         'As verificações e builds são responsabilidade do executor Nivoo, após sua sessão.',
         'Não invente resultado, arquivo criado, teste executado ou imagem que não tenha sido gravado.',
         'Quando faltar evidência, indique o impedimento sem marcar como aprovado.',
@@ -168,7 +171,7 @@ export class NvidiaApiProvider implements AiProvider {
         const compact=compactRepeatedReads(messages);
         if(compact.savedChars)req.onLog('Contexto NVIDIA: '+compact.savedChars+' caracteres de leituras idênticas não reenviados nesta chamada.');
         const json: NvidiaResponse = await this.pedir('/chat/completions', {
-          model, messages:compact.messages, tools: readOnlyReview?AGENT_READ_TOOLS:NVIDIA_TOOLS, tool_choice: 'auto', stream: false,
+          model, messages:compact.messages, tools: readOnly?AGENT_READ_TOOLS:NVIDIA_TOOLS, tool_choice: 'auto', stream: false,
           max_tokens: 4096,
         }, Math.min(restante, 120_000), req.signal);
         entrada += json.usage?.prompt_tokens ?? 0;
@@ -212,17 +215,18 @@ export class NvidiaApiProvider implements AiProvider {
               if (vezes >= 2) {
                 resultado = JSON.stringify({ aviso: 'Esta mesma parte do arquivo já foi lida duas vezes e não houve edição desde então. Não repita. Para a próxima parte, use inicio maior; para modificar, use substituir_texto ou escrever_arquivo.' });
               } else {
-                resultado = executarFerramentaNvidia(req.cwd, nome, args,readOnlyReview||req.jobId==='conversa');
+                resultado = executarFerramentaNvidia(req.cwd, nome, args,readOnly);
                 // Falha de leitura não conta como conteúdo já entregue.
                 leiturasIguais.set(chaveLeitura, vezes + 1);
               }
             } else {
-              resultado = executarFerramentaNvidia(req.cwd, nome, args,readOnlyReview||req.jobId==='conversa');
+              resultado = executarFerramentaNvidia(req.cwd, nome, args,readOnly);
             }
             if ((nome === 'escrever_arquivo' || nome === 'substituir_texto')&&JSON.parse(resultado).alterado===true) {
               alteracoes++;
               leiturasIguais.clear();
             }
+            announceSkillRead(nome,resultado,req.onLog,req.onSkillRead);
             ultimaFalhaFerramenta = '';
             falhasSeguidasFerramenta = 0;
             const pedido = String(args.caminho ?? args.pasta ?? '');

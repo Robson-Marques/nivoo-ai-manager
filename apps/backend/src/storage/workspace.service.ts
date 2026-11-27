@@ -12,6 +12,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import { sha256,sha256File } from '../common/hash';
 
+export interface IntegrationPlan {base:string;source:string;tree:string;target:string;changed:boolean}
 export interface ProjectDirs {
   root: string;
   repo: string;
@@ -303,10 +304,10 @@ export class WorkspaceService {
     if (!files.length) return;
     // Só os que existem no commit da pasta de trabalho (a lista vem da main, que pode ter andado): um
     // arquivo ausente faria o checkout inteiro falhar e nada voltaria.
-    const r = await this.git(worktree, ['ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...files]);
-    const noHead = new Set(r.exitCode === 0 ? r.stdout.split('\0').filter(Boolean) : []);
+    const r = await this.gitOk(worktree, ['--literal-pathspecs','ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...files]);
+    const noHead = new Set(r.stdout.split('\0').filter(Boolean));
     const voltar = files.filter((f) => noHead.has(f));
-    if (voltar.length) await this.gitOk(worktree, ['checkout', 'HEAD', '--', ...voltar]);
+    if (voltar.length) await this.gitOk(worktree, ['--literal-pathspecs','checkout', 'HEAD', '--', ...voltar]);
   }
 
   private isLink(p: string): boolean {
@@ -321,15 +322,17 @@ export class WorkspaceService {
     return `job/${jobId}`;
   }
 
-  async ensureJobWorktree(slug: string, jobId: string): Promise<string> {
+  async ensureJobWorktree(slug: string, jobId: string, approvedBase?:string): Promise<string> {
     const dirs = await this.ensureProject(slug);
     const wt = resolveInside(dirs.worktrees, jobId);
+    if(approvedBase&&!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(approvedBase))throw Error('Base Git aprovada inválida.');
     if (!fs.existsSync(path.join(wt, '.git'))) {
       const branch = this.jobBranch(jobId);
       const exists = await this.git(dirs.repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
       if (exists.exitCode === 0) await this.gitOk(dirs.repo, ['worktree', 'add', '-q', wt, branch]);
-      else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, 'main']);
+      else await this.gitOk(dirs.repo, ['worktree', 'add', '-q', '-b', branch, wt, approvedBase??'main']);
     }
+    if(approvedBase&&(await this.git(wt,['merge-base','--is-ancestor',approvedBase,'HEAD'])).exitCode!==0)throw Error('Worktree não descende da revisão Goldfish aprovada. Arquivos preservados.');
     fs.mkdirSync(path.join(wt, 'out'), { recursive: true });
     const exclude = path.join(dirs.repo, '.git', 'info', 'exclude');
     fs.mkdirSync(path.dirname(exclude), { recursive: true });
@@ -498,13 +501,15 @@ export class WorkspaceService {
         const mv = /^mover\s+(.+?)\s*->\s*(.+)$/i.exec(linha);
         if (mv) {
           const de=operationPath(mv[1]),para=operationPath(mv[2]);
-          if(outsideGit(de)||outsideGit(para)||de===para||para.startsWith(de+'/'))throw Error('Movimentação exige etapa explícita de arquivos.');
-          const origem=resolveOperation(worktree,undefined,de);
+          // Mover PARA a mídia durável (midia/...) é publicação permitida por aqui;
+          // mover DE dentro da mídia durável exige etapa explícita de arquivos.
+          if(outsideGit(de)||de===para||para.startsWith(de+'/'))throw Error('Movimentação a partir da mídia durável exige etapa explícita de arquivos.');
+          const origem=resolveOperation(worktree,midiaDir,de);
           if (!de || !para || !origem || !fs.existsSync(origem)) {
             recusados.push(linha);
             continue;
           }
-          const destino = resolveOperation(worktree,undefined,para);
+          const destino = resolveOperation(worktree,midiaDir,para);
           if (fs.existsSync(destino)) {
             recusados.push(`${linha} (destino já existe)`);
             continue;
@@ -523,7 +528,7 @@ export class WorkspaceService {
         }
         const alvo=operationPath(linha.replace(/^apagar\s+/i,''));
         if(outsideGit(alvo))throw Error('Arquivo fora do Git exige etapa explícita e aprovação.');
-        const abs=resolveOperation(worktree,undefined,alvo);
+        const abs=resolveOperation(worktree,midiaDir,alvo);
         if (!alvo || !abs || !fs.existsSync(abs)) {
           recusados.push(linha);
           continue;
@@ -536,25 +541,41 @@ export class WorkspaceService {
       }
     }
     if(linhas.length>2000)recusados.push('Limite de 2000 operações excedido.');
-    void midiaDir;
     return { feitos, recusados };
   }
 
-  sanitizeHarnessFiles(worktree: string): string[] {
-    const removed: string[] = [];
-    const walk = (dir: string, depth: number) => {
-      if (depth > 6 || !fs.existsSync(dir)) return;
-      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (e.name === '.git' || e.name === 'node_modules') continue;
-        const p = path.join(dir, e.name);
-        if (WorkspaceService.HARNESS_FILES.includes(e.name)) {
-          fs.rmSync(p, { recursive: true, force: true });
-          removed.push(path.relative(worktree, p));
-        } else if (e.isDirectory() && !e.isSymbolicLink()) walk(p, depth + 1);
+  /** Plan only source-tree harness removal. Outputs and generated context are
+   * not executable harness and must never be deleted by finalization. */
+  listHarnessFiles(worktree:string):string[]{
+    const found:string[]=[];
+    const walk=(dir:string,depth:number)=>{
+      if(depth>6||!fs.existsSync(dir))return;
+      for(const e of fs.readdirSync(dir,{withFileTypes:true})){
+        if(e.name==='.git'||e.name==='node_modules'||(depth===0&&['contexto','.nivoo','out','midia'].includes(e.name)))continue;
+        const p=path.join(dir,e.name);
+        if(WorkspaceService.HARNESS_FILES.includes(e.name))found.push(path.relative(worktree,p));
+        else if(e.isDirectory()&&!e.isSymbolicLink())walk(p,depth+1);
       }
     };
-    walk(worktree, 0);
-    return removed;
+    walk(worktree,0);
+    return found.sort();
+  }
+
+  removePlannedHarness(worktree:string,files:readonly string[]):void{
+    for(const rel of files){
+      const parts=rel.split('/');
+      if(!rel||path.isAbsolute(rel)||parts.some(p=>!p||p==='.'||p==='..')||['contexto','.nivoo','out','midia','.git'].includes(parts[0])||!WorkspaceService.HARNESS_FILES.includes(parts[parts.length-1]))throw Error('Plano de restauração de harness inválido.');
+      // Validate the parent rather than following a final symlink (unlink it).
+      const parent=resolveInside(worktree,path.dirname(rel));
+      const target=path.join(parent,path.basename(rel));
+      fs.rmSync(target,{recursive:true,force:true});
+    }
+  }
+
+  sanitizeHarnessFiles(worktree:string):string[]{
+    const files=this.listHarnessFiles(worktree);
+    this.removePlannedHarness(worktree,files);
+    return files;
   }
 
   /** Impressão digital (nomes, tamanhos, mtimes) de um diretório, para detectar alterações indevidas. */
@@ -581,11 +602,17 @@ export class WorkspaceService {
    * Hash do estado do workspace (árvore git sem ignorados + arquivos de out/).
    * Usado para detectar se uma sessão produziu algum progresso.
    */
-  async snapshotHash(worktree: string): Promise<string> {
+  async snapshotHash(worktree: string,ignoreHarness=false): Promise<string> {
     // Notas do agente (.nivoo/) não contam como progresso: só alterações reais no trabalho.
     await this.gitOk(worktree, ['add', '-A']);
-    const files = await this.gitOk(worktree, ['ls-files', '-s']);
-    const tree = { stdout: files.stdout.split('\n').filter((l) => !/\t(?:\.nivoo|contexto)\//.test(l)).join('\n') };
+    const files = await this.gitOk(worktree, ignoreHarness?['ls-files','-s','-z']:['ls-files','-s']);
+    const tree = { stdout: ignoreHarness
+      ?files.stdout.split('\0').filter(l=>{
+        if(!l)return false;
+        const rel=l.slice(l.indexOf('\t')+1),parts=rel.split('/');
+        return !['.nivoo','contexto'].includes(parts[0])&&!parts.some(p=>WorkspaceService.HARNESS_FILES.includes(p));
+      }).sort().join('\0')
+      :files.stdout.split('\n').filter((l) => !/\t(?:\.nivoo|contexto)\//.test(l)).join('\n') };
     const out = path.join(worktree, 'out');
     const listing: string[] = [];
     const walk = async(d: string):Promise<void> => {
@@ -644,9 +671,52 @@ export class WorkspaceService {
    * Só acontece se a pasta principal não mudou desde a verificação (main contida na branch do job);
    * senão devolve ok=false e a conclusão reintegra e reverifica.
    */
-  async integrateIntoMain(dirKey: string, jobId: string, message: string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
+  /** Create the exact squash commit object before touching main. The caller
+   * durably records its identity before applying it under the project lock. */
+  async prepareIntegration(dirKey:string,jobId:string,message:string,approvedBase?:string):Promise<IntegrationPlan|null>{
+    const repo=this.projectDirs(dirKey).repo,branch=this.jobBranch(jobId);
+    const base=await this.headCommit(repo);
+    if(!base||(approvedBase&&base!==approvedBase))return null;
+    if((await this.git(repo,['merge-base','--is-ancestor',base,branch])).exitCode!==0)return null;
+    const source=(await this.gitOk(repo,['rev-parse','--verify',branch+'^{commit}'])).stdout.trim();
+    const tree=(await this.gitOk(repo,['rev-parse',source+'^{tree}'])).stdout.trim();
+    const oldTree=(await this.gitOk(repo,['rev-parse',base+'^{tree}'])).stdout.trim();
+    const changed=tree!==oldTree;
+    const target=changed?(await this.gitOk(repo,['commit-tree',tree,'-p',base,'-m',message])).stdout.trim():base;
+    // Keep the object reachable during a long interruption or git gc.
+    const ref='refs/nivoo/integrations/'+jobId;
+    await this.gitOk(repo,['update-ref',ref,target]);
+    return {base,source,tree,target,changed};
+  }
+
+  /** No new commit on recovery. A later main may already contain the exact
+   * planned target; a divergent or dirty tree is not reset or overwritten. */
+  async applyIntegration(dirKey:string,jobId:string,plan:IntegrationPlan):Promise<boolean>{
+    const repo=this.projectDirs(dirKey).repo;
+    if(![plan.base,plan.source,plan.tree,plan.target].every(x=>/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(x)))throw Error('Recibo Git inválido.');
+    const tree=(await this.gitOk(repo,['rev-parse',plan.target+'^{tree}'])).stdout.trim();
+    if(tree!==plan.tree)throw Error('Árvore do recibo Git divergente.');
+    if(plan.changed){
+      const parent=(await this.gitOk(repo,['rev-parse',plan.target+'^'])).stdout.trim();
+      if(parent!==plan.base)throw Error('Base do recibo Git divergente.');
+    }else if(plan.target!==plan.base)throw Error('Recibo Git sem alteração inválido.');
+    const current=await this.headCommit(repo);
+    if(!current)return false;
+    const clean=(await this.gitOk(repo,['status','--porcelain','--untracked-files=normal'])).stdout.trim()==='';
+    if(!clean)return false;
+    const already=(await this.git(repo,['merge-base','--is-ancestor',plan.target,current])).exitCode===0;
+    if(already)return true;
+    if(current!==plan.base)return false;
+    const branch=(await this.gitOk(repo,['rev-parse','--verify',this.jobBranch(jobId)+'^{commit}'])).stdout.trim();
+    if(branch!==plan.source)return false;
+    const ff=await this.git(repo,['merge','--ff-only','-q',plan.target]);
+    return ff.exitCode===0&&(await this.headCommit(repo))===plan.target;
+  }
+
+  async integrateIntoMain(dirKey: string, jobId: string, message: string, approvedBase?:string): Promise<{ ok: boolean; commit: string | null; mudou?: boolean }> {
     const repo = this.projectDirs(dirKey).repo;
     const branch = this.jobBranch(jobId);
+    if(approvedBase&&(await this.headCommit(repo))!==approvedBase)return {ok:false,commit:null};
     if ((await this.git(repo, ['merge-base', '--is-ancestor', 'main', branch])).exitCode !== 0) return { ok: false, commit: null };
     const sq = await this.git(repo, ['merge', '--squash', '-q', branch]);
     if (sq.exitCode !== 0) {

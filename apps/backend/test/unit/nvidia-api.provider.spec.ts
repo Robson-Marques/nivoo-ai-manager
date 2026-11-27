@@ -41,14 +41,19 @@ describe('NVIDIA NIM API — integração no Nivoo', () => {
     expect(segredoDaConexao('nvidia-api--12345678', 'NVIDIA_API_KEY')).toBeUndefined();
   });
 
-  it('testa a chave com GET /models sem expor o segredo e filtra modelos que não são chat', async () => {
+  it('testa a chave com GET /models sem expor o segredo; a lista bruta vem da API (a classificação chat/embedding é do catálogo)', async () => {
     process.env.NVIDIA_API_KEY = 'nvapi-chave-de-teste-nunca-real';
-    const spy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    // Cada fetch devolve uma Response nova: o corpo só pode ser lido uma vez e
+    // checkAvailability + modelos fazem chamadas separadas (em produção cada uma
+    // recebe sua própria resposta).
+    const spy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
       data: [{ id: 'nvidia/nemotron-3-nano' }, { id: 'nvidia/nv-embed-qa' }, { id: 'meta/llama-3.1-8b-instruct' }],
     }), { status: 200 }));
     const p = new NvidiaApiProvider();
     expect((await p.checkAvailability()).available).toBe(true);
-    expect((await p.modelos()).map((m) => m.id)).toEqual(['nvidia/nemotron-3-nano', 'meta/llama-3.1-8b-instruct']);
+    // O gateway devolve o catálogo bruto válido (sem regex de chat): a seleção de
+    // agentes elegíveis é feita em nvidia-model-catalog, nunca aqui.
+    expect((await p.modelos()).map((m) => m.id)).toEqual(['nvidia/nemotron-3-nano', 'nvidia/nv-embed-qa', 'meta/llama-3.1-8b-instruct']);
     expect(String(spy.mock.calls[0][0])).toBe(NVIDIA_API_BASE + '/models');
     const request = spy.mock.calls[0][1] as RequestInit;
     expect((request.headers as Record<string, string>).Authorization).toBe('Bearer nvapi-chave-de-teste-nunca-real');

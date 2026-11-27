@@ -1,3 +1,4 @@
+import { verificationReceipt,type SkillVerification } from '../../specialties/skill-evidence';
 import { nativeImageTarget } from '../../providers/codex-image-assets';
 import type { Job,Step } from '@prisma/client';
 import type { ExecutionResult } from '../../providers/provider.interface';
@@ -48,7 +49,7 @@ export function explicarConferencia(comando: string, pasta: string): string {
 
 
 /** Existing technical verification only. Never changes the job, retries an AI, or schedules another step. */
-export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:boolean,result:ExecutionResult,worktree:string,outputDir:string,mediaDir:string,attempt:{id:string},signal:AbortSignal,L:ExecutionLog){
+export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:boolean,result:ExecutionResult,worktree:string,outputDir:string,mediaDir:string,attempt:{id:string},signal:AbortSignal,L:ExecutionLog,onSpawn?:(pid:number)=>void){
     // Verificação determinística da etapa (não decide conclusão do job).
     // Etapa de revisão: basta o relatório (vale também para trabalhos criados antes, que guardaram a conferência antiga).
     const deliveries=mediaDeliveries(providerId,step.instructions,(step.providerOptions??{}) as Record<string,unknown>,step.key);
@@ -75,6 +76,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
     const normalized=normalizeMotionOutputs(verifyCommandEfetivo);
     const saidaMotionCorrigida=Object.entries(normalized.aliases).map(([old,next])=>old+' → '+next).join(', ');
     verifyCommandEfetivo=replaceMediaAliases(normalized.command,normalized.aliases);
+    let skillVerification:SkillVerification={state:'not-run'};
     let verified = !verifyCommand&&result.stopReason!=='file_operation_postcondition';
     // The provider already decoded the image. The worker may have applied
     // requested file operations after that decode; never conclude with a missing output.
@@ -114,7 +116,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
         if(problem.kind==='credential')credencialFaltando=problem.detail;else ambiente=problem.detail;
         await L('Verificação não iniciada: '+problem.detail,'WARN',attempt.id);
         result={...result,exitCode:1,error:'verificação não executada: '+problem.detail};
-        return {result,verified:false,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando};
+        return {result,verified:false,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando,skillVerification};
       }
       // A conferência pode levar minutos (instalar, testar, compilar): registra o andamento para a tela não parecer
       // parada — a última linha da saída a cada 15 s e um "ainda rodando" a cada minuto.
@@ -142,6 +144,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       const conferir = () => {
         transcript='';
         return runProcess('bash', ['-e', '-o', 'pipefail', '-c', verifyCommandEfetivo], {
+          onSpawn,
           onStdout: anotar,
           onStderr: anotar,
           cwd: worktree,
@@ -219,6 +222,7 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       }
       await L(`Verificação da etapa: exit ${v.exitCode}${v.timedOut?' (tempo esgotado)':''}${v.aborted?' (interrompida)':''}${vOut ? ` — ${vOut}` : ''}`, verificationPassed(v) ? 'INFO' : 'WARN', attempt.id);
       verified = verificationPassed(v);
+      skillVerification=verificationReceipt(verifyCommandEfetivo,v.exitCode,verified,!!v.aborted,!!v.timedOut);
       if (v.aborted) result = { ...result, interrupted: true };
       else if (verified && result.sessionEnded && !target && !deliveries.length) {
         // A time/turn-limited coding session may already have satisfied its real check.
@@ -228,5 +232,5 @@ export async function verifyExecution(job:Job,step:Step,providerId:string,isAi:b
       }
     }
 
-  return {result,verified,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando};
+  return {result,verified,falhaTecnicaDaMidia,faltaPrograma,ambiente,credencialFaltando,skillVerification};
 }

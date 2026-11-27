@@ -99,7 +99,14 @@ export function conectarMotorMotion(raw: unknown, defaultProvider: string, objec
     const entry=readMotionInvocation(command)?.source??source;
     const check=String(compose.verifyCommand??'');
     const identifiedSource=entry.endsWith('/index.html')||entry.endsWith('/scene.json')||!!selectedMode||check.includes(source+'/index.html')||check.includes(source+'/scene.json');
-    const scopedEdit=String(compose.instructions??'').includes(MOTION_EDIT_MARKER)||((identifiedSource||source.startsWith('motion/retomada-'))&&pedeEdicaoPontual(objective+' '+String(compose.title??'')+' '+original));
+    // Idempotência: compilar um plano já compilado não pode trocar o contrato. Se
+    // o contrato de CRIAÇÃO já foi anexado numa passagem anterior, a etapa autora
+    // é de criação; não reclassificar como edição só porque a própria compilação
+    // passou a referenciar source/index.html no verifyCommand (o que liga
+    // identifiedSource na 2ª passagem). O caminho de edição é escolhido na 1ª
+    // passagem (plano cru) ou quando o marcador de edição já está presente.
+    const alreadyCore=String(compose.instructions??'').includes('[NIVOO_MOTION_CORE_CONTRACT_V1]');
+    const scopedEdit=String(compose.instructions??'').includes(MOTION_EDIT_MARKER)||(!alreadyCore&&(identifiedSource||source.startsWith('motion/retomada-'))&&pedeEdicaoPontual(objective+' '+String(compose.title??'')+' '+original));
     if(scopedEdit){
       // Keep the selected source, explicit motor and all existing output options.
       // If the command only names a directory, use the uniquely declared source

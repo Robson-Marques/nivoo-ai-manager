@@ -32,12 +32,17 @@ export interface ContextStats {
   artifactsIncluded: number;
   artifactsOmitted: number;
   omittedMemoryIds: string[];
+  failureEvidence?:import('./executor/failure-evidence').FailureEvidence;
   skillIds?: string[];
+  skillManifest?:import('../specialties/skill-evidence').SkillManifestEntry[];
+  skillCoverage?:import('../specialties/skill-evidence').SkillCoverage[];
+  skillEvidence?:import('../specialties/skill-evidence').SkillExecutionEvidence;
   skillsVersion?: string;
   memoryTruncated?: number;
   promptChars?: number;
   profileChars?: number;
   leanExecution?: boolean;
+  egmExecution?:{route:'lite'|'design';scopeHash:string;baseline:{commit:string|null;dirty:string[];complete:boolean};independentReview:'not-run'};
   memoryPromptChars?: number;
   artifactPromptChars?: number;
 }

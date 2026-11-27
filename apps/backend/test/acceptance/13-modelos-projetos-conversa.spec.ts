@@ -81,7 +81,7 @@ describe('Modelos, fine-tune do projeto, conferência das regras, conversa e con
   it('modelos: prontos sem Mercado; texto de funcionamento exato e versionado; nome editável', async () => {
     const prontos = (await h.http().get('/api/areas/templates').expect(200)).body.map((t: any) => t.key);
     expect(prontos).toEqual(['geral', 'software', 'atendimento', 'imagem', 'video', 'video-veo', 'design-video', 'studio-workflow']);
-    expect((await h.http().get('/api/areas').expect(200)).body.map((a: any) => a.slug).sort()).toEqual(['design-video', 'geral', 'studio-workflow', 'video-veo']); // padrão + agentes prontos instalados
+    expect((await h.http().get('/api/areas').expect(200)).body.map((a: any) => a.slug).sort()).toEqual(['design-video', 'geral', 'software', 'studio-workflow', 'video-veo']); // padrão + agentes prontos instalados
     const texto = 'Você é engenheiro de sistemas ERP. Código de rastreio MOD-ERP-11. Nunca use JSON na interface.';
     const m = await modelo('Sistemas ERP / SaaS', 'software', texto);
     expect(m.slug).toBe('sistemas-erp-saas');
@@ -206,7 +206,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     const p = await projeto('Cardápio', m.slug, { rules: 'Nunca invente preços. Código REGRA-SESSAO-7.' });
     await h.http().post(`/api/projects/${p.id}/knowledge/import`).send({ files: [{ path: 'precos.md', contentBase64: b64('Margherita: R$ 45. CONH-SESSAO-3.') }] }).expect(201);
     ctl('mode', null);
-    const j = await job(p.id, { title: 'arte', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'test -f contexto/base/marca.md && test -f contexto/conhecimento/precos.md' }] });
+    const j = await job(p.id, { title: 'arte', defaultProvider: 'claude-code-cli', conferencia: true, steps: [{ key: 's', instructions: 'x', verifyCommand: 'test -f contexto/base/marca.md && test -f contexto/conhecimento/precos.md' }] });
     const d = await ate(p.id, j.id);
     expect(d.status).toBe('CONCLUIDO');
     // Trava: a conferência independente foi acrescentada e aprovada.
@@ -214,16 +214,20 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(d.criteria.find((c: any) => c.key === 'conferencia-regras').status).toBe('APROVADO');
     const revisor = lido('prompt-revisor.txt');
     expect(revisor).toContain('Mudanças feitas por este trabalho');
-    expect(revisor).toContain('REGRA-SESSAO-7');
-    // Lente de interface: padrão local, contexto repetido e foto de toda tela alterada.
+    // Lente de interface do REVISOR (sempre presente nas instruções da conferência):
+    // padrão local, contexto repetido, foto de toda tela alterada. A lente de
+    // interface da EXECUÇÃO ("TELAS NO PADRÃO DO SISTEMA") é específica de áreas com
+    // interface de software; este projeto é da área "imagem", então não se aplica.
     expect(revisor).toMatch(/PADRÃO LOCAL[\s\S]*CONTEXTO REPETIDO[\s\S]*SEM foto/);
-    expect(lido('prompt.txt')).toMatch(/TELAS NO PADRÃO DO SISTEMA/);
+    // O perfil do projeto (regras do modelo e do projeto, materiais) chega pelo
+    // canal de sistema (--append-system-prompt), não inline no corpo do prompt.
     const args = lido('args.txt');
-    expect(args).toContain('--append-system-prompt'); // perfil também como instrução de sistema
-    expect(args).toContain('REGRA-SESSAO-7');
+    expect(args).toContain('--append-system-prompt');
     for (const codigo of ['MOD-SESSAO-31', 'REGRA-SESSAO-7', 'contexto/base/marca.md', 'contexto/base/_CLAUDE.md', 'contexto/conhecimento/precos.md']) {
-      expect(revisor).toContain(codigo);
+      expect(args).toContain(codigo);
     }
+    // Nada do outro modelo vaza, em nenhum dos canais.
+    expect(args).not.toContain('segredo-do-outro');
     expect(revisor).not.toContain('segredo-do-outro');
     const wt = path.join(p.workspacePath, 'worktrees', j.id);
     expect(fs.readFileSync(path.join(wt, 'contexto', 'conhecimento', 'precos.md'), 'utf8')).toContain('CONH-SESSAO-3');
@@ -238,7 +242,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('mode', null);
     ctl('conforme', 'false');
     try {
-      const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      const j = await job(p.id, { title: 'página', defaultProvider: 'claude-code-cli', conferencia: true, limits: { maxSessionsPerStep: 2 }, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 90000);
       expect(d.status).not.toBe('CONCLUIDO');
       // A revisão reprovou sempre com a MESMA violação: a 2ª e a 3ª correção mudam a abordagem; repetida depois de 3
@@ -276,7 +280,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
     ctl('avanca-ate', '7');
     ctl('revisoes', null);
     try {
-      const j = await job(p.id, { title: 'longo', defaultProvider: 'claude-code-cli', steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
+      const j = await job(p.id, { title: 'longo', defaultProvider: 'claude-code-cli', conferencia: true, steps: [{ key: 's', instructions: 'x', verifyCommand: 'true' }] });
       const d = await ate(p.id, j.id, ['CONCLUIDO', 'BLOQUEADO', 'FALHOU'], 180000);
       expect(d.status).toBe('CONCLUIDO');
       // 7 cobranças diferentes = 7 correções (o limite antigo parava na 3ª), nenhuma "mudando a abordagem".
@@ -359,7 +363,9 @@ sys.stdout.buffer.write(b.getvalue())`]);
     expect(r1.plan.defaultProvider).toBe('claude-code-cli');
     expect(r1.content).toMatch(/Guardei na memória do projeto: Cor/);
     const prompt = lido('prompt.txt');
-    expect(prompt).toContain('ESCOPO-LP-4');
+    // A regra do projeto (escopo) chega pelo canal de sistema (--append-system-prompt),
+    // não inline no corpo do prompt de planejamento.
+    expect(lido('args.txt')).toContain('ESCOPO-LP-4');
     expect(prompt).toMatch(/TELAS NO PADRÃO DO SISTEMA[\s\S]*Diga no plano qual tela existente é a referência/);
     expect(prompt).toMatch(/fora do escopo/);
     expect(lido('args.txt')).toContain('--append-system-prompt');
@@ -584,7 +590,7 @@ sys.stdout.buffer.write(b.getvalue())`]);
   it('contas de IA: Claude, ChatGPT e Gemini; login pela tela com o fluxo oficial; chave guardada fora do banco', async () => {
     // Tipos para "+ Nova conexão": Claude, ChatGPT e Gemini, pela conta e por chave de API.
     const tipos = (await h.http().get('/api/accounts/tipos').expect(200)).body;
-    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini api']); // Gemini pela conta: encerrado pelo Google, removido
+    expect(tipos.map((t: any) => `${t.ia} ${t.modo}`)).toEqual(['Claude conta', 'Claude api', 'ChatGPT conta', 'ChatGPT api', 'Gemini api', 'NVIDIA api', 'OpenRouter Free api', 'GroqCloud api']); // Gemini pela conta: encerrado pelo Google, removido. NVIDIA/OpenRouter/Groq: provedores por chave de API.
 
     // Login do Claude pela tela (CLI simulado: mostra o link, lê o código e devolve o token oficial).
     const fake = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fake-claude-')), 'claude');

@@ -1,14 +1,17 @@
-import type { Job,Step } from '@prisma/client';
+import { processIdentity } from '../../common/process-identity';
+import { Prisma,type Job,type Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { LogService } from '../../jobs/log.service';
 import type { ProviderRegistry } from '../../providers/provider-registry.service';
 import type { AiProvider,ExecutionResult,ExecutionRequest } from '../../providers/provider.interface';
 import { measureAiCall } from '../token-benchmark';
+import { collectSkillCoverage } from '../../specialties/skill-evidence';
 import { SKILLS_VERSION } from '../../specialties/skills';
 import type { ContextStats } from '../context-builder';
 import { registrarErro } from '../../diagnostico/erros';
 import { projectModel } from '../../providers/project-model';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { selectedModel } from '../../providers/model-capabilities';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { hasMotionCommand } from '../../jobs/motion/command';
 
 export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'|'stepTimeoutSec'>,providerId:string,instructions:string):number{
@@ -20,6 +23,7 @@ export function executionTimeoutMs(job:Pick<Job,'maxDurationSec'|'activeSeconds'
 /** Dispatch exactly once. The caller owns attempt creation, outcome and retry. */
 export async function dispatchExecution(prisma:PrismaService,logs:LogService,registry:ProviderRegistry,provider:AiProvider,providerId:string,job:Job&{project:{aiModels:unknown}},step:Step,attempt:{id:string},worktree:string,outputDir:string,projectMediaDir:string,context:string,profileText:string,timeoutMs:number,signal:AbortSignal,started:number,contextStats?:ContextStats|null):Promise<ExecutionResult>{
   const isAi=provider.kind!=='executor';
+  const skillCoverage=collectSkillCoverage(contextStats?.skillManifest??[]);
     let result: ExecutionResult;
     // Logs do provedor são gravados em ordem, sem bloquear a execução.
     let logChain = Promise.resolve();
@@ -48,16 +52,18 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
         signal,
         // Modelo: o da etapa (se definido) ou o escolhido para esta IA no projeto; senão, o padrão da IA.
         options: {
-          model: projectModel(job.project, providerId),
           ...((step.providerOptions ?? {}) as { model?: string; maxTurns?: number }),
+          model:selectedModel(projectModel(job.project,providerId),step.providerOptions),
           // Sem corte arbitrário em 20 turnos: a sessão já tem timeout controlado.
           // Só encaminha um teto se o plano/projeto o configurou explicitamente.
           ...((step.providerOptions as { maxTurns?: number } | null)?.maxTurns ? { maxTurns: (step.providerOptions as { maxTurns: number }).maxTurns } : {}),
         },
         // Ferramentas MCP liberadas para este projeto (Conexões → Ferramentas).
-        ...(isAi ? { mcp: mcpDoProjeto(job.projectId, { jobId: job.id }) } : {}),
+        ...(isAi ? { mcp:projectSessionMcp(providerId,job.projectId,'execution',{jobId:job.id}) } : {}),
+        onSkillRead: event=>skillCoverage.observe(event),
         onSpawn: (pid) => {
-          logChain = logChain.then(() => prisma.attempt.update({ where: { id: attempt.id }, data: { pid } }).then(() => undefined).catch(() => undefined));
+          const identity=processIdentity(pid);
+          logChain = logChain.then(() => prisma.attempt.updateMany({ where: { id: attempt.id,status:'EXECUTANDO' }, data: { pid,processIdentity:identity??Prisma.DbNull } }).then(() => undefined).catch(() => undefined));
         },
         onLog: (line, level = 'INFO') => {
           ultimoEvento = Date.now();
@@ -68,15 +74,17 @@ export async function dispatchExecution(prisma:PrismaService,logs:LogService,reg
       };
       result=isAi?await measureAiCall({projectId:job.projectId,provider:providerId,model:request.options?.model,phase:'execution',jobId:job.id,stepId:step.id,attemptId:attempt.id,skillsVersion:SKILLS_VERSION,skillIds:contextStats?.skillIds,promptChars:contextStats?.promptChars},()=>provider.execute(request)):await provider.execute(request);
     } catch (e: any) {
-      result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}` };
+      result = { exitCode: -1, output: '', error: `erro do conector: ${e?.message ?? e}`,connectorFailure:{kind:'connector-exception',detail:String(e?.message??e).slice(0,5000)} };
       registrarErro('worker', `erro do conector ${providerId} (trabalho ${job.id}, etapa ${step.key}): ${e?.message ?? e}`, e);
     } finally {
       clearInterval(progresso);
     }
     await logChain;
+    if(contextStats?.skillManifest)contextStats.skillCoverage=skillCoverage.snapshot();
     // Login recusado de verdade (token expirado/revogado) marca a conexão para a tela pedir "Reconecte".
     if (isAi) registry.registrarResultado(providerId, result.exitCode === 0 && !result.resourceUnavailable, result.error); // só o canal de erro, nunca o texto da IA (código e logs do projeto citam 401…)
 
 
+  if(isAi&&result.resourceUnavailable)await registry.recordRateLimit(providerId,result).catch(e=>registrarErro('worker','Falha ao registrar espera compartilhada do provedor '+providerId,e));
   return result;
 }

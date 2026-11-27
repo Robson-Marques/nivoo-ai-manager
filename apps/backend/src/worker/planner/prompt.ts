@@ -4,7 +4,7 @@ import type { ProviderRegistry } from '../../providers/provider-registry.service
 import { SESSION_CONTEXT_DIR } from '../../storage/workspace.service';
 import { AGENT_RULES } from '../../security/policy';
 import { ferramentasDaIa } from '../../providers/ferramentas';
-import { mcpDoProjeto } from '../../mcp/mcp';
+import { projectSessionMcp } from '../../mcp/session-policy';
 import { textoDoRepositorio } from '../../git/contexto-git';
 import { contextoDaOrigem } from '../../projects/origem-context';
 import { infoDeVersao,textoDaVersao } from '../../git/versao';
@@ -15,6 +15,7 @@ import { selectSkills,skillContext,studioAlignmentSkills } from '../../specialti
 import { benchmarkVariant } from '../token-benchmark';
 import { selectedVisualStyleId } from '../../projects/visual-profile';
 import { softwareEngineeringSections } from '../../specialties/software/catalog';
+import { egmPlanningContext } from '../../specialties/software/egm/planning';
 import { bancoDeTesteDisponivel } from '../../common/banco-de-teste';
 import { plannerRules } from './contract';
 import type { PlannerRequest } from './types';
@@ -27,7 +28,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
   const {fileIndex,indiceTrabalhos,memTxt,conversa,currentMessage}=await collectPlannerContext(prisma,workspace,request);
   const task=entrega??currentMessage.join('\n');
   const preGate=!!capabilities.studioWorkflow&&!entrega;
-  const skills=preGate?studioAlignmentSkills():selectSkills({phase:'planner',text:task,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
+  const skills=preGate?studioAlignmentSkills():selectSkills({phase:'planner',text:task,softwareLifecycle:true,media:midia,software:capabilities.softwareInterface,visualStyleId:selectedVisualStyleId(project.visualProfile),omitLeanSkill:benchmarkVariant(project.id)==='reference'});
   onSkills?.(skills.map(s=>s.id));
     return [
       '# Você é a IA deste projeto no Nivoo',
@@ -39,7 +40,7 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       profileText,
       '',
-      ...ferramentasDaIa(providerId, mcpDoProjeto(project.id).map((m) => m.nome)),
+      ...ferramentasDaIa(providerId, (request.mcpNames??projectSessionMcp(providerId,project.id,request.goldfishResolutionContext?'review':'planning').map(m=>m.nome)),true),
       '- Nas instruções das etapas do plano, nunca proíba comandos de LEITURA (ls, cat, rg…): o ChatGPT só lê arquivos com eles.',
       '  Proíba, se for o caso, testes, build, instalação, commit, push e apagar — isso é do sistema.',
       '',
@@ -63,7 +64,10 @@ export async function buildPlannerPrompt(prisma:PrismaService,workspace:Workspac
       '',
       ...(preGate?['## Skills auxiliares do alinhamento (somente orientação, sem leitura analítica adicional)',...skills.map(s=>'- '+s.id+': '+s.action),'Aplique esta orientação exclusivamente às fontes pré-gate permitidas pelo Studio Workflow. Não leia implementações, não abra revisão independente e não execute trabalho antes de Fazer.']:skillContext(skills,request.worktree)),
       ...(preGate?[]:softwareEngineeringSections(skills,{phase:'planner',text:task,worktree:request.worktree,testDbConfigured:bancoDeTesteDisponivel}).flatMap(section=>section.lines)),
+      ...(capabilities.softwareInterface?egmPlanningContext(skills,preGate,request.worktree):[]),
       ...plannerRules(capabilities),
+      ...(capabilities.softwareInterface?['EGM: no plano existente, declare alvos de alteração concretos quando conhecidos, riscos de concorrência/API, premissas externas [UNVERIFIED] ou [ACK] e verificação direcionada. Não invente caminhos ou contratos. Se a fase pré-gate não permite ler código, identifique a incerteza; não abra outra sessão nem repita a suíte final.']:[]),
+      ...(request.goldfishResolutionContext?['',request.goldfishResolutionContext]:[]),
       ...(resultados.length
         ? [
             '- RESULTADOS dos trabalhos desta conversa (relatórios, inventários, planos que a IA gravou em out/; ficam fora da pasta',
