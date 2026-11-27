@@ -54,7 +54,6 @@ export function compileLiquidGlassAdoption(
   const packagePath=old.packagePath??DEFAULT_PACKAGE;
   if(!validPath(manifest)||!validPath(packagePath))fail('manifest e packagePath devem ser caminhos relativos válidos do projeto.');
 
-  const adoption:Adoption={artifact:'liquid-glass',source:SOURCE,revision:LIQUI_UPSTREAM_COMMIT,mode,manifest,packagePath,families:covered,pending};
   const mapRef=capabilityReference({capability:{...object(map?.config.capability),phase:'structural'}});
   const acceptance=criteria.filter(c=>c.kind==='COMMAND'&&capabilityReference(c.config)?.phase==='acceptance'&&c!==map);
   const groups=[...new Set(acceptance.map(c=>capabilityReference(c.config)!.id))];
@@ -69,8 +68,14 @@ export function compileLiquidGlassAdoption(
     // capability. Keep its actual command and all other criteria unchanged.
     const candidates=criteria.filter(c=>c!==map&&c.kind==='COMMAND'&&!c.config.capability&&
       (Array.isArray(c.config.adoptionFamilies)||/aceitac|aceite-integr|acceptance|integrado|integrada/.test(normalize(c.key))));
-    if(candidates.length!==1)fail('informe um critério COMMAND de aceitação integrada real (config.capability.phase="acceptance"), com o comando do teste do projeto. O Nivoo não inventa esse comando.');
-    integrated=candidates;
+    if(candidates.length===1)integrated=candidates;
+    // Plano que NÃO declarou adoção (caso comum: uma IA real pediu Liquid Glass construindo a interface, sem
+    // estruturar o contrato de aceitação por família): NÃO impõe o contrato formal nem bloqueia a geração do
+    // software. O design system Liquid Glass continua materializado no workspace e usado pela IA; o trabalho
+    // segue com os próprios critérios do plano. O contrato integral fica para pedidos que estruturam a adoção.
+    else if(!declared.length)return raw;
+    // Plano que DECLAROU adoção mas sem o teste de aceitação integrada: erro explícito (o Nivoo não inventa o teste).
+    else fail('informe um critério COMMAND de aceitação integrada real (config.capability.phase="acceptance"), com o comando do teste do projeto. O Nivoo não inventa esse comando.');
   }
   for(const c of integrated){
     const existing=capabilityReference(c.config);
@@ -80,9 +85,11 @@ export function compileLiquidGlassAdoption(
     const list=Array.isArray(c.config.adoptionFamilies)?c.config.adoptionFamilies.filter((f:unknown)=>typeof f==='string'&&covered.includes(f)):[];
     c.config.adoptionFamilies=[...new Set(list)];
   }
-  const listed=new Set(integrated.flatMap(c=>c.config.adoptionFamilies as string[]));
-  integrated[0].config.adoptionFamilies=[...integrated[0].config.adoptionFamilies,...covered.filter(f=>!listed.has(f))];
-  for(const c of integrated)if(!c.config.adoptionFamilies.length)delete c.config.adoptionFamilies;
+  if(integrated.length){
+    const listed=new Set(integrated.flatMap(c=>c.config.adoptionFamilies as string[]));
+    integrated[0].config.adoptionFamilies=[...integrated[0].config.adoptionFamilies,...covered.filter(f=>!listed.has(f))];
+    for(const c of integrated)if(!c.config.adoptionFamilies.length)delete c.config.adoptionFamilies;
+  }
 
   const unique=(base:string)=>{let k=base,n=2;while(criteria.some(c=>c.key===k))k=base+'-'+n++;return k;};
   // A separate Markdown map or a legacy presence-only shell check is not
@@ -98,6 +105,7 @@ export function compileLiquidGlassAdoption(
     map={key:unique('adocao-liquid-glass'),kind:'FILE_EXISTS',description:'Conferir inventário, fontes originais e componentes utilizados na adoção Liquid Glass.',config:{}};
     criteria.push(map);
   }
+  const adoption:Adoption={artifact:'liquid-glass',source:SOURCE,revision:LIQUI_UPSTREAM_COMMIT,mode,manifest,packagePath,families:covered,pending};
   map.config={...map.config,capability:ref('structural'),adoption};
   if(map.kind==='FILE_EXISTS')map.config.path=manifest;
 
