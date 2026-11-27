@@ -5,7 +5,7 @@ import { parseVisualProfileUpdate,visualProfileContext } from '../../src/project
 describe('Design tokens Nivoo',()=>{
   it('mantém catálogo estável, com fundação para cada estilo e alvos de toque',()=>{
     expect(visualTokenCatalog().version).toBe(1);
-    expect(VISUAL_PALETTES.map(p=>p.id)).toEqual(['ocean-blue','emerald','violet','graphite']);
+    expect(VISUAL_PALETTES.map(p=>p.id)).toEqual(['ocean-blue','emerald','violet','graphite','ruby','amber','teal','magenta','indigo','bordeaux']);
     expect(STYLE_FOUNDATIONS.map(f=>f.styleId)).toEqual(VISUAL_STYLES.map(s=>s.id));
     expect(VISUAL_DENSITIES.map(d=>d.id)).toEqual(['compact','balanced','spacious']);
     for(const d of VISUAL_DENSITIES){

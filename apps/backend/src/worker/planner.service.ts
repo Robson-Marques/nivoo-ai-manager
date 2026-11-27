@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { copiarAnexosParaSessao } from '../conversations/attachments';
 import { ehFalhaDeLogin,tipoDe } from '../accounts/connections';
 import { softwareInterfaceEnabled } from '../specialties/scope';
-import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent } from '../projects/visual-discovery';
+import { VISUAL_DISCOVERY_KIND,VISUAL_DISCOVERY_TEXT,VISUAL_BRIEFING_KIND,VISUAL_CONFIRMED_KIND,visualDiscoveryForRequest,visualDiscoveryQuestions,visualDiscoveryIntent,visualRedesignIntent } from '../projects/visual-discovery';
 import { GOLDFISH_SKILL,goldfishRequest } from '../specialties/software/goldfish';
 import { assertLiteReceipt,liteFindings,liteDiffLedger,liteSpecContext,validateLiteSpecRevision,renderLiteSpecDecisions } from '../specialties/software/egm/lite-resolution';
 import { liteRequest,litePlanTarget,liteDiffTarget,runLiteReview,renderLiteResult,type LiteIntake,type LiteResult } from '../specialties/software/egm/lite-review';
@@ -858,7 +858,7 @@ export class PlannerService {
     const ultimaDoUsuario = await this.prisma.conversationMessage.findFirst({ where: { conversationId, role: 'USUARIO' }, orderBy: { createdAt: 'desc' } });
     // A choice of appearance or a new UI request is not an approval of its first plan.
     // Preserve automatic continuation after the user actually approves that request.
-    if(ultimaDoUsuario&&(ultimaDoUsuario.kind===VISUAL_CONFIRMED_KIND||ultimaDoUsuario.kind===VISUAL_BRIEFING_KIND||visualDiscoveryIntent(ultimaDoUsuario.content))){
+    if(ultimaDoUsuario&&(ultimaDoUsuario.kind===VISUAL_CONFIRMED_KIND||ultimaDoUsuario.kind===VISUAL_BRIEFING_KIND||visualDiscoveryIntent(ultimaDoUsuario.content)||visualRedesignIntent(ultimaDoUsuario.content))){
       const approval=await this.prisma.conversationMessage.findFirst({where:{conversationId,approvedAt:{gte:ultimaDoUsuario.createdAt},jobId:{not:null},NOT:{approvedBy:{startsWith:'Nivoo'}}},select:{id:true}});
       if(!approval)return;
     }

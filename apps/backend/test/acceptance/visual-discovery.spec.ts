@@ -50,4 +50,21 @@ describe('Chat — assistente de definição visual',()=>{
     expect(a.messages.some((x:any)=>x.kind==='perfil-visual')).toBe(false);
     expect(a.messages.some((x:any)=>x.status==='PENDENTE')).toBe(true);
   });
+  it('reabre a seleção visual ao pedir nova cara num software que já existe',async()=>{
+    // Projeto existente (com repositório): um ajuste comum vai direto ao planejador, sem telas.
+    const comum=await create('Ajuste em software existente');
+    await h.prisma.project.update({where:{id:comum.p.id},data:{gitUrl:'https://example.com/app.git'}});
+    const base=(await h.http().post(comum.url).send({content:'Adicionar um campo no cadastro de clientes'}).expect(201)).body;
+    expect(base.messages.some((x:any)=>x.kind==='perfil-visual')).toBe(false);
+    expect(base.messages.some((x:any)=>x.status==='PENDENTE')).toBe(true);
+    // Outro projeto existente: pedido de nova cara reabre a seleção visual, com Liquid Glass recomendado.
+    const red=await create('Redesign de software existente');
+    await h.prisma.project.update({where:{id:red.p.id},data:{gitUrl:'https://example.com/app2.git'}});
+    const a=(await h.http().post(red.url).send({content:'Quero dar uma nova cara ao sistema e migrar para Liquid Glass'}).expect(201)).body;
+    const m=a.messages.find((x:any)=>x.kind==='perfil-visual');
+    expect(m).toBeDefined();
+    expect(m.perguntas).toHaveLength(4);
+    expect(m.perguntas[0].opcoes[0].id).toBe('liquid-glass');
+    expect(await h.prisma.queueTask.count({where:{messageId:m.id}})).toBe(0);
+  });
 });
