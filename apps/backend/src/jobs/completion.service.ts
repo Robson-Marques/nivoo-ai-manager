@@ -572,8 +572,9 @@ export class CompletionService {
         }
         await this.prisma.$transaction(tx=>assertEvaluationLease(tx,lease));
         // Envio padrão: se o remoto está à frente, traz as novidades e então empurra
-        // (commit + tag + push). O resultado do trabalho sempre chega ao Git.
-        const r=await this.git.versionar(job.projectId,job.title);
+        // (commit + tag + push). O resultado do trabalho sempre chega ao Git. A versão foi
+        // reservada antes (state.tag): a retomada após queda reusa a MESMA versão (idempotente).
+        const r=await this.git.versionar(job.projectId,job.title,state.tag);
         await write({...state,tag:r.tag,pushStatus:'CONFIRMED',pushError:undefined});
         await this.logs.log(job.id,'Versão '+r.tag+' enviada ao Git (commit + tag + push)'+(r.atualizou?'; antes, trouxe as novidades que já estavam no repositório':'')+'.',{source:'git'});
       }catch(e){

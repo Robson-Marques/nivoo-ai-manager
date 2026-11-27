@@ -294,8 +294,16 @@ export class GitService {
     if (tag) await this.tagValida(repo, tag);
     const commit = (await this.ok(repo, ['rev-parse', '--verify', 'refs/heads/main^{commit}'], null)).stdout.trim();
     if (tag) {
-      const t = await this.git(repo, ['tag', '-a', '-m', String(body?.mensagem ?? `Versão ${tag}`).slice(0, 500), '--', tag, commit], null);
-      if (t.exitCode !== 0) throw new ConflictException(/already exists/i.test(t.stderr) ? `A tag ${tag} já existe` : GitService.erro(t, null));
+      // reusarTag (só na retomada automática da finalização): se a tag já existe apontando para ESTE commit,
+      // reaproveita em vez de recriar — a publicação só precisa terminar o push, sem mintar outra versão.
+      // No envio MANUAL, reusarTag é falso: uma tag repetida continua recusada (409).
+      const existente = body?.reusarTag ? await this.git(repo, ['rev-parse', '--verify', '-q', `refs/tags/${tag}^{commit}`], null) : { exitCode: 1, stdout: '' };
+      if (existente.exitCode === 0) {
+        if (existente.stdout.trim() !== commit) throw new ConflictException(`A tag ${tag} já existe apontando para outro commit`);
+      } else {
+        const t = await this.git(repo, ['tag', '-a', '-m', String(body?.mensagem ?? `Versão ${tag}`).slice(0, 500), '--', tag, commit], null);
+        if (t.exitCode !== 0) throw new ConflictException(/already exists/i.test(t.stderr) ? `A tag ${tag} já existe` : GitService.erro(t, null));
+      }
     }
     const refs = [`${commit}:refs/heads/${branch}`, ...(tag ? [`refs/tags/${tag}`] : [])];
     const r = await this.git(repo, ['push', '--quiet', ...(tag ? ['--atomic'] : []), 'origin', ...refs], conta, 15 * 60_000);
@@ -381,17 +389,19 @@ export class GitService {
     await this.prisma.project.update({where:{id:p.id},data:{gitLastSyncAt:new Date()}});
   }
 
-  async versionar(projectId: string, mensagem: string): Promise<{ tag: string; atualizou: boolean }> {
+  async versionar(projectId: string, mensagem: string, tagFixa?: string): Promise<{ tag: string; atualizou: boolean }> {
     let atualizou = false;
     for (let tentativa = 0; ; tentativa++) {
-      const tag = await this.proximaVersao(projectId);
+      // Com tagFixa (versão já reservada e persistida pela finalização): a retomada após queda reusa a MESMA
+      // versão, sem mintar outra — o push virou idempotente (reaproveita a tag do mesmo commit).
+      const tag = tagFixa ?? await this.proximaVersao(projectId);
       try {
-        await this.push(projectId, { tag, mensagem });
+        await this.push(projectId, { tag, mensagem, reusarTag: !!tagFixa });
         return { tag, atualizou };
       } catch (e: any) {
         const msg = String(e?.message ?? '');
         if (!(e instanceof ConflictException) || tentativa >= 3) throw e;
-        if (/já existe/.test(msg)) continue; // outro trabalho pegou esse número ao mesmo tempo: o próximo
+        if (/já existe/.test(msg)) { if (tagFixa) throw e; continue; } // outro trabalho pegou esse número: o próximo
         if (!/mudanças que ainda não estão aqui/.test(msg) || atualizou) throw e;
         await this.pull(projectId);
         atualizou = true;
