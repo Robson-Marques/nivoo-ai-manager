@@ -794,7 +794,7 @@ export class CompletionService {
             ...base,
             passed: verificationPassed(r,expected)&&!missing.length&&!proof?.missing.length,
             ...(problem?{verificationProblem:problem}:{}),
-            evidence: { ...(proof?{egmProof:proof}:{}),...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(Array.isArray(cfg.adoptionFamilies)?{adoptionCoverage:{expected:cfg.adoptionFamilies,missing}}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
+            evidence: { ...(proof?{egmProof:proof}:{}),...(inventory?{adoptionInventory:inventory,adoption:adoption!.artifact}:{}),...(Array.isArray(cfg.adoptionFamilies)?{adoptionCoverage:{expected:cfg.adoptionFamilies,missing}}:{}),...(missing.length?{erro:'Famílias de adoção sem evidência integrada: '+missing.join(', ')+'. Cada família precisa imprimir no stdout do comando uma linha: NIVOO_ADOPTION_EVIDENCE {"family":"<id>","passed":true,"scenario":"<cenário real>"}. Formato completo em contexto/adocao-liquid-glass/FORMATO.md.'}:{}), comando: cmd, exitCode: r.exitCode, esperado: expected, timeout: r.timedOut, interrompido:r.aborted, ...(problem?{problema:problem}:{}), stdout: r.stdout.slice(-4000), stderr: r.stderr.slice(-2000) },
           };
         }
         case 'FILE_EXISTS': {

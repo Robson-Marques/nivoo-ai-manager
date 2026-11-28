@@ -8,15 +8,78 @@ import { approvedDesign,approvedDesignSource } from '../../projects/approved-des
 
 type Row={id?:unknown;callsites?:unknown;notApplicable?:unknown;components?:unknown};
 const file=(root:string,p:string)=>{const f=resolveInside(root,p);if(!fs.statSync(f).isFile())throw Error('Não é arquivo: '+p);return fs.readFileSync(f,'utf8');};
+/** Nomes oficiais aceitos no campo "components" do inventário: a raiz do motor,
+ * a raiz do design aprovado e os controles originais do registry presentes no
+ * pacote. Conjunto fechado — a IA escolhe entre eles, não inventa nomes. */
+function officialComponentNames(original:Array<{name:string;content:string}>):string[]{
+  return ['engine/nivoo.tsx','approved-design.tsx',...original.filter(f=>/^registry\/ui\/.*\.tsx$/.test(f.name)).map(f=>f.name)];
+}
+export function officialAdoptionComponents():string[]{
+  return officialComponentNames([
+    ...liquidGlassTemplate().files.filter(f=>f.name.startsWith('engine/')),
+    ...liquidGlassIntegratedFiles(),
+  ]);
+}
+/** Especificação canônica do inventário, gravada no worktree para a IA ler em
+ * vez de supor o formato. Conjunto fechado de nomes e regras reais da conferência. */
+export function adoptionInventorySpec(a:Adoption):string{
+  const ativas=a.families.filter(f=>!a.pending.includes(f));
+  const pkg=a.packagePath??'design-system/liquid-glass';
+  const regIds=officialAdoptionComponents().filter(n=>n.startsWith('registry/ui/')).map(n=>n.replace(/^registry\/ui\//,'').replace(/\.tsx$/,''));
+  return [
+    '# Formato do inventário de adoção Liquid Glass',
+    '',
+    'Arquivo conferido pela verificação nativa "mapa-de-adocao": `'+a.manifest+'`.',
+    'Preencha EXATAMENTE este formato. Não invente campos nem nomes; declare só o que existe no código.',
+    '',
+    '## Estrutura',
+    '```json',
+    '{',
+    '  "artifact": "'+a.artifact+'",',
+    '  "source": "'+a.source+'",',
+    '  "revision": "'+a.revision+'",',
+    '  "families": [',
+    '    { "id": "shell", "callsites": ["<arquivo-consumidor>"], "components": ["engine/nivoo.tsx"] }',
+    '  ]',
+    '}',
+    '```',
+    '',
+    '## Regras',
+    '- Uma entrada por família contratada (campo `id`): '+ativas.join(', ')+'.',
+    '- `callsites`: arquivos do CONSUMIDOR (fora de `'+pkg+'/`) que de fato importam o componente; caminhos relativos do projeto, nunca `out/`, `midia/` ou `node_modules/`.',
+    '- `components`: apenas nomes do conjunto fechado abaixo. Cada componente precisa ser importado por um dos `callsites` da mesma família.',
+    '- `shell` e `controls` exigem `callsites` reais (não aceitam `notApplicable`). `controls` e `forms` exigem ao menos um `registry/ui/<id>.tsx`.',
+    '- Família sem uso pertinente: `"callsites": []` e `"notApplicable": "<justificativa, mínimo 15 caracteres>"`.',
+    '',
+    '## Nomes oficiais aceitos em `components` (conjunto fechado)',
+    '- `engine/nivoo.tsx`',
+    '- `approved-design.tsx`',
+    ...regIds.map(id=>'- `registry/ui/'+id+'.tsx`'),
+    '',
+    '## Evidência de adoção na aceitação integrada',
+    'O critério de aceitação (COMMAND, ex.: `npm run test:acceptance`) precisa IMPRIMIR no **stdout**, depois que as asserções reais de cada família passarem, uma linha por família contratada, EXATAMENTE neste formato:',
+    '```',
+    'NIVOO_ADOPTION_EVIDENCE {"family":"shell","passed":true,"scenario":"<cenário real exercitado>"}',
+    '```',
+    '- Uma linha por família: '+ativas.join(', ')+'.',
+    '- `family`: o id da família. `passed`: `true` (só após o teste real passar). `scenario`: texto não-vazio do fluxo exercitado.',
+    '- Tem de sair no **stdout do comando** de aceitação. O avaliador lê o stdout — um arquivo em `out/` ou `adoption-coverage.json` NÃO é lido para isso.',
+    '- A linha pode vir prefixada por `# ` (comentário TAP do node:test); ambos funcionam. O JSON precisa ser válido e caber em uma linha.',
+    '- Emita a evidência a partir das asserções já executadas; não imprima família que o teste não exercitou de verdade.',
+    '',
+  ].join('\n');
+}
 export function verifyAdoptionInventory(root:string,a:Adoption,visual?:{profile:unknown;revision:number}):{families:string[];callsites:number;originalFiles:number}{
   const raw=JSON.parse(file(root,a.manifest));
-  if(raw.artifact!==a.artifact||raw.source!==a.source||raw.revision!==a.revision||!Array.isArray(raw.families))throw Error('Inventário não corresponde à identidade e revisão aprovadas.');
+  if(raw.artifact!==a.artifact||raw.source!==a.source||raw.revision!==a.revision||!Array.isArray(raw.families))throw Error('Inventário '+a.manifest+' não corresponde à identidade aprovada. Use exatamente artifact="'+a.artifact+'", source="'+a.source+'", revision="'+a.revision+'" e um array "families".');
   const rows=raw.families as Row[];
-  if(rows.length!==a.families.length||new Set(rows.map(r=>r.id)).size!==rows.length||rows.some(r=>typeof r.id!=='string'||!a.families.includes(r.id)))throw Error('Inventário não cobre todas as famílias contratadas.');
+  if(rows.length!==a.families.length||new Set(rows.map(r=>r.id)).size!==rows.length||rows.some(r=>typeof r.id!=='string'||!a.families.includes(r.id)))throw Error('Inventário deve cobrir exatamente as famílias contratadas, uma entrada por família (campo "id"): '+a.families.join(', ')+'.');
   const original=a.artifact==='liquid-glass'?[
     ...liquidGlassTemplate().files.filter(f=>f.name.startsWith('engine/')),
     ...liquidGlassIntegratedFiles()
   ]:[];
+  const officialNames=officialComponentNames(original);
+  const registryIds=original.filter(f=>/^registry\/ui\/.*\.tsx$/.test(f.name)).map(f=>f.name.replace(/^registry\/ui\//,'').replace(/\.tsx$/,''));
   for(const f of original){
     if(file(root,a.packagePath+'/'+f.name)!==f.content)throw Error('Fonte original divergiu: '+f.name+'. Preserve o pacote e adapte o consumidor.');
   }
@@ -30,16 +93,17 @@ export function verifyAdoptionInventory(root:string,a:Adoption,visual?:{profile:
   }
   let callsites=0;
   for(const row of rows){
-    if(!Array.isArray(row.callsites)||row.callsites.some(p=>typeof p!=='string'||caminhoDoProjeto(p)!==p||/^(?:out|midia|node_modules)(?:\/|$)/.test(p)))throw Error('Callsites inválidos em '+row.id);
+    if(!Array.isArray(row.callsites)||row.callsites.some(p=>typeof p!=='string'||caminhoDoProjeto(p)!==p||/^(?:out|midia|node_modules)(?:\/|$)/.test(p)))throw Error('Callsites inválidos em '+row.id+': "callsites" deve listar caminhos relativos do projeto (nunca out/, midia/ ou node_modules/) dos arquivos consumidores reais que usam a família.');
     if(!row.callsites.length){
-      if(typeof row.notApplicable!=='string'||row.notApplicable.trim().length<15||row.id==='shell'||row.id==='controls')throw Error('Família sem callsites ou justificativa verificável: '+row.id);
+      if(typeof row.notApplicable!=='string'||row.notApplicable.trim().length<15||row.id==='shell'||row.id==='controls')throw Error('Família '+row.id+': informe "callsites" com os arquivos reais que a usam, ou — exceto shell e controls — "callsites":[] com "notApplicable" explicando por que não se aplica (mínimo 15 caracteres). Não suponha: declare só o que existe no código.');
       continue;
     }
     const contents=(row.callsites as string[]).map(p=>{if(a.packagePath&&(p===a.packagePath||p.startsWith(a.packagePath+'/')))throw Error('Callsite deve pertencer ao consumidor, não ao pacote: '+p);return {p,s:file(root,p)};});callsites+=contents.length;
     if(a.artifact==='liquid-glass'){
       const components=Array.isArray(row.components)?row.components:[];
-      if(!components.length||components.some(c=>typeof c!=='string'||!(/^registry\/ui\/.*\.tsx$/.test(c)&&original.some(f=>f.name===c)||c==='approved-design.tsx'||c==='engine/nivoo.tsx')))throw Error('Família sem componentes oficiais identificados: '+row.id);
-      if(['controls','forms'].includes(String(row.id))&&!components.some(c=>typeof c==='string'&&c.startsWith('registry/ui/')))throw Error('Família '+row.id+': use controles originais do registry, não só superfície de vidro.');
+      const invalid=components.filter(c=>typeof c!=='string'||!officialNames.includes(c));
+      if(!components.length||invalid.length)throw Error('Família '+row.id+': declare em "components" ao menos um componente oficial que um callsite importe'+(invalid.length?'; inválido(s): '+invalid.map(String).join(', '):'')+'. Nomes válidos: "engine/nivoo.tsx", "approved-design.tsx" ou "registry/ui/<id>.tsx" (ids: '+registryIds.join(', ')+'). Use só esses nomes; não invente.');
+      if(['controls','forms'].includes(String(row.id))&&!components.some(c=>typeof c==='string'&&c.startsWith('registry/ui/')))throw Error('Família '+row.id+': use controles originais do registry ("registry/ui/<id>.tsx"), não só a superfície de vidro.');
       // Check actual import paths in consumer sources; not a substitute for
       // executing the flows or checking visual fidelity.
       for(const c of components as string[]){
@@ -47,7 +111,7 @@ export function verifyAdoptionInventory(root:string,a:Adoption,visual?:{profile:
           let rel=path.posix.relative(path.posix.dirname(p),a.packagePath+'/'+c).replace(/\.(?:tsx?|jsx?)$/,'');
           if(!rel.startsWith('.'))rel='./'+rel;
           return [...s.matchAll(/\bimport\b\s+(?:[\w$*{},\s]+?)\s*from\s*['"]([^'"]+)['"]/g)].some(m=>m[1].replace(/\.(?:tsx?|jsx?)$/,'')===rel);
-        }))throw Error('Componente não importado por callsite mapeado em '+row.id+': '+c);
+        }))throw Error('Componente "'+c+'" declarado na família '+row.id+' não é importado por nenhum dos callsites listados. Liste em "callsites" o arquivo que de fato importa "'+c+'", ou remova o componente. O Nivoo confere o import real.');
       }
     }
   }

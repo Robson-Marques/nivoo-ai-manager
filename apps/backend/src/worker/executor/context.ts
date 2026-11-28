@@ -1,6 +1,7 @@
 import { liquidGlassTemplateContext } from '../../projects/liquid-glass-template';
 import { liquidGlassComponentsContext } from '../../projects/liquid-glass-components';
 import { adoptionOf,adoptionSummaries } from '../../jobs/workflow/adoption-contract';
+import { adoptionInventorySpec } from '../../jobs/workflow/adoption-evidence';
 import { verificationDiagnostic } from './verification-diagnostic';
 import type { Job,Step } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -130,6 +131,16 @@ export async function buildExecutionContext(prisma:PrismaService,workspace:Works
     }
     const adoptions=adoptionSummaries(criteria);
     if(adoptions.length)add('adocao-integral',['## Contrato de adoção obrigatório',...adoptions,'Configuração aprovada: '+JSON.stringify(criteria.filter(c=>adoptionOf(c.config)||Array.isArray((c.config as any)?.adoptionFamilies)).map(c=>({key:c.key,config:c.config}))), 'Leia config.adoption no contrato da Capability e mantenha o inventário de callsites. Use a implementação original, sem substituição silenciosa; cada família deve ser exercitada pela aceitação integrada existente. Não gere evidência sem teste real.']);
+    const glassAdoption=criteria.map(c=>adoptionOf(c.config)).find((a):a is Exclude<ReturnType<typeof adoptionOf>,null>=>a?.artifact==='liquid-glass');
+    if(glassAdoption&&worktree){
+      writeSessionContextFile(worktree,'adocao-liquid-glass/FORMATO.md',adoptionInventorySpec(glassAdoption));
+      add('inventario-liquid-glass',[
+        '## Inventário de adoção Liquid Glass — formato fechado',
+        'O formato EXATO do arquivo '+glassAdoption.manifest+' (conferido pela verificação "mapa-de-adocao"), com o schema e a lista fechada de nomes oficiais aceitos, está em contexto/adocao-liquid-glass/FORMATO.md. Leia esse arquivo e siga-o à risca.',
+        'Esqueleto: { "artifact":"liquid-glass", "source":"'+glassAdoption.source+'", "revision":"'+glassAdoption.revision+'", "families":[ {"id":"<familia>","callsites":["<arquivo-consumidor>"],"components":["<componente-oficial>"]} ] }.',
+        '"components" aceita só nomes do conjunto fechado do arquivo (engine/nivoo.tsx, approved-design.tsx, registry/ui/<id>.tsx) e cada um precisa ser importado por um callsite real da família. Não invente campos nem nomes; declare só o que existe no código. O Nivoo confere os imports reais.',
+      ]);
+    }
     const adoptsGlass=criteria.some(c=>adoptionOf(c.config)?.artifact==='liquid-glass');
     if(adoptsGlass||skillIds.includes('software-frontend')||skillIds.includes('software-liquid-glass')){
       const bound=(adoptsGlass||skillIds.includes('software-liquid-glass'))?approvedDesignContext(visual.profile,visual.revision,worktree):[];
