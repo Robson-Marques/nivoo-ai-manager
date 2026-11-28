@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { verifyAdoptionInventory,officialAdoptionComponents,adoptionInventorySpec } from '../../src/jobs/workflow/adoption-evidence';
+import { verifyAdoptionInventory,officialAdoptionComponents,adoptionInventorySpec,verifyAdoptionCoverage } from '../../src/jobs/workflow/adoption-evidence';
 import { liquidGlassTemplate,LIQUI_UPSTREAM_COMMIT } from '../../src/projects/liquid-glass-template';
 import { liquidGlassIntegratedFiles } from '../../src/projects/liquid-glass-components';
 import type { Adoption } from '../../src/jobs/workflow/adoption-contract';
@@ -34,12 +34,23 @@ describe('Inventário de adoção Liquid Glass — escopo fechado',()=>{
     expect(names.every(n=>n==='engine/nivoo.tsx'||n==='approved-design.tsx'||/^registry\/ui\/.*\.tsx$/.test(n))).toBe(true);
   });
 
-  it('a especificação canônica traz o schema e a lista de nomes válidos',()=>{
+  it('a especificação canônica traz o schema, a lista de nomes e o marcador de evidência da aceitação',()=>{
     const spec=adoptionInventorySpec(adoption(['shell','data']));
     expect(spec).toContain('docs/adocao-liquid-glass.json');
     expect(spec).toContain('engine/nivoo.tsx');
     expect(spec).toContain('registry/ui/button.tsx');
     expect(spec).toContain('"id": "shell"');
+    // Documenta o formato exato da evidência por família na aceitação integrada.
+    expect(spec).toContain('NIVOO_ADOPTION_EVIDENCE');
+    expect(spec).toContain('"family":"shell"');
+    expect(spec).toContain('stdout');
+  });
+
+  it('o marcador de evidência documentado é exatamente o que o avaliador aceita',()=>{
+    const line='NIVOO_ADOPTION_EVIDENCE {"family":"shell","passed":true,"scenario":"Cadastro e navegação no shell óptico"}';
+    expect(verifyAdoptionCoverage(line,['shell'])).toEqual([]);
+    expect(verifyAdoptionCoverage('# '+line,['shell'])).toEqual([]);
+    expect(verifyAdoptionCoverage('saída sem marcador',['shell'])).toEqual(['shell']);
   });
 
   it('aprova um inventário correto que segue o formato',()=>{

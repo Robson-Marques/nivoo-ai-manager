@@ -56,6 +56,17 @@ export function adoptionInventorySpec(a:Adoption):string{
     '- `approved-design.tsx`',
     ...regIds.map(id=>'- `registry/ui/'+id+'.tsx`'),
     '',
+    '## Evidência de adoção na aceitação integrada',
+    'O critério de aceitação (COMMAND, ex.: `npm run test:acceptance`) precisa IMPRIMIR no **stdout**, depois que as asserções reais de cada família passarem, uma linha por família contratada, EXATAMENTE neste formato:',
+    '```',
+    'NIVOO_ADOPTION_EVIDENCE {"family":"shell","passed":true,"scenario":"<cenário real exercitado>"}',
+    '```',
+    '- Uma linha por família: '+ativas.join(', ')+'.',
+    '- `family`: o id da família. `passed`: `true` (só após o teste real passar). `scenario`: texto não-vazio do fluxo exercitado.',
+    '- Tem de sair no **stdout do comando** de aceitação. O avaliador lê o stdout — um arquivo em `out/` ou `adoption-coverage.json` NÃO é lido para isso.',
+    '- A linha pode vir prefixada por `# ` (comentário TAP do node:test); ambos funcionam. O JSON precisa ser válido e caber em uma linha.',
+    '- Emita a evidência a partir das asserções já executadas; não imprima família que o teste não exercitou de verdade.',
+    '',
   ].join('\n');
 }
 export function verifyAdoptionInventory(root:string,a:Adoption,visual?:{profile:unknown;revision:number}):{families:string[];callsites:number;originalFiles:number}{
